@@ -614,6 +614,232 @@ export type Database = {
         }
         Relationships: []
       }
+      incident_followup_notes: {
+        Row: {
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          incident_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          incident_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          incident_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_followup_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_followup_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_followup_notes_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incident_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_reports: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          description: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          incident_type_id: string | null
+          location: string | null
+          occurred_at: string
+          reporter_name: string
+          reporter_phone: string
+          resolved_at: string | null
+          reviewed_at: string | null
+          severity_level_id: string | null
+          status: string
+          submitted_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          description: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          incident_type_id?: string | null
+          location?: string | null
+          occurred_at?: string
+          reporter_name: string
+          reporter_phone: string
+          resolved_at?: string | null
+          reviewed_at?: string | null
+          severity_level_id?: string | null
+          status?: string
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          description?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          incident_type_id?: string | null
+          location?: string | null
+          occurred_at?: string
+          reporter_name?: string
+          reporter_phone?: string
+          resolved_at?: string | null
+          reviewed_at?: string | null
+          severity_level_id?: string | null
+          status?: string
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_reports_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_reports_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_reports_incident_type_id_fkey"
+            columns: ["incident_type_id"]
+            isOneToOne: false
+            referencedRelation: "incident_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_reports_severity_level_id_fkey"
+            columns: ["severity_level_id"]
+            isOneToOne: false
+            referencedRelation: "incident_severity_levels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_severity_levels: {
+        Row: {
+          color: string | null
+          created_at: string
+          display_name: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          key: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          display_name: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          key: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          display_name?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_severity_levels_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_types: {
+        Row: {
+          color: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_types_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       module_area_permissions: {
         Row: {
           area_id: string
@@ -842,6 +1068,10 @@ export type Database = {
       }
       is_super_admin: { Args: never; Returns: boolean }
       purge_old_daily_reports: { Args: never; Returns: number }
+      seed_default_incident_types_and_severities: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_roles_for_facility: {
         Args: { p_facility_id: string }
         Returns: undefined

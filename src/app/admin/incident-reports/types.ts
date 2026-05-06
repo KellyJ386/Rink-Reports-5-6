@@ -1,0 +1,58 @@
+// Local types for the Incident Reports admin module.
+// Row types come from the generated Supabase types; we layer composite shapes
+// for joined views on top.
+
+import type { Tables } from "@/types/database"
+
+export type IncidentTypeRow = Tables<"incident_types">
+export type SeverityRow = Tables<"incident_severity_levels">
+export type IncidentReportRow = Tables<"incident_reports">
+export type FollowupNoteRow = Tables<"incident_followup_notes">
+
+export type EmployeeLite = {
+  id: string
+  first_name: string
+  last_name: string
+}
+
+export type IncidentStatus = "submitted" | "reviewed" | "resolved" | "archived"
+
+export const STATUSES: readonly IncidentStatus[] = [
+  "submitted",
+  "reviewed",
+  "resolved",
+  "archived",
+] as const
+
+export function isIncidentStatus(value: string): value is IncidentStatus {
+  return (STATUSES as readonly string[]).includes(value)
+}
+
+export type IncidentReportListItem = IncidentReportRow & {
+  type: Pick<IncidentTypeRow, "id" | "name" | "color"> | null
+  severity: Pick<SeverityRow, "id" | "key" | "display_name" | "color"> | null
+  employee: EmployeeLite | null
+}
+
+export type IncidentReportDetail = {
+  report: IncidentReportRow
+  type: Pick<IncidentTypeRow, "id" | "name" | "color" | "slug"> | null
+  severity: Pick<SeverityRow, "id" | "key" | "display_name" | "color"> | null
+  employee: EmployeeLite | null
+  notes: Array<FollowupNoteRow & { author: EmployeeLite | null }>
+}
+
+export type ActionState =
+  | { ok: true; message?: string }
+  | { ok: false; error: string }
+  | { ok: null }
+
+export type SimpleResult = { ok: true } | { ok: false; error: string }
+
+export type Tab = "history" | "types" | "severities"
+
+export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
+  { key: "history", label: "History" },
+  { key: "types", label: "Incident Types" },
+  { key: "severities", label: "Severity Levels" },
+]
