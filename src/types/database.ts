@@ -81,6 +81,591 @@ export type Database = {
           },
         ]
       }
+      communication_acknowledgements: {
+        Row: {
+          acknowledged_at: string
+          alert_id: string | null
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+          message_id: string | null
+          notes: string | null
+        }
+        Insert: {
+          acknowledged_at?: string
+          alert_id?: string | null
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+          message_id?: string | null
+          notes?: string | null
+        }
+        Update: {
+          acknowledged_at?: string
+          alert_id?: string | null
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          message_id?: string | null
+          notes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_acknowledgements_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "communication_alerts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_acknowledgements_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_acknowledgements_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_acknowledgements_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "communication_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_alerts: {
+        Row: {
+          area_id: string | null
+          body: string | null
+          created_at: string
+          created_by_employee_id: string | null
+          facility_id: string
+          id: string
+          requires_acknowledgement: boolean
+          resolved_at: string | null
+          resolved_by_employee_id: string | null
+          severity: string
+          source_module: string
+          source_record_id: string | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          area_id?: string | null
+          body?: string | null
+          created_at?: string
+          created_by_employee_id?: string | null
+          facility_id: string
+          id?: string
+          requires_acknowledgement?: boolean
+          resolved_at?: string | null
+          resolved_by_employee_id?: string | null
+          severity: string
+          source_module: string
+          source_record_id?: string | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          area_id?: string | null
+          body?: string | null
+          created_at?: string
+          created_by_employee_id?: string | null
+          facility_id?: string
+          id?: string
+          requires_acknowledgement?: boolean
+          resolved_at?: string | null
+          resolved_by_employee_id?: string | null
+          severity?: string
+          source_module?: string
+          source_record_id?: string | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_alerts_created_by_employee_id_fkey"
+            columns: ["created_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_alerts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_alerts_resolved_by_employee_id_fkey"
+            columns: ["resolved_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_audit_log: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_audit_log_actor_employee_id_fkey"
+            columns: ["actor_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_audit_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_group_members: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          group_id: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          group_id: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          group_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_group_members_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_group_members_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "communication_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_groups: {
+        Row: {
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_groups_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_messages: {
+        Row: {
+          body: string
+          created_at: string
+          facility_id: string
+          id: string
+          requires_acknowledgement: boolean
+          sender_employee_id: string | null
+          sent_at: string
+          subject: string | null
+          template_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          requires_acknowledgement?: boolean
+          sender_employee_id?: string | null
+          sent_at?: string
+          subject?: string | null
+          template_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          requires_acknowledgement?: boolean
+          sender_employee_id?: string | null
+          sent_at?: string
+          subject?: string | null
+          template_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_messages_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_messages_sender_employee_id_fkey"
+            columns: ["sender_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_messages_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "communication_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_recipients: {
+        Row: {
+          acknowledged_at: string | null
+          created_at: string
+          delivered_at: string | null
+          employee_id: string
+          facility_id: string
+          id: string
+          message_id: string
+          read_at: string | null
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          employee_id: string
+          facility_id: string
+          id?: string
+          message_id: string
+          read_at?: string | null
+        }
+        Update: {
+          acknowledged_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          message_id?: string
+          read_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_recipients_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_recipients_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_recipients_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "communication_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_recurring_reminders: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          last_run_at: string | null
+          name: string
+          next_run_at: string | null
+          schedule_cron: string
+          target_group_id: string | null
+          target_role_key: string | null
+          template_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          last_run_at?: string | null
+          name: string
+          next_run_at?: string | null
+          schedule_cron: string
+          target_group_id?: string | null
+          target_role_key?: string | null
+          template_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          last_run_at?: string | null
+          name?: string
+          next_run_at?: string | null
+          schedule_cron?: string
+          target_group_id?: string | null
+          target_role_key?: string | null
+          template_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_recurring_reminders_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_recurring_reminders_target_group_id_fkey"
+            columns: ["target_group_id"]
+            isOneToOne: false
+            referencedRelation: "communication_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_recurring_reminders_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "communication_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_routing_rules: {
+        Row: {
+          area_id: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string | null
+          priority: number
+          severity: string | null
+          source_module: string
+          target_employee_id: string | null
+          target_group_id: string | null
+          target_role_key: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          area_id?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          priority?: number
+          severity?: string | null
+          source_module: string
+          target_employee_id?: string | null
+          target_group_id?: string | null
+          target_role_key?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          area_id?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          priority?: number
+          severity?: string | null
+          source_module?: string
+          target_employee_id?: string | null
+          target_group_id?: string | null
+          target_role_key?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_routing_rules_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_routing_rules_target_employee_id_fkey"
+            columns: ["target_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_routing_rules_target_group_id_fkey"
+            columns: ["target_group_id"]
+            isOneToOne: false
+            referencedRelation: "communication_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      communication_templates: {
+        Row: {
+          body: string
+          category: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          requires_acknowledgement: boolean
+          slug: string
+          subject: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          body: string
+          category?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          requires_acknowledgement?: boolean
+          slug: string
+          subject?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          body?: string
+          category?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          requires_acknowledgement?: boolean
+          slug?: string
+          subject?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_templates_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_report_areas: {
         Row: {
           color: string | null
@@ -1067,6 +1652,7 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: never; Returns: boolean }
+      purge_old_communications: { Args: never; Returns: number }
       purge_old_daily_reports: { Args: never; Returns: number }
       seed_default_incident_types_and_severities: {
         Args: { p_facility_id: string }
