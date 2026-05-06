@@ -106,12 +106,8 @@ function EmployeeFormBody({
     state && "ok" in state && state.ok === false ? state.error : null
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full max-w-lg overflow-y-auto sm:max-w-xl"
-      >
-        <SheetHeader>
+    <>
+      <SheetHeader>
           <SheetTitle>
             {isEdit ? "Edit employee" : "Add employee"}
           </SheetTitle>
@@ -354,7 +350,6 @@ function EmployeeFormBody({
             </Button>
           </div>
         </form>
-      </SheetContent>
-    </Sheet>
+    </>
   )
 }
