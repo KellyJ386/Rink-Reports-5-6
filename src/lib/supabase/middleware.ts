@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
+const AUTH_PAGES = ["/login", "/signup"]
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -32,7 +34,27 @@ export async function updateSession(request: NextRequest) {
   // IMPORTANT: Avoid writing any logic between createServerClient and
   // supabase.auth.getUser(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
-  await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { pathname } = request.nextUrl
+
+  // Unauthenticated users trying to access /admin -> redirect to /login
+  if (!user && pathname.startsWith("/admin")) {
+    const url = request.nextUrl.clone()
+    url.pathname = "/login"
+    url.searchParams.set("redirectTo", pathname)
+    return NextResponse.redirect(url)
+  }
+
+  // Authenticated users on /login or /signup -> redirect to /admin
+  if (user && AUTH_PAGES.includes(pathname)) {
+    const url = request.nextUrl.clone()
+    url.pathname = "/admin"
+    url.search = ""
+    return NextResponse.redirect(url)
+  }
 
   return supabaseResponse
 }
