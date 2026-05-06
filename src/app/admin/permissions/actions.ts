@@ -63,22 +63,32 @@ export async function setModulePermission(
     if (selErr) return { ok: false, error: selErr.message }
 
     if (existing) {
+      const patch: Partial<Record<PermissionField, boolean>> = {
+        [field]: value,
+      }
       const { error: updErr } = await supabase
         .from("module_permissions")
-        .update({ [field]: value })
+        .update(patch)
         .eq("id", existing.id)
 
       if (updErr) return { ok: false, error: updErr.message }
     } else {
-      const row = {
+      const row: {
+        facility_id: string
+        employee_id: string
+        module_key: ModuleKey
+        can_view: boolean
+        can_submit: boolean
+        can_admin: boolean
+      } = {
         facility_id: employee.facility_id,
         employee_id: employeeId,
         module_key: moduleKey,
         can_view: false,
         can_submit: false,
         can_admin: false,
-        [field]: value,
       }
+      row[field] = value
       const { error: insErr } = await supabase
         .from("module_permissions")
         .insert(row)

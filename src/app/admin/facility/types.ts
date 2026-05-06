@@ -1,13 +1,6 @@
-export type FacilityRow = {
-  id: string
-  name: string
-  slug: string
-  timezone: string
-  settings: Record<string, unknown>
-  is_active: boolean
-  created_at: string
-  updated_at: string | null
-}
+import type { Tables } from "@/types/database"
+
+export type FacilityRow = Tables<"facilities">
 
 export type FacilityListItem = FacilityRow & {
   employee_count: number

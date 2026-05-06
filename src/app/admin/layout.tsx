@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 
 import { Sidebar } from "@/components/admin/sidebar"
 import { AdminHeader } from "@/components/admin/header"
+import { Toaster } from "@/components/ui/sonner"
 import { createClient } from "@/lib/supabase/server"
 
 // TODO: replace with `import { requireAdmin } from "@/lib/auth"` (Agent A).
@@ -56,6 +57,7 @@ export default async function AdminLayout({
         <AdminHeader email={profile.email} fullName={profile.full_name} />
         <main className="flex-1">{children}</main>
       </div>
+      <Toaster />
     </div>
   )
 }

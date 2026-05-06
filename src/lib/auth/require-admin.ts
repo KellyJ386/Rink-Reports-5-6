@@ -13,8 +13,9 @@ const ADMIN_ROLE_KEYS = ["admin", "gm", "super_admin"] as const
  * admin (users.is_super_admin) or has an active employee row whose role.key is
  * one of admin/gm/super_admin for the user's current facility.
  *
- * Redirects to /login on failure (covers both unauth and forbidden cases —
- * we deliberately don't surface authz state via URL here).
+ * Redirects to /login when unauthenticated, or to /forbidden when
+ * authenticated but lacking admin privileges. Splitting the two cases lets
+ * users see a useful message instead of a confusing login bounce.
  */
 export async function requireAdmin(): Promise<AuthedUser> {
   const current = await getCurrentUser()
@@ -29,7 +30,7 @@ export async function requireAdmin(): Promise<AuthedUser> {
   }
 
   if (!profile || !profile.is_active) {
-    redirect("/login")
+    redirect("/forbidden")
   }
 
   const supabase = await createClient()
@@ -52,7 +53,7 @@ export async function requireAdmin(): Promise<AuthedUser> {
   const { data: employee, error } = await query.maybeSingle()
 
   if (error || !employee) {
-    redirect("/login")
+    redirect("/forbidden")
   }
 
   return current

@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useTransition } from "react"
+import { useState, useTransition } from "react"
+import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 
@@ -41,14 +42,19 @@ const FIELDS: readonly PermissionField[] = [
 
 export function PermissionsTable({ employees, permissions }: Props) {
   const [, startTransition] = useTransition()
-  // Local mirror of permissions to support optimistic UI. Re-sync when the
-  // server-driven prop changes (e.g. after revalidation).
+  // Local mirror of permissions to support optimistic UI. We re-sync to the
+  // server-driven prop during render (instead of in an effect) so we don't
+  // trigger cascading renders. The pattern follows React's "adjust state
+  // while rendering" guidance — comparing a stored snapshot to the latest
+  // prop and resetting when it changes.
   const [local, setLocal] = useState<PermissionMap>(permissions)
-  const [error, setError] = useState<string | null>(null)
+  const [lastSynced, setLastSynced] =
+    useState<PermissionMap>(permissions)
 
-  useEffect(() => {
+  if (lastSynced !== permissions) {
+    setLastSynced(permissions)
     setLocal(permissions)
-  }, [permissions])
+  }
 
   function flagsFor(employeeId: string, mod: ModuleKey): PermissionFlags {
     return local[employeeId]?.[mod] ?? EMPTY_FLAGS
@@ -72,25 +78,14 @@ export function PermissionsTable({ employees, permissions }: Props) {
     startTransition(async () => {
       const res = await setModulePermission(employeeId, mod, field, next)
       if (!res.ok) {
-        setError(res.error)
         setLocal(prev) // rollback
-        // Auto-clear after a beat.
-        setTimeout(() => setError(null), 4000)
+        toast.error(res.error)
       }
     })
   }
 
   return (
     <div className="flex flex-col gap-2">
-      {error ? (
-        <div
-          role="alert"
-          className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm"
-        >
-          {error}
-        </div>
-      ) : null}
-
       <div className="relative max-h-[70vh] overflow-auto rounded-md border">
         <table className="w-full border-collapse text-sm">
           <thead className="bg-muted/60 sticky top-0 z-20">

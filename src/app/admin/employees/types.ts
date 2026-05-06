@@ -1,51 +1,15 @@
 // Local types for the Employee/User Setup admin module.
-// We intentionally avoid the generated Supabase types here.
+// 1:1 row types are re-exported from the generated Supabase types.
 
-export type RoleRow = {
-  id: string
-  facility_id: string
-  key: string
-  display_name: string
-  hierarchy_level: number
-  is_system: boolean
-}
+import type { Tables } from "@/types/database"
 
-export type DepartmentRow = {
-  id: string
-  facility_id: string
-  name: string
-  slug: string
-  color: string | null
-  sort_order: number
-  is_active: boolean
-}
+export type RoleRow = Tables<"roles">
 
-export type EmployeeDepartmentRow = {
-  id: string
-  facility_id: string
-  employee_id: string
-  department_id: string
-  is_primary: boolean
-}
+export type DepartmentRow = Tables<"departments">
 
-export type EmployeeRow = {
-  id: string
-  facility_id: string
-  user_id: string | null
-  role_id: string
-  employee_code: string | null
-  first_name: string
-  last_name: string
-  email: string | null
-  phone: string | null
-  is_minor: boolean
-  emergency_contact_name: string | null
-  emergency_contact_phone: string | null
-  hire_date: string | null
-  is_active: boolean
-  deactivated_at: string | null
-  created_at: string
-}
+export type EmployeeDepartmentRow = Tables<"employee_departments">
+
+export type EmployeeRow = Tables<"employees">
 
 export type EmployeeListItem = EmployeeRow & {
   role: Pick<RoleRow, "id" | "key" | "display_name"> | null
