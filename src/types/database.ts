@@ -81,6 +81,321 @@ export type Database = {
           },
         ]
       }
+      daily_report_areas: {
+        Row: {
+          color: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_areas_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_checklist_items: {
+        Row: {
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string
+          sort_order: number
+          template_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label: string
+          sort_order?: number
+          template_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          sort_order?: number
+          template_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_checklist_items_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_checklist_items_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_notes: {
+        Row: {
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          is_admin_note: boolean
+          submission_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          is_admin_note?: boolean
+          submission_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          is_admin_note?: boolean
+          submission_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_notes_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_submission_items: {
+        Row: {
+          checklist_item_id: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_checked: boolean
+          label_snapshot: string
+          submission_id: string
+        }
+        Insert: {
+          checklist_item_id?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_checked?: boolean
+          label_snapshot: string
+          submission_id: string
+        }
+        Update: {
+          checklist_item_id?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_checked?: boolean
+          label_snapshot?: string
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_submission_items_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_checklist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submission_items_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submission_items_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_submissions: {
+        Row: {
+          area_id: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          submitted_at: string
+          template_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          submitted_at?: string
+          template_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          submitted_at?: string
+          template_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_submissions_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submissions_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submissions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submissions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_templates: {
+        Row: {
+          area_id: string
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_templates_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_templates_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
           color: string | null
@@ -526,6 +841,7 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: never; Returns: boolean }
+      purge_old_daily_reports: { Args: never; Returns: number }
       seed_default_roles_for_facility: {
         Args: { p_facility_id: string }
         Returns: undefined
