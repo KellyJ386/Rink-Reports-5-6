@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { memo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -40,50 +40,126 @@ const FIELDS: readonly PermissionField[] = [
   "can_admin",
 ]
 
-export function PermissionsTable({ employees, permissions }: Props) {
+type RowPerms = Partial<Record<ModuleKey, PermissionFlags>>
+
+type PermissionRowProps = {
+  employee: Employee
+  perms: RowPerms
+}
+
+// Isolated per-row component — state is scoped to one employee's permissions.
+// Toggling a checkbox triggers a re-render only for this row (~30 nodes),
+// not the entire table.
+const PermissionRow = memo(function PermissionRow({
+  employee,
+  perms,
+}: PermissionRowProps) {
   const [, startTransition] = useTransition()
-  // Local mirror of permissions to support optimistic UI. We re-sync to the
-  // server-driven prop during render (instead of in an effect) so we don't
-  // trigger cascading renders. The pattern follows React's "adjust state
-  // while rendering" guidance — comparing a stored snapshot to the latest
-  // prop and resetting when it changes.
-  const [local, setLocal] = useState<PermissionMap>(permissions)
-  const [lastSynced, setLastSynced] =
-    useState<PermissionMap>(permissions)
+  const [local, setLocal] = useState<RowPerms>(perms)
+  const [lastSynced, setLastSynced] = useState<RowPerms>(perms)
 
-  if (lastSynced !== permissions) {
-    setLastSynced(permissions)
-    setLocal(permissions)
+  // Re-sync from server-driven prop when the page revalidates after a mutation.
+  if (lastSynced !== perms) {
+    setLastSynced(perms)
+    setLocal(perms)
   }
 
-  function flagsFor(employeeId: string, mod: ModuleKey): PermissionFlags {
-    return local[employeeId]?.[mod] ?? EMPTY_FLAGS
+  function flagsFor(mod: ModuleKey): PermissionFlags {
+    return local[mod] ?? EMPTY_FLAGS
   }
 
-  function toggle(
-    employeeId: string,
-    mod: ModuleKey,
-    field: PermissionField,
-    next: boolean,
-  ) {
-    // Optimistic write.
+  function toggle(mod: ModuleKey, field: PermissionField, next: boolean) {
     const prev = local
     setLocal((cur) => {
-      const empBag = { ...(cur[employeeId] ?? {}) }
-      const existing: PermissionFlags = empBag[mod] ?? { ...EMPTY_FLAGS }
-      empBag[mod] = { ...existing, [field]: next }
-      return { ...cur, [employeeId]: empBag }
+      const existing: PermissionFlags = cur[mod] ?? { ...EMPTY_FLAGS }
+      return { ...cur, [mod]: { ...existing, [field]: next } }
     })
 
     startTransition(async () => {
-      const res = await setModulePermission(employeeId, mod, field, next)
+      const res = await setModulePermission(employee.id, mod, field, next)
       if (!res.ok) {
-        setLocal(prev) // rollback
+        setLocal(prev)
         toast.error(res.error)
       }
     })
   }
 
+  return (
+    <tr className="hover:bg-muted/30">
+      <th
+        scope="row"
+        className="bg-background sticky left-0 z-10 border-b px-3 py-2 text-left align-top font-normal"
+      >
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium">{employee.full_name}</span>
+          <span className="text-muted-foreground text-xs">
+            {employee.email ?? ""}
+          </span>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {employee.role_display_name ? (
+              <span className="bg-secondary text-secondary-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium">
+                {employee.role_display_name}
+              </span>
+            ) : null}
+            {employee.departments.map((d) => (
+              <span
+                key={d}
+                className="border-input text-muted-foreground inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px]"
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+        </div>
+      </th>
+
+      {MODULE_KEYS.map((mod) => {
+        const f = flagsFor(mod)
+        return (
+          <td
+            key={mod}
+            className="border-b border-l px-2 py-2 align-middle"
+          >
+            <div className="flex items-center justify-center gap-2">
+              {FIELDS.map((field) => {
+                const checked = f[field]
+                const id = `${employee.id}-${mod}-${field}`
+                return (
+                  <label
+                    key={field}
+                    htmlFor={id}
+                    title={`${FIELD_TOOLTIPS[field]} — ${MODULE_LABELS[mod]}`}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-1 rounded px-1 select-none",
+                      "hover:bg-accent",
+                    )}
+                  >
+                    <input
+                      id={id}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggle(mod, field, e.target.checked)}
+                      className="border-input text-primary focus-visible:ring-ring/50 size-3.5 cursor-pointer rounded border focus-visible:ring-[3px]"
+                      aria-label={`${FIELD_TOOLTIPS[field]} ${MODULE_LABELS[mod]} for ${employee.full_name}`}
+                    />
+                    <span
+                      aria-hidden
+                      className="text-muted-foreground text-[10px] font-medium"
+                    >
+                      {FIELD_LABELS[field]}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </td>
+        )
+      })}
+    </tr>
+  )
+})
+
+export function PermissionsTable({ employees, permissions }: Props) {
   return (
     <div className="flex flex-col gap-2">
       <div className="relative max-h-[70vh] overflow-auto rounded-md border">
@@ -119,79 +195,11 @@ export function PermissionsTable({ employees, permissions }: Props) {
           </thead>
           <tbody>
             {employees.map((emp) => (
-              <tr key={emp.id} className="hover:bg-muted/30">
-                <th
-                  scope="row"
-                  className="bg-background sticky left-0 z-10 border-b px-3 py-2 text-left align-top font-normal"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-medium">{emp.full_name}</span>
-                    <span className="text-muted-foreground text-xs">
-                      {emp.email ?? ""}
-                    </span>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {emp.role_display_name ? (
-                        <span className="bg-secondary text-secondary-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium">
-                          {emp.role_display_name}
-                        </span>
-                      ) : null}
-                      {emp.departments.map((d) => (
-                        <span
-                          key={d}
-                          className="border-input text-muted-foreground inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px]"
-                        >
-                          {d}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </th>
-
-                {MODULE_KEYS.map((mod) => {
-                  const f = flagsFor(emp.id, mod)
-                  return (
-                    <td
-                      key={mod}
-                      className="border-b border-l px-2 py-2 align-middle"
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        {FIELDS.map((field) => {
-                          const checked = f[field]
-                          const id = `${emp.id}-${mod}-${field}`
-                          return (
-                            <label
-                              key={field}
-                              htmlFor={id}
-                              title={`${FIELD_TOOLTIPS[field]} — ${MODULE_LABELS[mod]}`}
-                              className={cn(
-                                "flex cursor-pointer items-center gap-1 rounded px-1 select-none",
-                                "hover:bg-accent",
-                              )}
-                            >
-                              <input
-                                id={id}
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) =>
-                                  toggle(emp.id, mod, field, e.target.checked)
-                                }
-                                className="border-input text-primary focus-visible:ring-ring/50 size-3.5 cursor-pointer rounded border focus-visible:ring-[3px]"
-                                aria-label={`${FIELD_TOOLTIPS[field]} ${MODULE_LABELS[mod]} for ${emp.full_name}`}
-                              />
-                              <span
-                                aria-hidden
-                                className="text-muted-foreground text-[10px] font-medium"
-                              >
-                                {FIELD_LABELS[field]}
-                              </span>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </td>
-                  )
-                })}
-              </tr>
+              <PermissionRow
+                key={emp.id}
+                employee={emp}
+                perms={permissions[emp.id] ?? {}}
+              />
             ))}
             {employees.length === 0 ? (
               <tr>
