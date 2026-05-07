@@ -18,6 +18,7 @@ type StaffModule = {
     | "accident_reports"
     | "refrigeration"
     | "air_quality"
+    | "ice_operations"
   title: string
   description: string
   href: string
@@ -48,6 +49,11 @@ const KNOWN_MODULES: Record<StaffModule["key"], Omit<StaffModule, "key">> = {
     title: "Air Quality",
     description: "Submit air quality readings for a location.",
     href: "/reports/air-quality",
+  },
+  ice_operations: {
+    title: "Ice Operations",
+    description: "Log ice make, circle check, edging, or blade change.",
+    href: "/reports/ice-operations",
   },
 }
 

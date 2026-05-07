@@ -1,0 +1,118 @@
+"use client"
+
+import { useActionState, useEffect } from "react"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+
+import { updateIceOperationsSettings } from "../actions"
+import type {
+  ActionState,
+  Severity,
+  SettingsRow,
+  TemperatureUnit,
+} from "../types"
+import { SEVERITIES, TEMPERATURE_UNITS } from "../types"
+
+const INITIAL: ActionState = { ok: null }
+
+type Props = {
+  settings: SettingsRow | null
+}
+
+export function SettingsTab({ settings }: Props) {
+  const [state, action, pending] = useActionState(
+    updateIceOperationsSettings,
+    INITIAL,
+  )
+
+  useEffect(() => {
+    if (state.ok === true) toast.success(state.message ?? "Settings saved.")
+    if (state.ok === false) toast.error(state.error)
+  }, [state])
+
+  const tempUnit: TemperatureUnit =
+    (settings?.temperature_unit as TemperatureUnit) ?? "F"
+  const enabled = settings?.alerts_enabled ?? true
+  const sev: Severity = (settings?.default_alert_severity as Severity) ?? "warn"
+
+  return (
+    <Card className="max-w-3xl">
+      <CardHeader>
+        <CardTitle>Ice operations settings</CardTitle>
+        <CardDescription>
+          One row per facility. Temperatures are stored in Celsius and displayed
+          in the unit you choose here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form action={action} className="flex flex-col gap-4">
+          <div className="flex max-w-xs flex-col gap-1">
+            <Label htmlFor="temperature-unit">Temperature unit</Label>
+            <select
+              id="temperature-unit"
+              name="temperature_unit"
+              defaultValue={tempUnit}
+              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            >
+              {TEMPERATURE_UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {u === "F" ? "Fahrenheit (°F)" : "Celsius (°C)"}
+                </option>
+              ))}
+            </select>
+            <p className="text-muted-foreground text-xs">
+              Display only. Submissions are stored in Celsius.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              id="alerts-enabled"
+              name="alerts_enabled"
+              type="checkbox"
+              defaultChecked={enabled}
+              className="border-input size-4 rounded border"
+            />
+            <Label htmlFor="alerts-enabled" className="cursor-pointer">
+              Enable ice operations alerts
+            </Label>
+          </div>
+
+          <div className="flex max-w-xs flex-col gap-1">
+            <Label htmlFor="default-sev">Default alert severity</Label>
+            <select
+              id="default-sev"
+              name="default_alert_severity"
+              defaultValue={sev}
+              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            >
+              {SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <p className="text-muted-foreground text-xs">
+              Used when alerts are emitted without their own severity.
+            </p>
+          </div>
+
+          <div>
+            <Button type="submit" disabled={pending}>
+              {pending ? "Saving…" : "Save settings"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}

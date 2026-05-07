@@ -2071,6 +2071,369 @@ export type Database = {
         }
         Relationships: []
       }
+      ice_operations_circle_check_items: {
+        Row: {
+          applies_to_equipment_type: string | null
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          applies_to_equipment_type?: string | null
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          applies_to_equipment_type?: string | null
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_circle_check_items_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operations_circle_check_results: {
+        Row: {
+          checklist_item_id: string | null
+          created_at: string
+          facility_id: string
+          failed_notes: string | null
+          id: string
+          label_snapshot: string
+          passed: boolean
+          submission_id: string
+        }
+        Insert: {
+          checklist_item_id?: string | null
+          created_at?: string
+          facility_id: string
+          failed_notes?: string | null
+          id?: string
+          label_snapshot: string
+          passed: boolean
+          submission_id: string
+        }
+        Update: {
+          checklist_item_id?: string | null
+          created_at?: string
+          facility_id?: string
+          failed_notes?: string | null
+          id?: string
+          label_snapshot?: string
+          passed?: boolean
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_circle_check_results_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_circle_check_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_circle_check_results_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_circle_check_results_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operations_equipment: {
+        Row: {
+          created_at: string
+          equipment_type: string
+          facility_id: string
+          hours_count: number | null
+          id: string
+          is_active: boolean
+          model: string | null
+          name: string
+          serial_number: string | null
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          equipment_type: string
+          facility_id: string
+          hours_count?: number | null
+          id?: string
+          is_active?: boolean
+          model?: string | null
+          name: string
+          serial_number?: string | null
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          equipment_type?: string
+          facility_id?: string
+          hours_count?: number | null
+          id?: string
+          is_active?: boolean
+          model?: string | null
+          name?: string
+          serial_number?: string | null
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_equipment_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operations_followup_notes: {
+        Row: {
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          is_admin_note: boolean
+          submission_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          is_admin_note?: boolean
+          submission_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          is_admin_note?: boolean
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_followup_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_followup_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_followup_notes_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operations_rinks: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_rinks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operations_settings: {
+        Row: {
+          alerts_enabled: boolean
+          created_at: string
+          default_alert_severity: string
+          facility_id: string
+          id: string
+          temperature_unit: string
+          updated_at: string | null
+        }
+        Insert: {
+          alerts_enabled?: boolean
+          created_at?: string
+          default_alert_severity?: string
+          facility_id: string
+          id?: string
+          temperature_unit?: string
+          updated_at?: string | null
+        }
+        Update: {
+          alerts_enabled?: boolean
+          created_at?: string
+          default_alert_severity?: string
+          facility_id?: string
+          id?: string
+          temperature_unit?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operations_submissions: {
+        Row: {
+          created_at: string
+          employee_id: string | null
+          equipment_id: string | null
+          facility_id: string
+          failed_count: number
+          has_failed_check: boolean
+          id: string
+          notes: string | null
+          occurred_at: string
+          operation_type: string
+          payload: Json
+          rink_id: string | null
+          submitted_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id?: string | null
+          equipment_id?: string | null
+          facility_id: string
+          failed_count?: number
+          has_failed_check?: boolean
+          id?: string
+          notes?: string | null
+          occurred_at?: string
+          operation_type: string
+          payload?: Json
+          rink_id?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string | null
+          equipment_id?: string | null
+          facility_id?: string
+          failed_count?: number
+          has_failed_check?: boolean
+          id?: string
+          notes?: string | null
+          occurred_at?: string
+          operation_type?: string
+          payload?: Json
+          rink_id?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operations_submissions_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_submissions_equipment_id_fkey"
+            columns: ["equipment_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_equipment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_submissions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operations_submissions_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_rinks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incident_followup_notes: {
         Row: {
           body: string
@@ -2976,6 +3339,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_air_quality_config: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_ice_operations_config: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
