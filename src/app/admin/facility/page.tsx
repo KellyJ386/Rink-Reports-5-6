@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { getCurrentUser } from "@/lib/auth"
+import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { EditFacilitySection } from "./_components/edit-facility-section"
@@ -176,8 +176,8 @@ export default async function FacilitySettingsPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const current = await getCurrentUser()
-  if (!current || !current.profile) {
+  const current = await requireAdmin()
+  if (!current.profile) {
     return <NotSignedIn />
   }
 

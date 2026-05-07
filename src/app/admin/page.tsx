@@ -12,11 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-
-// TODO: replace with `import { requireAdmin } from "@/lib/auth"` (Agent A).
-async function requireAdmin(): Promise<void> {
-  return
-}
+import { requireAdmin } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
@@ -29,11 +25,11 @@ interface OverviewCard {
 }
 
 export default async function AdminDashboardPage() {
-  await requireAdmin()
+  const { profile } = await requireAdmin()
 
   // TODO: wire counts to real data once the underlying tables exist.
   // (facilities, employees, daily_reports, incidents/accidents).
-  const isSuperAdmin = false
+  const isSuperAdmin = profile?.is_super_admin ?? false
 
   const cards: OverviewCard[] = [
     {
