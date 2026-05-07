@@ -91,26 +91,6 @@ function parseFormInput(
   }
 }
 
-async function resolveFacilityId(): Promise<
-  { ok: true; facilityId: string } | { ok: false; error: string }
-> {
-  const current = await getCurrentUser()
-  const profile = current?.profile
-  if (!profile) return { ok: false, error: "Not signed in." }
-
-  // Non-super-admins use their own facility_id.
-  if (!profile.is_super_admin) {
-    if (!profile.facility_id) {
-      return { ok: false, error: "No facility assigned to your account." }
-    }
-    return { ok: true, facilityId: profile.facility_id }
-  }
-
-  // Super admin: read from form/query if present (we accept it via the
-  // hidden facility_id input on the form).
-  return { ok: false, error: "Super admin requires explicit facility id." }
-}
-
 async function resolveFacilityIdFromForm(
   formData: FormData
 ): Promise<{ ok: true; facilityId: string } | { ok: false; error: string }> {
