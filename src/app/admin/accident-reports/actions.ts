@@ -127,6 +127,8 @@ export async function updateDropdown(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing dropdown id." }
 
@@ -166,6 +168,7 @@ export async function updateDropdown(
         metadata,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update dropdown.") }
@@ -186,12 +189,15 @@ export async function setDropdownActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing dropdown id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("accident_dropdowns")
       .update({ is_active: active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update dropdown.") }
     }
@@ -208,6 +214,8 @@ export async function setDropdownActive(
 export async function deleteDropdown(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing dropdown id." }
     const supabase = await createClient()
 
@@ -216,6 +224,7 @@ export async function deleteDropdown(id: string): Promise<SimpleResult> {
       .from("accident_dropdowns")
       .select("category")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const category = existing?.category as DropdownCategory | undefined
 
@@ -223,6 +232,7 @@ export async function deleteDropdown(id: string): Promise<SimpleResult> {
       .from("accident_dropdowns")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       if (error.code === "23503") {
@@ -442,6 +452,7 @@ export async function updateWorkersCompInstructions(
         .from("accident_workers_comp_settings")
         .update({ instructions })
         .eq("id", existing.id)
+        .eq("facility_id", facility.facilityId)
       if (error) {
         return {
           ok: false,

@@ -163,6 +163,8 @@ export async function updateSection(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing section id." }
 
@@ -188,6 +190,7 @@ export async function updateSection(
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update section.") }
     }
@@ -204,12 +207,15 @@ export async function setSectionActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing section id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_sections")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update section.") }
     }
@@ -223,12 +229,15 @@ export async function setSectionActive(
 export async function deleteSection(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing section id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_sections")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -297,6 +306,8 @@ export async function updateEquipment(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing equipment id." }
     const name = nonEmpty(formData.get("name"))
@@ -320,6 +331,7 @@ export async function updateEquipment(
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
     }
@@ -336,12 +348,15 @@ export async function setEquipmentActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_equipment")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
     }
@@ -355,12 +370,15 @@ export async function setEquipmentActive(
 export async function deleteEquipment(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_equipment")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -457,6 +475,8 @@ export async function updateField(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing field id." }
 
@@ -508,6 +528,7 @@ export async function updateField(
         options,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update field.") }
     }
@@ -524,12 +545,15 @@ export async function setFieldActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_fields")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update field.") }
     }
@@ -543,12 +567,15 @@ export async function setFieldActive(
 export async function deleteField(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_fields")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -576,6 +603,8 @@ export async function moveField(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
 
@@ -583,6 +612,7 @@ export async function moveField(
       .from("refrigeration_fields")
       .select("id, section_id, equipment_id, sort_order")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     if (curErr || !cur) {
       return { ok: false, error: dbError(curErr, "Field not found.") }
@@ -619,16 +649,19 @@ export async function moveField(
       .from("refrigeration_fields")
       .update({ sort_order: tmp })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
     const { error: e2 } = await supabase
       .from("refrigeration_fields")
       .update({ sort_order: cur.sort_order })
       .eq("id", neighbor.id)
+      .eq("facility_id", facility.facilityId)
     if (e2) return { ok: false, error: dbError(e2, "Failed to reorder.") }
     const { error: e3 } = await supabase
       .from("refrigeration_fields")
       .update({ sort_order: neighbor.sort_order })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e3) return { ok: false, error: dbError(e3, "Failed to reorder.") }
 
     revalidatePath("/admin/refrigeration")
@@ -701,6 +734,8 @@ export async function updateThreshold(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing threshold id." }
 
@@ -735,6 +770,7 @@ export async function updateThreshold(
         severity,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update threshold.") }
     }
@@ -751,12 +787,15 @@ export async function setThresholdActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing threshold id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_thresholds")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update threshold.") }
     }
@@ -770,12 +809,15 @@ export async function setThresholdActive(
 export async function deleteThreshold(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing threshold id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_thresholds")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete threshold.") }
     }
@@ -841,13 +883,18 @@ export async function deleteRefrigerationReport(
   reportId: string,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!reportId) return { ok: false, error: "Missing report id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("refrigeration_reports")
       .delete()
       .eq("id", reportId)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       // RLS will block non-super-admin with a 42501 / permission denied.
       return { ok: false, error: dbError(error, "Failed to delete report.") }

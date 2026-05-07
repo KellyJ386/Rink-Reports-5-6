@@ -330,6 +330,7 @@ export async function updateShift(
         compliance_warnings: warnings,
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
 
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update shift.") }
@@ -348,13 +349,15 @@ export async function updateShift(
 
 export async function deleteShift(id: string): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing shift id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_shifts")
       .delete()
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete shift.") }
     }
@@ -371,13 +374,15 @@ export async function deleteShift(id: string): Promise<ActionState> {
 
 export async function cancelShift(id: string): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing shift id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_shifts")
       .update({ status: "cancelled" })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to cancel shift.") }
     }
@@ -438,6 +443,7 @@ export async function publishShiftsInRange(
         published_by_employee_id: ctx.employeeId,
       })
       .in("id", ids)
+      .eq("facility_id", ctx.facilityId)
 
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to publish shifts.") }
@@ -557,7 +563,8 @@ export async function updateTemplate(
   formData: FormData
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing template id." }
     const parsed = parseTemplateInput(formData)
@@ -573,6 +580,7 @@ export async function updateTemplate(
         is_active: input.is_active,
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update template.") }
     }
@@ -591,13 +599,15 @@ export async function setTemplateActive(
   isActive: boolean
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_templates")
       .update({ is_active: isActive })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update template.") }
     }
@@ -613,13 +623,15 @@ export async function setTemplateActive(
 
 export async function deleteTemplate(id: string): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_templates")
       .delete()
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete template.") }
     }
@@ -709,7 +721,8 @@ export async function updateTemplateShift(
   formData: FormData
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing slot id." }
     const parsed = parseTemplateShiftInput(formData)
@@ -728,6 +741,7 @@ export async function updateTemplateShift(
         staff_count: input.staff_count,
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update slot.") }
     }
@@ -743,13 +757,15 @@ export async function updateTemplateShift(
 
 export async function deleteTemplateShift(id: string): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing slot id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_template_shifts")
       .delete()
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete slot.") }
     }

@@ -116,6 +116,7 @@ export async function decideTimeOffRequest(
         decision_note: note?.trim() ? note.trim() : null,
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to update request.") }
     }
@@ -240,6 +241,7 @@ export async function assignSwapTarget(
         accepted_at: new Date().toISOString(),
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to assign target.") }
     }
@@ -314,6 +316,7 @@ export async function approveSwap(
       .from("schedule_shifts")
       .update({ employee_id: swap.row.target_employee_id })
       .eq("id", swap.row.requester_shift_id)
+      .eq("facility_id", ctx.facilityId)
     if (updReqErr) {
       return {
         ok: false,
@@ -324,6 +327,7 @@ export async function approveSwap(
       .from("schedule_shifts")
       .update({ employee_id: swap.row.requester_employee_id })
       .eq("id", swap.row.target_shift_id)
+      .eq("facility_id", ctx.facilityId)
     if (updTgtErr) {
       return {
         ok: false,
@@ -342,6 +346,7 @@ export async function approveSwap(
         decided_at: nowIso,
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (swapErr) {
       return {
         ok: false,
@@ -405,6 +410,7 @@ export async function denySwap(
         manager_approver_employee_id: ctx.employeeId,
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to deny swap.") }
     }
@@ -447,6 +453,7 @@ export async function cancelSwap(id: string): Promise<ActionState> {
         decided_at: new Date().toISOString(),
       })
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to cancel swap.") }
     }
@@ -561,6 +568,7 @@ export async function updateComplianceRule(
       .from("schedule_compliance_rules")
       .update(update)
       .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to update rule.") }
     }
@@ -665,6 +673,7 @@ export async function moveComplianceRule(
       .from("schedule_compliance_rules")
       .update({ sort_order: tmp })
       .eq("id", a.id)
+      .eq("facility_id", ctx.facilityId)
     if (r1.error) {
       return { ok: false, error: dbError(r1.error, "Failed to reorder.") }
     }
@@ -672,6 +681,7 @@ export async function moveComplianceRule(
       .from("schedule_compliance_rules")
       .update({ sort_order: aOrder })
       .eq("id", b.id)
+      .eq("facility_id", ctx.facilityId)
     if (r2.error) {
       return { ok: false, error: dbError(r2.error, "Failed to reorder.") }
     }
@@ -679,6 +689,7 @@ export async function moveComplianceRule(
       .from("schedule_compliance_rules")
       .update({ sort_order: bOrder })
       .eq("id", a.id)
+      .eq("facility_id", ctx.facilityId)
     if (r3.error) {
       return { ok: false, error: dbError(r3.error, "Failed to reorder.") }
     }

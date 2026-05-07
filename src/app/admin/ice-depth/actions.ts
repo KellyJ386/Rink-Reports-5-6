@@ -141,6 +141,8 @@ export async function updateLayout(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing layout id." }
 
@@ -172,6 +174,7 @@ export async function updateLayout(
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update layout.") }
     }
@@ -188,12 +191,15 @@ export async function setLayoutActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing layout id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_depth_layouts")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update layout.") }
     }
@@ -207,12 +213,15 @@ export async function setLayoutActive(
 export async function deleteLayout(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing layout id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_depth_layouts")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -295,6 +304,8 @@ export async function updatePoint(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing point id." }
 
     const update: {
@@ -334,6 +345,7 @@ export async function updatePoint(
       .from("ice_depth_points")
       .update(update)
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update point.") }
     }
@@ -350,6 +362,8 @@ export async function movePoint(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing point id." }
     const supabase = await createClient()
 
@@ -357,6 +371,7 @@ export async function movePoint(
       .from("ice_depth_points")
       .select("id, layout_id, point_number, sort_order, is_active")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     if (curErr || !cur) {
       return { ok: false, error: dbError(curErr, "Point not found.") }
@@ -393,6 +408,7 @@ export async function movePoint(
       .from("ice_depth_points")
       .update({ point_number: tmp })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
 
     const { error: e2 } = await supabase
@@ -402,6 +418,7 @@ export async function movePoint(
         sort_order: cur.sort_order,
       })
       .eq("id", neighbor.id)
+      .eq("facility_id", facility.facilityId)
     if (e2) return { ok: false, error: dbError(e2, "Failed to reorder.") }
 
     const { error: e3 } = await supabase
@@ -411,6 +428,7 @@ export async function movePoint(
         sort_order: neighbor.sort_order,
       })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e3) return { ok: false, error: dbError(e3, "Failed to reorder.") }
 
     revalidatePath("/admin/ice-depth")
@@ -423,12 +441,15 @@ export async function movePoint(
 export async function deletePoint(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing point id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_depth_points")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       // FK on measurements is ON DELETE SET NULL so deletion should succeed
       // even if historical measurements reference this point.
@@ -452,6 +473,8 @@ export async function renumberPointsForLayout(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!layoutId) return { ok: false, error: "Missing layout id." }
     const supabase = await createClient()
 
@@ -459,6 +482,7 @@ export async function renumberPointsForLayout(
       .from("ice_depth_points")
       .select("id, is_active, point_number, sort_order")
       .eq("layout_id", layoutId)
+      .eq("facility_id", facility.facilityId)
     if (lerr) {
       return { ok: false, error: dbError(lerr, "Failed to read points.") }
     }
@@ -473,6 +497,7 @@ export async function renumberPointsForLayout(
         .from("ice_depth_points")
         .update({ point_number: tmp })
         .eq("id", p.id)
+        .eq("facility_id", facility.facilityId)
       if (error) {
         return { ok: false, error: dbError(error, "Failed to renumber.") }
       }
@@ -501,6 +526,7 @@ export async function renumberPointsForLayout(
         .from("ice_depth_points")
         .update({ point_number: n, sort_order: n })
         .eq("id", p.id)
+        .eq("facility_id", facility.facilityId)
       if (error) {
         return { ok: false, error: dbError(error, "Failed to renumber.") }
       }
@@ -511,6 +537,7 @@ export async function renumberPointsForLayout(
         .from("ice_depth_points")
         .update({ point_number: n, sort_order: n })
         .eq("id", p.id)
+        .eq("facility_id", facility.facilityId)
       if (error) {
         return { ok: false, error: dbError(error, "Failed to renumber.") }
       }
@@ -576,13 +603,18 @@ export async function deleteIceDepthSession(
   sessionId: string,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!sessionId) return { ok: false, error: "Missing session id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("ice_depth_sessions")
       .delete()
       .eq("id", sessionId)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       // RLS will block non-super-admin with permission denied.
       return { ok: false, error: dbError(error, "Failed to delete session.") }

@@ -226,6 +226,7 @@ export async function updateTemplate(
       .from("communication_templates")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
 
     const { data, error } = await supabase
@@ -239,6 +240,7 @@ export async function updateTemplate(
         requires_acknowledgement,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -278,6 +280,7 @@ export async function setTemplateActive(
       .from("communication_templates")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -311,11 +314,13 @@ export async function deleteTemplate(id: string): Promise<SimpleResult> {
       .from("communication_templates")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_templates")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         const { count } = await supabase
@@ -430,6 +435,7 @@ export async function updateGroup(
       .from("communication_groups")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { data, error } = await supabase
       .from("communication_groups")
@@ -440,6 +446,7 @@ export async function updateGroup(
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -477,6 +484,7 @@ export async function setGroupActive(
       .from("communication_groups")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -510,11 +518,13 @@ export async function deleteGroup(id: string): Promise<SimpleResult> {
       .from("communication_groups")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_groups")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -595,11 +605,13 @@ export async function removeGroupMember(id: string): Promise<SimpleResult> {
       .from("communication_group_members")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_group_members")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to remove member.") }
     }
@@ -762,11 +774,13 @@ export async function updateRoutingRule(
       .from("communication_routing_rules")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { data, error } = await supabase
       .from("communication_routing_rules")
       .update(parsed.data)
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -807,6 +821,7 @@ export async function setRoutingRuleActive(
       .from("communication_routing_rules")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -843,11 +858,13 @@ export async function deleteRoutingRule(id: string): Promise<SimpleResult> {
       .from("communication_routing_rules")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_routing_rules")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return {
         ok: false,
@@ -994,11 +1011,13 @@ export async function updateReminder(
       .from("communication_recurring_reminders")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { data, error } = await supabase
       .from("communication_recurring_reminders")
       .update(parsed.data)
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -1036,6 +1055,7 @@ export async function setReminderActive(
       .from("communication_recurring_reminders")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -1069,11 +1089,13 @@ export async function deleteReminder(id: string): Promise<SimpleResult> {
       .from("communication_recurring_reminders")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_recurring_reminders")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete reminder.") }
     }
@@ -1110,6 +1132,7 @@ export async function resolveAlert(id: string): Promise<SimpleResult> {
       .from("communication_alerts")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { data, error } = await supabase
       .from("communication_alerts")
@@ -1118,6 +1141,7 @@ export async function resolveAlert(id: string): Promise<SimpleResult> {
         resolved_by_employee_id: actor,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -1151,6 +1175,7 @@ export async function reopenAlert(id: string): Promise<SimpleResult> {
       .from("communication_alerts")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { data, error } = await supabase
       .from("communication_alerts")
@@ -1159,6 +1184,7 @@ export async function reopenAlert(id: string): Promise<SimpleResult> {
         resolved_by_employee_id: null,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .select("*")
       .single()
     if (error) {
@@ -1193,11 +1219,13 @@ export async function deleteAlert(id: string): Promise<SimpleResult> {
       .from("communication_alerts")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_alerts")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       // RLS will block non-super-admin with permission denied.
       return { ok: false, error: dbError(error, "Failed to delete alert.") }
@@ -1234,11 +1262,13 @@ export async function deleteMessage(id: string): Promise<SimpleResult> {
       .from("communication_messages")
       .select("*")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     const { error } = await supabase
       .from("communication_messages")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete message.") }
     }

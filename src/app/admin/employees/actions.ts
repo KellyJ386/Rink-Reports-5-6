@@ -114,9 +114,37 @@ async function resolveFacilityId(): Promise<
 async function resolveFacilityIdFromForm(
   formData: FormData
 ): Promise<{ ok: true; facilityId: string } | { ok: false; error: string }> {
+  const current = await getCurrentUser()
+  const profile = current?.profile
+  if (!profile) return { ok: false, error: "Not signed in." }
+
+  // Non-super-admins: ALWAYS use their profile facility, ignoring any
+  // form-provided value (defense-in-depth — the form is attacker-controlled).
+  if (!profile.is_super_admin) {
+    if (!profile.facility_id) {
+      return { ok: false, error: "No facility assigned to your account." }
+    }
+    return { ok: true, facilityId: profile.facility_id }
+  }
+
+  // Super admin: accept the form value, but verify the facility exists.
   const fromForm = nonEmpty(formData.get("facility_id"))
-  if (fromForm) return { ok: true, facilityId: fromForm }
-  return resolveFacilityId()
+  if (!fromForm) {
+    return { ok: false, error: "Super admin requires explicit facility id." }
+  }
+
+  const supabase = await createClient()
+  const { data: facilityRow, error: facilityErr } = await supabase
+    .from("facilities")
+    .select("id")
+    .eq("id", fromForm)
+    .maybeSingle()
+
+  if (facilityErr || !facilityRow) {
+    return { ok: false, error: "Invalid facility id." }
+  }
+
+  return { ok: true, facilityId: fromForm }
 }
 
 export async function createEmployee(
@@ -232,6 +260,7 @@ export async function updateEmployee(
         hire_date: input.hire_date,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to update employee.") }
@@ -347,13 +376,18 @@ export async function updateEmployee(
 
 export async function deactivateEmployee(id: string): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!id) return { ok: false, error: "Missing employee id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("employees")
       .update({ is_active: false, deactivated_at: new Date().toISOString() })
       .eq("id", id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       return { ok: false, error: dbError(error, "Failed to deactivate.") }
     }
@@ -369,13 +403,18 @@ export async function deactivateEmployee(id: string): Promise<ActionState> {
 
 export async function reactivateEmployee(id: string): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!id) return { ok: false, error: "Missing employee id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("employees")
       .update({ is_active: true, deactivated_at: null })
       .eq("id", id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       return { ok: false, error: dbError(error, "Failed to reactivate.") }
     }

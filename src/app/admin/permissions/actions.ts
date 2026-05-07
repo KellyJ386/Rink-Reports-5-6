@@ -70,6 +70,7 @@ export async function setModulePermission(
         .from("module_permissions")
         .update(patch)
         .eq("id", existing.id)
+        .eq("facility_id", employee.facility_id)
 
       if (updErr) return { ok: false, error: updErr.message }
     } else {

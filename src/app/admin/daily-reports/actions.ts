@@ -118,6 +118,8 @@ export async function updateArea(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing area id." }
 
@@ -149,6 +151,7 @@ export async function updateArea(
         is_active,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) return { ok: false, error: dbError(error, "Failed to update area.") }
     revalidatePath("/admin/daily-reports")
@@ -164,12 +167,15 @@ export async function setAreaActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing area id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_areas")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) return { ok: false, error: dbError(error, "Failed to update area.") }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
@@ -184,12 +190,15 @@ export async function reorderArea(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing area id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_areas")
       .update({ sort_order })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) return { ok: false, error: dbError(error, "Failed to reorder area.") }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
@@ -201,12 +210,15 @@ export async function reorderArea(
 export async function deleteArea(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing area id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_areas")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       // FK restrict from submissions: friendly error per spec.
       if (error.code === "23503") {
@@ -269,6 +281,8 @@ export async function updateTemplate(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing template id." }
     const name = nonEmpty(formData.get("name"))
@@ -287,6 +301,7 @@ export async function updateTemplate(
         is_active,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update template.") }
     }
@@ -303,12 +318,15 @@ export async function setTemplateActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_templates")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update template.") }
     }
@@ -322,12 +340,15 @@ export async function setTemplateActive(
 export async function deleteTemplate(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_templates")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -454,6 +475,8 @@ export async function updateChecklistItem(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing item id." }
     const label = nonEmpty(formData.get("label"))
@@ -472,6 +495,7 @@ export async function updateChecklistItem(
         is_active,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
     }
@@ -485,12 +509,15 @@ export async function updateChecklistItem(
 export async function deleteChecklistItem(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_checklist_items")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete item.") }
     }
@@ -507,12 +534,15 @@ export async function reorderChecklistItem(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("daily_report_checklist_items")
       .update({ sort_order })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to reorder item.") }
     }
@@ -533,6 +563,8 @@ export async function moveChecklistItem(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
 
@@ -540,6 +572,7 @@ export async function moveChecklistItem(
       .from("daily_report_checklist_items")
       .select("id, template_id, sort_order")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     if (curErr || !cur) {
       return { ok: false, error: dbError(curErr, "Item not found.") }
@@ -577,18 +610,21 @@ export async function moveChecklistItem(
       .from("daily_report_checklist_items")
       .update({ sort_order: tmp })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
 
     const { error: e2 } = await supabase
       .from("daily_report_checklist_items")
       .update({ sort_order: cur.sort_order })
       .eq("id", neighbor.id)
+      .eq("facility_id", facility.facilityId)
     if (e2) return { ok: false, error: dbError(e2, "Failed to reorder.") }
 
     const { error: e3 } = await supabase
       .from("daily_report_checklist_items")
       .update({ sort_order: neighbor.sort_order })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e3) return { ok: false, error: dbError(e3, "Failed to reorder.") }
 
     revalidatePath("/admin/daily-reports")
@@ -607,15 +643,20 @@ export async function toggleSubmissionItem(
   is_checked: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!submission_item_id) {
       return { ok: false, error: "Missing item id." }
     }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("daily_report_submission_items")
       .update({ is_checked })
       .eq("id", submission_item_id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
     }
@@ -679,17 +720,22 @@ export async function updateNote(
   body: string,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!note_id) return { ok: false, error: "Missing note id." }
     const trimmed = body.trim()
     if (trimmed.length === 0) {
       return { ok: false, error: "Note cannot be empty." }
     }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("daily_report_notes")
       .update({ body: trimmed })
       .eq("id", note_id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update note.") }
     }
@@ -702,13 +748,18 @@ export async function updateNote(
 
 export async function deleteNote(note_id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!note_id) return { ok: false, error: "Missing note id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("daily_report_notes")
       .delete()
       .eq("id", note_id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete note.") }
     }
@@ -721,13 +772,18 @@ export async function deleteNote(note_id: string): Promise<SimpleResult> {
 
 export async function deleteSubmission(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!id) return { ok: false, error: "Missing submission id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("daily_report_submissions")
       .delete()
       .eq("id", id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete submission.") }
     }

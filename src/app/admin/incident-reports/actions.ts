@@ -113,6 +113,8 @@ export async function updateIncidentType(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing type id." }
 
@@ -144,6 +146,7 @@ export async function updateIncidentType(
         is_active,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update type.") }
@@ -161,12 +164,15 @@ export async function setIncidentTypeActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing type id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("incident_types")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update type.") }
     }
@@ -180,6 +186,8 @@ export async function setIncidentTypeActive(
 export async function deleteIncidentType(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing type id." }
     const supabase = await createClient()
 
@@ -202,6 +210,7 @@ export async function deleteIncidentType(id: string): Promise<SimpleResult> {
       .from("incident_types")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       if (error.code === "23503") {
@@ -274,6 +283,8 @@ export async function updateSeverityLevel(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing severity id." }
 
@@ -305,6 +316,7 @@ export async function updateSeverityLevel(
         is_active,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update severity.") }
@@ -322,12 +334,15 @@ export async function setSeverityLevelActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing severity id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("incident_severity_levels")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update severity.") }
     }
@@ -341,6 +356,8 @@ export async function setSeverityLevelActive(
 export async function deleteSeverityLevel(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing severity id." }
     const supabase = await createClient()
 
@@ -361,6 +378,7 @@ export async function deleteSeverityLevel(id: string): Promise<SimpleResult> {
       .from("incident_severity_levels")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       if (error.code === "23503") {
@@ -475,6 +493,8 @@ export async function setReportStatus(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!reportId) return { ok: false, error: "Missing report id." }
     if (!isIncidentStatus(newStatus)) {
       return { ok: false, error: "Invalid status." }
@@ -499,6 +519,7 @@ export async function setReportStatus(
       .from("incident_reports")
       .update(update)
       .eq("id", reportId)
+      .eq("facility_id", facility.facilityId)
 
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update status.") }

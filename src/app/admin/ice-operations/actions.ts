@@ -128,6 +128,8 @@ export async function updateRink(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing rink id." }
     const name = nonEmpty(formData.get("name"))
@@ -151,6 +153,7 @@ export async function updateRink(
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update rink.") }
     }
@@ -167,12 +170,15 @@ export async function setRinkActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rink id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_operations_rinks")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update rink.") }
     }
@@ -186,12 +192,15 @@ export async function setRinkActive(
 export async function deleteRink(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rink id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_operations_rinks")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return { ok: false, error: "Rink in use; deactivate instead." }
@@ -268,6 +277,8 @@ export async function updateEquipment(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing equipment id." }
 
@@ -305,6 +316,7 @@ export async function updateEquipment(
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
     }
@@ -321,12 +333,15 @@ export async function setEquipmentActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_operations_equipment")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
     }
@@ -340,12 +355,15 @@ export async function setEquipmentActive(
 export async function deleteEquipment(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_operations_equipment")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return { ok: false, error: "Equipment in use; deactivate instead." }
@@ -419,6 +437,8 @@ export async function updateCircleCheckItem(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing item id." }
 
@@ -443,6 +463,7 @@ export async function updateCircleCheckItem(
         applies_to_equipment_type,
       })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
     }
@@ -459,12 +480,15 @@ export async function setCircleCheckItemActive(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_operations_circle_check_items")
       .update({ is_active })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
     }
@@ -478,12 +502,15 @@ export async function setCircleCheckItemActive(
 export async function deleteCircleCheckItem(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
     const { error } = await supabase
       .from("ice_operations_circle_check_items")
       .delete()
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) {
       if (error.code === "23503") {
         return {
@@ -510,6 +537,8 @@ export async function moveCircleCheckItem(
 ): Promise<SimpleResult> {
   try {
     await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
 
@@ -517,6 +546,7 @@ export async function moveCircleCheckItem(
       .from("ice_operations_circle_check_items")
       .select("id, facility_id, sort_order")
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
       .maybeSingle()
     if (curErr || !cur) {
       return { ok: false, error: dbError(curErr, "Item not found.") }
@@ -549,16 +579,19 @@ export async function moveCircleCheckItem(
       .from("ice_operations_circle_check_items")
       .update({ sort_order: tmp })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
     const { error: e2 } = await supabase
       .from("ice_operations_circle_check_items")
       .update({ sort_order: cur.sort_order })
       .eq("id", neighbor.id)
+      .eq("facility_id", facility.facilityId)
     if (e2) return { ok: false, error: dbError(e2, "Failed to reorder.") }
     const { error: e3 } = await supabase
       .from("ice_operations_circle_check_items")
       .update({ sort_order: neighbor.sort_order })
       .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
     if (e3) return { ok: false, error: dbError(e3, "Failed to reorder.") }
 
     revalidatePath("/admin/ice-operations")
@@ -738,13 +771,18 @@ export async function deleteIceOperationsSubmission(
   id: string,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const current = await requireAdmin()
     if (!id) return { ok: false, error: "Missing submission id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const facilityId = current.profile?.facility_id ?? null
+    let query = supabase
       .from("ice_operations_submissions")
       .delete()
       .eq("id", id)
+    if (facilityId) {
+      query = query.eq("facility_id", facilityId)
+    }
+    const { error } = await query
     if (error) {
       // RLS will block non-super-admin (42501) — surface friendly message.
       return { ok: false, error: dbError(error, "Failed to delete submission.") }
