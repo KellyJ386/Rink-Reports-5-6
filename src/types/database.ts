@@ -2071,6 +2071,361 @@ export type Database = {
         }
         Relationships: []
       }
+      ice_depth_followup_notes: {
+        Row: {
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          is_admin_note: boolean
+          session_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          is_admin_note?: boolean
+          session_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          is_admin_note?: boolean
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_followup_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_followup_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_followup_notes_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_layouts: {
+        Row: {
+          created_at: string
+          description: string | null
+          diagram_aspect_ratio: number
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          diagram_aspect_ratio?: number
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          diagram_aspect_ratio?: number
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_layouts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_measurements: {
+        Row: {
+          created_at: string
+          depth_value: number
+          facility_id: string
+          id: string
+          label_snapshot: string | null
+          point_id: string | null
+          point_number_snapshot: number
+          session_id: string
+          severity: string
+          x_snapshot: number
+          y_snapshot: number
+        }
+        Insert: {
+          created_at?: string
+          depth_value: number
+          facility_id: string
+          id?: string
+          label_snapshot?: string | null
+          point_id?: string | null
+          point_number_snapshot: number
+          session_id: string
+          severity: string
+          x_snapshot: number
+          y_snapshot: number
+        }
+        Update: {
+          created_at?: string
+          depth_value?: number
+          facility_id?: string
+          id?: string
+          label_snapshot?: string | null
+          point_id?: string | null
+          point_number_snapshot?: number
+          session_id?: string
+          severity?: string
+          x_snapshot?: number
+          y_snapshot?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_measurements_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_measurements_point_id_fkey"
+            columns: ["point_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_points"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_measurements_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_points: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string | null
+          layout_id: string
+          point_number: number
+          sort_order: number
+          updated_at: string | null
+          x_position: number
+          y_position: number
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          layout_id: string
+          point_number: number
+          sort_order?: number
+          updated_at?: string | null
+          x_position: number
+          y_position: number
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          layout_id?: string
+          point_number?: number
+          sort_order?: number
+          updated_at?: string | null
+          x_position?: number
+          y_position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_points_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_points_layout_id_fkey"
+            columns: ["layout_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_layouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_sessions: {
+        Row: {
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          has_high_reading: boolean
+          has_low_reading: boolean
+          high_count: number
+          high_threshold_snapshot: number
+          id: string
+          layout_id: string
+          low_count: number
+          low_threshold_snapshot: number
+          measurement_unit_snapshot: string
+          notes: string | null
+          submitted_at: string
+          total_measurements: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          has_high_reading?: boolean
+          has_low_reading?: boolean
+          high_count?: number
+          high_threshold_snapshot: number
+          id?: string
+          layout_id: string
+          low_count?: number
+          low_threshold_snapshot: number
+          measurement_unit_snapshot: string
+          notes?: string | null
+          submitted_at?: string
+          total_measurements?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          has_high_reading?: boolean
+          has_low_reading?: boolean
+          high_count?: number
+          high_threshold_snapshot?: number
+          id?: string
+          layout_id?: string
+          low_count?: number
+          low_threshold_snapshot?: number
+          measurement_unit_snapshot?: string
+          notes?: string | null
+          submitted_at?: string
+          total_measurements?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_sessions_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_sessions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_sessions_layout_id_fkey"
+            columns: ["layout_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_layouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_settings: {
+        Row: {
+          alert_on: string
+          alerts_enabled: boolean
+          created_at: string
+          default_alert_severity: string
+          facility_id: string
+          high_color: string
+          high_threshold: number
+          id: string
+          low_color: string
+          low_threshold: number
+          measurement_unit: string
+          ok_color: string
+          updated_at: string | null
+        }
+        Insert: {
+          alert_on?: string
+          alerts_enabled?: boolean
+          created_at?: string
+          default_alert_severity?: string
+          facility_id: string
+          high_color?: string
+          high_threshold?: number
+          id?: string
+          low_color?: string
+          low_threshold?: number
+          measurement_unit?: string
+          ok_color?: string
+          updated_at?: string | null
+        }
+        Update: {
+          alert_on?: string
+          alerts_enabled?: boolean
+          created_at?: string
+          default_alert_severity?: string
+          facility_id?: string
+          high_color?: string
+          high_threshold?: number
+          id?: string
+          low_color?: string
+          low_threshold?: number
+          measurement_unit?: string
+          ok_color?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ice_operations_circle_check_items: {
         Row: {
           applies_to_equipment_type: string | null
@@ -3342,6 +3697,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: undefined
       }
+      seed_default_ice_depth_settings: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_ice_operations_config: {
         Args: { p_facility_id: string }
         Returns: undefined
@@ -3492,6 +3851,7 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
 
 
 // ---------------------------------------------------------------------------
