@@ -371,6 +371,521 @@ export type Database = {
           },
         ]
       }
+      air_quality_compliance_rules: {
+        Row: {
+          created_at: string
+          effective_from: string | null
+          effective_to: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          jurisdiction: string
+          rule_body: string
+          rule_name: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          effective_from?: string | null
+          effective_to?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          jurisdiction: string
+          rule_body: string
+          rule_name: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string | null
+          effective_to?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          jurisdiction?: string
+          rule_body?: string
+          rule_name?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_compliance_rules_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_equipment: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          location_id: string | null
+          model: string | null
+          name: string
+          serial_number: string | null
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          location_id?: string | null
+          model?: string | null
+          name: string
+          serial_number?: string | null
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          location_id?: string | null
+          model?: string | null
+          name?: string
+          serial_number?: string | null
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_equipment_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_equipment_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_followup_notes: {
+        Row: {
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          is_admin_note: boolean
+          report_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          is_admin_note?: boolean
+          report_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          is_admin_note?: boolean
+          report_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_followup_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_followup_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_followup_notes_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_locations: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_locations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_reading_types: {
+        Row: {
+          created_at: string
+          decimals: number
+          facility_id: string
+          id: string
+          is_active: boolean
+          is_required: boolean
+          key: string
+          label: string
+          sort_order: number
+          unit: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          decimals?: number
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          key: string
+          label: string
+          sort_order?: number
+          unit: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          decimals?: number
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          key?: string
+          label?: string
+          sort_order?: number
+          unit?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_reading_types_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_readings: {
+        Row: {
+          compliance_max_at_submit: number | null
+          compliance_min_at_submit: number | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_exceedance: boolean
+          key_snapshot: string
+          label_snapshot: string
+          reading_type_id: string | null
+          report_id: string
+          severity_at_submit: string | null
+          threshold_id: string | null
+          unit_snapshot: string
+          value_numeric: number
+        }
+        Insert: {
+          compliance_max_at_submit?: number | null
+          compliance_min_at_submit?: number | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_exceedance?: boolean
+          key_snapshot: string
+          label_snapshot: string
+          reading_type_id?: string | null
+          report_id: string
+          severity_at_submit?: string | null
+          threshold_id?: string | null
+          unit_snapshot: string
+          value_numeric: number
+        }
+        Update: {
+          compliance_max_at_submit?: number | null
+          compliance_min_at_submit?: number | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_exceedance?: boolean
+          key_snapshot?: string
+          label_snapshot?: string
+          reading_type_id?: string | null
+          report_id?: string
+          severity_at_submit?: string | null
+          threshold_id?: string | null
+          unit_snapshot?: string
+          value_numeric?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_readings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_readings_reading_type_id_fkey"
+            columns: ["reading_type_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_reading_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_readings_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_readings_threshold_id_fkey"
+            columns: ["threshold_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_thresholds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_reports: {
+        Row: {
+          created_at: string
+          employee_id: string | null
+          equipment_id: string | null
+          facility_id: string
+          has_exceedance: boolean
+          id: string
+          location_id: string
+          max_severity: string | null
+          notes: string | null
+          submitted_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id?: string | null
+          equipment_id?: string | null
+          facility_id: string
+          has_exceedance?: boolean
+          id?: string
+          location_id: string
+          max_severity?: string | null
+          notes?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string | null
+          equipment_id?: string | null
+          facility_id?: string
+          has_exceedance?: boolean
+          id?: string
+          location_id?: string
+          max_severity?: string | null
+          notes?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_reports_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_reports_equipment_id_fkey"
+            columns: ["equipment_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_equipment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_reports_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_reports_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_settings: {
+        Row: {
+          alerts_enabled: boolean
+          created_at: string
+          default_alert_severity: string
+          default_jurisdiction: string | null
+          facility_id: string
+          id: string
+          testing_frequency: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          alerts_enabled?: boolean
+          created_at?: string
+          default_alert_severity?: string
+          default_jurisdiction?: string | null
+          facility_id: string
+          id?: string
+          testing_frequency?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          alerts_enabled?: boolean
+          created_at?: string
+          default_alert_severity?: string
+          default_jurisdiction?: string | null
+          facility_id?: string
+          id?: string
+          testing_frequency?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_thresholds: {
+        Row: {
+          alert_max: number | null
+          alert_min: number | null
+          compliance_max: number | null
+          compliance_min: number | null
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          location_id: string | null
+          reading_type_id: string
+          severity: string
+          updated_at: string | null
+          warn_max: number | null
+          warn_min: number | null
+        }
+        Insert: {
+          alert_max?: number | null
+          alert_min?: number | null
+          compliance_max?: number | null
+          compliance_min?: number | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          location_id?: string | null
+          reading_type_id: string
+          severity?: string
+          updated_at?: string | null
+          warn_max?: number | null
+          warn_min?: number | null
+        }
+        Update: {
+          alert_max?: number | null
+          alert_min?: number | null
+          compliance_max?: number | null
+          compliance_min?: number | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          location_id?: string | null
+          reading_type_id?: string
+          severity?: string
+          updated_at?: string | null
+          warn_max?: number | null
+          warn_min?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_thresholds_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_thresholds_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_thresholds_reading_type_id_fkey"
+            columns: ["reading_type_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_reading_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -2460,6 +2975,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: undefined
       }
+      seed_default_air_quality_config: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_incident_types_and_severities: {
         Args: { p_facility_id: string }
         Returns: undefined
@@ -2606,6 +3125,7 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
 
 // ---------------------------------------------------------------------------
 // Project shorthand aliases (not part of the generated output).

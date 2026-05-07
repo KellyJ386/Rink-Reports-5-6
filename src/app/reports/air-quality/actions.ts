@@ -1,0 +1,432 @@
+"use server"
+
+import { redirect } from "next/navigation"
+
+import { requireUser } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/server"
+
+import type { AirQualitySeverity, SubmittedReading } from "./types"
+
+export type SubmissionFormState = {
+  error?: string
+}
+
+type SupabaseError = { code?: string; message?: string } | null
+
+function dbError(err: SupabaseError, fallback: string): string {
+  if (!err) return fallback
+  return err.message?.trim() || fallback
+}
+
+const VALID_SEVERITIES = new Set<AirQualitySeverity>([
+  "warn",
+  "high",
+  "critical",
+])
+
+const SEVERITY_RANK: Record<AirQualitySeverity, number> = {
+  warn: 1,
+  high: 2,
+  critical: 3,
+}
+
+type SubmissionResult =
+  | { ok: true; redirectTo: string }
+  | { ok: false; error: string }
+
+function parseReadings(raw: string): SubmittedReading[] | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return null
+    const out: SubmittedReading[] = []
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue
+      const r = item as Record<string, unknown>
+      const reading_type_id =
+        typeof r.reading_type_id === "string" ? r.reading_type_id : null
+      const value =
+        typeof r.value === "number" && Number.isFinite(r.value) ? r.value : null
+      if (!reading_type_id || value === null) continue
+      out.push({ reading_type_id, value })
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
+async function performSubmit(formData: FormData): Promise<SubmissionResult> {
+  const current = await requireUser()
+  const supabase = await createClient()
+
+  const locationId = String(formData.get("location_id") ?? "")
+  const equipmentRaw = formData.get("equipment_id")
+  const equipmentId =
+    typeof equipmentRaw === "string" && equipmentRaw.length > 0
+      ? equipmentRaw
+      : null
+  const notesRaw = formData.get("notes")
+  const notes =
+    typeof notesRaw === "string" && notesRaw.trim().length > 0
+      ? notesRaw.trim()
+      : null
+  const readingsRaw = String(formData.get("readings_json") ?? "")
+  const readings = parseReadings(readingsRaw)
+
+  if (!locationId || !readings) {
+    return { ok: false, error: "Invalid form data." }
+  }
+
+  const { data: employeeRow, error: empErr } = await supabase
+    .from("employees")
+    .select("id, facility_id")
+    .eq("user_id", current.authUser.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle()
+
+  if (empErr) {
+    return { ok: false, error: dbError(empErr, "Failed to load your account.") }
+  }
+  if (!employeeRow) {
+    return {
+      ok: false,
+      error: "Your account isn't fully set up yet. Contact your administrator.",
+    }
+  }
+
+  // Defense-in-depth permission check.
+  const { data: perm } = await supabase
+    .from("module_permissions")
+    .select("can_submit")
+    .eq("module_key", "air_quality")
+    .eq("employee_id", employeeRow.id)
+    .maybeSingle()
+
+  if (!perm?.can_submit) {
+    return {
+      ok: false,
+      error: "You don't have permission to submit air quality reports.",
+    }
+  }
+
+  const facilityId = employeeRow.facility_id
+
+  // Verify the location belongs to this facility and is active.
+  const { data: location, error: locErr } = await supabase
+    .from("air_quality_locations")
+    .select("id, name, is_active, facility_id")
+    .eq("id", locationId)
+    .eq("facility_id", facilityId)
+    .eq("is_active", true)
+    .maybeSingle()
+
+  if (locErr || !location) {
+    return {
+      ok: false,
+      error: dbError(locErr, "Location not found or unavailable."),
+    }
+  }
+
+  // Pull all active reading types for this facility.
+  const { data: readingTypesRaw, error: rtErr } = await supabase
+    .from("air_quality_reading_types")
+    .select("id, key, label, unit, decimals, is_required, is_active")
+    .eq("facility_id", facilityId)
+    .eq("is_active", true)
+
+  if (rtErr) {
+    return {
+      ok: false,
+      error: dbError(rtErr, "Failed to load reading types."),
+    }
+  }
+  const readingTypes = readingTypesRaw ?? []
+
+  // Required-completeness check.
+  const submittedByType = new Map<string, number>()
+  for (const r of readings) submittedByType.set(r.reading_type_id, r.value)
+
+  const missingRequired: string[] = []
+  for (const rt of readingTypes) {
+    if (rt.is_required && !submittedByType.has(rt.id)) {
+      missingRequired.push(rt.label)
+    }
+  }
+  if (missingRequired.length > 0) {
+    return {
+      ok: false,
+      error: `Please fill in all required readings: ${missingRequired.join(", ")}.`,
+    }
+  }
+
+  // Verify every submitted reading_type_id is one of our active types.
+  const validIds = new Set(readingTypes.map((r) => r.id))
+  for (const r of readings) {
+    if (!validIds.has(r.reading_type_id)) {
+      return { ok: false, error: "Submitted an unknown reading type." }
+    }
+  }
+
+  // Verify equipment, if given, belongs to this facility and is either at this
+  // location or facility-wide.
+  if (equipmentId) {
+    const { data: eqRow } = await supabase
+      .from("air_quality_equipment")
+      .select("id, location_id, is_active, facility_id")
+      .eq("id", equipmentId)
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .maybeSingle()
+    if (
+      !eqRow ||
+      (eqRow.location_id !== null && eqRow.location_id !== location.id)
+    ) {
+      return { ok: false, error: "Selected equipment is not valid here." }
+    }
+  }
+
+  // 1) Insert the report shell.
+  const { data: insertedReport, error: reportErr } = await supabase
+    .from("air_quality_reports")
+    .insert({
+      facility_id: facilityId,
+      employee_id: employeeRow.id,
+      location_id: location.id,
+      equipment_id: equipmentId,
+      notes,
+      submitted_at: new Date().toISOString(),
+      has_exceedance: false,
+      max_severity: null,
+    })
+    .select("id")
+    .single()
+
+  if (reportErr || !insertedReport) {
+    return {
+      ok: false,
+      error: dbError(reportErr, "Failed to submit air quality report."),
+    }
+  }
+
+  const reportId = insertedReport.id
+
+  // 2) Pull all active thresholds for this facility for matching.
+  const { data: thresholdsRaw, error: thresholdErr } = await supabase
+    .from("air_quality_thresholds")
+    .select(
+      "id, reading_type_id, location_id, alert_min, alert_max, compliance_min, compliance_max, severity"
+    )
+    .eq("facility_id", facilityId)
+    .eq("is_active", true)
+
+  if (thresholdErr) {
+    await supabase.from("air_quality_reports").delete().eq("id", reportId)
+    return {
+      ok: false,
+      error: dbError(thresholdErr, "Failed to load thresholds."),
+    }
+  }
+
+  type ThresholdRow = {
+    id: string
+    reading_type_id: string
+    location_id: string | null
+    alert_min: number | null
+    alert_max: number | null
+    compliance_min: number | null
+    compliance_max: number | null
+    severity: string
+  }
+  const thresholds = (thresholdsRaw ?? []) as ThresholdRow[]
+  const matchingLocationId = location.id
+
+  function lookupThreshold(readingTypeId: string): ThresholdRow | null {
+    const locMatch = thresholds.find(
+      (t) =>
+        t.reading_type_id === readingTypeId &&
+        t.location_id === matchingLocationId
+    )
+    if (locMatch) return locMatch
+    const fallback = thresholds.find(
+      (t) => t.reading_type_id === readingTypeId && t.location_id === null
+    )
+    return fallback ?? null
+  }
+
+  // 3) Build reading rows.
+  type RowToInsert = {
+    facility_id: string
+    report_id: string
+    reading_type_id: string
+    key_snapshot: string
+    label_snapshot: string
+    unit_snapshot: string
+    value_numeric: number
+    threshold_id: string | null
+    is_exceedance: boolean
+    severity_at_submit: string | null
+    compliance_min_at_submit: number | null
+    compliance_max_at_submit: number | null
+  }
+
+  type ExceedanceDetail = {
+    label: string
+    value: number
+    unit: string
+    alert_min: number | null
+    alert_max: number | null
+    severity: AirQualitySeverity
+  }
+
+  const rowsToInsert: RowToInsert[] = []
+  const exceedanceDetails: ExceedanceDetail[] = []
+
+  const rtById = new Map(readingTypes.map((rt) => [rt.id, rt]))
+
+  for (const r of readings) {
+    const rt = rtById.get(r.reading_type_id)
+    if (!rt) continue
+    const t = lookupThreshold(r.reading_type_id)
+
+    let isExceedance = false
+    let severity: AirQualitySeverity | null = null
+    let thresholdId: string | null = null
+    let complianceMin: number | null = null
+    let complianceMax: number | null = null
+
+    if (t) {
+      thresholdId = t.id
+      complianceMin = t.compliance_min
+      complianceMax = t.compliance_max
+      const minHit = t.alert_min !== null && r.value < t.alert_min
+      const maxHit = t.alert_max !== null && r.value >= t.alert_max
+      if (minHit || maxHit) {
+        isExceedance = true
+        severity = VALID_SEVERITIES.has(t.severity as AirQualitySeverity)
+          ? (t.severity as AirQualitySeverity)
+          : "warn"
+        exceedanceDetails.push({
+          label: rt.label,
+          value: r.value,
+          unit: rt.unit,
+          alert_min: t.alert_min,
+          alert_max: t.alert_max,
+          severity,
+        })
+      }
+    }
+
+    rowsToInsert.push({
+      facility_id: facilityId,
+      report_id: reportId,
+      reading_type_id: rt.id,
+      key_snapshot: rt.key,
+      label_snapshot: rt.label,
+      unit_snapshot: rt.unit,
+      value_numeric: r.value,
+      threshold_id: thresholdId,
+      is_exceedance: isExceedance,
+      severity_at_submit: severity,
+      compliance_min_at_submit: complianceMin,
+      compliance_max_at_submit: complianceMax,
+    })
+  }
+
+  // 4) Batch insert readings.
+  if (rowsToInsert.length > 0) {
+    const { error: readingsErr } = await supabase
+      .from("air_quality_readings")
+      .insert(rowsToInsert)
+    if (readingsErr) {
+      await supabase.from("air_quality_reports").delete().eq("id", reportId)
+      return {
+        ok: false,
+        error: dbError(readingsErr, "Failed to save readings."),
+      }
+    }
+  }
+
+  // 5) Compute rollup and update report.
+  const hasExceedance = exceedanceDetails.length > 0
+  let maxSeverity: AirQualitySeverity | null = null
+  if (hasExceedance) {
+    let topRank = 0
+    for (const d of exceedanceDetails) {
+      const rank = SEVERITY_RANK[d.severity]
+      if (rank > topRank) {
+        topRank = rank
+        maxSeverity = d.severity
+      }
+    }
+  }
+
+  const { error: updateErr } = await supabase
+    .from("air_quality_reports")
+    .update({
+      has_exceedance: hasExceedance,
+      max_severity: maxSeverity,
+    })
+    .eq("id", reportId)
+
+  if (updateErr) {
+    await supabase.from("air_quality_reports").delete().eq("id", reportId)
+    return {
+      ok: false,
+      error: dbError(updateErr, "Failed to finalize report."),
+    }
+  }
+
+  // 6) Optional alert.
+  if (hasExceedance && maxSeverity) {
+    const { data: settingsRow } = await supabase
+      .from("air_quality_settings")
+      .select("alerts_enabled")
+      .eq("facility_id", facilityId)
+      .maybeSingle()
+
+    if (settingsRow?.alerts_enabled) {
+      const lines = exceedanceDetails.slice(0, 5).map((d) => {
+        const unit = d.unit ? ` ${d.unit}` : ""
+        const bound =
+          d.alert_min !== null && d.value < d.alert_min
+            ? `(alert min ${d.alert_min}${unit})`
+            : d.alert_max !== null && d.value >= d.alert_max
+              ? `(alert max ${d.alert_max}${unit})`
+              : ""
+        return `${d.label}: ${d.value}${unit} ${bound}`.trim()
+      })
+      const remainder = exceedanceDetails.length - lines.length
+      const bodyParts = [...lines]
+      if (remainder > 0) bodyParts.push(`…and ${remainder} more`)
+
+      // Best-effort. Failure does not roll back the report.
+      await supabase.from("communication_alerts").insert({
+        facility_id: facilityId,
+        source_module: "air_quality",
+        source_record_id: reportId,
+        severity: maxSeverity,
+        title: `Air Quality: exceedance at ${location.name}`,
+        body: bodyParts.join("\n"),
+        created_by_employee_id: employeeRow.id,
+        requires_acknowledgement: true,
+      })
+    }
+  }
+
+  return {
+    ok: true,
+    redirectTo: `/reports/air-quality/done?id=${reportId}`,
+  }
+}
+
+export async function submitAirQualityReport(
+  _prev: SubmissionFormState,
+  formData: FormData
+): Promise<SubmissionFormState> {
+  const result = await performSubmit(formData)
+  if (!result.ok) {
+    return { error: result.error }
+  }
+  redirect(result.redirectTo)
+}
