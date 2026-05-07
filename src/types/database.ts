@@ -14,6 +14,363 @@ export type Database = {
   }
   public: {
     Tables: {
+      accident_body_part_selections: {
+        Row: {
+          accident_id: string
+          body_part_dropdown_id: string
+          created_at: string
+          facility_id: string
+          id: string
+          notes: string | null
+          side: string
+          updated_at: string | null
+        }
+        Insert: {
+          accident_id: string
+          body_part_dropdown_id: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          side?: string
+          updated_at?: string | null
+        }
+        Update: {
+          accident_id?: string
+          body_part_dropdown_id?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          side?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_body_part_selections_accident_id_fkey"
+            columns: ["accident_id"]
+            isOneToOne: false
+            referencedRelation: "accident_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_body_part_selections_body_part_dropdown_id_fkey"
+            columns: ["body_part_dropdown_id"]
+            isOneToOne: false
+            referencedRelation: "accident_dropdowns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_body_part_selections_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accident_change_log: {
+        Row: {
+          accident_id: string
+          action: string
+          after: Json | null
+          before: Json | null
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          accident_id: string
+          action: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          accident_id?: string
+          action?: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_change_log_accident_id_fkey"
+            columns: ["accident_id"]
+            isOneToOne: false
+            referencedRelation: "accident_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_change_log_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_change_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accident_dropdowns: {
+        Row: {
+          category: string
+          color: string | null
+          created_at: string
+          display_name: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          key: string
+          metadata: Json
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          color?: string | null
+          created_at?: string
+          display_name: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          key: string
+          metadata?: Json
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          color?: string | null
+          created_at?: string
+          display_name?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          metadata?: Json
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_dropdowns_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accident_followup_notes: {
+        Row: {
+          accident_id: string
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          accident_id: string
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          accident_id?: string
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_followup_notes_accident_id_fkey"
+            columns: ["accident_id"]
+            isOneToOne: false
+            referencedRelation: "accident_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_followup_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_followup_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accident_reports: {
+        Row: {
+          activity_dropdown_id: string | null
+          created_at: string
+          description: string
+          edit_window_ends_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          injured_person_contact: string
+          injured_person_name: string
+          location_dropdown_id: string | null
+          medical_attention_dropdown_id: string | null
+          occurred_at: string
+          primary_injury_type_dropdown_id: string | null
+          severity_dropdown_id: string | null
+          submitted_at: string
+          updated_at: string | null
+          workers_comp: boolean
+          workers_comp_acknowledged_at: string | null
+        }
+        Insert: {
+          activity_dropdown_id?: string | null
+          created_at?: string
+          description: string
+          edit_window_ends_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          injured_person_contact: string
+          injured_person_name: string
+          location_dropdown_id?: string | null
+          medical_attention_dropdown_id?: string | null
+          occurred_at?: string
+          primary_injury_type_dropdown_id?: string | null
+          severity_dropdown_id?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+          workers_comp?: boolean
+          workers_comp_acknowledged_at?: string | null
+        }
+        Update: {
+          activity_dropdown_id?: string | null
+          created_at?: string
+          description?: string
+          edit_window_ends_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          injured_person_contact?: string
+          injured_person_name?: string
+          location_dropdown_id?: string | null
+          medical_attention_dropdown_id?: string | null
+          occurred_at?: string
+          primary_injury_type_dropdown_id?: string | null
+          severity_dropdown_id?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+          workers_comp?: boolean
+          workers_comp_acknowledged_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_reports_activity_dropdown_id_fkey"
+            columns: ["activity_dropdown_id"]
+            isOneToOne: false
+            referencedRelation: "accident_dropdowns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_reports_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_reports_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_reports_location_dropdown_id_fkey"
+            columns: ["location_dropdown_id"]
+            isOneToOne: false
+            referencedRelation: "accident_dropdowns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_reports_medical_attention_dropdown_id_fkey"
+            columns: ["medical_attention_dropdown_id"]
+            isOneToOne: false
+            referencedRelation: "accident_dropdowns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_reports_primary_injury_type_dropdown_id_fkey"
+            columns: ["primary_injury_type_dropdown_id"]
+            isOneToOne: false
+            referencedRelation: "accident_dropdowns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_reports_severity_dropdown_id_fkey"
+            columns: ["severity_dropdown_id"]
+            isOneToOne: false
+            referencedRelation: "accident_dropdowns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accident_workers_comp_settings: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          instructions: string
+          is_active: boolean
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          instructions?: string
+          is_active?: boolean
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          instructions?: string
+          is_active?: boolean
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_workers_comp_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -1654,6 +2011,10 @@ export type Database = {
       is_super_admin: { Args: never; Returns: boolean }
       purge_old_communications: { Args: never; Returns: number }
       purge_old_daily_reports: { Args: never; Returns: number }
+      seed_default_accident_dropdowns: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_incident_types_and_severities: {
         Args: { p_facility_id: string }
         Returns: undefined

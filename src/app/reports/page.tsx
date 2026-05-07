@@ -12,7 +12,7 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 type StaffModule = {
-  key: "daily_reports" | "incident_reports"
+  key: "daily_reports" | "incident_reports" | "accident_reports"
   title: string
   description: string
   href: string
@@ -28,6 +28,11 @@ const KNOWN_MODULES: Record<StaffModule["key"], Omit<StaffModule, "key">> = {
     title: "Incident Reports",
     description: "Report an incident or unusual occurrence.",
     href: "/reports/incidents",
+  },
+  accident_reports: {
+    title: "Accident Reports",
+    description: "Report an accident or injury.",
+    href: "/reports/accidents",
   },
 }
 
