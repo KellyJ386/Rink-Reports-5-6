@@ -21,6 +21,7 @@ type StaffModule = {
     | "ice_operations"
     | "ice_depth"
     | "communications"
+    | "scheduling"
   title: string
   description: string
   href: string
@@ -66,6 +67,11 @@ const KNOWN_MODULES: Record<StaffModule["key"], Omit<StaffModule, "key">> = {
     title: "Communications",
     description: "View facility alerts and messages.",
     href: "/reports/communications",
+  },
+  scheduling: {
+    title: "Scheduling",
+    description: "View your shifts, request time off, and swap shifts.",
+    href: "/reports/scheduling",
   },
 }
 

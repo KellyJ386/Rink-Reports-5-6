@@ -1,0 +1,242 @@
+"use client"
+
+import { useActionState, useEffect, useTransition } from "react"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+
+import {
+  createShift,
+  deleteShift,
+  updateShift,
+} from "../../_lib/admin-core-actions"
+import type {
+  ActionState,
+  DepartmentLite,
+  EmployeeLite,
+  ShiftWithRefs,
+} from "../../_lib/types"
+
+const INITIAL_STATE: ActionState = { ok: null }
+
+type Props = {
+  departments: DepartmentLite[]
+  employees: EmployeeLite[]
+  editing: ShiftWithRefs | null
+  onClose: () => void
+  onSaved: () => void
+}
+
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  // Format as YYYY-MM-DDTHH:MM in local time
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export function ShiftForm(props: Props) {
+  const isEdit = props.editing !== null
+  const editing = props.editing
+
+  const [createState, createAction, createPending] = useActionState(
+    createShift,
+    INITIAL_STATE
+  )
+  const [updateState, updateAction, updatePending] = useActionState(
+    updateShift,
+    INITIAL_STATE
+  )
+  const [deletePending, startDelete] = useTransition()
+
+  const state = isEdit ? updateState : createState
+  const pending = isEdit ? updatePending : createPending
+  const action = isEdit ? updateAction : createAction
+
+  useEffect(() => {
+    if (!state || !("ok" in state)) return
+    if (state.ok === true) {
+      toast.success(state.message ?? (isEdit ? "Shift updated." : "Shift created."))
+      props.onSaved()
+    } else if (state.ok === false) {
+      toast.error(state.error)
+    }
+  }, [state, isEdit, props])
+
+  const errorMsg =
+    state && "ok" in state && state.ok === false ? state.error : null
+
+  return (
+    <form
+      action={action}
+      className="bg-card flex flex-col gap-3 rounded-md border p-4 shadow-sm"
+    >
+      {isEdit && editing && (
+        <input type="hidden" name="id" value={editing.id} />
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="department_id">Department *</Label>
+          <select
+            id="department_id"
+            name="department_id"
+            required
+            defaultValue={editing?.department_id ?? ""}
+            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          >
+            <option value="" disabled>
+              Select department…
+            </option>
+            {props.departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="employee_id">Employee</Label>
+          <select
+            id="employee_id"
+            name="employee_id"
+            defaultValue={editing?.employee_id ?? "__open__"}
+            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          >
+            <option value="__open__">Leave open (unassigned)</option>
+            {props.employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+                {e.is_minor ? " (minor)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="starts_at">Starts *</Label>
+          <Input
+            id="starts_at"
+            name="starts_at"
+            type="datetime-local"
+            required
+            defaultValue={toLocalInput(editing?.starts_at)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ends_at">Ends *</Label>
+          <Input
+            id="ends_at"
+            name="ends_at"
+            type="datetime-local"
+            required
+            defaultValue={toLocalInput(editing?.ends_at)}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="break_minutes">Break minutes</Label>
+          <Input
+            id="break_minutes"
+            name="break_minutes"
+            type="number"
+            min={0}
+            defaultValue={editing?.break_minutes ?? 0}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="role_label">Role label</Label>
+          <Input
+            id="role_label"
+            name="role_label"
+            defaultValue={editing?.role_label ?? ""}
+            placeholder="e.g. Lead operator"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="status">Status</Label>
+          <select
+            id="status"
+            name="status"
+            defaultValue={editing?.status ?? "draft"}
+            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          >
+            <option value="draft">Draft</option>
+            <option value="published">Published</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="notes">Notes</Label>
+        <Textarea
+          id="notes"
+          name="notes"
+          rows={2}
+          defaultValue={editing?.notes ?? ""}
+        />
+      </div>
+
+      {errorMsg && (
+        <p role="alert" className="text-destructive text-sm">
+          {errorMsg}
+        </p>
+      )}
+
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div>
+          {isEdit && editing && (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletePending || pending}
+              onClick={() => {
+                if (!confirm("Delete this shift?")) return
+                startDelete(async () => {
+                  const res = await deleteShift(editing.id)
+                  if (res.ok === true) {
+                    toast.success(res.message ?? "Shift deleted.")
+                    props.onSaved()
+                  } else if (res.ok === false) {
+                    toast.error(res.error)
+                  }
+                })
+              }}
+            >
+              {deletePending ? "Deleting…" : "Delete"}
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={props.onClose}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={pending}>
+            {pending
+              ? isEdit
+                ? "Saving…"
+                : "Creating…"
+              : isEdit
+                ? "Save changes"
+                : "Create shift"}
+          </Button>
+        </div>
+      </div>
+    </form>
+  )
+}

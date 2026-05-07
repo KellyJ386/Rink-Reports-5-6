@@ -3600,6 +3600,744 @@ export type Database = {
           },
         ]
       }
+      schedule_availability: {
+        Row: {
+          availability_type: string
+          created_at: string
+          day_of_week: number
+          effective_from: string | null
+          effective_to: string | null
+          employee_id: string
+          end_time: string
+          facility_id: string
+          id: string
+          notes: string | null
+          start_time: string
+          updated_at: string | null
+        }
+        Insert: {
+          availability_type?: string
+          created_at?: string
+          day_of_week: number
+          effective_from?: string | null
+          effective_to?: string | null
+          employee_id: string
+          end_time: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          start_time: string
+          updated_at?: string | null
+        }
+        Update: {
+          availability_type?: string
+          created_at?: string
+          day_of_week?: number
+          effective_from?: string | null
+          effective_to?: string | null
+          employee_id?: string
+          end_time?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          start_time?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_availability_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_availability_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_compliance_rules: {
+        Row: {
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          params: Json
+          rule_type: string
+          sort_order: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          params?: Json
+          rule_type: string
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          params?: Json
+          rule_type?: string
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_compliance_rules_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_notifications: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+          notification_type: string
+          payload: Json
+          read_at: string | null
+          shift_id: string | null
+          swap_id: string | null
+          time_off_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+          notification_type: string
+          payload?: Json
+          read_at?: string | null
+          shift_id?: string | null
+          swap_id?: string | null
+          time_off_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          notification_type?: string
+          payload?: Json
+          read_at?: string | null
+          shift_id?: string | null
+          swap_id?: string | null
+          time_off_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_notifications_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_notifications_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_notifications_swap_id_fkey"
+            columns: ["swap_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_swap_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_notifications_time_off_id_fkey"
+            columns: ["time_off_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_time_off_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_open_shifts: {
+        Row: {
+          approval_required: boolean
+          approved_at: string | null
+          approved_by_employee_id: string | null
+          claim_status: string
+          claimed_at: string | null
+          claimed_by_employee_id: string | null
+          created_at: string
+          expires_at: string | null
+          facility_id: string
+          id: string
+          shift_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          approval_required?: boolean
+          approved_at?: string | null
+          approved_by_employee_id?: string | null
+          claim_status?: string
+          claimed_at?: string | null
+          claimed_by_employee_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          shift_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          approval_required?: boolean
+          approved_at?: string | null
+          approved_by_employee_id?: string | null
+          claim_status?: string
+          claimed_at?: string | null
+          claimed_by_employee_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          shift_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_open_shifts_approved_by_employee_id_fkey"
+            columns: ["approved_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_open_shifts_claimed_by_employee_id_fkey"
+            columns: ["claimed_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_open_shifts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_open_shifts_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: true
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_publish_events: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          notes: string | null
+          published_by_employee_id: string | null
+          range_ends_at: string
+          range_starts_at: string
+          shift_count: number
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          published_by_employee_id?: string | null
+          range_ends_at: string
+          range_starts_at: string
+          shift_count: number
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          published_by_employee_id?: string | null
+          range_ends_at?: string
+          range_starts_at?: string
+          shift_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_publish_events_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_publish_events_published_by_employee_id_fkey"
+            columns: ["published_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_settings: {
+        Row: {
+          created_at: string
+          default_shift_minutes: number
+          facility_id: string
+          id: string
+          minimum_break_after_hours: number | null
+          minimum_break_minutes: number | null
+          minor_max_weekly_hours: number | null
+          notify_on_overtime: boolean
+          notify_on_publish: boolean
+          open_shift_first_come: boolean
+          overtime_weekly_hours: number | null
+          swap_requires_manager_approval: boolean
+          updated_at: string | null
+          week_start_day: number
+        }
+        Insert: {
+          created_at?: string
+          default_shift_minutes?: number
+          facility_id: string
+          id?: string
+          minimum_break_after_hours?: number | null
+          minimum_break_minutes?: number | null
+          minor_max_weekly_hours?: number | null
+          notify_on_overtime?: boolean
+          notify_on_publish?: boolean
+          open_shift_first_come?: boolean
+          overtime_weekly_hours?: number | null
+          swap_requires_manager_approval?: boolean
+          updated_at?: string | null
+          week_start_day?: number
+        }
+        Update: {
+          created_at?: string
+          default_shift_minutes?: number
+          facility_id?: string
+          id?: string
+          minimum_break_after_hours?: number | null
+          minimum_break_minutes?: number | null
+          minor_max_weekly_hours?: number | null
+          notify_on_overtime?: boolean
+          notify_on_publish?: boolean
+          open_shift_first_come?: boolean
+          overtime_weekly_hours?: number | null
+          swap_requires_manager_approval?: boolean
+          updated_at?: string | null
+          week_start_day?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_shifts: {
+        Row: {
+          break_minutes: number | null
+          compliance_warnings: Json
+          created_at: string
+          department_id: string
+          employee_id: string | null
+          ends_at: string
+          facility_id: string
+          id: string
+          notes: string | null
+          published_at: string | null
+          published_by_employee_id: string | null
+          recurring_parent_id: string | null
+          role_label: string | null
+          starts_at: string
+          status: string
+          template_origin_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          break_minutes?: number | null
+          compliance_warnings?: Json
+          created_at?: string
+          department_id: string
+          employee_id?: string | null
+          ends_at: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          published_at?: string | null
+          published_by_employee_id?: string | null
+          recurring_parent_id?: string | null
+          role_label?: string | null
+          starts_at: string
+          status?: string
+          template_origin_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          break_minutes?: number | null
+          compliance_warnings?: Json
+          created_at?: string
+          department_id?: string
+          employee_id?: string | null
+          ends_at?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          published_at?: string | null
+          published_by_employee_id?: string | null
+          recurring_parent_id?: string | null
+          role_label?: string | null
+          starts_at?: string
+          status?: string
+          template_origin_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_shifts_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_published_by_employee_id_fkey"
+            columns: ["published_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_recurring_parent_id_fkey"
+            columns: ["recurring_parent_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_template_origin_id_fkey"
+            columns: ["template_origin_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_swap_requests: {
+        Row: {
+          accepted_at: string | null
+          approved_at: string | null
+          created_at: string
+          decided_at: string | null
+          decision_note: string | null
+          facility_id: string
+          id: string
+          manager_approver_employee_id: string | null
+          requester_employee_id: string
+          requester_shift_id: string
+          status: string
+          target_employee_id: string | null
+          target_shift_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          approved_at?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decision_note?: string | null
+          facility_id: string
+          id?: string
+          manager_approver_employee_id?: string | null
+          requester_employee_id: string
+          requester_shift_id: string
+          status?: string
+          target_employee_id?: string | null
+          target_shift_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          accepted_at?: string | null
+          approved_at?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decision_note?: string | null
+          facility_id?: string
+          id?: string
+          manager_approver_employee_id?: string | null
+          requester_employee_id?: string
+          requester_shift_id?: string
+          status?: string
+          target_employee_id?: string | null
+          target_shift_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_swap_requests_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_swap_requests_manager_approver_employee_id_fkey"
+            columns: ["manager_approver_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_swap_requests_requester_employee_id_fkey"
+            columns: ["requester_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_swap_requests_requester_shift_id_fkey"
+            columns: ["requester_shift_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_swap_requests_target_employee_id_fkey"
+            columns: ["target_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_swap_requests_target_shift_id_fkey"
+            columns: ["target_shift_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_template_shifts: {
+        Row: {
+          break_minutes: number | null
+          created_at: string
+          day_of_week: number
+          department_id: string
+          end_time: string
+          facility_id: string
+          id: string
+          role_label: string | null
+          staff_count: number
+          start_time: string
+          template_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          break_minutes?: number | null
+          created_at?: string
+          day_of_week: number
+          department_id: string
+          end_time: string
+          facility_id: string
+          id?: string
+          role_label?: string | null
+          staff_count?: number
+          start_time: string
+          template_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          break_minutes?: number | null
+          created_at?: string
+          day_of_week?: number
+          department_id?: string
+          end_time?: string
+          facility_id?: string
+          id?: string
+          role_label?: string | null
+          staff_count?: number
+          start_time?: string
+          template_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_template_shifts_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_template_shifts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_template_shifts_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_templates_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_time_off_requests: {
+        Row: {
+          approved_by_employee_id: string | null
+          created_at: string
+          decided_at: string | null
+          decision_note: string | null
+          employee_id: string
+          ends_at: string
+          facility_id: string
+          id: string
+          reason: string | null
+          starts_at: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          approved_by_employee_id?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decision_note?: string | null
+          employee_id: string
+          ends_at: string
+          facility_id: string
+          id?: string
+          reason?: string | null
+          starts_at: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          approved_by_employee_id?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decision_note?: string | null
+          employee_id?: string
+          ends_at?: string
+          facility_id?: string
+          id?: string
+          reason?: string | null
+          starts_at?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_time_off_requests_approved_by_employee_id_fkey"
+            columns: ["approved_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_time_off_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_time_off_requests_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string
@@ -3689,6 +4427,10 @@ export type Database = {
       is_super_admin: { Args: never; Returns: boolean }
       purge_old_communications: { Args: never; Returns: number }
       purge_old_daily_reports: { Args: never; Returns: number }
+      scheduling_claim_open_shift: {
+        Args: { p_open_shift_id: string }
+        Returns: boolean
+      }
       seed_default_accident_dropdowns: {
         Args: { p_facility_id: string }
         Returns: undefined
@@ -3714,6 +4456,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_roles_for_facility: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_scheduling_config: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
