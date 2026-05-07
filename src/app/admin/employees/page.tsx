@@ -76,6 +76,7 @@ export default async function EmployeesPage({
     { data: rolesRaw },
     { data: deptsRaw },
     { data: employeesRaw },
+    { data: edRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -95,6 +96,12 @@ export default async function EmployeesPage({
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true })
       .limit(500),
+    // Fetch employee_departments in parallel using facility_id — avoids a
+    // second sequential round-trip that previously waited on employeeIds.
+    supabase
+      .from("employee_departments")
+      .select("employee_id, department_id, is_primary")
+      .eq("facility_id", facilityId),
   ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
@@ -122,16 +129,7 @@ export default async function EmployeesPage({
     )
   }
 
-  // Stitch employee_departments for the listed employees.
-  const employeeIds = employees.map((e) => e.id)
-  let edRows: EmployeeDeptJoinRow[] = []
-  if (employeeIds.length > 0) {
-    const { data: edRaw } = await supabase
-      .from("employee_departments")
-      .select("employee_id, department_id, is_primary")
-      .in("employee_id", employeeIds)
-    edRows = (edRaw ?? []) as EmployeeDeptJoinRow[]
-  }
+  const edRows = (edRaw ?? []) as EmployeeDeptJoinRow[]
 
   const roleById = new Map(roles.map((r) => [r.id, r]))
   const deptById = new Map(departments.map((d) => [d.id, d]))

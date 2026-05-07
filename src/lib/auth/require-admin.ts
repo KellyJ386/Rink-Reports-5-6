@@ -1,5 +1,6 @@
 import "server-only"
 
+import { cache } from "react"
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
@@ -16,8 +17,11 @@ const ADMIN_ROLE_KEYS = ["admin", "gm", "super_admin"] as const
  * Redirects to /login when unauthenticated, or to /forbidden when
  * authenticated but lacking admin privileges. Splitting the two cases lets
  * users see a useful message instead of a confusing login bounce.
+ *
+ * Wrapped in React `cache()` so that layout + page calling this in the same
+ * server render tree share a single DB round-trip for the role check.
  */
-export async function requireAdmin(): Promise<AuthedUser> {
+export const requireAdmin = cache(async (): Promise<AuthedUser> => {
   const current = await getCurrentUser()
   if (!current) {
     redirect("/login")
@@ -57,4 +61,4 @@ export async function requireAdmin(): Promise<AuthedUser> {
   }
 
   return current
-}
+})

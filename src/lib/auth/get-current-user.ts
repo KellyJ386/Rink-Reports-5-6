@@ -1,13 +1,18 @@
 import "server-only"
 
+import { cache } from "react"
+
 import { createClient } from "@/lib/supabase/server"
 import type { AuthedUser, UserProfile } from "./types"
 
 /**
  * Read the current authenticated user from Supabase auth and join with our
  * `public.users` profile row. Returns `null` when there is no session.
+ *
+ * Wrapped in React `cache()` so that multiple callers within the same server
+ * render tree (e.g. layout + page) share a single DB round-trip.
  */
-export async function getCurrentUser(): Promise<AuthedUser | null> {
+export const getCurrentUser = cache(async (): Promise<AuthedUser | null> => {
   const supabase = await createClient()
 
   const {
@@ -27,4 +32,4 @@ export async function getCurrentUser(): Promise<AuthedUser | null> {
     .maybeSingle<UserProfile>()
 
   return { authUser, profile: profile ?? null }
-}
+})
