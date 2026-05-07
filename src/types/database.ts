@@ -1881,6 +1881,451 @@ export type Database = {
           },
         ]
       }
+      refrigeration_equipment: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          section_id: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          section_id: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          section_id?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_equipment_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_equipment_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_fields: {
+        Row: {
+          created_at: string
+          equipment_id: string | null
+          facility_id: string
+          field_type: string
+          id: string
+          is_active: boolean
+          key: string
+          label: string
+          options: Json
+          section_id: string
+          sort_order: number
+          unit: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          equipment_id?: string | null
+          facility_id: string
+          field_type: string
+          id?: string
+          is_active?: boolean
+          key: string
+          label: string
+          options?: Json
+          section_id: string
+          sort_order?: number
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          equipment_id?: string | null
+          facility_id?: string
+          field_type?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          label?: string
+          options?: Json
+          section_id?: string
+          sort_order?: number
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_fields_equipment_id_fkey"
+            columns: ["equipment_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_equipment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_fields_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_fields_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_followup_notes: {
+        Row: {
+          body: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          is_admin_note: boolean
+          report_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          is_admin_note?: boolean
+          report_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          is_admin_note?: boolean
+          report_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_followup_notes_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_followup_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_followup_notes_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_report_values: {
+        Row: {
+          created_at: string
+          equipment_id: string | null
+          equipment_name_snapshot: string | null
+          facility_id: string
+          field_id: string | null
+          field_type_snapshot: string
+          id: string
+          is_out_of_range: boolean
+          label_snapshot: string
+          report_id: string
+          threshold_id: string | null
+          unit_snapshot: string | null
+          value_boolean: boolean | null
+          value_numeric: number | null
+          value_text: string | null
+        }
+        Insert: {
+          created_at?: string
+          equipment_id?: string | null
+          equipment_name_snapshot?: string | null
+          facility_id: string
+          field_id?: string | null
+          field_type_snapshot: string
+          id?: string
+          is_out_of_range?: boolean
+          label_snapshot: string
+          report_id: string
+          threshold_id?: string | null
+          unit_snapshot?: string | null
+          value_boolean?: boolean | null
+          value_numeric?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          created_at?: string
+          equipment_id?: string | null
+          equipment_name_snapshot?: string | null
+          facility_id?: string
+          field_id?: string | null
+          field_type_snapshot?: string
+          id?: string
+          is_out_of_range?: boolean
+          label_snapshot?: string
+          report_id?: string
+          threshold_id?: string | null
+          unit_snapshot?: string | null
+          value_boolean?: boolean | null
+          value_numeric?: number | null
+          value_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_report_values_equipment_id_fkey"
+            columns: ["equipment_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_equipment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_report_values_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_report_values_field_id_fkey"
+            columns: ["field_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_fields"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_report_values_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_report_values_threshold_id_fkey"
+            columns: ["threshold_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_thresholds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_reports: {
+        Row: {
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          notes: string | null
+          submitted_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          notes?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          submitted_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_reports_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_reports_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_sections: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_sections_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_settings: {
+        Row: {
+          created_at: string
+          default_alert_severity: string
+          facility_id: string
+          id: string
+          out_of_range_alerts_enabled: boolean
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          default_alert_severity?: string
+          facility_id: string
+          id?: string
+          out_of_range_alerts_enabled?: boolean
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          default_alert_severity?: string
+          facility_id?: string
+          id?: string
+          out_of_range_alerts_enabled?: boolean
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_thresholds: {
+        Row: {
+          created_at: string
+          equipment_id: string | null
+          facility_id: string
+          field_id: string
+          id: string
+          is_active: boolean
+          max_value: number | null
+          min_value: number | null
+          severity: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          equipment_id?: string | null
+          facility_id: string
+          field_id: string
+          id?: string
+          is_active?: boolean
+          max_value?: number | null
+          min_value?: number | null
+          severity?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          equipment_id?: string | null
+          facility_id?: string
+          field_id?: string
+          id?: string
+          is_active?: boolean
+          max_value?: number | null
+          min_value?: number | null
+          severity?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_thresholds_equipment_id_fkey"
+            columns: ["equipment_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_equipment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_thresholds_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_thresholds_field_id_fkey"
+            columns: ["field_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_fields"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           created_at: string
@@ -2016,6 +2461,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_incident_types_and_severities: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_refrigeration_sections: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
