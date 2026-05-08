@@ -101,6 +101,9 @@ export default async function IceDepthDonePage({
     ok: "bg-emerald-500",
     low: "bg-red-500",
     high: "bg-amber-500",
+    ok: "bg-green-600",
+    low: "bg-red-600",
+    high: "bg-amber-600",
   }
 
   const rinkPoints: RinkPointSpec[] = measurements.map((m) => {

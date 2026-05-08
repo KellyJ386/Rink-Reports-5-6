@@ -84,7 +84,7 @@ export function LogDetail({ entry, backHref }: Props) {
             )}
             <dt className="text-muted-foreground font-medium">Actor</dt>
             <dd>{actorName}</dd>
-            {entry.ip && (
+            {entry.ip != null && (
               <>
                 <dt className="text-muted-foreground font-medium">IP address</dt>
                 <dd className="font-mono text-xs">{String(entry.ip)}</dd>
