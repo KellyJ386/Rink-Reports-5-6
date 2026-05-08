@@ -97,6 +97,12 @@ export default async function IceDepthDonePage({
     high: "#d97706",
   }
 
+  const BG_FOR: Record<SeverityKey, string> = {
+    ok: "bg-emerald-500",
+    low: "bg-red-500",
+    high: "bg-amber-500",
+  }
+
   const rinkPoints: RinkPointSpec[] = measurements.map((m) => {
     const { cx, cy } = rinkCoords(m.x_snapshot, m.y_snapshot)
     const sev = (m.severity as SeverityKey) ?? "ok"
@@ -176,7 +182,7 @@ export default async function IceDepthDonePage({
                     aria-hidden
                     className={cn(
                       "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white",
-                      FILL_FOR[sev].replace("fill-", "bg-")
+                      BG_FOR[sev]
                     )}
                   >
                     {m.point_number_snapshot}
