@@ -26,6 +26,7 @@ type Props = {
   departments: DepartmentLite[]
   employees: EmployeeLite[]
   editing: ShiftWithRefs | null
+  defaultStartsAt?: string | null
   onClose: () => void
   onSaved: () => void
 }
@@ -127,7 +128,7 @@ export function ShiftForm(props: Props) {
             name="starts_at"
             type="datetime-local"
             required
-            defaultValue={toLocalInput(editing?.starts_at)}
+            defaultValue={toLocalInput(editing?.starts_at ?? props.defaultStartsAt)}
           />
         </div>
         <div className="flex flex-col gap-1.5">
