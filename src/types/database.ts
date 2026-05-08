@@ -4390,6 +4390,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_employee_counts_by_facility: {
+        Args: Record<never, never>
+        Returns: { facility_id: string; employee_count: number }[]
+      }
       current_employee_id: { Args: never; Returns: string }
       current_facility_id: { Args: never; Returns: string }
       current_user_id: { Args: never; Returns: string }

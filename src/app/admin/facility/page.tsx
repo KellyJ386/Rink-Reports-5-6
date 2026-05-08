@@ -53,17 +53,17 @@ async function loadAllFacilities(
   const rows = data as FacilityRow[]
   if (rows.length === 0) return []
 
-  // Fetch employee counts per facility in parallel.
-  const counts = await Promise.all(
-    rows.map(async (row) => {
-      const { count } = await supabase
-        .from("employees")
-        .select("id", { count: "exact", head: true })
-        .eq("facility_id", row.id)
-      return { id: row.id, count: count ?? 0 }
-    })
+  // Fetch all employee counts in a single aggregation query instead of
+  // issuing one COUNT per facility (N+1 pattern).
+  const { data: countRows } = await supabase.rpc("get_employee_counts_by_facility")
+  const countMap = new Map(
+    (countRows ?? []).map(
+      (r: { facility_id: string; employee_count: number }) => [
+        r.facility_id,
+        r.employee_count,
+      ]
+    )
   )
-  const countMap = new Map(counts.map((c) => [c.id, c.count]))
 
   return rows.map((row) => ({
     ...row,
