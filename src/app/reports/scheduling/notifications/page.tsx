@@ -68,6 +68,7 @@ const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   open_shift_posted: "Open shift posted",
   open_shift_claimed: "Open shift claimed",
   open_shift_approved: "Open shift approved",
+  shift_reminder: "Shift reminder",
 }
 
 function notificationTypeLabel(type: string): string {
