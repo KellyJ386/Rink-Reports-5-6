@@ -13,6 +13,7 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { formatDateTime } from "../_lib/datetime"
+import { SendRemindersForm } from "./_components/send-reminders-form"
 
 export const dynamic = "force-dynamic"
 
@@ -25,6 +26,7 @@ const NOTIFICATION_TYPES = [
   "swap_denied",
   "time_off_decided",
   "overtime_warning",
+  "shift_reminder",
 ] as const
 
 type SearchParams = Promise<{
@@ -147,6 +149,8 @@ export default async function NotificationsPage({
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <Header />
+
+      <SendRemindersForm />
 
       <form
         method="GET"

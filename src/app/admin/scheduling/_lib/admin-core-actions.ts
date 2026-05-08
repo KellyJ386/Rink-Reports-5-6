@@ -906,3 +906,94 @@ export async function applyTemplateToWeek(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// sendShiftReminders
+// ---------------------------------------------------------------------------
+
+export async function sendShiftReminders(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState & { count?: number }> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const hoursRaw = Number(formData.get("hours") ?? 24)
+    const hours = Number.isFinite(hoursRaw) && hoursRaw >= 1 ? Math.min(hoursRaw, 168) : 24
+
+    const now = new Date()
+    const cutoff = new Date(now.getTime() + hours * 60 * 60 * 1000)
+
+    const supabase = await createClient()
+
+    // Find published shifts starting in the window with assigned employees.
+    const { data: shiftsRaw, error: shiftErr } = await supabase
+      .from("schedule_shifts")
+      .select("id, employee_id, starts_at, ends_at")
+      .eq("facility_id", ctx.facilityId)
+      .eq("status", "published")
+      .not("employee_id", "is", null)
+      .gte("starts_at", now.toISOString())
+      .lte("starts_at", cutoff.toISOString())
+
+    if (shiftErr) return { ok: false, error: dbError(shiftErr, "Failed to load shifts.") }
+
+    const shifts = (shiftsRaw ?? []) as Array<{
+      id: string
+      employee_id: string
+      starts_at: string
+      ends_at: string
+    }>
+
+    if (shifts.length === 0) {
+      return { ok: true, message: "No upcoming shifts found in that window.", count: 0 }
+    }
+
+    // Avoid duplicates: load existing shift_reminder notifications for these shifts.
+    const shiftIds = shifts.map((s) => s.id)
+    const { data: existingRaw } = await supabase
+      .from("schedule_notifications")
+      .select("shift_id")
+      .eq("facility_id", ctx.facilityId)
+      .eq("notification_type", "shift_reminder")
+      .in("shift_id", shiftIds)
+    const alreadySent = new Set(
+      ((existingRaw ?? []) as Array<{ shift_id: string | null }>)
+        .map((r) => r.shift_id)
+        .filter((x): x is string => !!x),
+    )
+
+    const toSend = shifts.filter((s) => !alreadySent.has(s.id))
+    if (toSend.length === 0) {
+      return { ok: true, message: "All shifts in this window already have reminders.", count: 0 }
+    }
+
+    const inserts = toSend.map((s) => ({
+      facility_id: ctx.facilityId,
+      employee_id: s.employee_id,
+      notification_type: "shift_reminder" as const,
+      shift_id: s.id,
+      payload: {
+        starts_at: s.starts_at,
+        ends_at: s.ends_at,
+        message: `Reminder: your shift starts soon.`,
+      },
+    }))
+
+    const { error: insErr } = await supabase
+      .from("schedule_notifications")
+      .insert(inserts)
+
+    if (insErr) return { ok: false, error: dbError(insErr, "Failed to send reminders.") }
+
+    revalidatePath("/admin/scheduling/notifications")
+    return {
+      ok: true,
+      message: `${toSend.length} reminder${toSend.length === 1 ? "" : "s"} sent.`,
+      count: toSend.length,
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}

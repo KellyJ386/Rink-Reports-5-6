@@ -3559,6 +3559,94 @@ export type Database = {
           },
         ]
       }
+      retention_settings: {
+        Row: {
+          id: string
+          facility_id: string
+          module_key: string
+          keep_days: number
+          auto_purge: boolean
+          created_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          facility_id: string
+          module_key: string
+          keep_days?: number
+          auto_purge?: boolean
+          created_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          facility_id?: string
+          module_key?: string
+          keep_days?: number
+          auto_purge?: boolean
+          created_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "retention_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      export_settings: {
+        Row: {
+          id: string
+          facility_id: string
+          logo_url: string | null
+          header_text: string | null
+          footer_text: string | null
+          paper_size: string
+          include_facility_name: boolean
+          include_date: boolean
+          include_submitted_by: boolean
+          created_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          facility_id: string
+          logo_url?: string | null
+          header_text?: string | null
+          footer_text?: string | null
+          paper_size?: string
+          include_facility_name?: boolean
+          include_date?: boolean
+          include_submitted_by?: boolean
+          created_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          facility_id?: string
+          logo_url?: string | null
+          header_text?: string | null
+          footer_text?: string | null
+          paper_size?: string
+          include_facility_name?: boolean
+          include_date?: boolean
+          include_submitted_by?: boolean
+          created_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "export_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           created_at: string

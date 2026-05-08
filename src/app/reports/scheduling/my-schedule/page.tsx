@@ -11,6 +11,7 @@ import {
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { WeekCalendar } from "../_components/week-calendar"
 import { formatDateRange } from "../_components/format-utils"
 import type { ShiftStatus } from "../types"
 
@@ -86,6 +87,8 @@ type SearchParams = Promise<{
   from?: string
   to?: string
   status?: string
+  view?: string
+  weekOf?: string
 }>
 
 export default async function MySchedulePage({
@@ -141,6 +144,30 @@ export default async function MySchedulePage({
   const statusFilter =
     params.status === "all" ? "all" : "published"
 
+  const currentView = params.view === "week" ? "week" : "list"
+
+  // For week view, compute the Sunday of the current week
+  function getWeekStart(anchor: Date): Date {
+    const d = new Date(anchor)
+    d.setDate(d.getDate() - d.getDay()) // back to Sunday
+    d.setHours(0, 0, 0, 0)
+    return d
+  }
+
+  function toLocalDate(iso: string): Date {
+    const [y, m, day] = iso.split("-").map(Number)
+    return new Date(y, m - 1, day)
+  }
+
+  const weekStart = params.weekOf
+    ? getWeekStart(toLocalDate(params.weekOf))
+    : getWeekStart(new Date())
+
+  const weekStartIso = (() => {
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${weekStart.getFullYear()}-${pad(weekStart.getMonth() + 1)}-${pad(weekStart.getDate())}`
+  })()
+
   const { data: facility } = await supabase
     .from("facilities")
     .select("timezone")
@@ -154,12 +181,22 @@ export default async function MySchedulePage({
       "id, starts_at, ends_at, role_label, status, department_id, departments(name)"
     )
     .eq("employee_id", employeeRow.id)
-    .gte("starts_at", fromDate.toISOString())
-    .lte("starts_at", toDate.toISOString())
     .order("starts_at", { ascending: true })
 
-  if (statusFilter !== "all") {
-    query = query.eq("status", "published")
+  if (currentView === "week") {
+    // Week view date range
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekEnd.getDate() + 7)
+    query = query
+      .gte("starts_at", weekStart.toISOString())
+      .lt("starts_at", weekEnd.toISOString())
+  } else {
+    query = query
+      .gte("starts_at", fromDate.toISOString())
+      .lte("starts_at", toDate.toISOString())
+    if (statusFilter !== "all") {
+      query = query.eq("status", "published")
+    }
   }
 
   const { data: shiftsRaw } = await query
@@ -189,88 +226,122 @@ export default async function MySchedulePage({
         </h1>
       </div>
 
-      <form
-        method="get"
-        className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-end"
-      >
-        <div className="flex flex-1 flex-col gap-1">
-          <label htmlFor="from" className="text-xs font-medium">
-            From
-          </label>
-          <input
-            id="from"
-            name="from"
-            type="date"
-            defaultValue={toDateInput(fromDate)}
-            className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          />
-        </div>
-        <div className="flex flex-1 flex-col gap-1">
-          <label htmlFor="to" className="text-xs font-medium">
-            To
-          </label>
-          <input
-            id="to"
-            name="to"
-            type="date"
-            defaultValue={toDateInput(toDate)}
-            className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          />
-        </div>
-        <div className="flex flex-1 flex-col gap-1">
-          <label htmlFor="status" className="text-xs font-medium">
-            Status
-          </label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={statusFilter}
-            className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          >
-            <option value="published">Published</option>
-            <option value="all">All</option>
-          </select>
-        </div>
-        <button
-          type="submit"
-          className="bg-primary text-primary-foreground h-11 rounded-md px-4 text-sm font-medium shadow-xs hover:bg-primary/90"
+      {/* View toggle */}
+      <div className="flex items-center gap-1 rounded-md border w-fit p-0.5">
+        <Link
+          href={`/reports/scheduling/my-schedule?view=list`}
+          className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+            currentView === "list"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent"
+          }`}
         >
-          Apply
-        </button>
-      </form>
+          List
+        </Link>
+        <Link
+          href={`/reports/scheduling/my-schedule?view=week`}
+          className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+            currentView === "week"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          Week
+        </Link>
+      </div>
 
-      {shifts.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardDescription>No upcoming shifts</CardDescription>
-          </CardHeader>
-        </Card>
+      {currentView === "week" ? (
+        <WeekCalendar
+          shifts={shifts}
+          weekStartIso={weekStartIso}
+          timezone={tz}
+        />
       ) : (
-        <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
-          {shifts.map((s) => (
-            <li
-              key={s.id}
-              className="flex flex-col gap-2 px-4 py-3 text-sm"
+        <>
+          <form
+            method="get"
+            className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-end"
+          >
+            <div className="flex flex-1 flex-col gap-1">
+              <label htmlFor="from" className="text-xs font-medium">
+                From
+              </label>
+              <input
+                id="from"
+                name="from"
+                type="date"
+                defaultValue={toDateInput(fromDate)}
+                className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-1">
+              <label htmlFor="to" className="text-xs font-medium">
+                To
+              </label>
+              <input
+                id="to"
+                name="to"
+                type="date"
+                defaultValue={toDateInput(toDate)}
+                className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-1">
+              <label htmlFor="status" className="text-xs font-medium">
+                Status
+              </label>
+              <select
+                id="status"
+                name="status"
+                defaultValue={statusFilter}
+                className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="published">Published</option>
+                <option value="all">All</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="bg-primary text-primary-foreground h-11 rounded-md px-4 text-sm font-medium shadow-xs hover:bg-primary/90"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium">
-                  {formatDateRange(s.starts_at, s.ends_at, tz)}
-                </span>
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClasses(
-                    s.status
-                  )}`}
+              Apply
+            </button>
+          </form>
+
+          {shifts.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardDescription>No upcoming shifts</CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
+              {shifts.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex flex-col gap-2 px-4 py-3 text-sm"
                 >
-                  {statusLabel(s.status)}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{s.departments?.name ?? "—"}</span>
-                {s.role_label ? <span>· {s.role_label}</span> : null}
-              </div>
-            </li>
-          ))}
-        </ul>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">
+                      {formatDateRange(s.starts_at, s.ends_at, tz)}
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClasses(
+                        s.status
+                      )}`}
+                    >
+                      {statusLabel(s.status)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>{s.departments?.name ?? "—"}</span>
+                    {s.role_label ? <span>· {s.role_label}</span> : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   )
