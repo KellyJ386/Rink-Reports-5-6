@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
+import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
@@ -31,12 +32,6 @@ function formatTimestamp(iso: string, timezone: string | null): string {
 }
 
 type SeverityKey = "ok" | "low" | "high"
-
-const FILL_FOR: Record<SeverityKey, string> = {
-  ok: "fill-emerald-500",
-  low: "fill-red-500",
-  high: "fill-amber-500",
-}
 
 export default async function IceDepthDonePage({
   params,
@@ -94,11 +89,27 @@ export default async function IceDepthDonePage({
 
   const measurements = measurementsRaw ?? []
   const tz = facility?.timezone ?? null
-  const aspect = layout.diagram_aspect_ratio || 0.425
-  const VIEW_W = 1000
-  const VIEW_H = Math.round(VIEW_W / aspect)
-  const POINT_R = 44
   const unit = session.measurement_unit_snapshot
+
+  const DONE_COLORS: Record<SeverityKey, string> = {
+    ok: "#16a34a",
+    low: "#dc2626",
+    high: "#d97706",
+  }
+
+  const rinkPoints: RinkPointSpec[] = measurements.map((m) => {
+    const { cx, cy } = rinkCoords(m.x_snapshot, m.y_snapshot)
+    const sev = (m.severity as SeverityKey) ?? "ok"
+    return {
+      id: m.id,
+      pointNumber: m.point_number_snapshot,
+      cx,
+      cy,
+      state: "done",
+      doneColor: DONE_COLORS[sev],
+      depthValue: m.depth_value,
+    }
+  })
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
@@ -142,67 +153,12 @@ export default async function IceDepthDonePage({
       </div>
 
       {measurements.length > 0 ? (
-        <div
-          className="relative w-full overflow-hidden rounded-xl border bg-card"
-          style={{ aspectRatio: String(aspect) }}
-        >
-          <svg
-            viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-            preserveAspectRatio="xMidYMid meet"
-            role="img"
-            aria-label={`Submitted measurements for ${layout.name}`}
-            className="absolute inset-0 h-full w-full"
-          >
-            <rect
-              x={20}
-              y={20}
-              width={VIEW_W - 40}
-              height={VIEW_H - 40}
-              rx={Math.min(80, (VIEW_W - 40) / 4)}
-              ry={Math.min(80, (VIEW_W - 40) / 4)}
-              fill="white"
-              stroke="rgba(0,0,0,0.4)"
-              strokeWidth={4}
-            />
-            <line
-              x1={20}
-              x2={VIEW_W - 20}
-              y1={VIEW_H / 2}
-              y2={VIEW_H / 2}
-              stroke="rgb(220,38,38)"
-              strokeWidth={4}
-            />
-            {measurements.map((m) => {
-              const sev = (m.severity as SeverityKey) ?? "ok"
-              const fillClass = FILL_FOR[sev] ?? "fill-emerald-500"
-              const cx = m.x_snapshot * VIEW_W
-              const cy = m.y_snapshot * VIEW_H
-              return (
-                <g key={m.id}>
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={POINT_R}
-                    className={cn(fillClass)}
-                    stroke="rgba(0,0,0,0.65)"
-                    strokeWidth={3}
-                  />
-                  <text
-                    x={cx}
-                    y={cy}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={POINT_R}
-                    fontWeight={700}
-                    fill="white"
-                    style={{ userSelect: "none" }}
-                  >
-                    {m.point_number_snapshot}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
+        <div className="mx-auto w-full max-w-xs" style={{ aspectRatio: "380/740" }}>
+          <USARink
+            points={rinkPoints}
+            showValues
+            className="rounded-xl border"
+          />
         </div>
       ) : null}
 

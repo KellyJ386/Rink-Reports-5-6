@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -56,7 +57,6 @@ const VIEW_HEIGHT = 600
 export function SessionDetail({ detail, backHref }: Props) {
   const { session, layout, points, employee, measurements, notes, settings } =
     detail
-  const [heatmap, setHeatmap] = useState(false)
 
   const [noteState, noteAction, notePending] = useActionState(
     addIceDepthFollowupNote,
@@ -66,10 +66,6 @@ export function SessionDetail({ detail, backHref }: Props) {
     if (noteState.ok === false) toast.error(noteState.error)
     if (noteState.ok === true) toast.success(noteState.message ?? "Note added.")
   }, [noteState])
-
-  const aspect = layout?.diagram_aspect_ratio ?? 0.425
-  const w = Math.max(80, Math.round(VIEW_HEIGHT * aspect))
-  const h = VIEW_HEIGHT
 
   // Index measurements by point_id (or by point_number_snapshot when point was
   // deleted). We render measurements at their snapshot coordinates so historic
@@ -86,6 +82,45 @@ export function SessionDetail({ detail, backHref }: Props) {
     () => measurements.filter((m) => !m.point_id),
     [measurements],
   )
+
+  // Build RinkPointSpec array for USARink component
+  const rinkPoints = useMemo((): RinkPointSpec[] => {
+    const result: RinkPointSpec[] = []
+
+    // Layout points (may or may not have measurements)
+    for (const p of points) {
+      const m = byPointId.get(p.id)
+      const xPos = m ? m.x_snapshot : p.x_position
+      const yPos = m ? m.y_snapshot : p.y_position
+      const { cx, cy } = rinkCoords(xPos, yPos)
+      const color = m ? severityColor(m.severity, settings) : undefined
+      result.push({
+        id: p.id,
+        pointNumber: m?.point_number_snapshot ?? p.point_number,
+        cx,
+        cy,
+        state: m ? "done" : "inactive",
+        doneColor: color,
+        depthValue: m ? m.depth_value : null,
+      })
+    }
+
+    // Orphaned measurements (point was deleted)
+    for (const m of orphanMeasurements) {
+      const { cx, cy } = rinkCoords(m.x_snapshot, m.y_snapshot)
+      result.push({
+        id: `orphan-${m.id}`,
+        pointNumber: m.point_number_snapshot,
+        cx,
+        cy,
+        state: "done",
+        doneColor: severityColor(m.severity, settings),
+        depthValue: m.depth_value,
+      })
+    }
+
+    return result
+  }, [points, byPointId, orphanMeasurements, settings])
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,17 +160,6 @@ export function SessionDetail({ detail, backHref }: Props) {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={heatmap}
-                  onChange={(e) => setHeatmap(e.target.checked)}
-                  className="border-input size-4 rounded border"
-                />
-                Heat-map view
-              </label>
-            </div>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -150,163 +174,12 @@ export function SessionDetail({ detail, backHref }: Props) {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
             <div className="flex flex-col items-center gap-2">
-              <div
-                className="bg-background relative w-full max-w-md rounded-md border p-2"
-                style={{ aspectRatio: `${aspect}` }}
-              >
-                <svg
-                  viewBox={`0 0 ${w} ${h}`}
-                  preserveAspectRatio="xMidYMid meet"
-                  className="h-full w-full select-none"
-                >
-                  {/* Optional heatmap background — discrete colored tile per
-                      measurement, blurred via filter. */}
-                  {heatmap && (
-                    <>
-                      <defs>
-                        <filter
-                          id="hm-blur"
-                          x="-20%"
-                          y="-20%"
-                          width="140%"
-                          height="140%"
-                        >
-                          <feGaussianBlur stdDeviation="22" />
-                        </filter>
-                      </defs>
-                      <g filter="url(#hm-blur)" opacity={0.55}>
-                        {measurements.map((m) => (
-                          <circle
-                            key={`hm-${m.id}`}
-                            cx={m.x_snapshot * w}
-                            cy={m.y_snapshot * h}
-                            r={Math.min(w, h) * 0.18}
-                            fill={severityColor(m.severity, settings)}
-                          />
-                        ))}
-                      </g>
-                    </>
-                  )}
-
-                  <rect
-                    x={2}
-                    y={2}
-                    width={w - 4}
-                    height={h - 4}
-                    rx={Math.min(w, h) * 0.18}
-                    ry={Math.min(w, h) * 0.18}
-                    fill={heatmap ? "transparent" : "#e0f2fe"}
-                    stroke="#0c4a6e"
-                    strokeWidth={2}
-                  />
-                  <line
-                    x1={2}
-                    y1={h / 2}
-                    x2={w - 2}
-                    y2={h / 2}
-                    stroke="#dc2626"
-                    strokeWidth={2}
-                    opacity={heatmap ? 0.4 : 1}
-                  />
-                  <line
-                    x1={2}
-                    y1={h * 0.32}
-                    x2={w - 2}
-                    y2={h * 0.32}
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    opacity={heatmap ? 0.4 : 1}
-                  />
-                  <line
-                    x1={2}
-                    y1={h * 0.68}
-                    x2={w - 2}
-                    y2={h * 0.68}
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    opacity={heatmap ? 0.4 : 1}
-                  />
-
-                  {/* Layout points (ghost outline if no measurement on it) */}
-                  {points.map((p) => {
-                    const m = byPointId.get(p.id)
-                    const cx = (m ? m.x_snapshot : p.x_position) * w
-                    const cy = (m ? m.y_snapshot : p.y_position) * h
-                    const fill = m
-                      ? severityColor(m.severity, settings)
-                      : "#cbd5e1"
-                    return (
-                      <g key={p.id}>
-                        <circle
-                          cx={cx}
-                          cy={cy}
-                          r={14}
-                          fill={fill}
-                          stroke="#0f172a"
-                          strokeWidth={1.5}
-                          opacity={m ? 1 : 0.5}
-                        />
-                        <text
-                          x={cx}
-                          y={cy + 4}
-                          textAnchor="middle"
-                          fontSize={10}
-                          fontWeight={700}
-                          fill="#ffffff"
-                          pointerEvents="none"
-                        >
-                          {m?.point_number_snapshot ?? p.point_number}
-                        </text>
-                        {m && (
-                          <text
-                            x={cx + 18}
-                            y={cy + 4}
-                            fontSize={11}
-                            fontWeight={600}
-                            fill="#0f172a"
-                            pointerEvents="none"
-                          >
-                            {m.depth_value}
-                          </text>
-                        )}
-                      </g>
-                    )
-                  })}
-
-                  {/* Orphan measurements (point was deleted) */}
-                  {orphanMeasurements.map((m) => (
-                    <g key={`om-${m.id}`}>
-                      <circle
-                        cx={m.x_snapshot * w}
-                        cy={m.y_snapshot * h}
-                        r={14}
-                        fill={severityColor(m.severity, settings)}
-                        stroke="#9ca3af"
-                        strokeWidth={1.5}
-                        strokeDasharray="3 2"
-                      />
-                      <text
-                        x={m.x_snapshot * w}
-                        y={m.y_snapshot * h + 4}
-                        textAnchor="middle"
-                        fontSize={10}
-                        fontWeight={700}
-                        fill="#ffffff"
-                      >
-                        {m.point_number_snapshot}
-                      </text>
-                      <text
-                        x={m.x_snapshot * w + 18}
-                        y={m.y_snapshot * h + 4}
-                        fontSize={11}
-                        fontWeight={600}
-                        fill="#0f172a"
-                      >
-                        {m.depth_value}
-                      </text>
-                    </g>
-                  ))}
-                </svg>
+              <div className="w-full max-w-xs" style={{ aspectRatio: "380/740" }}>
+                <USARink
+                  points={rinkPoints}
+                  showValues
+                  className="rounded-xl border"
+                />
               </div>
               <p className="text-muted-foreground text-xs">
                 Colors come from session-snapshot severities. Changing the

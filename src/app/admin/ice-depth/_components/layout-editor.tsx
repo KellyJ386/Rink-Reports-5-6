@@ -13,6 +13,8 @@ import {
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { toast } from "sonner"
 
+import { RINK_W, RINK_H } from "@/components/ice-depth/usa-rink"
+
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -365,14 +367,12 @@ function ModeToolbar({
 }
 
 // ---------------------------------------------------------------------------
-// SVG diagram panel
+// SVG diagram panel — USA Hockey rink
 // ---------------------------------------------------------------------------
-
-const VIEW_HEIGHT = 600
 
 function DiagramPanel({
   layoutId,
-  aspectRatio,
+  aspectRatio: _aspectRatio,
   points,
   mode,
   placeDisabled,
@@ -393,9 +393,9 @@ function DiagramPanel({
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const w = Math.max(80, Math.round(VIEW_HEIGHT * aspectRatio))
-  const h = VIEW_HEIGHT
-
+  // toFrac maps client coords → 0..1 fractions stored as x_position/y_position.
+  // The SVG container matches the rink's natural aspect ratio (380:740), so no
+  // letterboxing occurs and this simple division is accurate.
   const toFrac = useCallback(
     (clientX: number, clientY: number): { x: number; y: number } | null => {
       const svg = svgRef.current
@@ -418,9 +418,10 @@ function DiagramPanel({
       toast.error("Maximum 60 active points reached.")
       return
     }
-    // Ignore clicks bubbling up from existing points (their handlers preventDefault)
+    // Rink markings have pointerEvents="none" so only the overlay rect and
+    // the SVG root itself can trigger this handler in place mode.
     const target = e.target as Element
-    if (target.tagName !== "svg" && target.tagName !== "rect") return
+    if (target.dataset.pointChip) return
     const frac = toFrac(e.clientX, e.clientY)
     if (!frac) return
     startPlacing(async () => {
@@ -496,12 +497,12 @@ function DiagramPanel({
   return (
     <div className="flex flex-col items-center gap-2">
       <div
-        className="bg-background relative w-full max-w-md rounded-md border p-2"
-        style={{ aspectRatio: `${aspectRatio}` }}
+        className="bg-background relative w-full max-w-sm rounded-md border p-2"
+        style={{ aspectRatio: `${RINK_W}/${RINK_H}` }}
       >
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${w} ${h}`}
+          viewBox={`0 0 ${RINK_W} ${RINK_H}`}
           preserveAspectRatio="xMidYMid meet"
           className={cn("h-full w-full select-none", cursor)}
           onClick={onSvgClick}
@@ -509,86 +510,78 @@ function DiagramPanel({
           onPointerUp={onSvgPointerUp}
           onPointerLeave={onSvgPointerUp}
         >
-          {/* Rink outline */}
-          <rect
-            x={2}
-            y={2}
-            width={w - 4}
-            height={h - 4}
-            rx={Math.min(w, h) * 0.18}
-            ry={Math.min(w, h) * 0.18}
-            fill="#e0f2fe"
-            stroke="#0c4a6e"
-            strokeWidth={2}
-          />
-          {/* Center red line */}
-          <line
-            x1={2}
-            y1={h / 2}
-            x2={w - 2}
-            y2={h / 2}
-            stroke="#dc2626"
-            strokeWidth={2}
-          />
-          {/* Center circle */}
-          <circle
-            cx={w / 2}
-            cy={h / 2}
-            r={Math.min(w, h) * 0.06}
-            fill="none"
-            stroke="#dc2626"
-            strokeWidth={1}
-          />
-          {/* Blue lines */}
-          <line
-            x1={2}
-            y1={h * 0.32}
-            x2={w - 2}
-            y2={h * 0.32}
-            stroke="#2563eb"
-            strokeWidth={2}
-          />
-          <line
-            x1={2}
-            y1={h * 0.68}
-            x2={w - 2}
-            y2={h * 0.68}
-            stroke="#2563eb"
-            strokeWidth={2}
-          />
+          {/* USA Hockey rink markings — pointer-events off so clicks pass
+              through to the SVG root for place mode */}
+          <g pointerEvents="none">
+            <defs>
+              <pattern
+                id="rr-editor-net"
+                x="0"
+                y="0"
+                width="6"
+                height="6"
+                patternUnits="userSpaceOnUse"
+              >
+                <path d="M 0 0 L 6 6 M 6 0 L 0 6" stroke="#999" strokeWidth="0.5" fill="none" />
+              </pattern>
+            </defs>
+            <rect x="62.5" y="70" width="255" height="600" rx="84" ry="84" fill="#e8f4f8" stroke="#333" strokeWidth="2" />
+            <line x1="62.5" y1="370" x2="317.5" y2="370" stroke="#cc0000" strokeWidth="3" strokeDasharray="8 8" />
+            <line x1="62.5" y1="262" x2="317.5" y2="262" stroke="#0044aa" strokeWidth="3" />
+            <line x1="62.5" y1="478" x2="317.5" y2="478" stroke="#0044aa" strokeWidth="3" />
+            <line x1="80" y1="103" x2="300" y2="103" stroke="#cc0000" strokeWidth="1.5" />
+            <line x1="80" y1="637" x2="300" y2="637" stroke="#cc0000" strokeWidth="1.5" />
+            <rect x="181" y="93" width="18" height="10" fill="url(#rr-editor-net)" stroke="#cc0000" strokeWidth="1.5" />
+            <rect x="181" y="637" width="18" height="10" fill="url(#rr-editor-net)" stroke="#cc0000" strokeWidth="1.5" />
+            <path d="M 172 103 A 18 18 0 0 1 208 103" fill="#add8e6" stroke="#cc0000" strokeWidth="1.5" />
+            <path d="M 172 637 A 18 18 0 0 0 208 637" fill="#add8e6" stroke="#cc0000" strokeWidth="1.5" />
+            <circle cx="190" cy="370" r="4" fill="#0044aa" />
+            <circle cx="190" cy="370" r="45" fill="none" stroke="#0044aa" strokeWidth="1.5" />
+            {([[124, 163], [256, 163], [124, 577], [256, 577]] as [number,number][]).map(([fx, fy], i) => (
+              <g key={i}>
+                <circle cx={fx} cy={fy} r="4" fill="#cc0000" />
+                <circle cx={fx} cy={fy} r="45" fill="none" stroke="#cc0000" strokeWidth="1.5" />
+              </g>
+            ))}
+          </g>
 
-          {/* Points */}
+          {/* Point chips */}
           {points.map((p) => {
             const isDragging = dragging === p.id
             const x = isDragging && dragPos ? dragPos.x : p.x_position
             const y = isDragging && dragPos ? dragPos.y : p.y_position
-            const cx = x * w
-            const cy = y * h
+            const cx = x * RINK_W
+            const cy = y * RINK_H
             const isSelected = selectedId === p.id
             const r = 14
             return (
               <g
                 key={p.id}
+                data-point-chip="1"
                 onPointerDown={(e) => onPointPointerDown(e, p)}
                 style={{ cursor: mode === "drag" ? "grab" : "pointer" }}
               >
+                {isSelected && (
+                  <circle cx={cx} cy={cy} r={r + 6} fill="rgba(105,190,40,0.25)" stroke="#69BE28" strokeWidth="1.5" />
+                )}
                 <circle
                   cx={cx}
                   cy={cy}
                   r={r}
-                  fill={p.is_active ? "#0f172a" : "#94a3b8"}
-                  stroke={isSelected ? "#facc15" : "#ffffff"}
-                  strokeWidth={isSelected ? 3 : 2}
-                  opacity={p.is_active ? 1 : 0.55}
+                  fill={isSelected ? "#002244" : p.is_active ? "#334155" : "#94a3b8"}
+                  stroke={isSelected ? "#69BE28" : "#ffffff"}
+                  strokeWidth={isSelected ? 2.5 : 1.5}
+                  opacity={p.is_active ? 1 : 0.5}
                 />
                 <text
                   x={cx}
                   y={cy + 4}
                   textAnchor="middle"
                   fontSize={11}
-                  fontWeight={600}
+                  fontWeight={700}
                   fill="#ffffff"
                   pointerEvents="none"
+                  style={{ userSelect: "none" }}
                 >
                   {p.point_number}
                 </text>
