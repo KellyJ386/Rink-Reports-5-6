@@ -422,6 +422,13 @@ function DiagramPanel({
       return
     }
     // Rink markings have pointerEvents="none" so only the overlay rect and
+    // the SVG root itself can trigger this handler in place mode. Clicks
+    // bubbling up from a point chip (or any of its descendants) must be
+    // ignored so they don't create a new point on top of an existing one.
+    const target = e.target
+    if (target instanceof Element && target.closest("[data-point-chip]")) {
+      return
+    }
     // the SVG root itself can trigger this handler in place mode.
     const target = e.target as SVGElement
     if (target.closest("[data-point-chip]")) return
