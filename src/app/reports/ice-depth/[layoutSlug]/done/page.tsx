@@ -98,6 +98,9 @@ export default async function IceDepthDonePage({
   }
 
   const BG_FOR: Record<SeverityKey, string> = {
+    ok: "bg-emerald-500",
+    low: "bg-red-500",
+    high: "bg-amber-500",
     ok: "bg-green-600",
     low: "bg-red-600",
     high: "bg-amber-600",

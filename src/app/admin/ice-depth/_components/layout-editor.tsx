@@ -10,7 +10,10 @@ import {
   useState,
   useTransition,
 } from "react"
-import type { PointerEvent as ReactPointerEvent } from "react"
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react"
 import { toast } from "sonner"
 
 import { RINK_W, RINK_H } from "@/components/ice-depth/usa-rink"
@@ -412,7 +415,7 @@ function DiagramPanel({
     [],
   )
 
-  function onSvgClick(e: React.MouseEvent<SVGSVGElement>) {
+  function onSvgClick(e: ReactMouseEvent<SVGSVGElement>) {
     if (mode !== "place") return
     if (placeDisabled) {
       toast.error("Maximum 60 active points reached.")
@@ -420,6 +423,8 @@ function DiagramPanel({
     }
     // Rink markings have pointerEvents="none" so only the overlay rect and
     // the SVG root itself can trigger this handler in place mode.
+    const target = e.target as SVGElement
+    if (target.closest("[data-point-chip]")) return
     const target = e.target as Element
     if (target instanceof HTMLElement || target instanceof SVGElement) {
       if (target.dataset.pointChip) return
@@ -456,7 +461,7 @@ function DiagramPanel({
     }
   }
 
-  function onSvgPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+  function onSvgPointerMove(e: ReactPointerEvent<SVGSVGElement>) {
     if (mode !== "drag" || !dragging) return
     const frac = toFrac(e.clientX, e.clientY)
     if (!frac) return
