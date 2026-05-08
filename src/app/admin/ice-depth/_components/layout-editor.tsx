@@ -420,8 +420,8 @@ function DiagramPanel({
     }
     // Rink markings have pointerEvents="none" so only the overlay rect and
     // the SVG root itself can trigger this handler in place mode.
-    const target = e.target as Element
-    if (target.dataset.pointChip) return
+    const target = e.target as SVGElement
+    if (target.closest("[data-point-chip]")) return
     const frac = toFrac(e.clientX, e.clientY)
     if (!frac) return
     startPlacing(async () => {
