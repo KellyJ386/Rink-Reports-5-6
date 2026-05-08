@@ -1,7 +1,105 @@
-import { StubPage } from "@/components/admin/stub-page"
+import { redirect } from "next/navigation"
+
+import { requireAdmin } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/server"
+
+import { FacilitiesPanel } from "./_components/facilities-panel"
+import { SuperAdminUsersPanel } from "./_components/super-admin-users-panel"
+import type { FacilityRow, FacilityWithStats, SuperAdminUserRow } from "./types"
 
 export const dynamic = "force-dynamic"
 
-export default function SuperAdminPage() {
-  return <StubPage title="Super Admin" />
+export default async function SuperAdminPage() {
+  const current = await requireAdmin()
+
+  if (!current.profile?.is_super_admin) {
+    redirect("/forbidden")
+  }
+
+  const currentUserId = current.profile.id
+
+  const supabase = await createClient()
+
+  // Load all facilities + employee counts in parallel
+  const [facilitiesRes, empCountsRes, usersRes] = await Promise.all([
+    supabase
+      .from("facilities")
+      .select("id, name, slug, timezone, is_active, created_at")
+      .order("name", { ascending: true }),
+    supabase.rpc("get_employee_counts_by_facility"),
+    supabase
+      .from("users")
+      .select(
+        "id, email, full_name, is_super_admin, is_active, last_seen_at, created_at, facility_id",
+      )
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .order("email", { ascending: true }),
+  ])
+
+  const facilities = (facilitiesRes.data ?? []) as FacilityRow[]
+  const empCounts = (empCountsRes.data ?? []) as Array<{
+    facility_id: string
+    employee_count: number
+  }>
+  const empCountMap = new Map(empCounts.map((r) => [r.facility_id, r.employee_count]))
+
+  const facilitiesWithStats: FacilityWithStats[] = facilities.map((f) => ({
+    ...f,
+    employee_count: empCountMap.get(f.id) ?? 0,
+  }))
+
+  // Load facility names for the users panel
+  const facilityNameMap = new Map(facilities.map((f) => [f.id, f.name]))
+
+  const rawUsers = (usersRes.data ?? []) as Array<{
+    id: string
+    email: string
+    full_name: string | null
+    is_super_admin: boolean
+    is_active: boolean
+    last_seen_at: string | null
+    created_at: string
+    facility_id: string | null
+  }>
+
+  const users: SuperAdminUserRow[] = rawUsers.map((u) => ({
+    ...u,
+    facility_name: u.facility_id ? (facilityNameMap.get(u.facility_id) ?? null) : null,
+  }))
+
+  const totalFacilities = facilities.length
+  const activeFacilities = facilities.filter((f) => f.is_active).length
+  const totalUsers = users.length
+  const superAdminCount = users.filter((u) => u.is_super_admin).length
+
+  return (
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Super Admin</h1>
+        <p className="text-muted-foreground text-sm">
+          Cross-facility platform management. Changes here affect all tenants.
+        </p>
+      </div>
+
+      {/* Stats strip */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Total facilities" value={totalFacilities} />
+        <StatCard label="Active facilities" value={activeFacilities} />
+        <StatCard label="Total users" value={totalUsers} />
+        <StatCard label="Super admins" value={superAdminCount} />
+      </div>
+
+      <FacilitiesPanel facilities={facilitiesWithStats} />
+      <SuperAdminUsersPanel users={users} currentUserId={currentUserId} />
+    </div>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border p-4 flex flex-col gap-1">
+      <span className="text-2xl font-semibold tabular-nums">{value}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
+    </div>
+  )
 }
