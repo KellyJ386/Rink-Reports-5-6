@@ -54,6 +54,8 @@ function buildBackHref(params: Record<string, string | undefined>): string {
   return `/admin/audit-log?${sp.toString()}`
 }
 
+export const metadata = { title: "Audit Log | MFO / Rink Reports" }
+
 export default async function AuditLogPage({
   searchParams,
 }: {

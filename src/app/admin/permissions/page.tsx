@@ -56,6 +56,8 @@ type ModulePermissionRow = {
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Permissions | MFO / Rink Reports" }
+
 export default async function PermissionsPage() {
   await requireAdmin()
   const supabase = await createClient()

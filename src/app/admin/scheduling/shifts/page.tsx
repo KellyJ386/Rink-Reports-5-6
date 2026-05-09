@@ -50,6 +50,8 @@ function parseAnchorDate(date: string | undefined): Date {
   )
 }
 
+export const metadata = { title: "Shift Management | MFO / Rink Reports" }
+
 export default async function ShiftsPage({
   searchParams,
 }: {

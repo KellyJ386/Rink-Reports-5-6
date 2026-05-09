@@ -27,6 +27,8 @@ function startOfWeekIso(weekStartDay: number): { start: string; end: string } {
   return { start: start.toISOString(), end: end.toISOString() }
 }
 
+export const metadata = { title: "Scheduling | MFO / Rink Reports" }
+
 export default async function SchedulingOverviewPage() {
   const current = await requireAdmin()
   const profile = current.profile

@@ -58,6 +58,8 @@ function defaultDateFrom(): string {
   return d.toISOString().slice(0, 10)
 }
 
+export const metadata = { title: "Ice Depth | MFO / Rink Reports" }
+
 export default async function IceDepthAdminPage({
   searchParams,
 }: {

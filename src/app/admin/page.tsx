@@ -13,48 +13,105 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { requireAdmin } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-interface OverviewCard {
-  title: string
-  value: string
-  description: string
-  icon: typeof Building2
-  superAdminOnly?: boolean
-}
+export const metadata = { title: "Dashboard | MFO / Rink Reports" }
 
 export default async function AdminDashboardPage() {
   const { profile } = await requireAdmin()
+  const supabase = await createClient()
 
-  // TODO: wire counts to real data once the underlying tables exist.
-  // (facilities, employees, daily_reports, incidents/accidents).
   const isSuperAdmin = profile?.is_super_admin ?? false
+  const facilityId = profile?.facility_id
+
+  // UTC midnight for "today" boundary
+  const todayUtc = new Date()
+  todayUtc.setUTCHours(0, 0, 0, 0)
+
+  const [
+    { count: facilityCount },
+    { count: employeeCount },
+    { count: dailyCount },
+    { count: incidentCount },
+    { count: accidentCount },
+  ] = await Promise.all([
+    isSuperAdmin
+      ? supabase
+          .from("facilities")
+          .select("*", { count: "exact", head: true })
+          .eq("is_active", true)
+      : Promise.resolve({ count: null }),
+    facilityId
+      ? supabase
+          .from("employees")
+          .select("*", { count: "exact", head: true })
+          .eq("facility_id", facilityId)
+          .eq("is_active", true)
+      : Promise.resolve({ count: null }),
+    facilityId
+      ? supabase
+          .from("daily_report_submissions")
+          .select("*", { count: "exact", head: true })
+          .eq("facility_id", facilityId)
+          .gte("submitted_at", todayUtc.toISOString())
+      : Promise.resolve({ count: null }),
+    facilityId
+      ? supabase
+          .from("incident_reports")
+          .select("*", { count: "exact", head: true })
+          .eq("facility_id", facilityId)
+      : Promise.resolve({ count: null }),
+    facilityId
+      ? supabase
+          .from("accident_reports")
+          .select("*", { count: "exact", head: true })
+          .eq("facility_id", facilityId)
+      : Promise.resolve({ count: null }),
+  ])
+
+  function fmt(n: number | null): string {
+    if (n === null) return "—"
+    return n.toLocaleString()
+  }
+
+  interface OverviewCard {
+    title: string
+    value: string
+    description: string
+    icon: typeof Building2
+    superAdminOnly?: boolean
+  }
 
   const cards: OverviewCard[] = [
     {
       title: "Total facilities",
-      value: "—",
-      description: "Across the organization (super admin view).",
+      value: fmt(facilityCount),
+      description: "Active facilities across the organization.",
       icon: Building2,
       superAdminOnly: true,
     },
     {
       title: "Active employees",
-      value: "0",
+      value: fmt(employeeCount),
       description: "Currently active at this facility.",
       icon: Users,
     },
     {
       title: "Reports submitted today",
-      value: "0",
+      value: fmt(dailyCount),
       description: "Daily report submissions for the current day.",
       icon: FileText,
     },
     {
-      title: "Active incidents / accidents",
-      value: "0",
-      description: "Open incident and accident reports.",
+      title: "Incidents & accidents",
+      value: fmt(
+        incidentCount !== null || accidentCount !== null
+          ? (incidentCount ?? 0) + (accidentCount ?? 0)
+          : null,
+      ),
+      description: "Total incident and accident reports on record.",
       icon: AlertTriangle,
     },
   ]
@@ -104,8 +161,7 @@ export default async function AdminDashboardPage() {
           <CardTitle>Welcome to the Admin Control Center</CardTitle>
           <CardDescription>
             Use the sidebar to manage facility setup, configure module access,
-            and review activity. Sections marked &ldquo;Coming soon&rdquo; will
-            be enabled in later phases.
+            and review activity.
           </CardDescription>
         </CardHeader>
       </Card>

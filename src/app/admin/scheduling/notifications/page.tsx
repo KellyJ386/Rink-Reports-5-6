@@ -74,6 +74,8 @@ const TYPE_BADGE: Record<string, string> = {
     "bg-orange-100 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100",
 }
 
+export const metadata = { title: "Scheduling Notifications | MFO / Rink Reports" }
+
 export default async function NotificationsPage({
   searchParams,
 }: {

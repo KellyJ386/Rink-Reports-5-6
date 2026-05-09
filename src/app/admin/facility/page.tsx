@@ -171,6 +171,8 @@ function NoFacilityAssigned() {
   )
 }
 
+export const metadata = { title: "Facility Settings | MFO / Rink Reports" }
+
 export default async function FacilitySettingsPage({
   searchParams,
 }: {

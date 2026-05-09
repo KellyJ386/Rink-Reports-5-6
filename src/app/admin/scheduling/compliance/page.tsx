@@ -16,6 +16,8 @@ import { ComplianceClient } from "./_components/compliance-client"
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Compliance Rules | MFO / Rink Reports" }
+
 export default async function CompliancePage() {
   const current = await requireAdmin()
   const facilityId = current.profile?.facility_id ?? null

@@ -55,6 +55,8 @@ function tabHref(tab: Tab): string {
   return `/admin/accident-reports?${sp.toString()}`
 }
 
+export const metadata = { title: "Accident Reports | MFO / Rink Reports" }
+
 export default async function AccidentReportsAdminPage({
   searchParams,
 }: {

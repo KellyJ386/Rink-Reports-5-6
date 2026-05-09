@@ -17,6 +17,8 @@ import { MODULES } from "./types"
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Data Retention | MFO / Rink Reports" }
+
 export default async function DataRetentionPage() {
   const current = await requireAdmin()
   const facilityId = current.profile?.facility_id ?? null
