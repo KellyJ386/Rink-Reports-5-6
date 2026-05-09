@@ -27,13 +27,17 @@ export async function setSuperAdminFlag(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireSuperAdmin()
+  const current = await requireSuperAdmin()
 
   const userId = formData.get("user_id")
   const value = formData.get("value") === "true"
 
   if (typeof userId !== "string" || !userId.trim()) {
     return { ok: false, error: "User ID is required." }
+  }
+
+  if (!value && current.profile?.id === userId.trim()) {
+    return { ok: false, error: "You cannot revoke your own super-admin access." }
   }
 
   const supabase = await createClient()

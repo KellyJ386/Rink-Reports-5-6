@@ -64,6 +64,8 @@ function defaultDateFrom(): string {
   return d.toISOString().slice(0, 10)
 }
 
+export const metadata = { title: "Air Quality | MFO / Rink Reports" }
+
 export default async function AirQualityAdminPage({
   searchParams,
 }: {

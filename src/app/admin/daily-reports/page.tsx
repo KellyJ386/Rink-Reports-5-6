@@ -73,6 +73,8 @@ function tabHref(
   return `/admin/daily-reports?${sp.toString()}`
 }
 
+export const metadata = { title: "Daily Reports | MFO / Rink Reports" }
+
 export default async function DailyReportsAdminPage({
   searchParams,
 }: {

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState, useEffect, useMemo, useState } from "react"
+import { useActionState, useEffect, useMemo } from "react"
 import { toast } from "sonner"
 
 import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
@@ -51,8 +51,6 @@ function severityColor(
   if (severity === "high") return high
   return ok
 }
-
-const VIEW_HEIGHT = 600
 
 export function SessionDetail({ detail, backHref }: Props) {
   const { session, layout, points, employee, measurements, notes, settings } =

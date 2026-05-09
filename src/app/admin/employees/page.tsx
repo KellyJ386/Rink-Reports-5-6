@@ -30,6 +30,8 @@ type EmployeeDeptJoinRow = {
 
 type SearchParams = Promise<{ facility?: string }>
 
+export const metadata = { title: "Employees | MFO / Rink Reports" }
+
 export default async function EmployeesPage({
   searchParams,
 }: {

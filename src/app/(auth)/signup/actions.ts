@@ -25,6 +25,9 @@ export async function signupAction(
       fullName,
     }
   }
+  if (!email.includes("@") || email.length > 254) {
+    return { error: "Enter a valid email address.", email, fullName }
+  }
 
   if (password.length < 8) {
     return {

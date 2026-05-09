@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
 
 import type { AuditLogEntry } from "../types"
 import { ACTION_LABELS, ENTITY_TYPE_LABELS } from "../types"

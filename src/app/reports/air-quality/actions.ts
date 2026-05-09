@@ -300,7 +300,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
       complianceMin = t.compliance_min
       complianceMax = t.compliance_max
       const minHit = t.alert_min !== null && r.value < t.alert_min
-      const maxHit = t.alert_max !== null && r.value >= t.alert_max
+      const maxHit = t.alert_max !== null && r.value > t.alert_max
       if (minHit || maxHit) {
         isExceedance = true
         severity = VALID_SEVERITIES.has(t.severity as AirQualitySeverity)

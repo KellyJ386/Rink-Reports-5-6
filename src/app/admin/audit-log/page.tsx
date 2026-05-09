@@ -54,6 +54,8 @@ function buildBackHref(params: Record<string, string | undefined>): string {
   return `/admin/audit-log?${sp.toString()}`
 }
 
+export const metadata = { title: "Audit Log | MFO / Rink Reports" }
+
 export default async function AuditLogPage({
   searchParams,
 }: {
@@ -116,8 +118,9 @@ export default async function AuditLogPage({
   if (to) q = q.lte("created_at", `${to}T23:59:59.999Z`)
   if (params.q) {
     const search = params.q.trim()
-    // Search by IP (cast) or entity_id text match
-    q = q.or(`entity_id::text.ilike.%${search}%`)
+    // Restrict to UUID-safe characters to prevent PostgREST DSL injection.
+    const safe = search.replace(/[^a-f0-9-]/gi, "")
+    if (safe) q = q.or(`entity_id::text.ilike.%${safe}%`)
   }
 
   const { data: rawEntries } = await q

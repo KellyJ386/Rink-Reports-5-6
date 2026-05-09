@@ -135,6 +135,7 @@ export async function cancelTimeOffRequest(
     .from("schedule_time_off_requests")
     .select("id, status, employee_id")
     .eq("id", id)
+    .eq("facility_id", auth.employee.facility_id)
     .maybeSingle()
 
   if (fetchErr || !row) {
@@ -214,6 +215,7 @@ export async function upsertAvailability(
       .from("schedule_availability")
       .select("id, employee_id")
       .eq("id", id)
+      .eq("facility_id", auth.employee.facility_id)
       .maybeSingle()
     if (!row || row.employee_id !== auth.employee.id) {
       return { status: "error", error: "Entry not found." }
@@ -222,6 +224,7 @@ export async function upsertAvailability(
       .from("schedule_availability")
       .update(payload)
       .eq("id", id)
+      .eq("facility_id", auth.employee.facility_id)
     if (error) {
       return {
         status: "error",
@@ -347,6 +350,7 @@ export async function cancelSwapRequest(
     .from("schedule_swap_requests")
     .select("id, status, requester_employee_id")
     .eq("id", id)
+    .eq("facility_id", auth.employee.facility_id)
     .maybeSingle()
 
   if (!row) return { status: "error", error: "Swap not found." }
@@ -355,7 +359,7 @@ export async function cancelSwapRequest(
   }
   if (
     row.status === "cancelled" ||
-    row.status === "applied" ||
+    row.status === "manager_approved" ||
     row.status === "denied" ||
     row.status === "expired"
   ) {

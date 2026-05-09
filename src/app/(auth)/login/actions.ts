@@ -19,6 +19,9 @@ export async function loginAction(
   if (!email || !password) {
     return { error: "Email and password are required.", email }
   }
+  if (!email.includes("@") || email.length > 254) {
+    return { error: "Enter a valid email address.", email }
+  }
 
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword({ email, password })

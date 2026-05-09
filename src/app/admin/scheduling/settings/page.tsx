@@ -17,6 +17,8 @@ import { SettingsForm } from "./_components/settings-form"
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Scheduling Settings | MFO / Rink Reports" }
+
 export default async function SchedulingSettingsPage() {
   const current = await requireAdmin()
   const facilityId = current.profile?.facility_id ?? null

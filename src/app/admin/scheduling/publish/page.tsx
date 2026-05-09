@@ -16,6 +16,8 @@ import type { EmployeeLite, PublishEventRow } from "../_lib/types"
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Publish Schedule | MFO / Rink Reports" }
+
 export default async function PublishHistoryPage() {
   const current = await requireAdmin()
   const profile = current.profile

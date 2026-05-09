@@ -225,7 +225,7 @@ function parseShiftInput(
       employee_id,
       starts_at,
       ends_at,
-      break_minutes: parseInt0(formData.get("break_minutes")) ?? 0,
+      break_minutes: Math.max(0, parseInt0(formData.get("break_minutes")) ?? 0),
       role_label: nonEmpty(formData.get("role_label")),
       notes: nonEmpty(formData.get("notes")),
       status: parseStatus(formData.get("status")),
@@ -662,7 +662,11 @@ function parseTemplateShiftInput(
   if (!start_time) return { ok: false, error: "Start time is required." }
   const end_time = nonEmpty(formData.get("end_time"))
   if (!end_time) return { ok: false, error: "End time is required." }
-  if (end_time <= start_time) {
+  const toMinutes = (t: string) => {
+    const [h, m] = t.split(":").map(Number)
+    return h * 60 + m
+  }
+  if (toMinutes(end_time) <= toMinutes(start_time)) {
     return { ok: false, error: "End must be after start." }
   }
   const staff_count = parseInt0(formData.get("staff_count")) ?? 1
@@ -674,7 +678,7 @@ function parseTemplateShiftInput(
       day_of_week: dowRaw,
       start_time,
       end_time,
-      break_minutes: parseInt0(formData.get("break_minutes")) ?? 0,
+      break_minutes: Math.max(0, parseInt0(formData.get("break_minutes")) ?? 0),
       role_label: nonEmpty(formData.get("role_label")),
       staff_count: Math.max(1, staff_count),
     },

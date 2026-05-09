@@ -16,6 +16,8 @@ import type { ExportSettingsRow } from "./types"
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Export Settings | MFO / Rink Reports" }
+
 export default async function ExportSettingsPage() {
   const current = await requireAdmin()
   const facilityId = current.profile?.facility_id ?? null

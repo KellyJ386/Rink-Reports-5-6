@@ -52,6 +52,8 @@ type TimeOffWithEmployee = {
   } | null
 }
 
+export const metadata = { title: "Time Off | MFO / Rink Reports" }
+
 export default async function TimeOffPage({
   searchParams,
 }: {

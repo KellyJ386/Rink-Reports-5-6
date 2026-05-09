@@ -23,6 +23,8 @@ export const dynamic = "force-dynamic"
 
 type SearchParams = Promise<{ template?: string }>
 
+export const metadata = { title: "Schedule Templates | MFO / Rink Reports" }
+
 export default async function TemplatesPage({
   searchParams,
 }: {

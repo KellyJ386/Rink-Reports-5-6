@@ -61,6 +61,8 @@ type EmployeeLite = {
   employee_code: string | null
 }
 
+export const metadata = { title: "Shift Swaps | MFO / Rink Reports" }
+
 export default async function SwapsPage({
   searchParams,
 }: {

@@ -67,6 +67,8 @@ function asArray(v: string | string[] | undefined): string[] {
   return Array.isArray(v) ? v : [v]
 }
 
+export const metadata = { title: "Ice Operations | MFO / Rink Reports" }
+
 export default async function IceOperationsAdminPage({
   searchParams,
 }: {

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 
-import { getCurrentUser } from "@/lib/auth"
+import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState } from "./types"
@@ -18,10 +18,10 @@ function dbError(err: SupabaseError, fallback: string): string {
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
-  const current = await getCurrentUser()
-  const profile = current?.profile
-  if (!profile) return { ok: false, error: "Not signed in." }
-  if (!profile.facility_id) return { ok: false, error: "No facility assigned." }
+  // requireAdmin() redirects to /login or /forbidden if the caller is not an
+  // admin-level user, so unauthenticated / unauthorized calls never reach the upsert.
+  const { profile } = await requireAdmin()
+  if (!profile?.facility_id) return { ok: false, error: "No facility assigned." }
   return { ok: true, facilityId: profile.facility_id }
 }
 
@@ -37,8 +37,22 @@ export async function upsertRetentionSetting(
   const keepDaysRaw = formData.get("keep_days")
   const autoPurge = formData.get("auto_purge") === "on"
 
+  const KNOWN_MODULE_KEYS = new Set([
+    "daily_reports",
+    "incident_reports",
+    "accident_reports",
+    "communications",
+    "refrigeration",
+    "air_quality",
+    "ice_operations",
+    "scheduling",
+  ])
+
   if (typeof moduleKey !== "string" || !moduleKey.trim()) {
     return { ok: false, error: "Module key is required." }
+  }
+  if (!KNOWN_MODULE_KEYS.has(moduleKey.trim())) {
+    return { ok: false, error: "Invalid module key." }
   }
   const keepDays = parseInt(String(keepDaysRaw), 10)
   if (!Number.isFinite(keepDays) || keepDays < 30) {

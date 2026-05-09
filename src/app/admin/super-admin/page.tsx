@@ -9,6 +9,8 @@ import type { FacilityRow, FacilityWithStats, SuperAdminUserRow } from "./types"
 
 export const dynamic = "force-dynamic"
 
+export const metadata = { title: "Super Admin | MFO / Rink Reports" }
+
 export default async function SuperAdminPage() {
   const current = await requireAdmin()
 

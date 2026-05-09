@@ -909,11 +909,18 @@ function parseReminderForm(formData: FormData): {
   const schedule_cron = nonEmpty(formData.get("schedule_cron"))
   if (!schedule_cron)
     return { ok: false, error: "Schedule (cron) is required." }
-  // Loose cron validation: 5 whitespace-delimited tokens.
-  if (schedule_cron.split(/\s+/).length !== 5) {
+  const cronParts = schedule_cron.split(/\s+/)
+  if (cronParts.length !== 5) {
     return {
       ok: false,
       error: "Cron must have 5 fields, e.g. '0 8 * * 1'.",
+    }
+  }
+  // Validate each cron field: only allow digits, *, -, /, and commas.
+  if (cronParts.some((p) => !/^[\d*/,\-]+$/.test(p))) {
+    return {
+      ok: false,
+      error: "Cron fields may only contain digits, *, -, /, and commas.",
     }
   }
   const template_id = nonEmpty(formData.get("template_id"))

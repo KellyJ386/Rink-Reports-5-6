@@ -15,11 +15,11 @@ export type EmployeeLite = {
   last_name: string
 }
 
-export type IncidentStatus = "submitted" | "reviewed" | "resolved" | "archived"
+export type IncidentStatus = "submitted" | "in_review" | "resolved" | "archived"
 
 export const STATUSES: readonly IncidentStatus[] = [
   "submitted",
-  "reviewed",
+  "in_review",
   "resolved",
   "archived",
 ] as const

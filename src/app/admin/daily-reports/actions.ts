@@ -648,15 +648,23 @@ export async function toggleSubmissionItem(
       return { ok: false, error: "Missing item id." }
     }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
-    let query = supabase
+    const callerFacilityId = current.profile?.facility_id ?? null
+    const facilityId =
+      callerFacilityId ??
+      (await (async () => {
+        const { data } = await supabase
+          .from("daily_report_submission_items")
+          .select("facility_id")
+          .eq("id", submission_item_id)
+          .maybeSingle()
+        return data?.facility_id ?? null
+      })())
+    if (!facilityId) return { ok: false, error: "Could not resolve facility." }
+    const { error } = await supabase
       .from("daily_report_submission_items")
       .update({ is_checked })
       .eq("id", submission_item_id)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
-    }
-    const { error } = await query
+      .eq("facility_id", facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
     }
@@ -727,15 +735,23 @@ export async function updateNote(
       return { ok: false, error: "Note cannot be empty." }
     }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
-    let query = supabase
+    const callerFacilityId = current.profile?.facility_id ?? null
+    const facilityId =
+      callerFacilityId ??
+      (await (async () => {
+        const { data } = await supabase
+          .from("daily_report_notes")
+          .select("facility_id")
+          .eq("id", note_id)
+          .maybeSingle()
+        return data?.facility_id ?? null
+      })())
+    if (!facilityId) return { ok: false, error: "Could not resolve facility." }
+    const { error } = await supabase
       .from("daily_report_notes")
       .update({ body: trimmed })
       .eq("id", note_id)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
-    }
-    const { error } = await query
+      .eq("facility_id", facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update note.") }
     }
@@ -751,15 +767,23 @@ export async function deleteNote(note_id: string): Promise<SimpleResult> {
     const current = await requireAdmin()
     if (!note_id) return { ok: false, error: "Missing note id." }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
-    let query = supabase
+    const callerFacilityId = current.profile?.facility_id ?? null
+    const facilityId =
+      callerFacilityId ??
+      (await (async () => {
+        const { data } = await supabase
+          .from("daily_report_notes")
+          .select("facility_id")
+          .eq("id", note_id)
+          .maybeSingle()
+        return data?.facility_id ?? null
+      })())
+    if (!facilityId) return { ok: false, error: "Could not resolve facility." }
+    const { error } = await supabase
       .from("daily_report_notes")
       .delete()
       .eq("id", note_id)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
-    }
-    const { error } = await query
+      .eq("facility_id", facilityId)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete note.") }
     }

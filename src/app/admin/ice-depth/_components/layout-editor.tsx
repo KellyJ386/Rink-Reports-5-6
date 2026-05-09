@@ -375,7 +375,6 @@ function ModeToolbar({
 
 function DiagramPanel({
   layoutId,
-  aspectRatio: _aspectRatio,
   points,
   mode,
   placeDisabled,
