@@ -15,6 +15,8 @@ import { WeekCalendar } from "../_components/week-calendar"
 import { formatDateRange } from "../_components/format-utils"
 import type { ShiftStatus } from "../types"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

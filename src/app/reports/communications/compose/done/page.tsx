@@ -8,6 +8,8 @@ import { createClient } from "@/lib/supabase/server"
 
 import { formatTimestamp } from "../../_components/format"
 
+export const dynamic = "force-dynamic"
+
 type SearchParams = {
   id?: string | string[]
 }

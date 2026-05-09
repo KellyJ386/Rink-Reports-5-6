@@ -14,6 +14,8 @@ import { createClient } from "@/lib/supabase/server"
 import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
 import { formatDateRange, formatDateTime } from "./_components/format-utils"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

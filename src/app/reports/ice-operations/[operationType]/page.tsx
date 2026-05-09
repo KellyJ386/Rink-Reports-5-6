@@ -17,6 +17,7 @@ import { CircleCheckForm } from "./_components/circle-check-form"
 import { EdgingForm } from "./_components/edging-form"
 import { IceMakeForm } from "./_components/ice-make-form"
 import {
+
   OPERATION_DESCRIPTIONS,
   OPERATION_EQUIPMENT_TYPE,
   OPERATION_LABELS,
@@ -25,6 +26,8 @@ import {
   type OperationType,
   type TemperatureUnit,
 } from "../types"
+
+export const dynamic = "force-dynamic"
 
 type RouteParams = {
   operationType: string

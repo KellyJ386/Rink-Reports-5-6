@@ -19,6 +19,8 @@ import {
 import { SwapForm } from "../_components/swap-form"
 import type { SwapStatus } from "../types"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

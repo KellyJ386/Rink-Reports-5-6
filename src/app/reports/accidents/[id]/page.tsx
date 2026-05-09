@@ -17,6 +17,8 @@ import type { BodyPartOption, DropdownOption } from "../types"
 import { EditForm } from "./_components/edit-form"
 import { ReadOnlyView } from "./_components/read-only-view"
 
+export const dynamic = "force-dynamic"
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

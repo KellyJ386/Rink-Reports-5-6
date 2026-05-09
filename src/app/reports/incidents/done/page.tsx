@@ -8,6 +8,8 @@ import { createClient } from "@/lib/supabase/server"
 
 import type { IncidentStatus } from "../types"
 
+export const dynamic = "force-dynamic"
+
 type SearchParams = {
   id?: string | string[]
 }

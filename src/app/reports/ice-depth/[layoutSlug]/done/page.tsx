@@ -8,6 +8,8 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
 
+export const dynamic = "force-dynamic"
+
 type SearchParams = {
   id?: string | string[]
 }
