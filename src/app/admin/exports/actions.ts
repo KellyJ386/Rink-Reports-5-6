@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 
-import { getCurrentUser } from "@/lib/auth"
+import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState } from "./types"
@@ -23,7 +23,7 @@ function dbError(err: SupabaseError, fallback: string): string {
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
-  const current = await getCurrentUser()
+  const current = await requireAdmin()
   const profile = current?.profile
   if (!profile) return { ok: false, error: "Not signed in." }
   if (!profile.facility_id) return { ok: false, error: "No facility assigned." }

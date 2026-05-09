@@ -37,8 +37,22 @@ export async function upsertRetentionSetting(
   const keepDaysRaw = formData.get("keep_days")
   const autoPurge = formData.get("auto_purge") === "on"
 
+  const KNOWN_MODULE_KEYS = new Set([
+    "daily_reports",
+    "incident_reports",
+    "accident_reports",
+    "communications",
+    "refrigeration",
+    "air_quality",
+    "ice_operations",
+    "scheduling",
+  ])
+
   if (typeof moduleKey !== "string" || !moduleKey.trim()) {
     return { ok: false, error: "Module key is required." }
+  }
+  if (!KNOWN_MODULE_KEYS.has(moduleKey.trim())) {
+    return { ok: false, error: "Invalid module key." }
   }
   const keepDays = parseInt(String(keepDaysRaw), 10)
   if (!Number.isFinite(keepDays) || keepDays < 30) {

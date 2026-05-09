@@ -510,7 +510,7 @@ export async function setReportStatus(
       archived_at?: string
     } = { status: newStatus }
 
-    if (newStatus === "reviewed") update.reviewed_at = nowIso
+    if (newStatus === "in_review") update.reviewed_at = nowIso
     if (newStatus === "resolved") update.resolved_at = nowIso
     if (newStatus === "archived") update.archived_at = nowIso
     // 'submitted' clears nothing — original submitted_at lives on the row.

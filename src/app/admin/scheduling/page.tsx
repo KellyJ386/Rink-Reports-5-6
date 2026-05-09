@@ -120,7 +120,7 @@ export default async function SchedulingOverviewPage() {
           title="Open shifts"
           value={openShifts}
           description="Unassigned and claimable"
-          href="/admin/scheduling/shifts?status=draft"
+          href="/admin/scheduling/shifts"
         />
         <CountCard
           title="Templates"

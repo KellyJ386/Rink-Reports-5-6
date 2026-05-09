@@ -53,11 +53,13 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
     return { ok: false, error: "Please choose when the incident happened." }
   }
 
-  // datetime-local values come without timezone; treat as local time.
-  const occurredAtDate = new Date(occurredAtRaw)
-  if (Number.isNaN(occurredAtDate.getTime())) {
+  // Validate the datetime-local string without a timezone round-trip.
+  // Appending "Z" just for validation; the raw value is passed to Postgres
+  // as-is so no server-timezone offset is applied.
+  if (Number.isNaN(new Date(occurredAtRaw + "Z").getTime())) {
     return { ok: false, error: "Invalid date and time." }
   }
+  const occurredAtIso = occurredAtRaw.length === 16 ? occurredAtRaw + ":00" : occurredAtRaw
 
   const { data: employeeRow, error: empErr } = await supabase
     .from("employees")
@@ -126,7 +128,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
       incident_type_id: incidentTypeId,
       severity_level_id: severityLevelId,
       location: location.length > 0 ? location : null,
-      occurred_at: occurredAtDate.toISOString(),
+      occurred_at: occurredAtIso,
       reporter_name: reporterName,
       reporter_phone: reporterPhone,
       description,
