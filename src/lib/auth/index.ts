@@ -1,5 +1,6 @@
 export { getCurrentUser } from "./get-current-user"
 export { requireUser } from "./require-user"
 export { requireAdmin } from "./require-admin"
+export { getIsAdmin } from "./get-is-admin"
 export { signOut } from "./sign-out"
 export type { AuthedUser, UserProfile } from "./types"

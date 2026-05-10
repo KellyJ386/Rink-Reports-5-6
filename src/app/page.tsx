@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/auth"
 export default async function Home() {
   const current = await getCurrentUser()
   if (current) {
-    redirect("/admin")
+    redirect("/reports")
   }
 
   return (
