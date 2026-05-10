@@ -3,9 +3,10 @@ import Link from "next/link"
 type StaffHeaderProps = {
   email: string | null
   fullName: string | null
+  isAdmin?: boolean
 }
 
-export function StaffHeader({ email, fullName }: StaffHeaderProps) {
+export function StaffHeader({ email, fullName, isAdmin }: StaffHeaderProps) {
   const displayName = fullName?.trim() || email || "Signed in"
 
   return (
@@ -23,6 +24,14 @@ export function StaffHeader({ email, fullName }: StaffHeaderProps) {
         >
           {displayName}
         </span>
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className="inline-flex h-10 min-w-[44px] items-center justify-center rounded-md border bg-background px-3 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            Admin
+          </Link>
+        )}
         <form action="/logout" method="post">
           <button
             type="submit"
