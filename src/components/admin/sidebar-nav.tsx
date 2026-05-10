@@ -24,6 +24,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
       <div className="flex flex-col gap-1">
         <Link
           href="/admin"
+          prefetch={false}
           onClick={onNavigate}
           className={cn(
             "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -49,6 +50,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
