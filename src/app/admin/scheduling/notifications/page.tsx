@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -278,9 +279,7 @@ export default async function NotificationsPage({
                           Read {formatDateTime(n.read_at)}
                         </span>
                       ) : (
-                        <span className="bg-yellow-100 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-100 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
-                          Unread
-                        </span>
+                        <Badge variant="warning">Unread</Badge>
                       )}
                     </td>
                   </tr>

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,6 +14,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 import {
@@ -282,9 +290,7 @@ function LocationHeader({ location }: { location: LocationRow }) {
           <CardTitle className="flex items-center gap-2">
             {location.name}
             {!location.is_active && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase">
-                inactive
-              </span>
+              <Badge variant="secondary" className="uppercase">inactive</Badge>
             )}
           </CardTitle>
           <div className="flex flex-wrap gap-2">
@@ -443,9 +449,7 @@ function EquipmentRowItem({ equipment }: { equipment: EquipmentRow }) {
             </span>
           )}
           {!equipment.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              off
-            </span>
+            <Badge variant="secondary" className="uppercase">off</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -750,20 +754,16 @@ function ReadingTypeRowItem({
             ({readingType.key}, {readingType.unit}, {readingType.decimals} dec)
           </span>
           {readingType.is_required && (
-            <span className="bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              required
-            </span>
+            <Badge variant="secondary" className="uppercase">required</Badge>
           )}
           {!readingType.is_active && (
-            <span className="bg-muted rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              off
-            </span>
+            <Badge variant="secondary" className="uppercase">off</Badge>
           )}
           {thresholds.length > 0 && (
-            <span className="bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+            <Badge variant="secondary">
               {thresholds.length} threshold
               {thresholds.length === 1 ? "" : "s"}
-            </span>
+            </Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -911,12 +911,9 @@ function ReadingTypeRowItem({
 // Thresholds block (collapsible under each reading type)
 // ---------------------------------------------------------------------------
 
-function severityBadgeClass(sev: Severity): string {
-  if (sev === "critical")
-    return "bg-destructive/15 text-destructive border-destructive/30"
-  if (sev === "high")
-    return "bg-orange-500/15 text-orange-700 border-orange-500/30 dark:text-orange-300"
-  return "bg-yellow-500/15 text-yellow-700 border-yellow-500/30 dark:text-yellow-300"
+function severityBadgeVariant(sev: Severity): "destructive" | "warning" {
+  if (sev === "critical") return "destructive"
+  return "warning"
 }
 
 function ThresholdsBlock({
@@ -972,6 +969,7 @@ function ThresholdRowItem({
   const [activePending, startActive] = useTransition()
   const [delPending, startDel] = useTransition()
   const sev = threshold.severity as Severity
+  const [editSev, setEditSev] = useState<Severity>(sev)
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Threshold updated.")
@@ -1004,18 +1002,11 @@ function ThresholdRowItem({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{scopeName}</span>
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-              severityBadgeClass(sev),
-            )}
-          >
+          <Badge variant={severityBadgeVariant(sev)} className="uppercase">
             {sev}
-          </span>
+          </Badge>
           {!threshold.is_active && (
-            <span className="bg-muted rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              off
-            </span>
+            <Badge variant="secondary" className="uppercase">off</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -1063,18 +1054,22 @@ function ThresholdRowItem({
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
               <Label htmlFor={`th-sev-${threshold.id}`}>Severity</Label>
-              <select
-                id={`th-sev-${threshold.id}`}
-                name="severity"
-                defaultValue={sev}
-                className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+              <input type="hidden" name="severity" value={editSev} />
+              <Select
+                value={editSev}
+                onValueChange={(v) => setEditSev(v as Severity)}
               >
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id={`th-sev-${threshold.id}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button type="submit" size="sm" disabled={pending}>
               {pending ? "Saving…" : "Save"}
@@ -1172,6 +1167,9 @@ function ThresholdCreateForm({
   locations: LocationRow[]
 }) {
   const [state, action, pending] = useActionState(createThreshold, NULL_STATE)
+  const [locationId, setLocationId] = useState("")
+  const [severity, setSeverity] = useState<Severity>("warn")
+
   useEffect(() => {
     if (state.ok === true)
       toast.success(state.message ?? "Threshold created.")
@@ -1181,37 +1179,44 @@ function ThresholdCreateForm({
   return (
     <form action={action} className="flex flex-col gap-3 rounded-md border p-3">
       <input type="hidden" name="reading_type_id" value={readingType.id} />
+      <input type="hidden" name="location_id" value={locationId} />
+      <input type="hidden" name="severity" value={severity} />
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <Label htmlFor={`new-th-loc-${readingType.id}`}>Scope</Label>
-          <select
-            id={`new-th-loc-${readingType.id}`}
-            name="location_id"
-            defaultValue=""
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          <Select
+            value={locationId || undefined}
+            onValueChange={(v) => setLocationId(v)}
           >
-            <option value="">All locations</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id={`new-th-loc-${readingType.id}`} className="min-w-40">
+              <SelectValue placeholder="All locations" />
+            </SelectTrigger>
+            <SelectContent>
+              {locations.map((l) => (
+                <SelectItem key={l.id} value={l.id}>
+                  {l.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={`new-th-sev-${readingType.id}`}>Severity</Label>
-          <select
-            id={`new-th-sev-${readingType.id}`}
-            name="severity"
-            defaultValue="warn"
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          <Select
+            value={severity}
+            onValueChange={(v) => setSeverity(v as Severity)}
           >
-            {SEVERITIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id={`new-th-sev-${readingType.id}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEVERITIES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <ThresholdValueInputs threshold={null} />

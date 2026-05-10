@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect } from "react"
+import { useActionState, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import { updateIceDepthSettings } from "../actions"
 import type {
@@ -41,17 +48,21 @@ export function SettingsTab({ settings }: Props) {
     if (state.ok === false) toast.error(state.error)
   }, [state])
 
-  const unit: MeasurementUnit =
-    (settings?.measurement_unit as MeasurementUnit) ?? "inches"
+  const [unit, setUnit] = useState<MeasurementUnit>(
+    (settings?.measurement_unit as MeasurementUnit) ?? "inches",
+  )
   const lowThr = settings?.low_threshold ?? 1
   const highThr = settings?.high_threshold ?? 2
   const lowColor = settings?.low_color ?? "#1d4ed8"
   const okColor = settings?.ok_color ?? "#16a34a"
   const highColor = settings?.high_color ?? "#dc2626"
   const alerts = settings?.alerts_enabled ?? false
-  const alertOn: AlertOn = (settings?.alert_on as AlertOn) ?? "any"
-  const sev: Severity =
-    (settings?.default_alert_severity as Severity) ?? "warn"
+  const [alertOn, setAlertOn] = useState<AlertOn>(
+    (settings?.alert_on as AlertOn) ?? "any",
+  )
+  const [sev, setSev] = useState<Severity>(
+    (settings?.default_alert_severity as Severity) ?? "warn",
+  )
 
   return (
     <Card>
@@ -69,33 +80,35 @@ export function SettingsTab({ settings }: Props) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <Label htmlFor="measurement-unit">Measurement unit</Label>
-              <select
-                id="measurement-unit"
-                name="measurement_unit"
-                defaultValue={unit}
-                className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-              >
-                {MEASUREMENT_UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
+              <input type="hidden" name="measurement_unit" value={unit} />
+              <Select value={unit} onValueChange={(v) => setUnit(v as MeasurementUnit)}>
+                <SelectTrigger id="measurement-unit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MEASUREMENT_UNITS.map((u) => (
+                    <SelectItem key={u} value={u}>
+                      {u}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="alert-on">Alert on</Label>
-              <select
-                id="alert-on"
-                name="alert_on"
-                defaultValue={alertOn}
-                className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-              >
-                {ALERT_ONS.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
+              <input type="hidden" name="alert_on" value={alertOn} />
+              <Select value={alertOn} onValueChange={(v) => setAlertOn(v as AlertOn)}>
+                <SelectTrigger id="alert-on">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALERT_ONS.map((a) => (
+                    <SelectItem key={a} value={a}>
+                      {a}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="low-threshold">Low threshold</Label>
@@ -163,18 +176,19 @@ export function SettingsTab({ settings }: Props) {
             </div>
             <div className="flex max-w-sm flex-col gap-1">
               <Label htmlFor="default-sev">Default alert severity</Label>
-              <select
-                id="default-sev"
-                name="default_alert_severity"
-                defaultValue={sev}
-                className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-              >
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <input type="hidden" name="default_alert_severity" value={sev} />
+              <Select value={sev} onValueChange={(v) => setSev(v as Severity)}>
+                <SelectTrigger id="default-sev">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

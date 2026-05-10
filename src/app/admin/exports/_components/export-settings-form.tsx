@@ -1,11 +1,8 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import {
   Card,
   CardContent,
@@ -13,6 +10,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 
 import { saveExportSettings } from "../actions"
 import type { ActionState, ExportSettingsRow } from "../types"
@@ -26,6 +33,7 @@ interface Props {
 
 export function ExportSettingsForm({ settings }: Props) {
   const [state, formAction, pending] = useActionState(saveExportSettings, INITIAL)
+  const [paperSize, setPaperSize] = useState<string>(settings?.paper_size ?? "letter")
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -85,18 +93,19 @@ export function ExportSettingsForm({ settings }: Props) {
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="paper_size">Paper size</Label>
-            <select
-              id="paper_size"
-              name="paper_size"
-              className="rounded-md border bg-background px-3 py-2 text-sm w-fit"
-              defaultValue={settings?.paper_size ?? "letter"}
-            >
-              {PAPER_SIZES.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="paper_size" value={paperSize} />
+            <Select value={paperSize} onValueChange={(v) => setPaperSize(v)}>
+              <SelectTrigger id="paper_size" className="w-fit min-w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAPER_SIZES.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex flex-col gap-2">

@@ -1,12 +1,19 @@
 "use client"
 
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import { applyTemplateToWeek } from "../../_lib/admin-core-actions"
 import type { TemplateRow } from "../../_lib/types"
@@ -18,6 +25,7 @@ type Props = {
 
 export function ApplyTemplateForm({ templates, onClose }: Props) {
   const [pending, start] = useTransition()
+  const [templateId, setTemplateId] = useState("")
   const router = useRouter()
 
   function onSubmit(formData: FormData) {
@@ -51,22 +59,22 @@ export function ApplyTemplateForm({ templates, onClose }: Props) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="template_id">Template</Label>
-          <select
-            id="template_id"
-            name="template_id"
-            required
-            defaultValue=""
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          <input type="hidden" name="template_id" value={templateId} />
+          <Select
+            value={templateId || undefined}
+            onValueChange={(v) => setTemplateId(v)}
           >
-            <option value="" disabled>
-              Pick a template…
-            </option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="template_id">
+              <SelectValue placeholder="Pick a template…" />
+            </SelectTrigger>
+            <SelectContent>
+              {templates.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="week_start">Week start (Sun-anchored)</Label>

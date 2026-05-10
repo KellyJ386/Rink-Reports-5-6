@@ -3,8 +3,16 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type { Json, Tables } from "@/types/database"
 
@@ -150,15 +158,9 @@ function RuleCard({
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">{rule.name}</span>
-            <span
-              className={`${
-                rule.is_active
-                  ? "bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-100"
-                  : "bg-muted text-muted-foreground"
-              } inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium`}
-            >
+            <Badge variant={rule.is_active ? "success" : "secondary"}>
               {rule.is_active ? "Active" : "Disabled"}
-            </span>
+            </Badge>
             <span className="text-muted-foreground text-xs">
               {RULE_TYPE_LABEL[ruleType]}
             </span>
@@ -330,17 +332,21 @@ function AddRuleForm({ onDone }: { onDone: () => void }) {
       <div className="grid gap-3 md:grid-cols-2">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium">Rule type</label>
-          <select
+          <Select
             value={ruleType}
-            onChange={(e) => changeRuleType(e.target.value as ComplianceRuleType)}
-            className="border-border bg-background h-9 rounded-md border px-2 text-sm"
+            onValueChange={(v) => changeRuleType(v as ComplianceRuleType)}
           >
-            {COMPLIANCE_RULE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {RULE_TYPE_LABEL[t]}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {COMPLIANCE_RULE_TYPES.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {RULE_TYPE_LABEL[t]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium">Name</label>

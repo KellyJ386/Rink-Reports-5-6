@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState, useTransition } from "react"
 
+import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -11,7 +13,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import type { AuditLogItem, EmployeeLite } from "../types"
 
@@ -39,16 +47,13 @@ function fmt(ts: string): string {
   }
 }
 
-function actionClass(action: string): string {
-  if (action === "delete")
-    return "bg-destructive/15 text-destructive border-destructive/30"
-  if (action === "create" || action === "resolve")
-    return "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300"
-  if (action === "update")
-    return "bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-300"
+function actionBadgeVariant(action: string): BadgeProps["variant"] {
+  if (action === "delete") return "error"
+  if (action === "create" || action === "resolve") return "success"
+  if (action === "update") return "info"
   if (action === "activate" || action === "deactivate" || action === "reopen")
-    return "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300"
-  return "bg-muted text-muted-foreground border-muted"
+    return "warning"
+  return "secondary"
 }
 
 export function AuditTab({
@@ -131,55 +136,64 @@ function AuditFilters({
         <label className="text-muted-foreground text-xs font-medium">
           Entity
         </label>
-        <select
-          value={params.entity_type ?? ""}
-          onChange={(e) => setParam("entity_type", e.target.value)}
+        <Select
+          value={params.entity_type || undefined}
+          onValueChange={(v) => setParam("entity_type", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-44 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All entities</option>
-          {entityTypes.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-44">
+            <SelectValue placeholder="All entities" />
+          </SelectTrigger>
+          <SelectContent>
+            {entityTypes.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Action
         </label>
-        <select
-          value={params.action ?? ""}
-          onChange={(e) => setParam("action", e.target.value)}
+        <Select
+          value={params.action || undefined}
+          onValueChange={(v) => setParam("action", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-32 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All actions</option>
-          {actions.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-32">
+            <SelectValue placeholder="All actions" />
+          </SelectTrigger>
+          <SelectContent>
+            {actions.map((a) => (
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Actor
         </label>
-        <select
-          value={params.actor ?? ""}
-          onChange={(e) => setParam("actor", e.target.value)}
+        <Select
+          value={params.actor || undefined}
+          onValueChange={(v) => setParam("actor", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-44 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All actors</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-44">
+            <SelectValue placeholder="All actors" />
+          </SelectTrigger>
+          <SelectContent>
+            {employees.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
@@ -225,14 +239,9 @@ function AuditRowItem({ item }: { item: AuditLogItem }) {
     <li className="bg-muted/30 flex flex-col gap-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-              actionClass(item.action),
-            )}
-          >
+          <Badge variant={actionBadgeVariant(item.action)} className="uppercase">
             {item.action}
-          </span>
+          </Badge>
           <span className="text-sm font-medium">{item.entity_type}</span>
           {item.entity_id && (
             <code className="text-muted-foreground rounded bg-background px-1.5 py-0.5 text-[11px]">

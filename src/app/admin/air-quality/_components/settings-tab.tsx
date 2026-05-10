@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect } from "react"
+import { useActionState, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import { updateAirQualitySettings } from "../actions"
@@ -38,7 +45,9 @@ export function SettingsTab({ settings, jurisdictions }: Props) {
   }, [state])
 
   const enabled = settings?.alerts_enabled ?? true
-  const sev: Severity = (settings?.default_alert_severity as Severity) ?? "warn"
+  const [sev, setSev] = useState<Severity>(
+    (settings?.default_alert_severity as Severity) ?? "warn",
+  )
   const testingFreq = settings?.testing_frequency ?? ""
   const defaultJurisdiction = settings?.default_jurisdiction ?? ""
 
@@ -101,18 +110,19 @@ export function SettingsTab({ settings, jurisdictions }: Props) {
 
           <div className="flex max-w-sm flex-col gap-1">
             <Label htmlFor="default-sev">Default alert severity</Label>
-            <select
-              id="default-sev"
-              name="default_alert_severity"
-              defaultValue={sev}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-            >
-              {SEVERITIES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="default_alert_severity" value={sev} />
+            <Select value={sev} onValueChange={(v) => setSev(v as Severity)}>
+              <SelectTrigger id="default-sev">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SEVERITIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-muted-foreground text-xs">
               Used when a threshold triggers without its own severity.
             </p>

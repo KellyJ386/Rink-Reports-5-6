@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -14,6 +16,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 import { reopenAlert, resolveAlert } from "../actions"
@@ -71,14 +80,11 @@ function ageString(ts: string): string {
   }
 }
 
-function severityClass(sev: string): string {
-  if (sev === "critical")
-    return "bg-destructive/15 text-destructive border-destructive/30"
-  if (sev === "high")
-    return "bg-orange-500/15 text-orange-700 border-orange-500/30 dark:text-orange-300"
-  if (sev === "warn")
-    return "bg-yellow-500/15 text-yellow-700 border-yellow-500/30 dark:text-yellow-300"
-  return "bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-300"
+function severityBadgeVariant(sev: string): BadgeProps["variant"] {
+  if (sev === "critical") return "destructive"
+  if (sev === "high") return "warning"
+  if (sev === "warn") return "warning"
+  return "info"
 }
 
 function moduleClass(mod: string): string {
@@ -219,52 +225,61 @@ function InboxFilters({
             <label className="text-muted-foreground text-xs font-medium">
               Source module
             </label>
-            <select
-              value={params.module ?? ""}
-              onChange={(e) => setParam("module", e.target.value)}
+            <Select
+              value={params.module || undefined}
+              onValueChange={(v) => setParam("module", v)}
               disabled={pending}
-              className="border-input bg-transparent h-9 min-w-44 rounded-md border px-3 text-sm shadow-xs"
             >
-              <option value="">All modules</option>
-              {SOURCE_MODULES.map((m) => (
-                <option key={m.key} value={m.key}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="min-w-44">
+                <SelectValue placeholder="All modules" />
+              </SelectTrigger>
+              <SelectContent>
+                {SOURCE_MODULES.map((m) => (
+                  <SelectItem key={m.key} value={m.key}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-muted-foreground text-xs font-medium">
               Severity
             </label>
-            <select
-              value={params.severity ?? ""}
-              onChange={(e) => setParam("severity", e.target.value)}
+            <Select
+              value={params.severity || undefined}
+              onValueChange={(v) => setParam("severity", v)}
               disabled={pending}
-              className="border-input bg-transparent h-9 min-w-32 rounded-md border px-3 text-sm shadow-xs"
             >
-              <option value="">Any severity</option>
-              {SEVERITIES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="min-w-32">
+                <SelectValue placeholder="Any severity" />
+              </SelectTrigger>
+              <SelectContent>
+                {SEVERITIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-muted-foreground text-xs font-medium">
               Resolved
             </label>
-            <select
-              value={params.resolved ?? ""}
-              onChange={(e) => setParam("resolved", e.target.value)}
+            <Select
+              value={params.resolved || undefined}
+              onValueChange={(v) => setParam("resolved", v)}
               disabled={pending}
-              className="border-input bg-transparent h-9 min-w-28 rounded-md border px-3 text-sm shadow-xs"
             >
-              <option value="">Any</option>
-              <option value="no">Open</option>
-              <option value="yes">Resolved</option>
-            </select>
+              <SelectTrigger className="min-w-28">
+                <SelectValue placeholder="Any" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no">Open</SelectItem>
+                <SelectItem value="yes">Resolved</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </>
       )}
@@ -364,23 +379,18 @@ function AlertsList({
               >
                 {moduleLabel(a.source_module)}
               </span>
-              <span
-                className={cn(
-                  "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-                  severityClass(a.severity),
-                )}
-              >
+              <Badge variant={severityBadgeVariant(a.severity)} className="uppercase">
                 {a.severity}
-              </span>
+              </Badge>
               {a.resolved_at && (
-                <span className="rounded-full border bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium uppercase">
+                <Badge variant="success" className="uppercase">
                   resolved
-                </span>
+                </Badge>
               )}
               {a.requires_acknowledgement && (
-                <span className="rounded-full bg-secondary text-secondary-foreground px-2 py-0.5 text-[10px] font-medium uppercase">
+                <Badge variant="secondary" className="uppercase">
                   ack {a.ack_count}
-                </span>
+                </Badge>
               )}
               <span className="text-muted-foreground ml-auto text-xs">
                 {ageString(a.created_at)}
@@ -521,22 +531,17 @@ function AlertDrilldown({
             >
               {moduleLabel(a.source_module)}
             </span>
-            <span
-              className={cn(
-                "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-                severityClass(sev),
-              )}
-            >
+            <Badge variant={severityBadgeVariant(sev)} className="uppercase">
               {sev}
-            </span>
+            </Badge>
             {a.resolved_at ? (
-              <span className="rounded-full border bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium uppercase">
+              <Badge variant="success" className="uppercase">
                 resolved
-              </span>
+              </Badge>
             ) : (
-              <span className="rounded-full border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase">
+              <Badge variant="secondary" className="uppercase">
                 open
-              </span>
+              </Badge>
             )}
             <div className="ml-auto flex flex-wrap gap-2">
               {a.resolved_at ? (

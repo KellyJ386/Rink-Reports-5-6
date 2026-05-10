@@ -3,6 +3,14 @@
 import { useRouter, useSearchParams } from "next/navigation"
 import { useTransition } from "react"
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
 type Option = { id: string; label: string }
 
 type Props = {
@@ -42,18 +50,21 @@ export function ScopePicker({
   }
 
   return (
-    <select
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value)}
+    <Select
+      value={value || undefined}
+      onValueChange={(v) => onChange(v)}
       disabled={pending || options.length === 0}
-      className="border-input bg-transparent h-9 min-w-56 rounded-md border px-3 text-sm shadow-xs"
     >
-      <option value="">{placeholder}</option>
-      {options.map((o) => (
-        <option key={o.id} value={o.id}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger className="min-w-56">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.id} value={o.id}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }

@@ -5,6 +5,13 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { Tables } from "@/types/database"
 
 import { updateSchedulingSettings } from "../../_lib/governance-actions"
@@ -101,17 +108,21 @@ export function SettingsForm({ settings }: { settings: Settings }) {
     >
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Week start day">
-          <select
-            value={weekStartDay}
-            onChange={(e) => setWeekStartDay(Number(e.target.value))}
-            className="border-border bg-background h-9 rounded-md border px-2 text-sm"
+          <Select
+            value={String(weekStartDay)}
+            onValueChange={(v) => setWeekStartDay(Number(v))}
           >
-            {DAY_OPTIONS.map((o) => (
-              <option key={o.v} value={o.v}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DAY_OPTIONS.map((o) => (
+                <SelectItem key={o.v} value={String(o.v)}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
         <Field label="Default shift minutes">
           <Input

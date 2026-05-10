@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -83,6 +90,7 @@ function EmployeeFormBody({
   const [primaryDeptId, setPrimaryDeptId] = useState<string | null>(
     editing?.primary_department?.id ?? null
   )
+  const [roleId, setRoleId] = useState(editing?.role?.id ?? "")
 
   // Close on success.
   useEffect(() => {
@@ -161,47 +169,46 @@ function EmployeeFormBody({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="role_id">Role *</Label>
-            <select
-              id="role_id"
-              name="role_id"
-              required
-              defaultValue={editing?.role?.id ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-            >
-              <option value="" disabled>
-                Select a role…
-              </option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.display_name}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="role_id" value={roleId} />
+            <Select value={roleId || undefined} onValueChange={(v) => setRoleId(v)}>
+              <SelectTrigger id="role_id">
+                <SelectValue placeholder="Select a role…" />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.display_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {departments.length > 0 && (
             <>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="primary_dept_select">Primary department</Label>
-                <select
-                  id="primary_dept_select"
-                  value={primaryDeptId ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value || null
-                    setPrimaryDeptId(v)
-                    if (v && !deptIds.includes(v)) {
-                      setDeptIds((prev) => [...prev, v])
+                <Select
+                  value={primaryDeptId || undefined}
+                  onValueChange={(v) => {
+                    const next = v || null
+                    setPrimaryDeptId(next)
+                    if (next && !deptIds.includes(next)) {
+                      setDeptIds((prev) => [...prev, next])
                     }
                   }}
-                  className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
                 >
-                  <option value="">None</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="primary_dept_select">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex flex-col gap-1.5">

@@ -3,6 +3,7 @@
 import { memo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 import { setModulePermission } from "../actions"
@@ -97,9 +98,7 @@ const PermissionRow = memo(function PermissionRow({
           </span>
           <div className="mt-1 flex flex-wrap gap-1">
             {employee.role_display_name ? (
-              <span className="bg-secondary text-secondary-foreground inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium">
-                {employee.role_display_name}
-              </span>
+              <Badge variant="secondary">{employee.role_display_name}</Badge>
             ) : null}
             {employee.departments.map((d) => (
               <span

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -14,6 +15,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -233,9 +241,9 @@ function GroupHeader({ group }: { group: GroupRow }) {
           <CardTitle className="flex items-center gap-2">
             {group.name}
             {!group.is_active && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase">
+              <Badge variant="secondary" className="uppercase">
                 inactive
-              </span>
+              </Badge>
             )}
           </CardTitle>
           <div className="flex flex-wrap gap-2">
@@ -395,6 +403,8 @@ function AddMemberForm({
   available: Array<{ id: string; first_name: string; last_name: string }>
 }) {
   const [state, action, pending] = useActionState(addGroupMember, NULL_STATE)
+  const [employeeId, setEmployeeId] = useState("")
+
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Member added.")
     if (state.ok === false) toast.error(state.error)
@@ -412,24 +422,24 @@ function AddMemberForm({
       className="flex flex-wrap items-end gap-3 rounded-md border p-3"
     >
       <input type="hidden" name="group_id" value={groupId} />
+      <input type="hidden" name="employee_id" value={employeeId} />
       <div className="flex flex-col gap-1">
         <Label htmlFor={`add-mem-${groupId}`}>Add employee</Label>
-        <select
-          id={`add-mem-${groupId}`}
-          name="employee_id"
-          required
-          className="border-input bg-transparent h-9 min-w-56 rounded-md border px-3 text-sm shadow-xs"
-          defaultValue=""
+        <Select
+          value={employeeId || undefined}
+          onValueChange={(v) => setEmployeeId(v)}
         >
-          <option value="" disabled>
-            Pick employee…
-          </option>
-          {available.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id={`add-mem-${groupId}`} className="min-w-56">
+            <SelectValue placeholder="Pick employee…" />
+          </SelectTrigger>
+          <SelectContent>
+            {available.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <Button type="submit" size="sm" disabled={pending}>
         {pending ? "Adding…" : "Add member"}

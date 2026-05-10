@@ -5,6 +5,13 @@ import { useTransition } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import type { EmployeeLite } from "../types"
 
@@ -53,34 +60,40 @@ export function HistoryFilters({ employees, params }: Props) {
         <label className="text-muted-foreground text-xs font-medium">
           Employee
         </label>
-        <select
-          value={params.employee ?? ""}
-          onChange={(e) => setParam("employee", e.target.value)}
+        <Select
+          value={params.employee || undefined}
+          onValueChange={(v) => setParam("employee", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-48 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All employees</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-48">
+            <SelectValue placeholder="All employees" />
+          </SelectTrigger>
+          <SelectContent>
+            {employees.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Out-of-range
         </label>
-        <select
-          value={params.oor ?? ""}
-          onChange={(e) => setParam("oor", e.target.value)}
+        <Select
+          value={params.oor || undefined}
+          onValueChange={(v) => setParam("oor", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-32 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">Any</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
+          <SelectTrigger className="min-w-32">
+            <SelectValue placeholder="Any" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="yes">Yes</SelectItem>
+            <SelectItem value="no">No</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">

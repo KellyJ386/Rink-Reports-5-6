@@ -3,9 +3,9 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
 
 import { deleteArea, reorderArea, setAreaActive } from "../actions"
 import type { AreaRow } from "../types"
@@ -84,16 +84,9 @@ export function AreasTab({ areas }: Props) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium",
-              atCap
-                ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
-                : "bg-secondary text-secondary-foreground",
-            )}
-          >
+          <Badge variant={atCap ? "warning" : "secondary"}>
             {activeCount} / 30 active
-          </span>
+          </Badge>
           <span className="text-muted-foreground text-sm">
             {areas.length} total
           </span>
@@ -169,13 +162,9 @@ export function AreasTab({ areas }: Props) {
                   </td>
                   <td className="border-b px-3 py-2 align-middle">
                     {a.is_active ? (
-                      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                        Active
-                      </span>
+                      <Badge variant="success">Active</Badge>
                     ) : (
-                      <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
-                        Inactive
-                      </span>
+                      <Badge variant="secondary">Inactive</Badge>
                     )}
                   </td>
                   <td className="border-b px-3 py-2 align-middle">

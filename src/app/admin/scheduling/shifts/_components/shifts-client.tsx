@@ -4,7 +4,15 @@ import { useCallback, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 import {
@@ -224,7 +232,7 @@ export function ShiftsClient(props: Props) {
                             )}
                           </span>
                         ) : (
-                          <Badge tone="info">Open shift</Badge>
+                          <Badge variant="info">Open shift</Badge>
                         )}
                       </td>
                       <td className="border-b px-3 py-2 text-muted-foreground">
@@ -423,22 +431,23 @@ function FilterBar({
         >
           Department
         </label>
-        <select
-          id="filter-dept"
-          value={currentDept ?? ""}
-          onChange={(e) => {
-            const v = e.target.value || null
-            router.replace(buildHref({ dept: v }), { scroll: false })
+        <Select
+          value={currentDept || undefined}
+          onValueChange={(v) => {
+            router.replace(buildHref({ dept: v || null }), { scroll: false })
           }}
-          className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All departments</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="filter-dept" className="min-w-44">
+            <SelectValue placeholder="All departments" />
+          </SelectTrigger>
+          <SelectContent>
+            {departments.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -448,20 +457,21 @@ function FilterBar({
         >
           Status
         </label>
-        <select
-          id="filter-status"
-          value={currentStatus ?? ""}
-          onChange={(e) => {
-            const v = e.target.value || null
-            router.replace(buildHref({ status: v }), { scroll: false })
+        <Select
+          value={currentStatus || undefined}
+          onValueChange={(v) => {
+            router.replace(buildHref({ status: v || null }), { scroll: false })
           }}
-          className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="published">Published</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+          <SelectTrigger id="filter-status" className="min-w-36">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="published">Published</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -498,13 +508,13 @@ function EmptyState() {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const tone =
+  const variant =
     status === "published"
-      ? "ok"
+      ? "success"
       : status === "cancelled"
-        ? "muted"
-        : "warn"
-  return <Badge tone={tone}>{status}</Badge>
+        ? "secondary"
+        : "warning"
+  return <Badge variant={variant}>{status}</Badge>
 }
 
 function ComplianceFlags({ warnings }: { warnings: string[] }) {
@@ -512,36 +522,10 @@ function ComplianceFlags({ warnings }: { warnings: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {warnings.map((w) => (
-        <Badge key={w} tone="danger">
+        <Badge key={w} variant="error">
           {w.replace(/_/g, " ")}
         </Badge>
       ))}
     </div>
-  )
-}
-
-function Badge({
-  children,
-  tone,
-}: {
-  children: React.ReactNode
-  tone: "ok" | "warn" | "danger" | "muted" | "info"
-}) {
-  const palette: Record<string, string> = {
-    ok: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200",
-    warn: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200",
-    danger: "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200",
-    muted: "bg-muted text-muted-foreground",
-    info: "bg-sky-100 text-sky-900 dark:bg-sky-900/30 dark:text-sky-200",
-  }
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        palette[tone]
-      )}
-    >
-      {children}
-    </span>
   )
 }

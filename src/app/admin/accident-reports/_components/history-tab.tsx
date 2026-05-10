@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
@@ -502,9 +503,7 @@ function ReportsList({
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {r.workers_comp ? (
-                  <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-                    Yes
-                  </span>
+                  <Badge variant="warning">Yes</Badge>
                 ) : (
                   <span className="text-muted-foreground text-xs">No</span>
                 )}

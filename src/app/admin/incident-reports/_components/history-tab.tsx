@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
@@ -165,7 +166,7 @@ function ReportsList({
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {r.type ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                  <Badge variant="secondary" className="gap-1.5">
                     {r.type.color && (
                       <span
                         aria-hidden
@@ -174,7 +175,7 @@ function ReportsList({
                       />
                     )}
                     {r.type.name}
-                  </span>
+                  </Badge>
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}

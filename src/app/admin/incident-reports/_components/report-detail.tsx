@@ -11,6 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import { addFollowupNote, setReportStatus } from "../actions"
@@ -142,19 +149,22 @@ export function ReportDetail({ detail, backHref }: Props) {
             >
               Change status
             </label>
-            <select
-              id="status-select"
+            <Select
               value={report.status}
-              onChange={(e) => onChangeStatus(e.target.value)}
+              onValueChange={(v) => onChangeStatus(v)}
               disabled={statusPending}
-              className="border-input bg-transparent h-9 min-w-40 rounded-md border px-3 text-sm shadow-xs"
             >
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="status-select" className="min-w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {statusPending && (
               <span className="text-muted-foreground text-xs">Saving…</span>
             )}

@@ -18,6 +18,7 @@ import { toast } from "sonner"
 
 import { RINK_W, RINK_H } from "@/components/ice-depth/usa-rink"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -177,9 +178,9 @@ function LayoutHeaderCard({ layout }: { layout: LayoutDetail["layout"] }) {
           <CardTitle className="flex items-center gap-2">
             {layout.name}
             {!layout.is_active && (
-              <span className="bg-muted rounded-full px-2 py-0.5 text-xs font-medium uppercase">
+              <Badge variant="secondary" className="uppercase">
                 inactive
-              </span>
+              </Badge>
             )}
           </CardTitle>
           <div className="flex flex-wrap gap-2">
@@ -773,9 +774,9 @@ function SelectedPointEditor({
           <CardTitle className="text-base">
             Point #{point.point_number}
             {!point.is_active && (
-              <span className="bg-muted ml-2 rounded-full px-2 py-0.5 text-xs font-medium uppercase">
+              <Badge variant="secondary" className="ml-2 uppercase">
                 off
-              </span>
+              </Badge>
             )}
           </CardTitle>
           <Button variant="ghost" size="sm" onClick={onClear}>

@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-
 import type {
   EmployeeLite,
   EquipmentRow,
@@ -84,88 +83,103 @@ export function HistoryFilters({
         <label className="text-muted-foreground text-xs font-medium">
           Location
         </label>
-        <select
-          value={params.location ?? ""}
-          onChange={(e) => setParam("location", e.target.value)}
+        <Select
+          value={params.location || undefined}
+          onValueChange={(v) => setParam("location", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-40 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All locations</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-40">
+            <SelectValue placeholder="All locations" />
+          </SelectTrigger>
+          <SelectContent>
+            {locations.map((l) => (
+              <SelectItem key={l.id} value={l.id}>
+                {l.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Equipment
         </label>
-        <select
-          value={params.equipment ?? ""}
-          onChange={(e) => setParam("equipment", e.target.value)}
+        <Select
+          value={params.equipment || undefined}
+          onValueChange={(v) => setParam("equipment", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-40 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">Any equipment</option>
-          {equipment.map((eq) => (
-            <option key={eq.id} value={eq.id}>
-              {eq.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-40">
+            <SelectValue placeholder="Any equipment" />
+          </SelectTrigger>
+          <SelectContent>
+            {equipment.map((eq) => (
+              <SelectItem key={eq.id} value={eq.id}>
+                {eq.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Reading type
         </label>
-        <select
-          value={params.reading_type ?? ""}
-          onChange={(e) => setParam("reading_type", e.target.value)}
+        <Select
+          value={params.reading_type || undefined}
+          onValueChange={(v) => setParam("reading_type", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-40 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">Any</option>
-          {readingTypes.map((rt) => (
-            <option key={rt.id} value={rt.id}>
-              {rt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-40">
+            <SelectValue placeholder="Any" />
+          </SelectTrigger>
+          <SelectContent>
+            {readingTypes.map((rt) => (
+              <SelectItem key={rt.id} value={rt.id}>
+                {rt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Employee
         </label>
-        <select
-          value={params.employee ?? ""}
-          onChange={(e) => setParam("employee", e.target.value)}
+        <Select
+          value={params.employee || undefined}
+          onValueChange={(v) => setParam("employee", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-40 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All employees</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-40">
+            <SelectValue placeholder="All employees" />
+          </SelectTrigger>
+          <SelectContent>
+            {employees.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Exceedance
         </label>
-        <select
-          value={params.exceedance ?? ""}
-          onChange={(e) => setParam("exceedance", e.target.value)}
+        <Select
+          value={params.exceedance || undefined}
+          onValueChange={(v) => setParam("exceedance", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-32 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">Any</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
+          <SelectTrigger className="min-w-32">
+            <SelectValue placeholder="Any" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="yes">Yes</SelectItem>
+            <SelectItem value="no">No</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">

@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
 import { sendPasswordReset, setSuperAdminFlag } from "../actions"
@@ -62,14 +63,10 @@ function UserRow({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium text-sm truncate">{displayName}</span>
           {user.is_super_admin && (
-            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
-              Super admin
-            </span>
+            <Badge variant="default">Super admin</Badge>
           )}
           {!user.is_active && (
-            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-              Inactive
-            </span>
+            <Badge variant="secondary">Inactive</Badge>
           )}
           {isSelf && (
             <span className="text-xs text-muted-foreground">(you)</span>

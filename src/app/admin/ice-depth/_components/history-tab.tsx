@@ -1,12 +1,12 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
 
 import type {
   EmployeeLite,
@@ -136,28 +136,14 @@ function SessionsList({
                 {s.total_measurements}
               </td>
               <td className="border-b px-3 py-2 align-middle">
-                <span
-                  className={cn(
-                    "inline-flex min-w-6 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    s.low_count > 0
-                      ? "bg-destructive/15 text-destructive"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
+                <Badge variant={s.low_count > 0 ? "error" : "secondary"}>
                   {s.low_count}
-                </span>
+                </Badge>
               </td>
               <td className="border-b px-3 py-2 align-middle">
-                <span
-                  className={cn(
-                    "inline-flex min-w-6 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    s.high_count > 0
-                      ? "bg-yellow-500/20 text-yellow-800 dark:text-yellow-200"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
+                <Badge variant={s.high_count > 0 ? "warning" : "secondary"}>
                   {s.high_count}
-                </span>
+                </Badge>
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 <div className="flex justify-end">

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -210,9 +211,7 @@ export function EmployeesClient({
                     </td>
                     <td className="border-b px-3 py-2 align-middle">
                       {e.role ? (
-                        <span className="bg-secondary text-secondary-foreground inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium">
-                          {e.role.display_name}
-                        </span>
+                        <Badge variant="secondary">{e.role.display_name}</Badge>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -247,13 +246,9 @@ export function EmployeesClient({
                     </td>
                     <td className="border-b px-3 py-2 align-middle">
                       {e.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                          Active
-                        </span>
+                        <Badge variant="success">Active</Badge>
                       ) : (
-                        <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
-                          Inactive
-                        </span>
+                        <Badge variant="secondary">Inactive</Badge>
                       )}
                     </td>
                     <td className="border-b px-3 py-2 align-middle">

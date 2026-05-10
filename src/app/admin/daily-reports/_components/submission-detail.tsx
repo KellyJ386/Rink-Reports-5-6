@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -195,9 +196,7 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
                             : "Unknown"}
                         </span>
                         {n.is_admin_note && (
-                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
-                            Admin
-                          </span>
+                          <Badge variant="info">Admin</Badge>
                         )}
                         <span className="text-muted-foreground">
                           {fmt(n.created_at)}

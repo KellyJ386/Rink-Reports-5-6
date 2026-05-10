@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -88,9 +89,7 @@ export function ReportDetail({ detail, backHref }: Props) {
             <div className="flex items-center gap-2">
               <CardTitle>Refrigeration report</CardTitle>
               {oorCount > 0 && (
-                <span className="bg-destructive/15 text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
-                  {oorCount} out of range
-                </span>
+                <Badge variant="error">{oorCount} out of range</Badge>
               )}
             </div>
             <p className="text-muted-foreground text-sm">
@@ -169,9 +168,7 @@ export function ReportDetail({ detail, backHref }: Props) {
                               </td>
                               <td className="border-b px-3 py-2 align-middle">
                                 {v.is_out_of_range ? (
-                                  <span className="bg-destructive/15 text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
-                                    Out of range
-                                  </span>
+                                  <Badge variant="error">Out of range</Badge>
                                 ) : (
                                   <span className="text-muted-foreground text-xs">
                                     OK

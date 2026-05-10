@@ -3,7 +3,16 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import {
   formatDateTime,
@@ -50,22 +59,19 @@ export type SwapRow = {
 
 export type SwapEmployeeOption = { id: string; label: string }
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-100",
-  accepted: "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100",
-  manager_approved: "bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-100",
-  denied: "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-100",
-  cancelled: "bg-muted text-muted-foreground",
+function statusBadgeVariant(status: string): BadgeProps["variant"] {
+  if (status === "manager_approved") return "success"
+  if (status === "accepted") return "info"
+  if (status === "pending") return "warning"
+  if (status === "denied") return "error"
+  return "secondary"
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_BADGE[status] ?? "bg-muted text-muted-foreground"
   return (
-    <span
-      className={`${cls} inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium`}
-    >
+    <Badge variant={statusBadgeVariant(status)}>
       {status.replace(/_/g, " ")}
-    </span>
+    </Badge>
   )
 }
 
@@ -288,18 +294,21 @@ function SwapRowCard({
       {mode === "assign" ? (
         <div className="bg-muted/40 flex flex-col gap-2 rounded-md border p-3">
           <label className="text-xs font-medium">Assign to employee</label>
-          <select
-            className="border-border bg-background h-9 rounded-md border px-2 text-sm"
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
+          <Select
+            value={targetId || undefined}
+            onValueChange={(v) => setTargetId(v)}
           >
-            <option value="">— Select an employee —</option>
-            {filteredOptions.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue placeholder="— Select an employee —" />
+            </SelectTrigger>
+            <SelectContent>
+              {filteredOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="flex gap-2">
             <Button size="sm" onClick={runAssign} disabled={pending}>
               {pending ? "Saving…" : "Assign"}
