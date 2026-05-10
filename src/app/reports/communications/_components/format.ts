@@ -60,6 +60,26 @@ export function severityClasses(value: string): string {
   }
 }
 
+export type SeverityBadgeVariant =
+  | "destructive"
+  | "error"
+  | "warning"
+  | "info"
+
+export function severityBadgeVariant(value: string): SeverityBadgeVariant {
+  switch (value) {
+    case "critical":
+      return "destructive"
+    case "high":
+      return "error"
+    case "warn":
+      return "warning"
+    case "info":
+    default:
+      return "info"
+  }
+}
+
 const SOURCE_MODULE_LABEL: Record<AlertSourceModule, string> = {
   ice_operations: "Ice Operations",
   refrigeration: "Refrigeration",

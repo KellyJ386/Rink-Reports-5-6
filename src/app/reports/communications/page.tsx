@@ -19,10 +19,11 @@ import { MessagesList } from "./_components/messages-list"
 import {
   excerpt,
   formatTimestamp,
-  severityClasses,
+  severityBadgeVariant,
   severityLabel,
   sourceModuleLabel,
 } from "./_components/format"
+import { Badge } from "@/components/ui/badge"
 import type {
 
   AlertWithAck,
@@ -199,25 +200,17 @@ export default async function CommunicationsInboxPage({
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <Badge variant="secondary">
                 {sourceModuleLabel(alert.source_module)}
-              </span>
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${severityClasses(
-                  alert.severity
-                )}`}
-              >
+              </Badge>
+              <Badge variant={severityBadgeVariant(alert.severity)}>
                 {severityLabel(alert.severity)}
-              </span>
+              </Badge>
               {alert.resolved_at ? (
-                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
-                  Resolved
-                </span>
+                <Badge variant="success">Resolved</Badge>
               ) : null}
               {alert.requires_acknowledgement ? (
-                <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-900 dark:bg-purple-900/40 dark:text-purple-100">
-                  Acknowledgement required
-                </span>
+                <Badge variant="outline">Acknowledgement required</Badge>
               ) : null}
             </div>
             <CardTitle className="mt-2 text-xl">{alert.title}</CardTitle>
