@@ -39,13 +39,15 @@ export async function upsertRetentionSetting(
 
   const KNOWN_MODULE_KEYS = new Set([
     "daily_reports",
+    "ice_depth",
+    "ice_operations",
     "incident_reports",
     "accident_reports",
     "communications",
     "refrigeration",
     "air_quality",
-    "ice_operations",
     "scheduling",
+    "audit_logs",
   ])
 
   if (typeof moduleKey !== "string" || !moduleKey.trim()) {

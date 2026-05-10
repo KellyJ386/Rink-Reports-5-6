@@ -23,6 +23,9 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function setSuperAdminFlag(
   _prev: ActionState,
   formData: FormData,
@@ -34,6 +37,9 @@ export async function setSuperAdminFlag(
 
   if (typeof userId !== "string" || !userId.trim()) {
     return { ok: false, error: "User ID is required." }
+  }
+  if (!UUID_RE.test(userId.trim())) {
+    return { ok: false, error: "Invalid user ID format." }
   }
 
   if (!value && current.profile?.id === userId.trim()) {
@@ -68,8 +74,18 @@ export async function setFacilityActive(
   if (typeof facilityId !== "string" || !facilityId.trim()) {
     return { ok: false, error: "Facility ID is required." }
   }
+  if (!UUID_RE.test(facilityId.trim())) {
+    return { ok: false, error: "Invalid facility ID format." }
+  }
 
   const supabase = await createClient()
+
+  const { count } = await supabase
+    .from("facilities")
+    .select("id", { count: "exact", head: true })
+    .eq("id", facilityId.trim())
+  if (!count) return { ok: false, error: "Facility not found." }
+
   const { error } = await supabase
     .from("facilities")
     .update({ is_active: value })
