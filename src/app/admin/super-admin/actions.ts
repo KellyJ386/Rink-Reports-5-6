@@ -62,6 +62,27 @@ export async function setSuperAdminFlag(
   }
 }
 
+export async function sendPasswordReset(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await requireSuperAdmin()
+
+  const email = formData.get("email")
+  if (typeof email !== "string" || !email.trim()) {
+    return { ok: false, error: "Email is required." }
+  }
+
+  const supabase = await createClient()
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/update-password`,
+  })
+
+  if (error) return { ok: false, error: dbError(error, "Failed to send password reset email.") }
+
+  return { ok: true, message: "Password reset email sent." }
+}
+
 export async function setFacilityActive(
   _prev: ActionState,
   formData: FormData,

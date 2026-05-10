@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
-import { setSuperAdminFlag } from "../actions"
+import { sendPasswordReset, setSuperAdminFlag } from "../actions"
 import type { ActionState, SuperAdminUserRow } from "../types"
 
 const INITIAL: ActionState = { ok: null }
@@ -50,7 +50,8 @@ function UserRow({
   user: SuperAdminUserRow
   isSelf: boolean
 }) {
-  const [state, formAction, pending] = useActionState(setSuperAdminFlag, INITIAL)
+  const [toggleState, toggleAction, togglePending] = useActionState(setSuperAdminFlag, INITIAL)
+  const [resetState, resetAction, resetPending] = useActionState(sendPasswordReset, INITIAL)
 
   const displayName = user.full_name || user.email
   const canToggle = !isSelf
@@ -85,34 +86,56 @@ function UserRow({
             Last seen {new Date(user.last_seen_at).toLocaleString()}
           </span>
         )}
-        {state.ok === false && (
-          <p className="text-xs text-destructive">{state.error}</p>
+        {toggleState.ok === false && (
+          <p className="text-xs text-destructive">{toggleState.error}</p>
         )}
-        {state.ok === true && (
+        {toggleState.ok === true && (
           <p className="text-xs text-green-600 dark:text-green-400">
-            {state.message}
+            {toggleState.message}
+          </p>
+        )}
+        {resetState.ok === false && (
+          <p className="text-xs text-destructive">{resetState.error}</p>
+        )}
+        {resetState.ok === true && (
+          <p className="text-xs text-green-600 dark:text-green-400">
+            {resetState.message}
           </p>
         )}
       </div>
 
-      {canToggle && (
-        <form action={formAction} className="shrink-0">
-          <input type="hidden" name="user_id" value={user.id} />
-          <input
-            type="hidden"
-            name="value"
-            value={user.is_super_admin ? "false" : "true"}
-          />
+      <div className="flex items-center gap-2 shrink-0">
+        <form action={resetAction}>
+          <input type="hidden" name="email" value={user.email} />
           <Button
             type="submit"
-            variant={user.is_super_admin ? "outline" : "default"}
+            variant="outline"
             size="sm"
-            disabled={pending}
+            disabled={resetPending}
           >
-            {user.is_super_admin ? "Revoke" : "Promote"}
+            Reset password
           </Button>
         </form>
-      )}
+
+        {canToggle && (
+          <form action={toggleAction}>
+            <input type="hidden" name="user_id" value={user.id} />
+            <input
+              type="hidden"
+              name="value"
+              value={user.is_super_admin ? "false" : "true"}
+            />
+            <Button
+              type="submit"
+              variant={user.is_super_admin ? "outline" : "default"}
+              size="sm"
+              disabled={togglePending}
+            >
+              {user.is_super_admin ? "Revoke" : "Promote"}
+            </Button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }
