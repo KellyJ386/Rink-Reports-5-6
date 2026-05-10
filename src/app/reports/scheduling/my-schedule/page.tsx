@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -51,14 +52,14 @@ function NotAvailable({
   )
 }
 
-function statusBadgeClasses(status: string): string {
+function statusBadgeVariant(status: string): BadgeProps["variant"] {
   switch (status) {
     case "published":
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200"
+      return "success"
     case "cancelled":
-      return "bg-muted text-muted-foreground"
+      return "outline"
     default:
-      return "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200"
+      return "info"
   }
 }
 
@@ -327,13 +328,9 @@ export default async function MySchedulePage({
                     <span className="font-medium">
                       {formatDateRange(s.starts_at, s.ends_at, tz)}
                     </span>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClasses(
-                        s.status
-                      )}`}
-                    >
+                    <Badge variant={statusBadgeVariant(s.status)}>
                       {statusLabel(s.status)}
-                    </span>
+                    </Badge>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{s.departments?.name ?? "—"}</span>

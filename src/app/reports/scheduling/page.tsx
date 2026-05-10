@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -287,14 +288,10 @@ export default async function SchedulingDashboardPage() {
                       until {formatDateTime(shift.ends_at, tz)}
                     </span>
                     {shift.role_label ? (
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
-                        {shift.role_label}
-                      </span>
+                      <Badge variant="outline">{shift.role_label}</Badge>
                     ) : null}
                     {row.approval_required ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
-                        Approval required
-                      </span>
+                      <Badge variant="warning">Approval required</Badge>
                     ) : null}
                   </div>
                   <ClaimOpenShiftButton openShiftId={row.id} />
@@ -325,12 +322,9 @@ export default async function SchedulingDashboardPage() {
                   {link.href.endsWith("/notifications") &&
                   unreadCount &&
                   unreadCount > 0 ? (
-                    <span
-                      className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground"
-                      aria-label={`${unreadCount} unread notifications`}
-                    >
+                    <Badge aria-label={`${unreadCount} unread notifications`}>
                       {unreadCount}
-                    </span>
+                    </Badge>
                   ) : null}
                 </CardHeader>
               </Card>

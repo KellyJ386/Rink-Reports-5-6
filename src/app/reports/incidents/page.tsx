@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -74,16 +75,16 @@ function statusLabel(status: string): string {
   return map[status as IncidentStatus] ?? status
 }
 
-function statusBadgeClasses(status: string): string {
+function statusBadgeVariant(status: string): BadgeProps["variant"] {
   switch (status) {
     case "in_review":
-      return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+      return "warning"
     case "resolved":
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200"
+      return "success"
     case "archived":
-      return "bg-muted text-muted-foreground"
+      return "outline"
     default:
-      return "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200"
+      return "info"
   }
 }
 
@@ -268,13 +269,9 @@ export default async function IncidentsHomePage() {
                         {severityName}
                       </span>
                     ) : null}
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClasses(
-                        r.status
-                      )}`}
-                    >
+                    <Badge variant={statusBadgeVariant(r.status)}>
                       {statusLabel(r.status)}
-                    </span>
+                    </Badge>
                     {r.location ? (
                       <span className="text-xs text-muted-foreground">
                         @ {r.location}

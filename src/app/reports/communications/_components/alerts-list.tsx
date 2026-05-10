@@ -3,9 +3,12 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 
+import { Badge } from "@/components/ui/badge"
+
 import {
   formatTimestamp,
   relativeAge,
+  severityBadgeVariant,
   severityClasses,
   severityLabel,
   sourceModuleLabel,
@@ -191,25 +194,17 @@ export function AlertsList({ alerts, timezone }: Props) {
                 }`}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  <Badge variant="secondary">
                     {sourceModuleLabel(a.source_module)}
-                  </span>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${severityClasses(
-                      a.severity
-                    )}`}
-                  >
+                  </Badge>
+                  <Badge variant={severityBadgeVariant(a.severity)}>
                     {severityLabel(a.severity)}
-                  </span>
+                  </Badge>
                   {a.requires_acknowledgement && !a.acked ? (
-                    <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-900 dark:bg-purple-900/40 dark:text-purple-100">
-                      Ack required
-                    </span>
+                    <Badge variant="outline">Ack required</Badge>
                   ) : null}
                   {a.resolved_at ? (
-                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
-                      Resolved
-                    </span>
+                    <Badge variant="success">Resolved</Badge>
                   ) : null}
                   {!a.acked ? (
                     <span className="ml-auto inline-flex h-2 w-2 rounded-full bg-primary" />

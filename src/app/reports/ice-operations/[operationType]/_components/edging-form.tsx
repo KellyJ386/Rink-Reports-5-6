@@ -8,6 +8,13 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -47,43 +54,39 @@ export function EdgingForm({ rinks, equipment }: Props) {
     <form action={formAction} className="flex flex-col gap-5">
       <FormError message={state.error} />
 
+      <input type="hidden" name="rink_id" value={rinkId} />
+      <input type="hidden" name="equipment_id" value={equipmentId} />
+
       <div className="flex flex-col gap-2">
-        <Label htmlFor="rink_id">Rink (optional)</Label>
-        <select
-          id="rink_id"
-          name="rink_id"
-          value={rinkId}
-          onChange={(e) => setRinkId(e.target.value)}
-          className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
-        >
-          <option value="">— None —</option>
-          {rinks.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
+        <Label>Rink (optional)</Label>
+        <Select value={rinkId || undefined} onValueChange={setRinkId}>
+          <SelectTrigger>
+            <SelectValue placeholder="— None —" />
+          </SelectTrigger>
+          <SelectContent>
+            {rinks.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="equipment_id">Edger</Label>
-        <select
-          id="equipment_id"
-          name="equipment_id"
-          required
-          value={equipmentId}
-          onChange={(e) => setEquipmentId(e.target.value)}
-          className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
-        >
-          <option value="" disabled>
-            Select an edger
-          </option>
-          {equipment.map((eq) => (
-            <option key={eq.id} value={eq.id}>
-              {equipmentLabel(eq)}
-            </option>
-          ))}
-        </select>
+        <Label>Edger</Label>
+        <Select value={equipmentId} onValueChange={setEquipmentId} required>
+          <SelectTrigger>
+            <SelectValue placeholder="Select an edger" />
+          </SelectTrigger>
+          <SelectContent>
+            {equipment.map((eq) => (
+              <SelectItem key={eq.id} value={eq.id}>
+                {equipmentLabel(eq)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-2">

@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -52,16 +53,16 @@ function NotAvailable({
   )
 }
 
-function statusBadge(status: string): string {
+function statusBadgeVariant(status: string): BadgeProps["variant"] {
   switch (status) {
     case "approved":
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200"
+      return "success"
     case "denied":
-      return "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200"
+      return "error"
     case "cancelled":
-      return "bg-muted text-muted-foreground"
+      return "outline"
     default:
-      return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+      return "warning"
   }
 }
 
@@ -164,13 +165,9 @@ export default async function TimeOffPage() {
                   {formatDateTime(r.starts_at, tz)} →{" "}
                   {formatDateTime(r.ends_at, tz)}
                 </span>
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(
-                    r.status
-                  )}`}
-                >
+                <Badge variant={statusBadgeVariant(r.status)}>
                   {statusLabel(r.status)}
-                </span>
+                </Badge>
               </div>
               {r.reason ? (
                 <p className="text-sm text-muted-foreground">{r.reason}</p>

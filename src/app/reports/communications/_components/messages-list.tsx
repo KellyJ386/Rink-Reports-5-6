@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 
+import { Badge } from "@/components/ui/badge"
+
 import { excerpt, formatTimestamp, relativeAge } from "./format"
 
 export type MessageListItem = {
@@ -104,9 +106,7 @@ export function MessagesList({ items, timezone }: Props) {
                     ) : null}
                     {item.requires_acknowledgement &&
                     item.acknowledged_at === null ? (
-                      <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-900 dark:bg-purple-900/40 dark:text-purple-100">
-                        Ack required
-                      </span>
+                      <Badge variant="outline">Ack required</Badge>
                     ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
