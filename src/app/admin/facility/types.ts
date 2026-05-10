@@ -17,6 +17,9 @@ export type FacilityFormInput = {
   slug: string
   timezone: string
   is_active?: boolean
+  address?: string | null
+  zip_code?: string | null
+  phone?: string | null
 }
 
 export type ActionResult<T = void> =

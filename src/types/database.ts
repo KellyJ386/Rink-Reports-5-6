@@ -2090,34 +2090,43 @@ export type Database = {
       }
       facilities: {
         Row: {
+          address: string | null
           created_at: string
           id: string
           is_active: boolean
           name: string
+          phone: string | null
           settings: Json
           slug: string
           timezone: string
           updated_at: string | null
+          zip_code: string | null
         }
         Insert: {
+          address?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
           name: string
+          phone?: string | null
           settings?: Json
           slug: string
           timezone?: string
           updated_at?: string | null
+          zip_code?: string | null
         }
         Update: {
+          address?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
           name?: string
+          phone?: string | null
           settings?: Json
           slug?: string
           timezone?: string
           updated_at?: string | null
+          zip_code?: string | null
         }
         Relationships: []
       }

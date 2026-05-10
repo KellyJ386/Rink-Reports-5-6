@@ -18,6 +18,9 @@ type CreateInput = {
   name: string
   slug: string
   timezone: string
+  address?: string | null
+  zip_code?: string | null
+  phone?: string | null
 }
 
 type UpdateInput = Partial<FacilityFormInput>
@@ -95,7 +98,14 @@ export async function createFacility(
 
   const { data: facility, error: insertError } = await supabase
     .from("facilities")
-    .insert({ name, slug, timezone })
+    .insert({
+      name,
+      slug,
+      timezone,
+      address: rawInput.address ?? null,
+      zip_code: rawInput.zip_code ?? null,
+      phone: rawInput.phone ?? null,
+    })
     .select("id")
     .single()
 
@@ -146,6 +156,9 @@ export async function updateFacility(
     slug?: string
     timezone?: string
     is_active?: boolean
+    address?: string | null
+    zip_code?: string | null
+    phone?: string | null
   } = {}
 
   if (typeof input.name === "string") {
@@ -169,6 +182,15 @@ export async function updateFacility(
   }
   if (typeof input.is_active === "boolean") {
     patch.is_active = input.is_active
+  }
+  if ("address" in input) {
+    patch.address = input.address ?? null
+  }
+  if ("zip_code" in input) {
+    patch.zip_code = input.zip_code ?? null
+  }
+  if ("phone" in input) {
+    patch.phone = input.phone ?? null
   }
 
   if (Object.keys(patch).length === 0) {

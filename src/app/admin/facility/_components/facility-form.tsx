@@ -43,6 +43,9 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
     initial?.timezone ?? DEFAULT_TIMEZONE
   )
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
+  const [address, setAddress] = useState(initial?.address ?? "")
+  const [zipCode, setZipCode] = useState(initial?.zip_code ?? "")
+  const [phone, setPhone] = useState(initial?.phone ?? "")
   const [error, setError] = useState<string | null>(null)
 
   function handleNameChange(value: string) {
@@ -77,7 +80,14 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
 
     startTransition(async () => {
       if (mode === "create") {
-        const res = await createFacility({ name, slug, timezone })
+        const res = await createFacility({
+          name,
+          slug,
+          timezone,
+          address: address || null,
+          zip_code: zipCode || null,
+          phone: phone || null,
+        })
         if (!res.ok) {
           setError(res.error)
           return
@@ -90,6 +100,9 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           slug,
           timezone,
           is_active: isActive,
+          address: address || null,
+          zip_code: zipCode || null,
+          phone: phone || null,
         })
         if (!res.ok) {
           setError(res.error)
@@ -154,6 +167,43 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="facility-address">Address</Label>
+        <Input
+          id="facility-address"
+          name="address"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="123 Main St"
+          disabled={isPending}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="facility-zip">Zip code</Label>
+        <Input
+          id="facility-zip"
+          name="zip_code"
+          value={zipCode}
+          onChange={(e) => setZipCode(e.target.value)}
+          placeholder="12345"
+          disabled={isPending}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="facility-phone">Phone number</Label>
+        <Input
+          id="facility-phone"
+          name="phone"
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="(555) 555-5555"
+          disabled={isPending}
+        />
       </div>
 
       {mode === "edit" && (
