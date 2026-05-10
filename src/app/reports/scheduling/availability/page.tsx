@@ -15,6 +15,8 @@ import { AvailabilityAddToggle } from "../_components/availability-add-toggle"
 import { AvailabilityRow } from "../_components/availability-row"
 import { DAY_NAMES } from "../types"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

@@ -13,9 +13,12 @@ import { createClient } from "@/lib/supabase/server"
 
 import { formatRelativeAge } from "../_components/format-utils"
 import {
+
   MarkAllReadButton,
   MarkReadButton,
 } from "../_components/notification-buttons"
+
+export const dynamic = "force-dynamic"
 
 function NotAvailable({
   title,

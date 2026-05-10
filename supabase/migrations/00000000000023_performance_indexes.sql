@@ -9,4 +9,4 @@ create index if not exists idx_incident_reports_facility_status_created
   on public.incident_reports(facility_id, status, created_at desc);
 
 create index if not exists idx_schedule_shifts_facility_status_start
-  on public.schedule_shifts(facility_id, status, start_time);
+  on public.schedule_shifts(facility_id, status, starts_at);

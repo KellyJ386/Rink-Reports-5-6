@@ -16,6 +16,8 @@ import { formatDateTime } from "../_components/format-utils"
 import { TimeOffForm } from "../_components/time-off-form"
 import type { TimeOffStatus } from "../types"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

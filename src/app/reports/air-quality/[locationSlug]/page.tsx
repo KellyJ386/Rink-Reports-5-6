@@ -14,12 +14,15 @@ import { createClient } from "@/lib/supabase/server"
 
 import { SubmissionForm } from "../_components/submission-form"
 import type {
+
   AirQualitySeverity,
   ComplianceRuleForForm,
   EquipmentForForm,
   ReadingTypeForm,
   ThresholdForForm,
 } from "../types"
+
+export const dynamic = "force-dynamic"
 
 function NotAvailable({
   title,

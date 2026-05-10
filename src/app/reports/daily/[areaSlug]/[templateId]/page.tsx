@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/server"
 
 import { SubmissionForm } from "./_components/submission-form"
 
+export const dynamic = "force-dynamic"
+
 type Params = {
   areaSlug: string
   templateId: string

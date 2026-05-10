@@ -11,9 +11,12 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import {
+
   TemplatesList,
   type TemplateCard,
 } from "./_components/templates-list"
+
+export const dynamic = "force-dynamic"
 
 type Params = {
   areaSlug: string

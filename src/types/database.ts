@@ -2038,6 +2038,56 @@ export type Database = {
           },
         ]
       }
+      export_settings: {
+        Row: {
+          created_at: string
+          facility_id: string
+          footer_text: string | null
+          header_text: string | null
+          id: string
+          include_date: boolean
+          include_facility_name: boolean
+          include_submitted_by: boolean
+          logo_url: string | null
+          paper_size: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          footer_text?: string | null
+          header_text?: string | null
+          id?: string
+          include_date?: boolean
+          include_facility_name?: boolean
+          include_submitted_by?: boolean
+          logo_url?: string | null
+          paper_size?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          footer_text?: string | null
+          header_text?: string | null
+          id?: string
+          include_date?: boolean
+          include_facility_name?: boolean
+          include_submitted_by?: boolean
+          logo_url?: string | null
+          paper_size?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "export_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facilities: {
         Row: {
           created_at: string
@@ -3561,30 +3611,30 @@ export type Database = {
       }
       retention_settings: {
         Row: {
-          id: string
-          facility_id: string
-          module_key: string
-          keep_days: number
           auto_purge: boolean
           created_at: string
+          facility_id: string
+          id: string
+          keep_days: number
+          module_key: string
           updated_at: string | null
         }
         Insert: {
-          id?: string
-          facility_id: string
-          module_key: string
-          keep_days?: number
           auto_purge?: boolean
           created_at?: string
+          facility_id: string
+          id?: string
+          keep_days?: number
+          module_key: string
           updated_at?: string | null
         }
         Update: {
-          id?: string
-          facility_id?: string
-          module_key?: string
-          keep_days?: number
           auto_purge?: boolean
           created_at?: string
+          facility_id?: string
+          id?: string
+          keep_days?: number
+          module_key?: string
           updated_at?: string | null
         }
         Relationships: [
@@ -3592,56 +3642,6 @@ export type Database = {
             foreignKeyName: "retention_settings_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: false
-            referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      export_settings: {
-        Row: {
-          id: string
-          facility_id: string
-          logo_url: string | null
-          header_text: string | null
-          footer_text: string | null
-          paper_size: string
-          include_facility_name: boolean
-          include_date: boolean
-          include_submitted_by: boolean
-          created_at: string
-          updated_at: string | null
-        }
-        Insert: {
-          id?: string
-          facility_id: string
-          logo_url?: string | null
-          header_text?: string | null
-          footer_text?: string | null
-          paper_size?: string
-          include_facility_name?: boolean
-          include_date?: boolean
-          include_submitted_by?: boolean
-          created_at?: string
-          updated_at?: string | null
-        }
-        Update: {
-          id?: string
-          facility_id?: string
-          logo_url?: string | null
-          header_text?: string | null
-          footer_text?: string | null
-          paper_size?: string
-          include_facility_name?: boolean
-          include_date?: boolean
-          include_submitted_by?: boolean
-          created_at?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "export_settings_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: true
             referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
@@ -4478,10 +4478,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      get_employee_counts_by_facility: {
-        Args: Record<never, never>
-        Returns: { facility_id: string; employee_count: number }[]
-      }
       current_employee_id: { Args: never; Returns: string }
       current_facility_id: { Args: never; Returns: string }
       current_user_id: { Args: never; Returns: string }
@@ -4507,6 +4503,13 @@ export type Database = {
         }
       }
       current_user_role: { Args: never; Returns: string }
+      get_employee_counts_by_facility: {
+        Args: never
+        Returns: {
+          employee_count: number
+          facility_id: string
+        }[]
+      }
       has_area_access: {
         Args: { p_area_id: string; p_module_key: string }
         Returns: boolean
@@ -4517,8 +4520,14 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: never; Returns: boolean }
+      purge_old_accident_reports: { Args: never; Returns: number }
+      purge_old_air_quality_reports: { Args: never; Returns: number }
+      purge_old_audit_logs: { Args: never; Returns: number }
       purge_old_communications: { Args: never; Returns: number }
       purge_old_daily_reports: { Args: never; Returns: number }
+      purge_old_ice_operations_submissions: { Args: never; Returns: number }
+      purge_old_incident_reports: { Args: never; Returns: number }
+      purge_old_refrigeration_reports: { Args: never; Returns: number }
       scheduling_claim_open_shift: {
         Args: { p_open_shift_id: string }
         Returns: boolean
@@ -4689,18 +4698,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
-
-
-// ---------------------------------------------------------------------------
-// Project shorthand aliases (not part of the generated output).
-// ---------------------------------------------------------------------------
-
-export type Inserts<T extends keyof Database["public"]["Tables"]> =
-  Database["public"]["Tables"][T]["Insert"]
-
-export type Updates<T extends keyof Database["public"]["Tables"]> =
-  Database["public"]["Tables"][T]["Update"]
-
-export type Functions<T extends keyof Database["public"]["Functions"]> =
-  Database["public"]["Functions"][T]
