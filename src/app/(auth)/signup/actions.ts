@@ -51,28 +51,11 @@ export async function signupAction(
     return { error: error.message, email, fullName }
   }
 
-  const userId = data.user?.id
-  if (userId) {
-    // Insert the profile row. If a DB trigger already created one this will
-    // upsert idempotently.
-    const { error: insertError } = await supabase.from("users").upsert(
-      {
-        id: userId,
-        email,
-        full_name: fullName,
-        // facility_id intentionally null — assigned by an admin afterwards.
-      },
-      { onConflict: "id" }
-    )
-
-    if (insertError) {
-      return {
-        error: `Account created but profile setup failed: ${insertError.message}`,
-        email,
-        fullName,
-      }
-    }
-  }
+  // The public.users profile row is created automatically by the
+  // on_auth_user_created trigger (handle_new_user), which runs SECURITY
+  // DEFINER and therefore bypasses RLS. We do not insert here because when
+  // email confirmation is enabled signUp() returns no session, making the
+  // client anon-role — any authenticated-only INSERT policy would fail.
 
   return {
     success: true,
