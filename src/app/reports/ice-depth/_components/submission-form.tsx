@@ -13,7 +13,6 @@ import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
-import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -26,6 +25,8 @@ import type {
   SubmittedMeasurement,
 } from "../types"
 
+// ── Types & constants ─────────────────────────────────────────────────────────
+
 type Props = {
   layout: LayoutForForm
   points: PointForForm[]
@@ -36,18 +37,25 @@ type Phase = "measure" | "review"
 
 const initialState: SubmissionFormState = {}
 
-// Severity colors consistent with the admin session detail view.
 const SEVERITY_COLOR: Record<Severity, string> = {
-  ok: "#16a34a",
-  low: "#dc2626",
-  high: "#d97706",
+  ok:   "#4DFF00",  // action green
+  low:  "#F42A2A",  // alert red
+  high: "#FFB800",  // alert yellow
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {
-  ok: "Optimal",
-  low: "Below min",
+  ok:   "Optimal",
+  low:  "Below min",
   high: "Above target",
 }
+
+const DISPLAY_FONT =
+  "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
+
+const NAVY = "#003B6F"
+const GREEN = "#4DFF00"
+const GREEN_DARK = "#3DB800"
+const GREEN_PRESS = "#2E9900"
 
 function severityFor(
   value: number,
@@ -60,11 +68,10 @@ function severityFor(
   return "ok"
 }
 
+// ── Main form component ───────────────────────────────────────────────────────
+
 export function SubmissionForm({ layout, points, settings }: Props) {
-  const [state, formAction] = useActionState(
-    submitIceDepthSession,
-    initialState,
-  )
+  const [state, formAction] = useActionState(submitIceDepthSession, initialState)
 
   const sortedPoints = useMemo(() => {
     return [...points].sort((a, b) => {
@@ -86,7 +93,6 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     if (state.error) toast.error(state.error)
   }, [state.error])
 
-  // When advancing to a new point, pre-fill if already has a value.
   const goToIdx = useCallback(
     (idx: number) => {
       setCurrentIdx(idx)
@@ -112,7 +118,6 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     if (currentIdx < sortedPoints.length - 1) {
       goToIdx(currentIdx + 1)
     } else {
-      // Last point — go to review
       commitCurrent()
       setPhase("review")
     }
@@ -142,21 +147,15 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     }
     setInput((s) => {
       if (key === "." && s.includes(".")) return s
-      if ((s.replace(".", "").length >= 5) && key !== "⌫") return s
+      if (s.replace(".", "").length >= 5 && key !== "⌫") return s
       return s + key
     })
   }, [])
 
-  // Build measurements_json from current values (review phase includes
-  // the current point's committed value).
   const committedValues = useMemo(() => {
     if (!currentPoint || phase === "review") return values
     const trimmed = input.trim()
-    if (
-      trimmed !== "" &&
-      Number.isFinite(Number(trimmed)) &&
-      Number(trimmed) >= 0
-    ) {
+    if (trimmed !== "" && Number.isFinite(Number(trimmed)) && Number(trimmed) >= 0) {
       return { ...values, [currentPoint.id]: trimmed }
     }
     return values
@@ -183,7 +182,6 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     [sortedPoints, committedValues],
   )
 
-  // Stats for review
   const stats = useMemo(() => {
     const entries = sortedPoints
       .map((p) => {
@@ -205,13 +203,14 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     return { avg, ok, low, high, total: entries.length }
   }, [sortedPoints, committedValues, settings])
 
-  // Build rink point specs
   const rinkPoints: RinkPointSpec[] = useMemo(() => {
     return sortedPoints.map((p, idx) => {
       const { cx, cy } = rinkCoords(p.x_position, p.y_position)
       const rawVal = committedValues[p.id]?.trim()
       const num = rawVal ? Number(rawVal) : NaN
-      const sev = Number.isFinite(num) ? severityFor(num, settings.low_threshold, settings.high_threshold) : null
+      const sev = Number.isFinite(num)
+        ? severityFor(num, settings.low_threshold, settings.high_threshold)
+        : null
 
       let chipState: RinkPointSpec["state"]
       if (idx === currentIdx && phase === "measure") chipState = "current"
@@ -232,9 +231,10 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   }, [sortedPoints, committedValues, currentIdx, phase, settings, handlePointClick])
 
   const liveNum = Number(input)
-  const liveSev = Number.isFinite(liveNum) && input.trim() !== ""
-    ? severityFor(liveNum, settings.low_threshold, settings.high_threshold)
-    : null
+  const liveSev =
+    Number.isFinite(liveNum) && input.trim() !== ""
+      ? severityFor(liveNum, settings.low_threshold, settings.high_threshold)
+      : null
   const liveColor = liveSev ? SEVERITY_COLOR[liveSev] : undefined
 
   const progress = filledCount / sortedPoints.length
@@ -254,7 +254,6 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         formAction={formAction}
         stateError={state.error}
         onBack={() => {
-          // Return to last point
           goToIdx(sortedPoints.length - 1)
           setPhase("measure")
         }}
@@ -263,7 +262,8 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     )
   }
 
-  // ── Measure phase ──────────────────────────────────────────────────────────
+  // ── Measure phase ─────────────────────────────────────────────────────────
+
   const isLastPoint = currentIdx === sortedPoints.length - 1
   const hasInput = input.trim() !== "" && Number.isFinite(Number(input.trim()))
 
@@ -272,15 +272,41 @@ export function SubmissionForm({ layout, points, settings }: Props) {
       <FormError message={state.error} />
 
       {/* Progress bar */}
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      <div
+        style={{
+          height: 5,
+          width: "100%",
+          background: "var(--muted)",
+          borderRadius: 9999,
+          overflow: "hidden",
+          marginBottom: 8,
+        }}
+      >
         <div
-          className="h-full rounded-full bg-primary transition-all duration-300"
-          style={{ width: `${Math.max(progress * 100, 2)}%` }}
+          style={{
+            height: "100%",
+            width: `${Math.max(progress * 100, 2)}%`,
+            background: `linear-gradient(to right, ${GREEN}, #7AFF40)`,
+            borderRadius: 9999,
+            transition: "width 0.3s cubic-bezier(.4,0,.2,1)",
+          }}
         />
       </div>
 
       {/* Step counter */}
-      <div className="flex items-center justify-between py-2 text-xs text-muted-foreground">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "4px 0 10px",
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--muted-foreground)",
+        }}
+      >
         <span>
           Point {currentIdx + 1} of {sortedPoints.length}
         </span>
@@ -297,63 +323,164 @@ export function SubmissionForm({ layout, points, settings }: Props) {
       </div>
 
       {/* Reading display */}
-      <div className="mt-3 flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
-        {/* Point badge */}
+      <div
+        style={{
+          marginTop: 12,
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: "12px 14px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        {/* Point number badge */}
         <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-          style={{ background: liveColor ?? "#002244" }}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 9999,
+            background: liveColor ?? NAVY,
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: DISPLAY_FONT,
+            fontSize: 18,
+            fontWeight: 900,
+            flexShrink: 0,
+            boxShadow: liveColor
+              ? `0 0 0 3px ${liveColor}33`
+              : "0 0 0 3px rgba(0,59,111,0.18)",
+            transition: "background 0.2s, box-shadow 0.2s",
+          }}
         >
           {currentPoint?.point_number}
         </div>
 
         {/* Value display */}
-        <div className="flex flex-1 flex-col">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            {currentPoint?.label ? currentPoint.label : `Point ${currentPoint?.point_number}`}
-          </span>
-          <div className="flex items-baseline gap-1">
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--muted-foreground)",
+              marginBottom: 2,
+            }}
+          >
+            {currentPoint?.label ?? `Point ${currentPoint?.point_number}`}
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
             <span
-              className="font-mono text-3xl font-black leading-none"
-              style={{ color: liveColor ?? (input ? "inherit" : undefined) }}
+              style={{
+                fontFamily: DISPLAY_FONT,
+                fontSize: 40,
+                lineHeight: 1,
+                color: liveColor ?? (input ? "var(--foreground)" : "var(--muted-foreground)"),
+                fontVariantNumeric: "tabular-nums",
+                transition: "color 0.15s",
+              }}
             >
               {input || "—"}
             </span>
-            <span className="text-xs text-muted-foreground">
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--muted-foreground)",
+                marginBottom: 2,
+              }}
+            >
               {settings.measurement_unit}
             </span>
           </div>
           {liveSev && (
-            <span
-              className="text-[11px] font-semibold"
-              style={{ color: liveColor }}
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: liveColor,
+                marginTop: 1,
+              }}
             >
               {SEVERITY_LABEL[liveSev]}
-            </span>
+            </div>
           )}
         </div>
 
-        {/* Skip */}
-        <Button
+        {/* Skip button */}
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
           onClick={handleSkip}
-          className="shrink-0 text-muted-foreground"
+          style={{
+            flexShrink: 0,
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+            background: "transparent",
+            color: "var(--muted-foreground)",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
         >
           Skip
-        </Button>
+        </button>
       </div>
 
-      {/* Action button */}
-      <Button
+      {/* Next / Review button */}
+      <button
         type="button"
-        size="lg"
-        className="mt-2 h-12 w-full text-base"
         onClick={handleNext}
         disabled={!hasInput}
+        style={{
+          marginTop: 8,
+          width: "100%",
+          minHeight: 52,
+          borderRadius: 10,
+          border: 0,
+          background: hasInput
+            ? `linear-gradient(180deg, #7AFF40 0%, ${GREEN} 100%)`
+            : "var(--muted)",
+          color: hasInput ? "#051200" : "var(--muted-foreground)",
+          fontFamily: DISPLAY_FONT,
+          fontSize: 18,
+          fontWeight: 900,
+          letterSpacing: "0.02em",
+          textTransform: "uppercase",
+          cursor: hasInput ? "pointer" : "not-allowed",
+          boxShadow: hasInput
+            ? `0 2px 0 0 ${GREEN_PRESS}, 0 4px 12px rgba(77,255,0,0.25)`
+            : "none",
+          transition: "background 0.15s, box-shadow 0.15s, color 0.15s",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+        }}
       >
-        {isLastPoint ? "Review & Submit" : "Next Point →"}
-      </Button>
+        {isLastPoint ? "Review & Submit" : "Next Point"}
+        {hasInput && (
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M5 12h14" />
+            <path d="m12 5 7 7-7 7" />
+          </svg>
+        )}
+      </button>
 
       {/* Number pad */}
       <NumberPad onKey={handleNumKey} />
@@ -361,15 +488,22 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Number pad
-// ---------------------------------------------------------------------------
+// ── Number pad ────────────────────────────────────────────────────────────────
 
 const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"] as const
 
 function NumberPad({ onKey }: { onKey: (key: string) => void }) {
   return (
-    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl border bg-muted/30 p-3">
+    <div
+      style={{
+        marginTop: 10,
+        display: "grid",
+        gridTemplateColumns: "repeat(3, 1fr)",
+        gap: 8,
+        padding: "12px 0 4px",
+        borderTop: "1px solid var(--border)",
+      }}
+    >
       {PAD_KEYS.map((key) => (
         <button
           key={key}
@@ -378,10 +512,23 @@ function NumberPad({ onKey }: { onKey: (key: string) => void }) {
             e.preventDefault()
             onKey(key)
           }}
+          style={{
+            height: 58,
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            background: "var(--card)",
+            color: key === "⌫" ? "var(--muted-foreground)" : "var(--foreground)",
+            fontSize: 22,
+            fontWeight: 700,
+            cursor: "pointer",
+            userSelect: "none",
+            boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
           className={cn(
-            "flex h-14 items-center justify-center rounded-lg border bg-card text-xl font-semibold",
-            "transition-colors active:bg-muted",
-            key === "⌫" && "text-muted-foreground",
+            "active:bg-muted transition-colors",
           )}
         >
           {key}
@@ -391,9 +538,7 @@ function NumberPad({ onKey }: { onKey: (key: string) => void }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Review phase
-// ---------------------------------------------------------------------------
+// ── Review phase ──────────────────────────────────────────────────────────────
 
 interface ReviewPhaseProps {
   layout: LayoutForForm
@@ -435,9 +580,82 @@ function ReviewPhase({
       <input type="hidden" name="measurements_json" value={measurementsJson} />
       <input type="hidden" name="notes" value={notes} />
 
+      {/* Review header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: -4,
+        }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 9999,
+            border: "1px solid var(--border)",
+            background: "var(--muted)",
+            color: "var(--foreground)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <div>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--muted-foreground)",
+            }}
+          >
+            Step 3 of 3
+          </div>
+          <div
+            style={{
+              fontFamily: DISPLAY_FONT,
+              fontSize: 22,
+              lineHeight: 1,
+              letterSpacing: "0.01em",
+              textTransform: "uppercase",
+              color: "var(--foreground)",
+            }}
+          >
+            Review &amp; Submit
+          </div>
+        </div>
+      </div>
+
       {/* Summary card */}
-      <div className="rounded-xl border bg-card p-4">
-        <div className="flex items-start gap-4">
+      <div
+        style={{
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: 16,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
           {/* Rink thumbnail */}
           <div className="w-24 shrink-0" style={{ aspectRatio: "380/740" }}>
             <USARink
@@ -448,29 +666,52 @@ function ReviewPhase({
           </div>
 
           {/* Stats */}
-          <div className="flex flex-1 flex-col gap-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "var(--muted-foreground)",
+                  marginBottom: 2,
+                }}
+              >
                 Average depth
-              </span>
-              <div className="flex items-baseline gap-1">
-                <span className="font-mono text-3xl font-black leading-none">
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                <span
+                  style={{
+                    fontFamily: DISPLAY_FONT,
+                    fontSize: 36,
+                    lineHeight: 1,
+                    color: "var(--foreground)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
                   {stats.avg.toFixed(2)}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--muted-foreground)",
+                  }}
+                >
                   {settings.measurement_unit}
                 </span>
               </div>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {stats.ok > 0 && (
-                <SummaryPill color="#16a34a">{stats.ok} optimal</SummaryPill>
+                <SummaryPill color={SEVERITY_COLOR.ok}>{stats.ok} optimal</SummaryPill>
               )}
               {stats.high > 0 && (
-                <SummaryPill color="#d97706">{stats.high} thick</SummaryPill>
+                <SummaryPill color={SEVERITY_COLOR.high}>{stats.high} thick</SummaryPill>
               )}
               {stats.low > 0 && (
-                <SummaryPill color="#dc2626">{stats.low} below min</SummaryPill>
+                <SummaryPill color={SEVERITY_COLOR.low}>{stats.low} below min</SummaryPill>
               )}
               {stats.total < sortedPoints.length && (
                 <SummaryPill color="#6b7280">
@@ -483,8 +724,18 @@ function ReviewPhase({
       </div>
 
       {/* Per-point list */}
-      <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
-        {sortedPoints.map((p) => {
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
+        {sortedPoints.map((p, i) => {
           const raw = committedValues[p.id]?.trim()
           const num = raw ? Number(raw) : NaN
           const sev = Number.isFinite(num)
@@ -494,29 +745,62 @@ function ReviewPhase({
           return (
             <li
               key={p.id}
-              className="flex items-center gap-3 px-3 py-2.5"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 14px",
+                borderBottom:
+                  i < sortedPoints.length - 1
+                    ? "1px solid var(--border)"
+                    : "none",
+              }}
             >
               <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
                 style={{
-                  background: sev ? SEVERITY_COLOR[sev] : "#94a3b8",
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9999,
+                  background: sev ? SEVERITY_COLOR[sev] : "var(--muted)",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  flexShrink: 0,
                 }}
               >
                 {p.point_number}
               </span>
-              <div className="flex flex-1 flex-col">
-                <span className="text-sm font-medium">
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>
                   {p.label ?? `Point ${p.point_number}`}
-                </span>
-                <span
-                  className="text-xs"
-                  style={{ color: sev ? SEVERITY_COLOR[sev] : "#94a3b8" }}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: sev ? SEVERITY_COLOR[sev] : "var(--muted-foreground)",
+                    fontWeight: sev ? 700 : 400,
+                  }}
                 >
                   {sev ? SEVERITY_LABEL[sev] : "Not recorded"}
-                </span>
+                </div>
               </div>
-              <span className="font-mono text-sm font-semibold">
-                {Number.isFinite(num) ? `${num.toFixed(2)} ${settings.measurement_unit}` : "—"}
+              <span
+                style={{
+                  fontVariantNumeric: "tabular-nums",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: Number.isFinite(num)
+                    ? "var(--foreground)"
+                    : "var(--muted-foreground)",
+                  fontFamily: "var(--font-geist-mono), monospace",
+                }}
+              >
+                {Number.isFinite(num)
+                  ? `${num.toFixed(2)} ${settings.measurement_unit}`
+                  : "—"}
               </span>
             </li>
           )
@@ -524,10 +808,10 @@ function ReviewPhase({
       </ul>
 
       {/* Notes */}
-      <div className="flex flex-col gap-1.5">
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <label
           htmlFor={`${baseId}-notes`}
-          className="text-sm font-medium"
+          style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}
         >
           Notes (optional)
         </label>
@@ -543,21 +827,30 @@ function ReviewPhase({
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col gap-2">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <SubmitButton filledCount={stats.total} total={sortedPoints.length} />
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
           onClick={onBack}
-          className="text-muted-foreground"
+          style={{
+            padding: "8px 16px",
+            borderRadius: 8,
+            border: 0,
+            background: "transparent",
+            color: "var(--muted-foreground)",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
         >
           ← Back to measure
-        </Button>
+        </button>
       </div>
     </form>
   )
 }
+
+// ── Summary pill ──────────────────────────────────────────────────────────────
 
 function SummaryPill({
   color,
@@ -568,13 +861,26 @@ function SummaryPill({
 }) {
   return (
     <span
-      className="rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white"
-      style={{ background: color }}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 10px",
+        borderRadius: 9999,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        background: `${color}22`,
+        color: color,
+        border: `1px solid ${color}44`,
+      }}
     >
       {children}
     </span>
   )
 }
+
+// ── Submit button ─────────────────────────────────────────────────────────────
 
 function SubmitButton({
   filledCount,
@@ -585,17 +891,53 @@ function SubmitButton({
 }) {
   const { pending } = useFormStatus()
   return (
-    <Button
+    <button
       type="submit"
-      size="lg"
       disabled={pending}
-      className="h-12 w-full text-base"
+      style={{
+        width: "100%",
+        minHeight: 52,
+        borderRadius: 10,
+        border: 0,
+        background: pending
+          ? "var(--muted)"
+          : `linear-gradient(180deg, #7AFF40 0%, ${GREEN} 100%)`,
+        color: pending ? "var(--muted-foreground)" : "#051200",
+        fontFamily: DISPLAY_FONT,
+        fontSize: 18,
+        fontWeight: 900,
+        letterSpacing: "0.02em",
+        textTransform: "uppercase",
+        cursor: pending ? "not-allowed" : "pointer",
+        boxShadow: pending
+          ? "none"
+          : `0 2px 0 0 ${GREEN_PRESS}, 0 4px 12px rgba(77,255,0,0.25)`,
+        transition: "background 0.15s, box-shadow 0.15s",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+      }}
     >
       {pending
         ? "Submitting…"
         : filledCount === total
-          ? "Submit reading"
+          ? "Submit Reading"
           : `Submit (${filledCount} of ${total} recorded)`}
-    </Button>
+      {!pending && (
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      )}
+    </button>
   )
 }
