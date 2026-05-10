@@ -6,9 +6,17 @@ import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -197,20 +205,20 @@ export function SubmissionForm({
 
       {equipment.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <Label htmlFor="equipment_id">Equipment</Label>
-          <select
-            id="equipment_id"
-            name="equipment_id"
-            value={equipmentId}
-            onChange={(e) => setEquipmentId(e.target.value)}
-            className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
-          >
-            {equipment.map((eq) => (
-              <option key={eq.id} value={eq.id}>
-                {eq.name}
-              </option>
-            ))}
-          </select>
+          <Label>Equipment</Label>
+          <Select value={equipmentId} onValueChange={setEquipmentId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select equipment" />
+            </SelectTrigger>
+            <SelectContent>
+              {equipment.map((eq) => (
+                <SelectItem key={eq.id} value={eq.id}>
+                  {eq.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <input type="hidden" name="equipment_id" value={equipmentId} />
         </div>
       ) : null}
 
@@ -309,25 +317,9 @@ export function SubmissionForm({
 }
 
 function RangeBadgePill({ badge }: { badge: Exclude<RangeBadge, "none"> }) {
-  if (badge === "ok") {
-    return (
-      <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200">
-        Within range
-      </span>
-    )
-  }
-  if (badge === "warn") {
-    return (
-      <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
-        Warn
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex w-fit items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900 dark:bg-red-900/30 dark:text-red-200">
-      Alert
-    </span>
-  )
+  if (badge === "ok") return <Badge variant="success">Within range</Badge>
+  if (badge === "warn") return <Badge variant="warning">Warn</Badge>
+  return <Badge variant="error">Alert</Badge>
 }
 
 function SubmitBar({

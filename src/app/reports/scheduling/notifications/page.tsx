@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -141,9 +142,9 @@ export default async function NotificationsPage() {
     return (
       <li className="flex flex-col gap-2 px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+          <Badge variant="secondary">
             {notificationTypeLabel(row.notification_type)}
-          </span>
+          </Badge>
           <span className="text-xs text-muted-foreground">
             {formatRelativeAge(row.created_at)}
           </span>
@@ -183,9 +184,7 @@ export default async function NotificationsPage() {
             <h2 className="text-lg font-semibold tracking-tight">
               Unread
               {unread.length > 0 ? (
-                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
-                  {unread.length}
-                </span>
+                <Badge className="ml-2">{unread.length}</Badge>
               ) : null}
             </h2>
             {unread.length === 0 ? (

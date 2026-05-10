@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -55,19 +56,19 @@ function NotAvailable({
   )
 }
 
-function statusBadge(status: string): string {
+function statusBadgeVariant(status: string): BadgeProps["variant"] {
   switch (status) {
     case "applied":
     case "manager_approved":
     case "accepted":
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200"
+      return "success"
     case "denied":
     case "expired":
-      return "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200"
+      return "error"
     case "cancelled":
-      return "bg-muted text-muted-foreground"
+      return "outline"
     default:
-      return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+      return "warning"
   }
 }
 
@@ -256,11 +257,9 @@ export default async function SwapsPage() {
       <li key={row.id} className="flex flex-col gap-2 px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium">{otherName}</span>
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(row.status)}`}
-          >
+          <Badge variant={statusBadgeVariant(row.status)}>
             {statusLabel(row.status)}
-          </span>
+          </Badge>
         </div>
         <div className="flex flex-col gap-1">
           <div className="flex flex-col gap-0.5">

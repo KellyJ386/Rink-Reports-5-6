@@ -9,6 +9,13 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -312,20 +319,19 @@ function FieldInput({
   if (field.field_type === "select") {
     return (
       <div className="flex flex-col gap-2">
-        <Label htmlFor={inputId}>{labelText}</Label>
-        <select
-          id={inputId}
-          value={value?.text ?? ""}
-          onChange={(e) => onText(e.target.value)}
-          className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
-        >
-          <option value="">Select…</option>
-          {field.options.map((opt) => (
-            <option key={opt.key} value={opt.key}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+        <Label>{labelText}</Label>
+        <Select value={value?.text ?? ""} onValueChange={onText}>
+          <SelectTrigger>
+            <SelectValue placeholder="Select…" />
+          </SelectTrigger>
+          <SelectContent>
+            {field.options.map((opt) => (
+              <SelectItem key={opt.key} value={opt.key}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     )
   }
