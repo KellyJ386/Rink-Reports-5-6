@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -272,9 +273,9 @@ function ComplianceRuleItem({
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{rule.rule_name}</span>
             {!rule.is_active && (
-              <span className="bg-muted rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase">
+              <Badge variant="secondary" className="uppercase">
                 off
-              </span>
+              </Badge>
             )}
           </div>
           <span className="text-muted-foreground text-xs">

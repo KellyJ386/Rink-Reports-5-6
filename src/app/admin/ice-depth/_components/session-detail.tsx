@@ -5,6 +5,8 @@ import { useActionState, useEffect, useMemo } from "react"
 import { toast } from "sonner"
 
 import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
+import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,7 +15,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { cn } from "@/lib/utils"
 
 import { addIceDepthFollowupNote } from "../actions"
 import type {
@@ -147,14 +148,10 @@ export function SessionDetail({ detail, backHref }: Props) {
               </p>
               <div className="flex gap-2">
                 {session.has_low_reading && (
-                  <span className="bg-destructive/15 text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
-                    {session.low_count} low
-                  </span>
+                  <Badge variant="error">{session.low_count} low</Badge>
                 )}
                 {session.has_high_reading && (
-                  <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:text-yellow-200">
-                    {session.high_count} high
-                  </span>
+                  <Badge variant="warning">{session.high_count} high</Badge>
                 )}
               </div>
             </div>
@@ -325,21 +322,16 @@ export function SessionDetail({ detail, backHref }: Props) {
   )
 }
 
+function severityVariant(severity: ReadingSeverity): BadgeProps["variant"] {
+  if (severity === "high") return "error"
+  if (severity === "low") return "info"
+  return "secondary"
+}
+
 function SeverityBadge({ severity }: { severity: ReadingSeverity }) {
-  const cls =
-    severity === "low"
-      ? "bg-blue-500/15 text-blue-700 dark:text-blue-300"
-      : severity === "high"
-        ? "bg-destructive/15 text-destructive"
-        : "bg-muted text-muted-foreground"
   return (
-    <span
-      className={cn(
-        "rounded-full px-2 py-0.5 text-[11px] font-medium uppercase",
-        cls,
-      )}
-    >
+    <Badge variant={severityVariant(severity)} className="uppercase">
       {severity}
-    </span>
+    </Badge>
   )
 }

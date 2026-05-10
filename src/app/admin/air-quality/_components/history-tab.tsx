@@ -1,12 +1,12 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
 
 import type {
   EmployeeLite,
@@ -82,12 +82,9 @@ function hasAnyFilter(p: HistoryParams): boolean {
   )
 }
 
-function severityBadgeClass(sev: Severity): string {
-  if (sev === "critical")
-    return "bg-destructive/15 text-destructive"
-  if (sev === "high")
-    return "bg-orange-500/15 text-orange-700 dark:text-orange-300"
-  return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+function severityBadgeVariant(sev: Severity | null): "destructive" | "warning" {
+  if (sev === "critical") return "destructive"
+  return "warning"
 }
 
 export function HistoryTab({
@@ -198,17 +195,10 @@ function ReportsList({
                 </td>
                 <td className="border-b px-3 py-2 align-middle">
                   {r.has_exceedance ? (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                        sev
-                          ? severityBadgeClass(sev)
-                          : "bg-destructive/15 text-destructive",
-                      )}
-                    >
+                    <Badge variant={severityBadgeVariant(sev)}>
                       {r.exceedance_count}
                       {sev ? ` · ${sev}` : ""}
-                    </span>
+                    </Badge>
                   ) : (
                     <span className="text-muted-foreground text-xs">OK</span>
                   )}

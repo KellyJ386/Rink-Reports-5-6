@@ -1,12 +1,12 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
 
 import type {
   EmployeeLite,
@@ -136,16 +136,11 @@ function ReportsList({
                 {r.value_count}
               </td>
               <td className="border-b px-3 py-2 align-middle">
-                <span
-                  className={cn(
-                    "inline-flex min-w-6 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    r.out_of_range_count > 0
-                      ? "bg-destructive/15 text-destructive"
-                      : "bg-muted text-muted-foreground",
-                  )}
+                <Badge
+                  variant={r.out_of_range_count > 0 ? "error" : "secondary"}
                 >
                   {r.out_of_range_count}
-                </span>
+                </Badge>
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {r.notes_excerpt ? (

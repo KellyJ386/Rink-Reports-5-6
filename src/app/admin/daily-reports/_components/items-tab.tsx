@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -230,13 +231,9 @@ export function ItemsTab({
                     </td>
                     <td className="border-b px-3 py-2 align-middle">
                       {it.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                          Active
-                        </span>
+                        <Badge variant="success">Active</Badge>
                       ) : (
-                        <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
-                          Inactive
-                        </span>
+                        <Badge variant="secondary">Inactive</Badge>
                       )}
                     </td>
                     <td className="border-b px-3 py-2 align-middle">

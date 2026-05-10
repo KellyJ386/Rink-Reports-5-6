@@ -1,12 +1,12 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
 
 import type {
   EmployeeLite,
@@ -209,9 +209,9 @@ function SubmissionsList({
                 {fmt(s.occurred_at)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
-                <span className="bg-secondary text-secondary-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+                <Badge variant="secondary">
                   {operationLabel(s.operation_type)}
-                </span>
+                </Badge>
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {s.rink?.name ?? "—"}
@@ -230,14 +230,7 @@ function SubmissionsList({
                     {summarizeSubmission(s, tempUnit)}
                   </span>
                   {s.has_failed_check && (
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                        "bg-destructive/15 text-destructive",
-                      )}
-                    >
-                      {s.failed_count} failed
-                    </span>
+                    <Badge variant="error">{s.failed_count} failed</Badge>
                   )}
                 </div>
               </td>

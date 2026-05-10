@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,6 +14,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import {
   createRoutingRule,
@@ -111,13 +119,13 @@ function RuleRowItem({
           <span className="text-sm font-semibold">
             {rule.name ?? "(unnamed rule)"}
           </span>
-          <span className="rounded-full bg-secondary text-secondary-foreground px-1.5 py-0.5 text-[10px] font-medium uppercase">
+          <Badge variant="secondary" className="uppercase">
             priority {rule.priority}
-          </span>
+          </Badge>
           {!rule.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
+            <Badge variant="secondary" className="uppercase">
               off
-            </span>
+            </Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -235,6 +243,11 @@ function RuleForm({
   const [targetKind, setTargetKind] = useState<"group" | "role" | "employee">(
     initialTargetKind(rule),
   )
+  const [sourceModule, setSourceModule] = useState(rule?.source_module ?? SOURCE_MODULES[0]?.key ?? "")
+  const [severity, setSeverity] = useState(rule?.severity ?? "any")
+  const [targetGroupId, setTargetGroupId] = useState(rule?.target_group_id ?? "")
+  const [targetRoleKey, setTargetRoleKey] = useState(rule?.target_role_key ?? "")
+  const [targetEmployeeId, setTargetEmployeeId] = useState(rule?.target_employee_id ?? "")
   useEffect(() => {
     if (state.ok === true) {
       toast.success(state.message ?? "Saved.")
@@ -258,35 +271,36 @@ function RuleForm({
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rr-mod-${rule?.id ?? "new"}`}>Source module</Label>
-          <select
-            id={`rr-mod-${rule?.id ?? "new"}`}
-            name="source_module"
-            defaultValue={rule?.source_module ?? SOURCE_MODULES[0]?.key ?? ""}
-            required
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-          >
-            {SOURCE_MODULES.map((m) => (
-              <option key={m.key} value={m.key}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          <input type="hidden" name="source_module" value={sourceModule} />
+          <Select value={sourceModule} onValueChange={(v) => setSourceModule(v)}>
+            <SelectTrigger id={`rr-mod-${rule?.id ?? "new"}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SOURCE_MODULES.map((m) => (
+                <SelectItem key={m.key} value={m.key}>
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rr-sev-${rule?.id ?? "new"}`}>Severity</Label>
-          <select
-            id={`rr-sev-${rule?.id ?? "new"}`}
-            name="severity"
-            defaultValue={rule?.severity ?? "any"}
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-          >
-            <option value="any">Any</option>
-            {SEVERITIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+          <input type="hidden" name="severity" value={severity} />
+          <Select value={severity} onValueChange={(v) => setSeverity(v)}>
+            <SelectTrigger id={`rr-sev-${rule?.id ?? "new"}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any</SelectItem>
+              {SEVERITIES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rr-prio-${rule?.id ?? "new"}`}>Priority</Label>
@@ -333,61 +347,64 @@ function RuleForm({
         {targetKind === "group" && (
           <div className="flex flex-col gap-1">
             <Label htmlFor={`rr-tgt-g-${rule?.id ?? "new"}`}>Group</Label>
-            <select
-              id={`rr-tgt-g-${rule?.id ?? "new"}`}
-              name="target_group_id"
-              defaultValue={rule?.target_group_id ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            <input type="hidden" name="target_group_id" value={targetGroupId} />
+            <Select
+              value={targetGroupId || undefined}
+              onValueChange={(v) => setTargetGroupId(v)}
             >
-              <option value="" disabled>
-                Pick group…
-              </option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`rr-tgt-g-${rule?.id ?? "new"}`}>
+                <SelectValue placeholder="Pick group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
         {targetKind === "role" && (
           <div className="flex flex-col gap-1">
             <Label htmlFor={`rr-tgt-r-${rule?.id ?? "new"}`}>Role</Label>
-            <select
-              id={`rr-tgt-r-${rule?.id ?? "new"}`}
-              name="target_role_key"
-              defaultValue={rule?.target_role_key ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            <input type="hidden" name="target_role_key" value={targetRoleKey} />
+            <Select
+              value={targetRoleKey || undefined}
+              onValueChange={(v) => setTargetRoleKey(v)}
             >
-              <option value="" disabled>
-                Pick role…
-              </option>
-              {ROLE_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`rr-tgt-r-${rule?.id ?? "new"}`}>
+                <SelectValue placeholder="Pick role…" />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLE_KEYS.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
         {targetKind === "employee" && (
           <div className="flex flex-col gap-1">
             <Label htmlFor={`rr-tgt-e-${rule?.id ?? "new"}`}>Employee</Label>
-            <select
-              id={`rr-tgt-e-${rule?.id ?? "new"}`}
-              name="target_employee_id"
-              defaultValue={rule?.target_employee_id ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            <input type="hidden" name="target_employee_id" value={targetEmployeeId} />
+            <Select
+              value={targetEmployeeId || undefined}
+              onValueChange={(v) => setTargetEmployeeId(v)}
             >
-              <option value="" disabled>
-                Pick employee…
-              </option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.last_name}, {e.first_name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`rr-tgt-e-${rule?.id ?? "new"}`}>
+                <SelectValue placeholder="Pick employee…" />
+              </SelectTrigger>
+              <SelectContent>
+                {employees.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.last_name}, {e.first_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
       </fieldset>

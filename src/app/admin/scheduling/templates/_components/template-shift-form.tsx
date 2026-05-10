@@ -1,11 +1,18 @@
 "use client"
 
-import { useActionState, useEffect, useTransition } from "react"
+import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import {
   createTemplateShift,
@@ -41,6 +48,10 @@ export function TemplateShiftForm(props: Props) {
     INITIAL_STATE
   )
   const [deletePending, startDelete] = useTransition()
+  const [departmentId, setDepartmentId] = useState(editing?.department_id ?? "")
+  const [dayOfWeek, setDayOfWeek] = useState(
+    editing ? String(editing.day_of_week) : "1",
+  )
 
   const state = isEdit ? updateState : createState
   const pending = isEdit ? updatePending : createPending
@@ -72,38 +83,38 @@ export function TemplateShiftForm(props: Props) {
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ts_dept">Department *</Label>
-          <select
-            id="ts_dept"
-            name="department_id"
-            required
-            defaultValue={editing?.department_id ?? ""}
-            className="border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs"
+          <input type="hidden" name="department_id" value={departmentId} />
+          <Select
+            value={departmentId || undefined}
+            onValueChange={(v) => setDepartmentId(v)}
           >
-            <option value="" disabled>
-              Select…
-            </option>
-            {props.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="ts_dept">
+              <SelectValue placeholder="Select…" />
+            </SelectTrigger>
+            <SelectContent>
+              {props.departments.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ts_dow">Day *</Label>
-          <select
-            id="ts_dow"
-            name="day_of_week"
-            required
-            defaultValue={editing ? String(editing.day_of_week) : "1"}
-            className="border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs"
-          >
-            {DAY_NAMES.map((label, dow) => (
-              <option key={dow} value={dow}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <input type="hidden" name="day_of_week" value={dayOfWeek} />
+          <Select value={dayOfWeek} onValueChange={(v) => setDayOfWeek(v)}>
+            <SelectTrigger id="ts_dow">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DAY_NAMES.map((label, dow) => (
+                <SelectItem key={dow} value={String(dow)}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ts_count">Staff count *</Label>

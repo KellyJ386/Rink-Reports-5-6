@@ -4,6 +4,13 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useTransition } from "react"
 
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import type { AreaRow, EmployeeLite } from "../types"
 
@@ -44,37 +51,43 @@ export function SubmissionFilters({
         <label className="text-muted-foreground text-xs font-medium">
           Area
         </label>
-        <select
-          value={selectedAreaId ?? ""}
-          onChange={(e) => setParam("area", e.target.value)}
+        <Select
+          value={selectedAreaId || undefined}
+          onValueChange={(v) => setParam("area", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-48 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All areas</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-48">
+            <SelectValue placeholder="All areas" />
+          </SelectTrigger>
+          <SelectContent>
+            {areas.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">
           Employee
         </label>
-        <select
-          value={selectedEmployeeId ?? ""}
-          onChange={(e) => setParam("employee", e.target.value)}
+        <Select
+          value={selectedEmployeeId || undefined}
+          onValueChange={(v) => setParam("employee", v)}
           disabled={pending}
-          className="border-input bg-transparent h-9 min-w-48 rounded-md border px-3 text-sm shadow-xs"
         >
-          <option value="">All employees</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="min-w-48">
+            <SelectValue placeholder="All employees" />
+          </SelectTrigger>
+          <SelectContent>
+            {employees.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-muted-foreground text-xs font-medium">

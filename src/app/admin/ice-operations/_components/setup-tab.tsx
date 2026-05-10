@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,6 +14,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -130,9 +138,7 @@ function RinkRowItem({ rink }: { rink: RinkRow }) {
           <span className="text-sm font-medium">{rink.name}</span>
           <span className="text-muted-foreground text-xs">({rink.slug})</span>
           {!rink.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              off
-            </span>
+            <Badge variant="secondary" className="uppercase">off</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -283,6 +289,7 @@ function EquipmentRowItem({ equipment }: { equipment: EquipmentRow }) {
   const [state, action, pending] = useActionState(updateEquipment, NULL_STATE)
   const [activePending, startActive] = useTransition()
   const [delPending, startDel] = useTransition()
+  const [equipmentType, setEquipmentType] = useState(equipment.equipment_type)
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Equipment updated.")
@@ -323,14 +330,10 @@ function EquipmentRowItem({ equipment }: { equipment: EquipmentRow }) {
             </span>
           )}
           {equipment.hours_count !== null && (
-            <span className="bg-secondary text-secondary-foreground rounded-full px-2 py-0.5 text-[10px] font-medium">
-              {equipment.hours_count} hrs
-            </span>
+            <Badge variant="secondary">{equipment.hours_count} hrs</Badge>
           )}
           {!equipment.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              off
-            </span>
+            <Badge variant="secondary" className="uppercase">off</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -373,18 +376,19 @@ function EquipmentRowItem({ equipment }: { equipment: EquipmentRow }) {
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor={`eq-type-${equipment.id}`}>Type</Label>
-            <select
-              id={`eq-type-${equipment.id}`}
-              name="equipment_type"
-              defaultValue={equipment.equipment_type}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-            >
-              {EQUIPMENT_TYPES.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="equipment_type" value={equipmentType} />
+            <Select value={equipmentType} onValueChange={(v) => setEquipmentType(v as EquipmentType)}>
+              <SelectTrigger id={`eq-type-${equipment.id}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EQUIPMENT_TYPES.map((t) => (
+                  <SelectItem key={t.key} value={t.key}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor={`eq-slug-${equipment.id}`}>Slug</Label>
@@ -443,6 +447,8 @@ function EquipmentRowItem({ equipment }: { equipment: EquipmentRow }) {
 
 function EquipmentCreateForm() {
   const [state, action, pending] = useActionState(createEquipment, NULL_STATE)
+  const [newEqType, setNewEqType] = useState<EquipmentType>("zamboni")
+
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Equipment created.")
     if (state.ok === false) toast.error(state.error)
@@ -453,24 +459,25 @@ function EquipmentCreateForm() {
       className="grid grid-cols-1 gap-3 rounded-md border p-3 sm:grid-cols-2"
       key={state.ok === true ? "eq-form-ok" : "eq-form"}
     >
+      <input type="hidden" name="equipment_type" value={newEqType} />
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-name">Add equipment — Name</Label>
         <Input id="new-eq-name" name="name" required placeholder="e.g. Zamboni 1" />
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-type">Type</Label>
-        <select
-          id="new-eq-type"
-          name="equipment_type"
-          defaultValue="zamboni"
-          className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-        >
-          {EQUIPMENT_TYPES.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+        <Select value={newEqType} onValueChange={(v) => setNewEqType(v as EquipmentType)}>
+          <SelectTrigger id="new-eq-type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {EQUIPMENT_TYPES.map((t) => (
+              <SelectItem key={t.key} value={t.key}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-slug">Slug (optional)</Label>
@@ -577,6 +584,7 @@ function CircleCheckItemRowItem({
   const [activePending, startActive] = useTransition()
   const [delPending, startDel] = useTransition()
   const [movePending, startMove] = useTransition()
+  const [appliesToType, setAppliesToType] = useState(item.applies_to_equipment_type ?? "")
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Item updated.")
@@ -613,20 +621,14 @@ function CircleCheckItemRowItem({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{item.label}</span>
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-              item.applies_to_equipment_type
-                ? "bg-secondary text-secondary-foreground border-secondary/30"
-                : "bg-muted text-muted-foreground",
-            )}
+          <Badge
+            variant={item.applies_to_equipment_type ? "secondary" : "outline"}
+            className="uppercase"
           >
             {scopeLabel}
-          </span>
+          </Badge>
           {!item.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
-              off
-            </span>
+            <Badge variant="secondary" className="uppercase">off</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -699,19 +701,22 @@ function CircleCheckItemRowItem({
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor={`cci-scope-${item.id}`}>Applies to</Label>
-            <select
-              id={`cci-scope-${item.id}`}
-              name="applies_to_equipment_type"
-              defaultValue={item.applies_to_equipment_type ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            <input type="hidden" name="applies_to_equipment_type" value={appliesToType} />
+            <Select
+              value={appliesToType || undefined}
+              onValueChange={(v) => setAppliesToType(v)}
             >
-              <option value="">All equipment</option>
-              {EQUIPMENT_TYPES.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`cci-scope-${item.id}`}>
+                <SelectValue placeholder="All equipment" />
+              </SelectTrigger>
+              <SelectContent>
+                {EQUIPMENT_TYPES.map((t) => (
+                  <SelectItem key={t.key} value={t.key}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="sm:col-span-2 flex justify-end">
             <Button type="submit" size="sm" disabled={pending}>
@@ -729,6 +734,8 @@ function CircleCheckCreateForm() {
     createCircleCheckItem,
     NULL_STATE,
   )
+  const [newCciType, setNewCciType] = useState("")
+
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Item created.")
     if (state.ok === false) toast.error(state.error)
@@ -739,6 +746,7 @@ function CircleCheckCreateForm() {
       className="grid grid-cols-1 gap-3 rounded-md border p-3 sm:grid-cols-2"
       key={state.ok === true ? "cci-form-ok" : "cci-form"}
     >
+      <input type="hidden" name="applies_to_equipment_type" value={newCciType} />
       <div className="flex flex-col gap-1 sm:col-span-2">
         <Label htmlFor="new-cci-label">Add item — Label</Label>
         <Input
@@ -754,19 +762,21 @@ function CircleCheckCreateForm() {
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-cci-scope">Applies to</Label>
-        <select
-          id="new-cci-scope"
-          name="applies_to_equipment_type"
-          defaultValue=""
-          className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+        <Select
+          value={newCciType || undefined}
+          onValueChange={(v) => setNewCciType(v)}
         >
-          <option value="">All equipment</option>
-          {EQUIPMENT_TYPES.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="new-cci-scope">
+            <SelectValue placeholder="All equipment" />
+          </SelectTrigger>
+          <SelectContent>
+            {EQUIPMENT_TYPES.map((t) => (
+              <SelectItem key={t.key} value={t.key}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="sm:col-span-2 flex justify-end">
         <Button type="submit" size="sm" disabled={pending}>

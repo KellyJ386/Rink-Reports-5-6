@@ -5,6 +5,13 @@ import { useCallback } from "react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import type { EmployeeLite } from "../types"
 import { ACTION_LABELS, ENTITY_TYPE_LABELS } from "../types"
@@ -44,50 +51,59 @@ export function AuditLogFilters({ employees, params }: Props) {
     <div className="flex flex-wrap gap-3">
       <div className="flex flex-col gap-1 min-w-[160px]">
         <Label className="text-xs text-muted-foreground">Action</Label>
-        <select
-          className="rounded-md border bg-background px-2 py-1.5 text-sm"
-          value={params.action ?? ""}
-          onChange={(e) => update("action", e.target.value)}
+        <Select
+          value={params.action || undefined}
+          onValueChange={(v) => update("action", v)}
         >
-          <option value="">All actions</option>
-          {Object.entries(ACTION_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder="All actions" />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(ACTION_LABELS).map(([k, v]) => (
+              <SelectItem key={k} value={k}>
+                {v}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1 min-w-[180px]">
         <Label className="text-xs text-muted-foreground">Entity type</Label>
-        <select
-          className="rounded-md border bg-background px-2 py-1.5 text-sm"
-          value={params.entity_type ?? ""}
-          onChange={(e) => update("entity_type", e.target.value)}
+        <Select
+          value={params.entity_type || undefined}
+          onValueChange={(v) => update("entity_type", v)}
         >
-          <option value="">All types</option>
-          {Object.entries(ENTITY_TYPE_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(ENTITY_TYPE_LABELS).map(([k, v]) => (
+              <SelectItem key={k} value={k}>
+                {v}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1 min-w-[180px]">
         <Label className="text-xs text-muted-foreground">Actor</Label>
-        <select
-          className="rounded-md border bg-background px-2 py-1.5 text-sm"
-          value={params.actor ?? ""}
-          onChange={(e) => update("actor", e.target.value)}
+        <Select
+          value={params.actor || undefined}
+          onValueChange={(v) => update("actor", v)}
         >
-          <option value="">All actors</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger>
+            <SelectValue placeholder="All actors" />
+          </SelectTrigger>
+          <SelectContent>
+            {employees.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1 min-w-[130px]">

@@ -6,6 +6,13 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import { createFacility, updateFacility } from "../actions"
 import {
@@ -140,20 +147,22 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="facility-timezone">Timezone</Label>
-        <select
-          id="facility-timezone"
-          name="timezone"
+        <Select
           value={timezone}
-          onChange={(e) => setTimezone(e.target.value)}
+          onValueChange={(v) => setTimezone(v)}
           disabled={isPending}
-          className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {TIMEZONE_OPTIONS.map((tz) => (
-            <option key={tz} value={tz}>
-              {tz}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="facility-timezone">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIMEZONE_OPTIONS.map((tz) => (
+              <SelectItem key={tz} value={tz}>
+                {tz}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {mode === "edit" && (

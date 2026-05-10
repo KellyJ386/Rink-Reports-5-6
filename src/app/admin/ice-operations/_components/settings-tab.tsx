@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect } from "react"
+import { useActionState, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import { updateIceOperationsSettings } from "../actions"
 import type {
@@ -39,10 +46,13 @@ export function SettingsTab({ settings }: Props) {
     if (state.ok === false) toast.error(state.error)
   }, [state])
 
-  const tempUnit: TemperatureUnit =
-    (settings?.temperature_unit as TemperatureUnit) ?? "F"
+  const [tempUnit, setTempUnit] = useState<TemperatureUnit>(
+    (settings?.temperature_unit as TemperatureUnit) ?? "F",
+  )
   const enabled = settings?.alerts_enabled ?? true
-  const sev: Severity = (settings?.default_alert_severity as Severity) ?? "warn"
+  const [sev, setSev] = useState<Severity>(
+    (settings?.default_alert_severity as Severity) ?? "warn",
+  )
 
   return (
     <Card className="max-w-3xl">
@@ -57,18 +67,19 @@ export function SettingsTab({ settings }: Props) {
         <form action={action} className="flex flex-col gap-4">
           <div className="flex max-w-xs flex-col gap-1">
             <Label htmlFor="temperature-unit">Temperature unit</Label>
-            <select
-              id="temperature-unit"
-              name="temperature_unit"
-              defaultValue={tempUnit}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-            >
-              {TEMPERATURE_UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u === "F" ? "Fahrenheit (°F)" : "Celsius (°C)"}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="temperature_unit" value={tempUnit} />
+            <Select value={tempUnit} onValueChange={(v) => setTempUnit(v as TemperatureUnit)}>
+              <SelectTrigger id="temperature-unit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TEMPERATURE_UNITS.map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {u === "F" ? "Fahrenheit (°F)" : "Celsius (°C)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-muted-foreground text-xs">
               Display only. Submissions are stored in Celsius.
             </p>
@@ -89,18 +100,19 @@ export function SettingsTab({ settings }: Props) {
 
           <div className="flex max-w-xs flex-col gap-1">
             <Label htmlFor="default-sev">Default alert severity</Label>
-            <select
-              id="default-sev"
-              name="default_alert_severity"
-              defaultValue={sev}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-            >
-              {SEVERITIES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="default_alert_severity" value={sev} />
+            <Select value={sev} onValueChange={(v) => setSev(v as Severity)}>
+              <SelectTrigger id="default-sev">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SEVERITIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-muted-foreground text-xs">
               Used when alerts are emitted without their own severity.
             </p>

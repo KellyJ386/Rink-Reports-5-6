@@ -5,6 +5,13 @@ import { useTransition } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 import type {
@@ -109,70 +116,82 @@ export function HistoryFilters({ employees, rinks, equipment, params }: Props) {
           <label className="text-muted-foreground text-xs font-medium">
             Employee
           </label>
-          <select
-            value={params.employee ?? ""}
-            onChange={(e) => setParam("employee", e.target.value)}
+          <Select
+            value={params.employee || undefined}
+            onValueChange={(v) => setParam("employee", v)}
             disabled={pending}
-            className="border-input bg-transparent h-9 min-w-44 rounded-md border px-3 text-sm shadow-xs"
           >
-            <option value="">All employees</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.last_name}, {e.first_name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-44">
+              <SelectValue placeholder="All employees" />
+            </SelectTrigger>
+            <SelectContent>
+              {employees.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.last_name}, {e.first_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-muted-foreground text-xs font-medium">
             Rink
           </label>
-          <select
-            value={params.rink ?? ""}
-            onChange={(e) => setParam("rink", e.target.value)}
+          <Select
+            value={params.rink || undefined}
+            onValueChange={(v) => setParam("rink", v)}
             disabled={pending}
-            className="border-input bg-transparent h-9 min-w-40 rounded-md border px-3 text-sm shadow-xs"
           >
-            <option value="">All rinks</option>
-            {rinks.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-40">
+              <SelectValue placeholder="All rinks" />
+            </SelectTrigger>
+            <SelectContent>
+              {rinks.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-muted-foreground text-xs font-medium">
             Equipment
           </label>
-          <select
-            value={params.equipment ?? ""}
-            onChange={(e) => setParam("equipment", e.target.value)}
+          <Select
+            value={params.equipment || undefined}
+            onValueChange={(v) => setParam("equipment", v)}
             disabled={pending}
-            className="border-input bg-transparent h-9 min-w-44 rounded-md border px-3 text-sm shadow-xs"
           >
-            <option value="">All equipment</option>
-            {equipment.map((eq) => (
-              <option key={eq.id} value={eq.id}>
-                {eq.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-44">
+              <SelectValue placeholder="All equipment" />
+            </SelectTrigger>
+            <SelectContent>
+              {equipment.map((eq) => (
+                <SelectItem key={eq.id} value={eq.id}>
+                  {eq.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-muted-foreground text-xs font-medium">
             Failed check
           </label>
-          <select
-            value={params.failed ?? ""}
-            onChange={(e) => setParam("failed", e.target.value)}
+          <Select
+            value={params.failed || undefined}
+            onValueChange={(v) => setParam("failed", v)}
             disabled={pending}
-            className="border-input bg-transparent h-9 min-w-32 rounded-md border px-3 text-sm shadow-xs"
           >
-            <option value="">Any</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+            <SelectTrigger className="min-w-32">
+              <SelectValue placeholder="Any" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="yes">Yes</SelectItem>
+              <SelectItem value="no">No</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-muted-foreground text-xs font-medium">

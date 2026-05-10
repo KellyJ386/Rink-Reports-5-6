@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { formatDateOnly, formatDateTime } from "../../_lib/datetime"
@@ -31,22 +33,15 @@ type Row = {
 
 type Props = { rows: Row[] }
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-100",
-  approved: "bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-100",
-  denied: "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-100",
-  cancelled: "bg-muted text-muted-foreground",
+function statusVariant(status: string): BadgeProps["variant"] {
+  if (status === "approved") return "success"
+  if (status === "pending") return "warning"
+  if (status === "denied") return "error"
+  return "secondary"
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls = STATUS_BADGE[status] ?? "bg-muted text-muted-foreground"
-  return (
-    <span
-      className={`${cls} inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium`}
-    >
-      {status}
-    </span>
-  )
+  return <Badge variant={statusVariant(status)}>{status}</Badge>
 }
 
 function shortReason(s: string | null): string {

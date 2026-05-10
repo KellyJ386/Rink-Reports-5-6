@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -157,9 +158,7 @@ export function ReportDetail({ detail, backHref }: Props) {
             </Field>
             <Field label="Workers' Comp">
               {report.workers_comp ? (
-                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-                  Yes
-                </span>
+                <Badge variant="warning">Yes</Badge>
               ) : (
                 "No"
               )}
@@ -297,9 +296,9 @@ function ChangeLogItem({
     <li className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="flex items-center gap-2">
-          <span className="bg-secondary text-secondary-foreground inline-flex items-center rounded-full px-2 py-0.5 font-mono">
+          <Badge variant="secondary" className="font-mono">
             {entry.action}
-          </span>
+          </Badge>
           <span className="font-medium">
             {entry.actor
               ? `${entry.actor.first_name} ${entry.actor.last_name}`

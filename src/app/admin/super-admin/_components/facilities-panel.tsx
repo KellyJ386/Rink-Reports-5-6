@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
 import { setFacilityActive } from "../actions"
@@ -50,15 +51,9 @@ function FacilityRow({ facility }: { facility: FacilityWithStats }) {
       <div className="flex flex-col gap-0.5 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">{facility.name}</span>
-          <span
-            className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${
-              facility.is_active
-                ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-            }`}
-          >
+          <Badge variant={facility.is_active ? "success" : "secondary"}>
             {facility.is_active ? "Active" : "Inactive"}
-          </span>
+          </Badge>
         </div>
         <span className="text-xs text-muted-foreground font-mono">{facility.slug}</span>
         <span className="text-xs text-muted-foreground">

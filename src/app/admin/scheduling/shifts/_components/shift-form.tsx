@@ -1,11 +1,18 @@
 "use client"
 
-import { useActionState, useEffect, useTransition } from "react"
+import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -53,6 +60,9 @@ export function ShiftForm(props: Props) {
     INITIAL_STATE
   )
   const [deletePending, startDelete] = useTransition()
+  const [departmentId, setDepartmentId] = useState(editing?.department_id ?? "")
+  const [employeeId, setEmployeeId] = useState(editing?.employee_id ?? "__open__")
+  const [status, setStatus] = useState(editing?.status ?? "draft")
 
   const state = isEdit ? updateState : createState
   const pending = isEdit ? updatePending : createPending
@@ -83,40 +93,41 @@ export function ShiftForm(props: Props) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="department_id">Department *</Label>
-          <select
-            id="department_id"
-            name="department_id"
-            required
-            defaultValue={editing?.department_id ?? ""}
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          <input type="hidden" name="department_id" value={departmentId} />
+          <Select
+            value={departmentId || undefined}
+            onValueChange={(v) => setDepartmentId(v)}
           >
-            <option value="" disabled>
-              Select department…
-            </option>
-            {props.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="department_id">
+              <SelectValue placeholder="Select department…" />
+            </SelectTrigger>
+            <SelectContent>
+              {props.departments.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="employee_id">Employee</Label>
-          <select
-            id="employee_id"
-            name="employee_id"
-            defaultValue={editing?.employee_id ?? "__open__"}
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-          >
-            <option value="__open__">Leave open (unassigned)</option>
-            {props.employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.last_name}, {e.first_name}
-                {e.is_minor ? " (minor)" : ""}
-              </option>
-            ))}
-          </select>
+          <input type="hidden" name="employee_id" value={employeeId} />
+          <Select value={employeeId} onValueChange={(v) => setEmployeeId(v)}>
+            <SelectTrigger id="employee_id">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__open__">Leave open (unassigned)</SelectItem>
+              {props.employees.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.last_name}, {e.first_name}
+                  {e.is_minor ? " (minor)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -165,16 +176,17 @@ export function ShiftForm(props: Props) {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="status">Status</Label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={editing?.status ?? "draft"}
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
-          >
-            <option value="draft">Draft</option>
-            <option value="published">Published</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <input type="hidden" name="status" value={status} />
+          <Select value={status} onValueChange={(v) => setStatus(v)}>
+            <SelectTrigger id="status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="published">Published</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

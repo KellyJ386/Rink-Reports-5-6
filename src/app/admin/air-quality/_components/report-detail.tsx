@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -38,12 +39,9 @@ function fmt(ts: string | null): string {
   }
 }
 
-function severityBadgeClass(sev: Severity): string {
-  if (sev === "critical")
-    return "bg-destructive/15 text-destructive border-destructive/30"
-  if (sev === "high")
-    return "bg-orange-500/15 text-orange-700 border-orange-500/30 dark:text-orange-300"
-  return "bg-yellow-500/15 text-yellow-700 border-yellow-500/30 dark:text-yellow-300"
+function severityBadgeVariant(sev: Severity | null): "destructive" | "warning" {
+  if (sev === "critical") return "destructive"
+  return "warning"
 }
 
 function fmtRange(min: number | null, max: number | null): string | null {
@@ -74,16 +72,12 @@ function ReadingValue({ reading }: { reading: ReadingRow }) {
           {reading.unit_snapshot}
         </span>
         {reading.is_exceedance && (
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-              sev
-                ? severityBadgeClass(sev)
-                : "bg-destructive/15 text-destructive border-destructive/30",
-            )}
+          <Badge
+            variant={severityBadgeVariant(sev)}
+            className="uppercase"
           >
             Exceedance{sev ? ` · ${sev}` : ""}
-          </span>
+          </Badge>
         )}
       </div>
       {compliance && (
@@ -118,16 +112,12 @@ export function ReportDetail({ detail, backHref }: Props) {
             <div className="flex items-center gap-2">
               <CardTitle>Air quality report</CardTitle>
               {report.has_exceedance && (
-                <span
-                  className={cn(
-                    "rounded-full border px-2 py-0.5 text-xs font-medium uppercase",
-                    sev
-                      ? severityBadgeClass(sev)
-                      : "bg-destructive/15 text-destructive border-destructive/30",
-                  )}
+                <Badge
+                  variant={severityBadgeVariant(sev)}
+                  className="uppercase"
                 >
                   Exceedance{sev ? ` · ${sev}` : ""}
-                </span>
+                </Badge>
               )}
             </div>
             <p className="text-muted-foreground text-sm">

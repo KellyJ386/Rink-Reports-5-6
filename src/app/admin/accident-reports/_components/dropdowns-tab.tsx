@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -106,9 +107,7 @@ export function DropdownsTab({
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
-          <span className="bg-secondary text-secondary-foreground inline-flex items-center rounded-full px-3 py-1 text-sm font-medium">
-            {activeCount} active
-          </span>
+          <Badge variant="secondary">{activeCount} active</Badge>
           <span className="text-muted-foreground text-sm">
             {rows.length} total in {DROPDOWN_CATEGORY_LABELS[category]}
           </span>
@@ -181,9 +180,7 @@ export function DropdownsTab({
                     {isMedicalAttention && (
                       <td className="border-b px-3 py-2 align-middle">
                         {triggersAlert ? (
-                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-                            Triggers alert
-                          </span>
+                          <Badge variant="warning">Triggers alert</Badge>
                         ) : (
                           <span className="text-muted-foreground text-xs">
                             —
@@ -193,13 +190,9 @@ export function DropdownsTab({
                     )}
                     <td className="border-b px-3 py-2 align-middle">
                       {d.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                          Active
-                        </span>
+                        <Badge variant="success">Active</Badge>
                       ) : (
-                        <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
-                          Inactive
-                        </span>
+                        <Badge variant="secondary">Inactive</Badge>
                       )}
                     </td>
                     <td className="border-b px-3 py-2 align-middle">

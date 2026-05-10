@@ -2,6 +2,9 @@
 
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
+
 import type { AuditLogEntry } from "../types"
 import { ACTION_LABELS, ENTITY_TYPE_LABELS } from "../types"
 
@@ -72,19 +75,18 @@ export function AuditLogTable({ entries, activeEntryId, buildDetailHref }: Props
   )
 }
 
+function actionBadgeVariant(action: string): BadgeProps["variant"] {
+  if (action === "create") return "success"
+  if (action === "update") return "info"
+  if (action === "delete") return "error"
+  if (action === "login") return "default"
+  return "secondary"
+}
+
 function ActionBadge({ action }: { action: string }) {
-  const colorMap: Record<string, string> = {
-    create: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-    update: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-    delete: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-    login: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-    logout: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  }
-  const cls =
-    colorMap[action] ?? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>
+    <Badge variant={actionBadgeVariant(action)}>
       {ACTION_LABELS[action] ?? action}
-    </span>
+    </Badge>
   )
 }

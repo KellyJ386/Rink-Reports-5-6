@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,6 +14,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import {
   createReminder,
@@ -139,9 +147,9 @@ function ReminderRowItem({
             {reminder.schedule_cron}
           </code>
           {!reminder.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
+            <Badge variant="secondary" className="uppercase">
               off
-            </span>
+            </Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -260,6 +268,9 @@ function ReminderForm({
   const [targetKind, setTargetKind] = useState<"group" | "role">(
     reminder?.target_role_key ? "role" : "group",
   )
+  const [templateId, setTemplateId] = useState(reminder?.template_id ?? "")
+  const [targetGroupId, setTargetGroupId] = useState(reminder?.target_group_id ?? "")
+  const [targetRoleKey, setTargetRoleKey] = useState(reminder?.target_role_key ?? "")
   useEffect(() => {
     if (state.ok === true) {
       toast.success(state.message ?? "Saved.")
@@ -304,23 +315,23 @@ function ReminderForm({
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rm-tpl-${idSuffix}`}>Template</Label>
-          <select
-            id={`rm-tpl-${idSuffix}`}
-            name="template_id"
-            defaultValue={reminder?.template_id ?? ""}
-            required
-            className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+          <input type="hidden" name="template_id" value={templateId} />
+          <Select
+            value={templateId || undefined}
+            onValueChange={(v) => setTemplateId(v)}
           >
-            <option value="" disabled>
-              Pick template…
-            </option>
-            {activeTemplates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {!t.is_active ? " (inactive)" : ""}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id={`rm-tpl-${idSuffix}`}>
+              <SelectValue placeholder="Pick template…" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeTemplates.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                  {!t.is_active ? " (inactive)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rm-next-${idSuffix}`}>Next run (optional)</Label>
@@ -354,41 +365,43 @@ function ReminderForm({
         {targetKind === "group" && (
           <div className="flex flex-col gap-1">
             <Label htmlFor={`rm-tgt-g-${idSuffix}`}>Group</Label>
-            <select
-              id={`rm-tgt-g-${idSuffix}`}
-              name="target_group_id"
-              defaultValue={reminder?.target_group_id ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            <input type="hidden" name="target_group_id" value={targetGroupId} />
+            <Select
+              value={targetGroupId || undefined}
+              onValueChange={(v) => setTargetGroupId(v)}
             >
-              <option value="" disabled>
-                Pick group…
-              </option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`rm-tgt-g-${idSuffix}`}>
+                <SelectValue placeholder="Pick group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
         {targetKind === "role" && (
           <div className="flex flex-col gap-1">
             <Label htmlFor={`rm-tgt-r-${idSuffix}`}>Role</Label>
-            <select
-              id={`rm-tgt-r-${idSuffix}`}
-              name="target_role_key"
-              defaultValue={reminder?.target_role_key ?? ""}
-              className="border-input bg-transparent h-9 rounded-md border px-3 text-sm shadow-xs"
+            <input type="hidden" name="target_role_key" value={targetRoleKey} />
+            <Select
+              value={targetRoleKey || undefined}
+              onValueChange={(v) => setTargetRoleKey(v)}
             >
-              <option value="" disabled>
-                Pick role…
-              </option>
-              {ROLE_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`rm-tgt-r-${idSuffix}`}>
+                <SelectValue placeholder="Pick role…" />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLE_KEYS.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
       </fieldset>

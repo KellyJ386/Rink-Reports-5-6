@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useActionState, useEffect } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -12,7 +13,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { cn } from "@/lib/utils"
 
 import { addIceOperationsFollowupNote } from "../actions"
 import type {
@@ -83,9 +83,9 @@ export function SubmissionDetail({ detail, backHref, tempUnit }: Props) {
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle>{operationLabel(submission.operation_type)}</CardTitle>
               {submission.has_failed_check && (
-                <span className="bg-destructive/15 text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
+                <Badge variant="error">
                   {submission.failed_count} failed
-                </span>
+                </Badge>
               )}
             </div>
             <p className="text-muted-foreground text-sm">
@@ -318,13 +318,9 @@ function CircleCheckResultsSection({
         <h3 className="text-sm font-semibold">
           Circle check results ({results.length})
         </h3>
-        <span className="bg-secondary text-secondary-foreground rounded-full px-2 py-0.5 text-xs font-medium">
-          {passed} passed
-        </span>
+        <Badge variant="secondary">{passed} passed</Badge>
         {failed > 0 && (
-          <span className="bg-destructive/15 text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
-            {failed} failed
-          </span>
+          <Badge variant="error">{failed} failed</Badge>
         )}
       </div>
       <div className="overflow-auto rounded-md border">
@@ -347,16 +343,9 @@ function CircleCheckResultsSection({
                   {r.label_snapshot}
                 </td>
                 <td className="border-b px-3 py-2 align-middle">
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs font-medium",
-                      r.passed
-                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                        : "bg-destructive/15 text-destructive",
-                    )}
-                  >
+                  <Badge variant={r.passed ? "success" : "error"}>
                     {r.passed ? "Passed" : "Failed"}
-                  </span>
+                  </Badge>
                 </td>
                 <td className="border-b px-3 py-2 align-middle">
                   {r.failed_notes ? (

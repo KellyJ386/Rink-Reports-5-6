@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -85,19 +86,19 @@ function TemplateRowItem({ template }: { template: TemplateRow }) {
             ({template.slug})
           </span>
           {template.category && (
-            <span className="rounded-full bg-secondary text-secondary-foreground px-1.5 py-0.5 text-[10px] font-medium uppercase">
+            <Badge variant="secondary" className="uppercase">
               {template.category}
-            </span>
+            </Badge>
           )}
           {template.requires_acknowledgement && (
-            <span className="rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 text-[10px] font-medium uppercase">
+            <Badge variant="warning" className="uppercase">
               ack required
-            </span>
+            </Badge>
           )}
           {!template.is_active && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
+            <Badge variant="secondary" className="uppercase">
               off
-            </span>
+            </Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
