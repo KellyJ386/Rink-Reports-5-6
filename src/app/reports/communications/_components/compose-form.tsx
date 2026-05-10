@@ -9,6 +9,13 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -83,21 +90,19 @@ export function ComposeForm({ groups, templates }: Props) {
 
       {templates.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <Label htmlFor="template_id">Use a template (optional)</Label>
-          <select
-            id="template_id"
-            name="template_id"
-            value={templateId}
-            onChange={(e) => applyTemplate(e.target.value)}
-            className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
-          >
-            <option value="">— No template —</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+          <Label>Use a template (optional)</Label>
+          <Select value={templateId || undefined} onValueChange={applyTemplate}>
+            <SelectTrigger>
+              <SelectValue placeholder="— No template —" />
+            </SelectTrigger>
+            <SelectContent>
+              {templates.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       ) : null}
 

@@ -7,6 +7,13 @@ import { toast } from "sonner"
 import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import { submitSwapRequest } from "../actions"
@@ -105,43 +112,39 @@ export function SwapForm({ myShifts, coworkers, timezone }: Props) {
       <FormError
         message={state.status === "error" ? state.error : undefined}
       />
+      <input type="hidden" name="requester_shift_id" value={shiftId} />
+      <input type="hidden" name="target_employee_id" value={targetEmpId} />
+
       <div className="flex flex-col gap-2">
-        <Label htmlFor="requester_shift_id">Your shift to give up</Label>
-        <select
-          id="requester_shift_id"
-          name="requester_shift_id"
-          required
-          value={shiftId}
-          onChange={(e) => setShiftId(e.target.value)}
-          className="border-input bg-background h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <option value="" disabled>
-            Pick a shift
-          </option>
-          {myShifts.map((s) => (
-            <option key={s.id} value={s.id}>
-              {formatDateRange(s.starts_at, s.ends_at, timezone)}
-              {s.department_name ? ` — ${s.department_name}` : ""}
-            </option>
-          ))}
-        </select>
+        <Label>Your shift to give up</Label>
+        <Select value={shiftId} onValueChange={setShiftId} required>
+          <SelectTrigger>
+            <SelectValue placeholder="Pick a shift" />
+          </SelectTrigger>
+          <SelectContent>
+            {myShifts.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {formatDateRange(s.starts_at, s.ends_at, timezone)}
+                {s.department_name ? ` — ${s.department_name}` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="target_employee_id">Coworker (optional)</Label>
-        <select
-          id="target_employee_id"
-          name="target_employee_id"
-          value={targetEmpId}
-          onChange={(e) => setTargetEmpId(e.target.value)}
-          className="border-input bg-background h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <option value="">Anyone</option>
-          {coworkers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <Label>Coworker (optional)</Label>
+        <Select value={targetEmpId || undefined} onValueChange={setTargetEmpId}>
+          <SelectTrigger>
+            <SelectValue placeholder="Anyone" />
+          </SelectTrigger>
+          <SelectContent>
+            {coworkers.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="target_shift_id">

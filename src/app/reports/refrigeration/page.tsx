@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -315,13 +316,11 @@ export default async function RefrigerationHomePage() {
                     {formatTimestamp(r.submitted_at, tz)}
                   </span>
                   <span className="flex items-center gap-2">
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                    <Badge variant="secondary">
                       {counts.total} value{counts.total === 1 ? "" : "s"}
-                    </span>
+                    </Badge>
                     {counts.oor > 0 ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
-                        {counts.oor} out-of-range
-                      </span>
+                      <Badge variant="warning">{counts.oor} out-of-range</Badge>
                     ) : null}
                   </span>
                 </li>

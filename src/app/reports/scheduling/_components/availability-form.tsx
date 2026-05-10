@@ -8,6 +8,13 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
 import { upsertAvailability } from "../actions"
@@ -100,21 +107,23 @@ export function AvailabilityForm({ initial, onClose }: Props) {
       <FormError
         message={state.status === "error" ? state.error : undefined}
       />
+      <input type="hidden" name="day_of_week" value={day} />
+      <input type="hidden" name="availability_type" value={type} />
+
       <div className="flex flex-col gap-2">
-        <Label htmlFor="day_of_week">Day of week</Label>
-        <select
-          id="day_of_week"
-          name="day_of_week"
-          value={day}
-          onChange={(e) => setDay(e.target.value)}
-          className="border-input bg-background h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          {DAY_NAMES.map((name, idx) => (
-            <option key={name} value={String(idx)}>
-              {name}
-            </option>
-          ))}
-        </select>
+        <Label>Day of week</Label>
+        <Select value={day} onValueChange={setDay}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DAY_NAMES.map((name, idx) => (
+              <SelectItem key={name} value={String(idx)}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex gap-3">
         <div className="flex flex-1 flex-col gap-2">
@@ -143,18 +152,17 @@ export function AvailabilityForm({ initial, onClose }: Props) {
         </div>
       </div>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="availability_type">Type</Label>
-        <select
-          id="availability_type"
-          name="availability_type"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          className="border-input bg-background h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <option value="available">Available</option>
-          <option value="preferred">Preferred</option>
-          <option value="unavailable">Unavailable</option>
-        </select>
+        <Label>Type</Label>
+        <Select value={type} onValueChange={setType}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="available">Available</SelectItem>
+            <SelectItem value="preferred">Preferred</SelectItem>
+            <SelectItem value="unavailable">Unavailable</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex gap-3">
         <div className="flex flex-1 flex-col gap-2">

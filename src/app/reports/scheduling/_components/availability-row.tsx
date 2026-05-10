@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
 import { deleteAvailability } from "../actions"
@@ -37,14 +38,14 @@ function DeleteSubmit() {
   )
 }
 
-function typeBadge(type: string): string {
+function typeBadgeVariant(type: string): BadgeProps["variant"] {
   switch (type) {
     case "preferred":
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200"
+      return "success"
     case "unavailable":
-      return "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200"
+      return "error"
     default:
-      return "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200"
+      return "info"
   }
 }
 
@@ -73,13 +74,9 @@ export function AvailabilityRow({ row }: { row: Row }) {
         <span className="font-medium">
           {formatTimeOnly(row.start_time)} – {formatTimeOnly(row.end_time)}
         </span>
-        <span
-          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${typeBadge(
-            row.availability_type
-          )}`}
-        >
+        <Badge variant={typeBadgeVariant(row.availability_type)} className="capitalize">
           {row.availability_type}
-        </span>
+        </Badge>
       </div>
       {row.effective_from || row.effective_to ? (
         <p className="text-xs text-muted-foreground">
