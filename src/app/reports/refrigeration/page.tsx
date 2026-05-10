@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/server"
 
 import { SubmissionForm } from "./_components/submission-form"
 import type {
+
   RefrigerationEquipment,
   RefrigerationField,
   RefrigerationFieldOption,
@@ -20,6 +21,8 @@ import type {
   RefrigerationSection,
   RefrigerationThreshold,
 } from "./types"
+
+export const dynamic = "force-dynamic"
 
 function NotAvailable({
   title,

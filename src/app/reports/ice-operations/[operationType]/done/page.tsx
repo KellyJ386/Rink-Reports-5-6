@@ -7,10 +7,13 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import {
+
   OPERATION_LABELS,
   isOperationType,
   type OperationType,
 } from "../../types"
+
+export const dynamic = "force-dynamic"
 
 type SearchParams = {
   id?: string | string[]

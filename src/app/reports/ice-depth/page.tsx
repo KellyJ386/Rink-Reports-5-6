@@ -11,6 +11,8 @@ import {
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

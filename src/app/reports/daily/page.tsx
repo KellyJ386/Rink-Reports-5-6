@@ -13,6 +13,8 @@ import { createClient } from "@/lib/supabase/server"
 
 import { AreasGrid, type AreaCard } from "./_components/areas-grid"
 
+export const dynamic = "force-dynamic"
+
 export default async function DailyReportsAreaPickerPage() {
   const current = await requireUser()
   const supabase = await createClient()

@@ -13,6 +13,8 @@ import { createClient } from "@/lib/supabase/server"
 
 import { ComposeForm } from "../_components/compose-form"
 
+export const dynamic = "force-dynamic"
+
 function NotAvailable({
   title,
   description,

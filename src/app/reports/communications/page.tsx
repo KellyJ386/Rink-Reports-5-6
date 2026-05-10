@@ -24,12 +24,15 @@ import {
   sourceModuleLabel,
 } from "./_components/format"
 import type {
+
   AlertWithAck,
   CommunicationAlert,
   CommunicationMessage,
   CommunicationRecipient,
   MessageInboxItem,
 } from "./types"
+
+export const dynamic = "force-dynamic"
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -14,6 +14,8 @@ import { createClient } from "@/lib/supabase/server"
 import { SubmissionForm } from "./_components/submission-form"
 import type { BodyPartOption, DropdownOption } from "./types"
 
+export const dynamic = "force-dynamic"
+
 type RecentRow = {
   id: string
   submitted_at: string

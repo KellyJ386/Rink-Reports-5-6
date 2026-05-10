@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+export const dynamic = "force-dynamic"
+
 type Params = {
   areaSlug: string
   templateId: string

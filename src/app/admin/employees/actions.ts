@@ -38,10 +38,18 @@ function parseFormInput(
 ): { ok: true; value: EmployeeFormInput } | { ok: false; error: string } {
   const first = requireString(formData.get("first_name"), "First name")
   if (!first.ok) return first
+  if (first.value.length > 100) return { ok: false, error: "First name is too long (max 100 chars)." }
   const last = requireString(formData.get("last_name"), "Last name")
   if (!last.ok) return last
+  if (last.value.length > 100) return { ok: false, error: "Last name is too long (max 100 chars)." }
   const role = requireString(formData.get("role_id"), "Role")
   if (!role.ok) return role
+
+  const emailRaw = nonEmpty(formData.get("email"))
+  if (emailRaw && emailRaw.length > 254) return { ok: false, error: "Email is too long." }
+
+  const phoneRaw = nonEmpty(formData.get("phone"))
+  if (phoneRaw && phoneRaw.length > 30) return { ok: false, error: "Phone number is too long." }
 
   const isMinor = formData.get("is_minor") === "on"
 

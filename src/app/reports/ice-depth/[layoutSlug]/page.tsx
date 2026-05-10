@@ -15,6 +15,8 @@ import { createClient } from "@/lib/supabase/server"
 import { SubmissionForm } from "../_components/submission-form"
 import type { LayoutForForm, PointForForm, SettingsForForm } from "../types"
 
+export const dynamic = "force-dynamic"
+
 type RouteParams = {
   layoutSlug: string
 }
