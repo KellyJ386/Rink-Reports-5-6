@@ -247,6 +247,7 @@ export default async function IceDepthDonePage({
             <USARink
               points={rinkPoints}
               showValues
+              logoUrl={layout.logo_url ?? null}
               style={{
                 borderRadius: 12,
                 border: "1px solid rgba(255,255,255,0.08)",

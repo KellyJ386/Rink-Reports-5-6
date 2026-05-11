@@ -157,6 +157,7 @@ export default async function IceDepthLayoutSubmissionPage({
     name: layout.name,
     slug: layout.slug,
     diagram_aspect_ratio: layout.diagram_aspect_ratio,
+    logo_url: layout.logo_url ?? null,
   }
 
   const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"

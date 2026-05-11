@@ -2190,6 +2190,7 @@ export type Database = {
           facility_id: string
           id: string
           is_active: boolean
+          logo_url: string | null
           name: string
           slug: string
           sort_order: number
@@ -2202,6 +2203,7 @@ export type Database = {
           facility_id: string
           id?: string
           is_active?: boolean
+          logo_url?: string | null
           name: string
           slug: string
           sort_order?: number
@@ -2214,6 +2216,7 @@ export type Database = {
           facility_id?: string
           id?: string
           is_active?: boolean
+          logo_url?: string | null
           name?: string
           slug?: string
           sort_order?: number

@@ -162,6 +162,7 @@ export async function updateLayout(
       return { ok: false, error: "Aspect ratio must be between 0 and 10." }
     }
     const sort_order = asInt(formData.get("sort_order"))
+    const logo_url = nonEmpty(formData.get("logo_url"))
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -170,6 +171,7 @@ export async function updateLayout(
         name,
         slug,
         description,
+        logo_url,
         ...(aspect !== null ? { diagram_aspect_ratio: aspect } : {}),
         ...(sort_order !== null ? { sort_order } : {}),
       })

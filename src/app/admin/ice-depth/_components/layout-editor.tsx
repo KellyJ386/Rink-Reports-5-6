@@ -114,6 +114,7 @@ export function LayoutEditor({ detail, backHref }: Props) {
             <DiagramPanel
               layoutId={layout.id}
               aspectRatio={layout.diagram_aspect_ratio}
+              logoUrl={layout.logo_url}
               points={points}
               mode={mode}
               placeDisabled={placeDisabled}
@@ -238,6 +239,19 @@ function LayoutHeaderCard({ layout }: { layout: LayoutDetail["layout"] }) {
                 rows={2}
                 defaultValue={layout.description ?? ""}
               />
+            </div>
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <Label htmlFor="ld-logo">Logo URL</Label>
+              <Input
+                id="ld-logo"
+                name="logo_url"
+                type="url"
+                placeholder="https://example.com/logo.png"
+                defaultValue={layout.logo_url ?? ""}
+              />
+              <p className="text-muted-foreground text-xs">
+                Displayed at center ice. Use a square PNG/SVG with a transparent background.
+              </p>
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="ld-aspect">
@@ -376,6 +390,7 @@ function ModeToolbar({
 
 function DiagramPanel({
   layoutId,
+  logoUrl,
   points,
   mode,
   placeDisabled,
@@ -384,6 +399,7 @@ function DiagramPanel({
 }: {
   layoutId: string
   aspectRatio: number
+  logoUrl?: string | null
   points: PointRow[]
   mode: EditorMode
   placeDisabled: boolean
@@ -531,6 +547,9 @@ function DiagramPanel({
               >
                 <path d="M 0 0 L 6 6 M 6 0 L 0 6" stroke="#999" strokeWidth="0.5" fill="none" />
               </pattern>
+              <clipPath id="rr-editor-logo-clip">
+                <circle cx="190" cy="370" r="43" />
+              </clipPath>
             </defs>
             <rect x="62.5" y="70" width="255" height="600" rx="84" ry="84" fill="#e8f4f8" stroke="#333" strokeWidth="2" />
             <line x1="62.5" y1="370" x2="317.5" y2="370" stroke="#cc0000" strokeWidth="3" strokeDasharray="8 8" />
@@ -550,6 +569,17 @@ function DiagramPanel({
                 <circle cx={fx} cy={fy} r="45" fill="none" stroke="#cc0000" strokeWidth="1.5" />
               </g>
             ))}
+            {logoUrl && (
+              <image
+                href={logoUrl}
+                x="155"
+                y="335"
+                width="70"
+                height="70"
+                preserveAspectRatio="xMidYMid meet"
+                clipPath="url(#rr-editor-logo-clip)"
+              />
+            )}
           </g>
 
           {/* Point chips */}

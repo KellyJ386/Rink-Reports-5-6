@@ -13,6 +13,7 @@ export type LayoutForForm = {
   name: string
   slug: string
   diagram_aspect_ratio: number
+  logo_url: string | null
 }
 
 export type PointForForm = {

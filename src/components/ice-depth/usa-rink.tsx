@@ -62,6 +62,9 @@ function RinkMarkings() {
             fill="none"
           />
         </pattern>
+        <clipPath id="rr-logo-clip">
+          <circle cx="190" cy="370" r="43" />
+        </clipPath>
       </defs>
 
       {/* Ice surface */}
@@ -326,6 +329,8 @@ interface USARinkProps {
   points: RinkPointSpec[]
   /** Show depth values inside done chips (history / session detail mode). */
   showValues?: boolean
+  /** URL of a logo image to display at center ice inside the center faceoff circle. */
+  logoUrl?: string | null
   className?: string
   style?: React.CSSProperties
   /** Extra SVG content rendered on top of markings but below points. */
@@ -335,6 +340,7 @@ interface USARinkProps {
 export function USARink({
   points,
   showValues,
+  logoUrl,
   className,
   style,
   children,
@@ -348,6 +354,17 @@ export function USARink({
       aria-label="Hockey rink diagram"
     >
       <RinkMarkings />
+      {logoUrl && (
+        <image
+          href={logoUrl}
+          x="155"
+          y="335"
+          width="70"
+          height="70"
+          preserveAspectRatio="xMidYMid meet"
+          clipPath="url(#rr-logo-clip)"
+        />
+      )}
       {children}
       {points.map((p) => (
         <PointChip key={p.id} {...p} showValues={showValues} />
