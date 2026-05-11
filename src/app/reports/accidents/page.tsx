@@ -253,19 +253,73 @@ export default async function AccidentsHomePage() {
   const recent = (recentRaw ?? []) as unknown as RecentRow[]
   const tz = facility?.timezone ?? null
 
+  const DISPLAY_FONT =
+    "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
+  const NAVY = "#003B6F"
+  const NAVY_LIGHT = "#0055A3"
+  const GREEN = "#4DFF00"
+  const GREY = "#A5ACAF"
+  const LINE = "#e5e7eb"
+  const RED = "#F42A2A"
+
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
+    <div
+      style={{
+        maxWidth: 680,
+        margin: "0 auto",
+        padding: "24px 16px 48px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 24,
+      }}
+    >
+      {/* Breadcrumb + header */}
       <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
+        <p style={{ fontSize: 12, color: GREY, marginBottom: 12 }}>
+          <Link
+            href="/reports"
+            style={{ color: GREY, textDecoration: "none" }}
+          >
             Reports
-          </Link>{" "}
-          / Accident Reports
+          </Link>
+          {" / Accident Reports"}
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Report an accident
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: ".16em",
+                color: RED,
+                textTransform: "uppercase",
+                marginBottom: 4,
+              }}
+            >
+              Staff report
+            </div>
+            <h1
+              style={{
+                fontFamily: DISPLAY_FONT,
+                fontSize: "clamp(30px, 6vw, 44px)",
+                lineHeight: 1,
+                letterSpacing: "0.01em",
+                textTransform: "uppercase",
+                color: NAVY,
+                margin: 0,
+              }}
+            >
+              Accident Report
+            </h1>
+          </div>
+        </div>
+        <p
+          style={{
+            fontSize: 13,
+            color: GREY,
+            marginTop: 8,
+          }}
+        >
           You can edit a submission for up to 24 hours after you submit it.
         </p>
       </div>
@@ -283,58 +337,121 @@ export default async function AccidentsHomePage() {
       />
 
       {recent.length > 0 ? (
-        <section className="mt-2 flex flex-col gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Your recent submissions
-          </h2>
-          <p className="text-xs text-muted-foreground">Last 30 days</p>
-          <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
-            {recent.map((r) => {
+        <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: GREY,
+              textTransform: "uppercase",
+            }}
+          >
+            Your recent submissions · last 30 days
+          </div>
+          <div
+            style={{
+              background: "#fff",
+              border: `1px solid ${LINE}`,
+              borderRadius: 14,
+              overflow: "hidden",
+              boxShadow: "0 1px 2px rgba(0,0,0,.04)",
+            }}
+          >
+            {recent.map((r, i) => {
               const severityName = r.severity?.display_name ?? null
               const severityColor = r.severity?.color ?? null
               const medical = r.medical?.display_name ?? null
               return (
-                <li
+                <Link
                   key={r.id}
-                  className="flex flex-col gap-2 px-4 py-3 text-sm"
+                  href={`/reports/accidents/${r.id}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "12px 14px",
+                    borderBottom:
+                      i < recent.length - 1 ? `1px solid ${LINE}` : "none",
+                    textDecoration: "none",
+                    color: "inherit",
+                  }}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Link
-                      href={`/reports/accidents/${r.id}`}
-                      className="font-medium hover:underline"
+                  {/* Severity dot */}
+                  <div
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 9999,
+                      background: severityColor ?? GREY,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>
+                      {r.injured_person_name || "—"}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        marginTop: 3,
+                        alignItems: "center",
+                      }}
                     >
-                      {r.injured_person_name}
-                    </Link>
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimestamp(r.submitted_at, tz)}
-                    </span>
+                      {severityName ? (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 7px",
+                            borderRadius: 9999,
+                            background: severityColor
+                              ? `${severityColor}20`
+                              : "#f3f4f6",
+                            color: severityColor ?? GREY,
+                            letterSpacing: ".04em",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {severityName}
+                        </span>
+                      ) : null}
+                      {medical ? (
+                        <span style={{ fontSize: 11.5, color: GREY }}>
+                          {medical}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {severityName ? (
-                      <span
-                        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                        style={
-                          severityColor
-                            ? {
-                                backgroundColor: `${severityColor}20`,
-                                color: severityColor,
-                              }
-                            : undefined
-                        }
-                      >
-                        {severityName}
-                      </span>
-                    ) : null}
-                    {medical ? (
-                      <span className="text-xs text-muted-foreground">
-                        Medical: {medical}
-                      </span>
-                    ) : null}
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: GREY,
+                      flexShrink: 0,
+                      textAlign: "right",
+                    }}
+                  >
+                    {formatTimestamp(r.submitted_at, tz)}
                   </div>
-                </li>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={GREY}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ flexShrink: 0 }}
+                  >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </Link>
               )
             })}
-          </ul>
+          </div>
         </section>
       ) : null}
     </div>

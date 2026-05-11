@@ -2,8 +2,6 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 
-import { Button } from "@/components/ui/button"
-
 import { SHORT_DAY_NAMES } from "../types"
 import { formatTime } from "./format-utils"
 
@@ -22,6 +20,16 @@ interface Props {
   timezone: string | null
 }
 
+const NAVY = "#003B6F"
+const NAVY_LIGHT = "#0055A3"
+const GREEN = "#4DFF00"
+const GREEN_INK = "#1F6B00"
+const GREY = "#A5ACAF"
+const LINE = "#e5e7eb"
+const LINE_SOFT = "#f3f4f6"
+const RED = "#F42A2A"
+const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
+
 function toISODate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -34,7 +42,6 @@ function addDays(d: Date, n: number): Date {
 }
 
 function parseLocalDate(iso: string): Date {
-  // YYYY-MM-DD -> local midnight
   const [y, m, day] = iso.split("-").map(Number)
   return new Date(y, m - 1, day)
 }
@@ -67,13 +74,11 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
     router.push(`${pathname}?${sp.toString()}`)
   }
 
-  // Format the week label e.g. "May 5 – 11, 2026"
   const weekEndDate = addDays(weekStart, 6)
   const startLabel = weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   const endLabel = weekEndDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
   const weekLabel = `${startLabel} – ${endLabel}`
 
-  // Group shifts by day (local date)
   const shiftsByDay = new Map<string, ShiftItem[]>()
   for (const d of days) shiftsByDay.set(toISODate(d), [])
   for (const s of shifts) {
@@ -87,44 +92,102 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
   const today = toISODate(new Date())
 
   return (
-    <div className="flex flex-col gap-3">
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Week nav */}
-      <div className="flex items-center justify-between gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={prevWeek}>
-          ← Prev
-        </Button>
-        <span className="text-sm font-medium">{weekLabel}</span>
-        <Button type="button" variant="outline" size="sm" onClick={nextWeek}>
-          Next →
-        </Button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <button
+          type="button"
+          onClick={prevWeek}
+          style={{
+            width: 36, height: 36, borderRadius: 8, border: `1px solid ${LINE}`,
+            background: "#fff", color: NAVY, cursor: "pointer",
+            display: "grid", placeItems: "center",
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <div style={{
+          padding: "0 14px", height: 36, borderRadius: 8, background: "#fff",
+          border: `1px solid ${LINE}`, display: "flex", alignItems: "center",
+          color: NAVY, fontSize: 13, fontWeight: 600, gap: 6,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+          </svg>
+          {weekLabel}
+        </div>
+        <button
+          type="button"
+          onClick={nextWeek}
+          style={{
+            width: 36, height: 36, borderRadius: 8, border: `1px solid ${LINE}`,
+            background: "#fff", color: NAVY, cursor: "pointer",
+            display: "grid", placeItems: "center",
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
       </div>
 
       {/* Grid */}
-      <div className="overflow-x-auto rounded-xl border bg-card">
-        <div
-          className="grid min-w-[560px]"
-          style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
-        >
-          {/* Day headers */}
+      <div style={{
+        background: "#fff", border: `1px solid ${LINE}`, borderRadius: 14,
+        overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.05)",
+      }}>
+        {/* Day headers */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+          borderBottom: `1px solid ${LINE}`,
+        }}>
           {days.map((d) => {
             const key = toISODate(d)
             const isToday = key === today
             return (
               <div
                 key={key}
-                className={`border-b border-r last:border-r-0 px-2 py-2 text-center ${isToday ? "bg-primary/8" : "bg-muted/30"}`}
+                style={{
+                  borderRight: `1px solid ${LINE}`,
+                  padding: "10px 8px",
+                  textAlign: "center",
+                  background: isToday ? "rgba(77,255,0,.08)" : "#fff",
+                }}
               >
-                <div className={`text-xs font-medium ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                <div style={{
+                  fontSize: 9.5, fontWeight: 700, letterSpacing: ".1em",
+                  textTransform: "uppercase",
+                  color: isToday ? GREEN_INK : GREY,
+                }}>
                   {SHORT_DAY_NAMES[d.getDay()]}
                 </div>
-                <div className={`text-sm font-semibold tabular-nums ${isToday ? "text-primary" : ""}`}>
+                <div style={{
+                  fontFamily: DISPLAY_FONT,
+                  fontSize: 22, lineHeight: 1.1,
+                  color: isToday ? NAVY : NAVY,
+                }}>
                   {d.getDate()}
                 </div>
+                {isToday && (
+                  <div style={{
+                    width: 6, height: 6, borderRadius: 9999,
+                    background: GREEN, margin: "3px auto 0",
+                  }} />
+                )}
               </div>
             )
           })}
+        </div>
 
-          {/* Shift cells */}
+        {/* Shift cells */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+          minHeight: 120,
+        }}>
           {days.map((d) => {
             const key = toISODate(d)
             const dayShifts = shiftsByDay.get(key) ?? []
@@ -132,31 +195,57 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
             return (
               <div
                 key={key}
-                className={`border-r last:border-r-0 min-h-[100px] p-1.5 flex flex-col gap-1 ${isToday ? "bg-primary/5" : ""}`}
+                style={{
+                  borderRight: `1px solid ${LINE}`,
+                  minHeight: 120,
+                  padding: 6,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  background: isToday ? "rgba(77,255,0,.03)" : "#fff",
+                }}
               >
-                {dayShifts.length === 0 ? (
-                  <span className="mt-1 text-xs text-muted-foreground text-center opacity-50">—</span>
-                ) : null}
+                {dayShifts.length === 0 && (
+                  <span style={{
+                    display: "block", marginTop: 8, fontSize: 11,
+                    color: LINE, textAlign: "center",
+                  }}>—</span>
+                )}
                 {dayShifts.map((s) => {
-                  const colorClass =
-                    s.status === "published"
-                      ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200"
-                      : s.status === "cancelled"
-                        ? "bg-muted text-muted-foreground opacity-60 line-through"
-                        : "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200"
+                  const isPublished = s.status === "published"
+                  const isCancelled = s.status === "cancelled"
                   return (
                     <div
                       key={s.id}
-                      className={`rounded px-1.5 py-1 text-xs ${colorClass}`}
+                      style={{
+                        borderRadius: 7,
+                        padding: "5px 7px",
+                        background: isCancelled
+                          ? LINE_SOFT
+                          : isPublished
+                          ? "rgba(0,59,111,.08)"
+                          : "rgba(14,165,233,.10)",
+                        borderLeft: `3px solid ${isCancelled ? GREY : isPublished ? NAVY : "#0EA5E9"}`,
+                        opacity: isCancelled ? 0.55 : 1,
+                      }}
                     >
-                      <div className="font-medium truncate">
+                      <div style={{
+                        fontSize: 10.5, fontWeight: 700,
+                        color: isCancelled ? GREY : NAVY,
+                        textDecoration: isCancelled ? "line-through" : "none",
+                        fontVariantNumeric: "tabular-nums",
+                      }}>
                         {formatTime(s.starts_at, timezone)}–{formatTime(s.ends_at, timezone)}
                       </div>
                       {s.departments?.name ? (
-                        <div className="truncate opacity-80">{s.departments.name}</div>
+                        <div style={{ fontSize: 10, color: GREY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {s.departments.name}
+                        </div>
                       ) : null}
                       {s.role_label ? (
-                        <div className="truncate opacity-70">{s.role_label}</div>
+                        <div style={{ fontSize: 9.5, color: GREY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: 0.7 }}>
+                          {s.role_label}
+                        </div>
                       ) : null}
                     </div>
                   )
