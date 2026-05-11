@@ -174,6 +174,7 @@ export function SessionDetail({ detail, backHref }: Props) {
                   points={rinkPoints}
                   showValues
                   className="rounded-xl border"
+                  logoUrl={detail.layout?.logo_url ?? null}
                 />
               </div>
               <p className="text-muted-foreground text-xs">

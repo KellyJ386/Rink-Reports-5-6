@@ -342,6 +342,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
           points={rinkPoints}
           className="h-full w-full"
           showValues
+          logoUrl={layout.logo_url}
         />
       </div>
 
@@ -685,6 +686,7 @@ function ReviewPhase({
               points={rinkPoints.map((p) => ({ ...p, onClick: undefined }))}
               showValues
               className="rounded-lg border"
+              logoUrl={layout.logo_url}
             />
           </div>
 

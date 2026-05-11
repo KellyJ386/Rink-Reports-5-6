@@ -73,7 +73,7 @@ export default async function IceDepthDonePage({
 
   const { data: layout } = await supabase
     .from("ice_depth_layouts")
-    .select("id, name, slug, diagram_aspect_ratio")
+    .select("id, name, slug, diagram_aspect_ratio, logo_url")
     .eq("id", session.layout_id)
     .maybeSingle()
 
@@ -247,6 +247,7 @@ export default async function IceDepthDonePage({
             <USARink
               points={rinkPoints}
               showValues
+              logoUrl={layout.logo_url ?? null}
               style={{
                 borderRadius: 12,
                 border: "1px solid rgba(255,255,255,0.08)",
