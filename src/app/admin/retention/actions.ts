@@ -111,9 +111,10 @@ export async function triggerManualPurge(
 
   const deletedCount = typeof data === "number" ? data : 0
 
-  // Record last purge timestamp and count
-  await supabase
-    .from("retention_settings")
+  // Record last purge timestamp and count.
+  // Cast required: generated types predate migration 37 (last_purged_at, last_purge_count).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from("retention_settings") as any)
     .update({
       last_purged_at: new Date().toISOString(),
       last_purge_count: deletedCount,
