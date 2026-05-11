@@ -96,7 +96,7 @@ export default async function IceDepthLayoutSubmissionPage({
 
   const { data: layout } = await supabase
     .from("ice_depth_layouts")
-    .select("id, name, slug, diagram_aspect_ratio, is_active")
+    .select("id, name, slug, diagram_aspect_ratio, is_active, logo_url")
     .eq("facility_id", employeeRow.facility_id)
     .eq("slug", layoutSlug)
     .maybeSingle()
