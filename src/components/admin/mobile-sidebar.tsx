@@ -14,38 +14,80 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarNav } from "./sidebar-nav"
 
-export function MobileSidebar() {
+function getInitials(fullName: string | null, email: string | null): string {
+  const src = (fullName ?? email ?? "").trim()
+  if (!src) return "?"
+  const parts = src.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
+}
+
+interface MobileSidebarProps {
+  email?: string | null
+  fullName?: string | null
+}
+
+export function MobileSidebar({ email = null, fullName = null }: MobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
+  const initials = getInitials(fullName, email)
+  const displayName = fullName?.trim() || email || "Admin"
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         aria-label="Open navigation"
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground lg:hidden"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground lg:hidden"
       >
         <Menu className="h-4 w-4" />
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="w-72 max-w-full bg-sidebar p-0 text-sidebar-foreground"
+        className="flex w-72 max-w-full flex-col bg-sidebar p-0 text-sidebar-foreground"
       >
+        {/* Logo */}
         <SheetHeader className="border-b border-sidebar-border px-4 py-3">
           <SheetTitle>
             <Link
               href="/admin"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-2 text-sm font-semibold"
+              className="flex items-center gap-3 text-sidebar-foreground"
             >
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-                RR
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-black">
+                R
               </span>
-              <span>Rink Reports</span>
+              <span
+                className="text-sm font-black uppercase tracking-widest"
+                style={{ fontFamily: "var(--font-anton), Anton, Impact, sans-serif" }}
+              >
+                Rink Reports
+              </span>
             </Link>
           </SheetTitle>
         </SheetHeader>
-        <ScrollArea className="h-[calc(100vh-3.5rem)]">
+
+        {/* Nav */}
+        <ScrollArea className="flex-1">
           <SidebarNav onNavigate={() => setOpen(false)} />
         </ScrollArea>
+
+        {/* User card */}
+        <div className="shrink-0 border-t border-sidebar-border p-3">
+          <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
+              {initials}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-sidebar-foreground leading-tight">
+                {displayName}
+              </p>
+              {fullName && email && (
+                <p className="truncate text-xs text-sidebar-foreground/45 leading-tight">
+                  {email}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   )
