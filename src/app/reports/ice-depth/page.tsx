@@ -290,9 +290,9 @@ export default async function IceDepthHomePage() {
                       fontWeight: 700,
                       letterSpacing: "0.06em",
                       textTransform: "uppercase",
-                      background: "rgba(0,59,111,0.08)",
-                      color: "#003B6F",
-                      border: "1px solid rgba(0,59,111,0.18)",
+                      background: "var(--secondary)",
+                      color: "var(--muted-foreground)",
+                      border: "1px solid var(--border)",
                     }}
                   >
                     {layout.activePoints.length} point

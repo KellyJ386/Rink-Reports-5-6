@@ -19,16 +19,17 @@ export const dynamic = "force-dynamic"
 const DISPLAY_FONT =
   "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 const NAVY = "#003B6F"
-const NAVY_LIGHT = "#0055A3"
 const NAVY_DARK = "#001A3A"
 const GREEN = "#4DFF00"
 const GREEN_DARK = "#3DB800"
 const GREEN_INK = "#1F6B00"
-const GREY = "#A5ACAF"
-const LINE = "#e5e7eb"
-const BG2 = "#f8f9fa"
 const RED = "#F42A2A"
-const YELLOW = "#FFB800"
+// Theme-responsive via CSS custom properties
+const SURFACE = "var(--card)"
+const ELEVATED = "var(--secondary)"
+const BORDER = "var(--border)"
+const SECONDARY = "var(--muted-foreground)"
+const FOREGROUND = "var(--foreground)"
 
 function NotAvailable({
   title,
@@ -263,8 +264,8 @@ export default async function SchedulingDashboardPage() {
       }}
     >
       {/* Breadcrumb */}
-      <p style={{ fontSize: 12, color: GREY, marginBottom: 16 }}>
-        <Link href="/reports" style={{ color: GREY, textDecoration: "none" }}>
+      <p style={{ fontSize: 12, color: SECONDARY, marginBottom: 16 }}>
+        <Link href="/reports" style={{ color: SECONDARY, textDecoration: "none" }}>
           Reports
         </Link>
         {" / Scheduling"}
@@ -277,7 +278,7 @@ export default async function SchedulingDashboardPage() {
             fontSize: 11,
             fontWeight: 800,
             letterSpacing: ".16em",
-            color: GREY,
+            color: SECONDARY,
             textTransform: "uppercase",
           }}
         >
@@ -290,7 +291,7 @@ export default async function SchedulingDashboardPage() {
             lineHeight: 1,
             letterSpacing: "0.01em",
             textTransform: "uppercase",
-            color: NAVY,
+            color: FOREGROUND,
             margin: "6px 0 0",
           }}
         >
@@ -472,9 +473,9 @@ export default async function SchedulingDashboardPage() {
               padding: "8px 2px 6px",
               textAlign: "center",
               borderRadius: 10,
-              background: d.isNext ? GREEN : d.hasShift ? "#fff" : "#f3f4f6",
-              border: `1px solid ${d.isNext ? GREEN : d.hasShift ? LINE : "transparent"}`,
-              color: d.isNext ? NAVY_DARK : d.hasShift ? NAVY : GREY,
+              background: d.isNext ? GREEN : d.hasShift ? ELEVATED : "transparent",
+              border: `1px solid ${d.isNext ? GREEN : d.hasShift ? BORDER : BORDER}`,
+              color: d.isNext ? NAVY_DARK : FOREGROUND,
             }}
           >
             <div
@@ -502,7 +503,7 @@ export default async function SchedulingDashboardPage() {
                 height: 4,
                 borderRadius: 9999,
                 margin: "3px auto 0",
-                background: d.isNext ? NAVY_DARK : d.hasShift ? GREEN : "transparent",
+                background: d.isNext ? NAVY_DARK : d.hasShift ? GREEN : BORDER,
               }}
             />
           </div>
@@ -524,7 +525,7 @@ export default async function SchedulingDashboardPage() {
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: ".16em",
-              color: GREY,
+              color: SECONDARY,
               textTransform: "uppercase",
             }}
           >
@@ -532,7 +533,7 @@ export default async function SchedulingDashboardPage() {
           </div>
           <Link
             href="/reports/scheduling/my-schedule"
-            style={{ fontSize: 12, color: NAVY_LIGHT, textDecoration: "none" }}
+            style={{ fontSize: 12, color: GREEN, textDecoration: "none" }}
           >
             View all →
           </Link>
@@ -541,12 +542,12 @@ export default async function SchedulingDashboardPage() {
         {upcomingShifts.length === 0 ? (
           <div
             style={{
-              background: "#fff",
-              border: `1px solid ${LINE}`,
+              background: SURFACE,
+              border: `1px solid ${BORDER}`,
               borderRadius: 14,
               padding: "20px 16px",
               textAlign: "center",
-              color: GREY,
+              color: SECONDARY,
               fontSize: 13,
             }}
           >
@@ -560,14 +561,13 @@ export default async function SchedulingDashboardPage() {
                 <div
                   key={s.id}
                   style={{
-                    background: "#fff",
-                    border: `1px solid ${LINE}`,
+                    background: SURFACE,
+                    border: `1px solid ${BORDER}`,
                     borderRadius: 14,
                     padding: "12px 14px",
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    boxShadow: "0 1px 2px rgba(0,0,0,.04)",
                   }}
                 >
                   <div
@@ -606,14 +606,14 @@ export default async function SchedulingDashboardPage() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
-                      style={{ fontSize: 13, fontWeight: 700, color: NAVY }}
+                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
                     >
                       {formatShiftTime(s)}
                     </div>
                     <div
                       style={{
                         fontSize: 11.5,
-                        color: GREY,
+                        color: SECONDARY,
                         marginTop: 2,
                       }}
                     >
@@ -626,7 +626,7 @@ export default async function SchedulingDashboardPage() {
                     height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={GREY}
+                    stroke={SECONDARY}
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -649,7 +649,7 @@ export default async function SchedulingDashboardPage() {
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: ".16em",
-              color: GREY,
+              color: SECONDARY,
               textTransform: "uppercase",
               marginBottom: 10,
             }}
@@ -679,9 +679,9 @@ export default async function SchedulingDashboardPage() {
                       width: 44,
                       height: 48,
                       borderRadius: 9,
-                      background: "#fff",
-                      border: `1px solid ${LINE}`,
-                      color: NAVY,
+                      background: ELEVATED,
+                      border: `1px solid ${BORDER}`,
+                      color: FOREGROUND,
                       display: "grid",
                       placeItems: "center",
                       flexShrink: 0,
@@ -694,7 +694,7 @@ export default async function SchedulingDashboardPage() {
                         fontWeight: 800,
                         letterSpacing: ".1em",
                         textTransform: "uppercase",
-                        color: GREY,
+                        color: SECONDARY,
                       }}
                     >
                       {DAY_LABELS[d.getDay()]}
@@ -704,7 +704,7 @@ export default async function SchedulingDashboardPage() {
                         fontFamily: DISPLAY_FONT,
                         fontSize: 20,
                         lineHeight: 1,
-                        color: NAVY,
+                        color: FOREGROUND,
                       }}
                     >
                       {d.getDate()}
@@ -712,11 +712,11 @@ export default async function SchedulingDashboardPage() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
-                      style={{ fontSize: 13, fontWeight: 700, color: NAVY }}
+                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
                     >
                       {formatDateTime(shift.starts_at, tz)}
                     </div>
-                    <div style={{ fontSize: 11.5, color: GREY, marginTop: 2 }}>
+                    <div style={{ fontSize: 11.5, color: SECONDARY, marginTop: 2 }}>
                       {shift.departments?.name ?? "—"}
                       {shift.role_label ? ` · ${shift.role_label}` : ""}
                       {row.approval_required ? " · Approval req." : ""}
@@ -737,7 +737,7 @@ export default async function SchedulingDashboardPage() {
             fontSize: 10,
             fontWeight: 800,
             letterSpacing: ".16em",
-            color: GREY,
+            color: SECONDARY,
             textTransform: "uppercase",
             marginBottom: 10,
           }}
@@ -776,12 +776,11 @@ export default async function SchedulingDashboardPage() {
             >
               <div
                 style={{
-                  background: "#fff",
-                  border: `1px solid ${LINE}`,
+                  background: SURFACE,
+                  border: `1px solid ${BORDER}`,
                   borderRadius: 14,
                   padding: "14px 14px",
                   position: "relative",
-                  boxShadow: "0 1px 2px rgba(0,0,0,.04)",
                 }}
               >
                 {link.badge ? (
@@ -809,7 +808,7 @@ export default async function SchedulingDashboardPage() {
                   style={{
                     fontFamily: DISPLAY_FONT,
                     fontSize: 15,
-                    color: NAVY,
+                    color: FOREGROUND,
                     textTransform: "uppercase",
                     letterSpacing: ".02em",
                     marginBottom: 2,
@@ -817,7 +816,7 @@ export default async function SchedulingDashboardPage() {
                 >
                   {link.label}
                 </div>
-                <div style={{ fontSize: 11.5, color: GREY }}>{link.desc}</div>
+                <div style={{ fontSize: 11.5, color: SECONDARY }}>{link.desc}</div>
               </div>
             </Link>
           ))}
