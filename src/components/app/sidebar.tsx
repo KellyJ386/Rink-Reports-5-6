@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { SidebarNav } from "./sidebar-nav"
+import { AppSidebarNav } from "./sidebar-nav"
 
 function getInitials(fullName: string | null, email: string | null): string {
   const src = (fullName ?? email ?? "").trim()
@@ -11,23 +11,24 @@ function getInitials(fullName: string | null, email: string | null): string {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
 }
 
-interface SidebarProps {
-  email?: string | null
-  fullName?: string | null
+interface AppSidebarProps {
+  isAdmin: boolean
+  email: string | null
+  fullName: string | null
 }
 
-export function Sidebar({ email = null, fullName = null }: SidebarProps) {
+export function AppSidebar({ isAdmin, email, fullName }: AppSidebarProps) {
   const initials = getInitials(fullName, email)
-  const displayName = fullName?.trim() || email || "Admin"
+  const displayName = fullName?.trim() || email || "User"
 
   return (
     <aside
       className="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
-      aria-label="Admin sidebar"
+      aria-label="App sidebar"
     >
       {/* Logo */}
       <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-        <Link href="/admin" className="flex items-center gap-3">
+        <Link href="/dashboard" className="flex items-center gap-3">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-black">
             R
           </span>
@@ -42,7 +43,7 @@ export function Sidebar({ email = null, fullName = null }: SidebarProps) {
 
       {/* Nav */}
       <ScrollArea className="flex-1">
-        <SidebarNav />
+        <AppSidebarNav isAdmin={isAdmin} />
       </ScrollArea>
 
       {/* User card */}

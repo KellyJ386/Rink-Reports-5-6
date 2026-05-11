@@ -3,10 +3,9 @@ import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/app/sidebar"
 import { AppHeader } from "@/components/app/header"
 import { Toaster } from "@/components/ui/sonner"
-import { OfflineBanner } from "@/components/offline/offline-banner"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 
-export default async function ReportsLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: ReactNode
@@ -21,7 +20,6 @@ export default async function ReportsLayout({
     <div className="min-h-screen bg-background">
       <AppSidebar isAdmin={isAdmin} email={email} fullName={fullName} />
       <div className="flex min-h-screen flex-col lg:pl-64">
-        <OfflineBanner />
         <AppHeader email={email} fullName={fullName} isAdmin={isAdmin} />
         <main className="flex-1">{children}</main>
       </div>

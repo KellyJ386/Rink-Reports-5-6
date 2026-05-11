@@ -16,8 +16,8 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar />
-      <div className="flex min-h-screen flex-col lg:pl-60">
+      <Sidebar email={email} fullName={fullName} />
+      <div className="flex min-h-screen flex-col lg:pl-64">
         <AdminHeader email={email} fullName={fullName} />
         <main className="flex-1">{children}</main>
       </div>

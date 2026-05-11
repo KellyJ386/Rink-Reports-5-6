@@ -12,7 +12,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { SidebarNav } from "./sidebar-nav"
+import { AppSidebarNav } from "./sidebar-nav"
 
 function getInitials(fullName: string | null, email: string | null): string {
   const src = (fullName ?? email ?? "").trim()
@@ -22,15 +22,16 @@ function getInitials(fullName: string | null, email: string | null): string {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
 }
 
-interface MobileSidebarProps {
-  email?: string | null
-  fullName?: string | null
+interface AppMobileSidebarProps {
+  isAdmin: boolean
+  email: string | null
+  fullName: string | null
 }
 
-export function MobileSidebar({ email = null, fullName = null }: MobileSidebarProps) {
+export function AppMobileSidebar({ isAdmin, email, fullName }: AppMobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
   const initials = getInitials(fullName, email)
-  const displayName = fullName?.trim() || email || "Admin"
+  const displayName = fullName?.trim() || email || "User"
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -48,7 +49,7 @@ export function MobileSidebar({ email = null, fullName = null }: MobileSidebarPr
         <SheetHeader className="border-b border-sidebar-border px-4 py-3">
           <SheetTitle>
             <Link
-              href="/admin"
+              href="/dashboard"
               onClick={() => setOpen(false)}
               className="flex items-center gap-3 text-sidebar-foreground"
             >
@@ -67,7 +68,7 @@ export function MobileSidebar({ email = null, fullName = null }: MobileSidebarPr
 
         {/* Nav */}
         <ScrollArea className="flex-1">
-          <SidebarNav onNavigate={() => setOpen(false)} />
+          <AppSidebarNav isAdmin={isAdmin} onNavigate={() => setOpen(false)} />
         </ScrollArea>
 
         {/* User card */}

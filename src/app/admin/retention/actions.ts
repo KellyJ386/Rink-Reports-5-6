@@ -18,12 +18,23 @@ function dbError(err: SupabaseError, fallback: string): string {
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
-  // requireAdmin() redirects to /login or /forbidden if the caller is not an
-  // admin-level user, so unauthenticated / unauthorized calls never reach the upsert.
   const { profile } = await requireAdmin()
   if (!profile?.facility_id) return { ok: false, error: "No facility assigned." }
   return { ok: true, facilityId: profile.facility_id }
 }
+
+const KNOWN_MODULE_KEYS = new Set([
+  "daily_reports",
+  "ice_depth",
+  "ice_operations",
+  "incident_reports",
+  "accident_reports",
+  "communications",
+  "refrigeration",
+  "air_quality",
+  "scheduling",
+  "audit_logs",
+])
 
 export async function upsertRetentionSetting(
   _prev: ActionState,
@@ -37,28 +48,17 @@ export async function upsertRetentionSetting(
   const keepDaysRaw = formData.get("keep_days")
   const autoPurge = formData.get("auto_purge") === "on"
 
-  const KNOWN_MODULE_KEYS = new Set([
-    "daily_reports",
-    "ice_depth",
-    "ice_operations",
-    "incident_reports",
-    "accident_reports",
-    "communications",
-    "refrigeration",
-    "air_quality",
-    "scheduling",
-    "audit_logs",
-  ])
-
   if (typeof moduleKey !== "string" || !moduleKey.trim()) {
     return { ok: false, error: "Module key is required." }
   }
   if (!KNOWN_MODULE_KEYS.has(moduleKey.trim())) {
     return { ok: false, error: "Invalid module key." }
   }
+
   const keepDays = parseInt(String(keepDaysRaw), 10)
-  if (!Number.isFinite(keepDays) || keepDays < 30) {
-    return { ok: false, error: "Keep days must be at least 30." }
+  // 0 = keep forever; otherwise minimum is 30
+  if (!Number.isFinite(keepDays) || (keepDays !== 0 && keepDays < 30)) {
+    return { ok: false, error: "Keep days must be 0 (forever) or at least 30." }
   }
 
   const supabase = await createClient()
@@ -78,4 +78,57 @@ export async function upsertRetentionSetting(
 
   revalidatePath("/admin/retention")
   return { ok: true, message: "Retention setting saved." }
+}
+
+/**
+ * Manually triggers the purge function for a specific module.
+ * Calls the DB-level purge function defined in migration 24.
+ */
+export async function triggerManualPurge(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const res = await resolveFacility()
+  if (!res.ok) return { ok: false, error: res.error }
+  const { facilityId } = res
+
+  const moduleKey = formData.get("module_key")
+  if (typeof moduleKey !== "string" || !KNOWN_MODULE_KEYS.has(moduleKey.trim())) {
+    return { ok: false, error: "Invalid module key." }
+  }
+
+  const supabase = await createClient()
+
+  // Call the retention-aware purge function from migration 24.
+  // Cast required: purge_module_data is not yet in the generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("purge_module_data", {
+    p_facility_id: facilityId,
+    p_module_key: moduleKey.trim(),
+  })
+
+  if (error) {
+    return { ok: false, error: error.message || "Purge failed." }
+  }
+
+  const deletedCount = typeof data === "number" ? data : 0
+
+  // Record last purge timestamp and count.
+  // Cast required: generated types predate migration 37 (last_purged_at, last_purge_count).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from("retention_settings") as any)
+    .update({
+      last_purged_at: new Date().toISOString(),
+      last_purge_count: deletedCount,
+    })
+    .eq("facility_id", facilityId)
+    .eq("module_key", moduleKey.trim())
+
+  revalidatePath("/admin/retention")
+  return {
+    ok: true,
+    message: deletedCount > 0
+      ? `Purge complete. ${deletedCount} record${deletedCount === 1 ? "" : "s"} deleted.`
+      : "Purge complete. No records older than the threshold were found.",
+  }
 }
