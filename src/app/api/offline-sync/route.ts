@@ -48,8 +48,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No active employee" }, { status: 403 })
   }
 
-  // Upsert into the sync queue (ON CONFLICT local_id = no-op for dedup)
-  const { error } = await supabase
+  // Upsert into the sync queue (ON CONFLICT local_id = no-op for dedup).
+  // Cast required: offline_sync_queue (migration 31) is not yet in generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
     .from("offline_sync_queue")
     .upsert(
       {
