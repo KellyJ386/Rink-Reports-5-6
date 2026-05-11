@@ -5,6 +5,9 @@ import type { Database } from "@/types/database"
 
 const AUTH_PAGES = ["/login", "/signup"]
 
+// All routes that require an authenticated session
+const PROTECTED_PREFIXES = ["/admin", "/reports", "/dashboard"]
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -42,8 +45,9 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Unauthenticated users trying to access /admin -> redirect to /login
-  if (!user && pathname.startsWith("/admin")) {
+  // Unauthenticated users on any protected route -> redirect to /login
+  const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))
+  if (!user && isProtected) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     url.searchParams.set("redirectTo", pathname)

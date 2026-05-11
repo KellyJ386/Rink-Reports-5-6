@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState } from "./types"
+import { MODULE_COLUMN_OPTIONS } from "./types"
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -43,6 +44,16 @@ export async function saveExportSettings(
     return { ok: false, error: "Invalid paper size." }
   }
 
+  const dateFormat = nonEmpty(formData.get("date_format")) ?? "MM/DD/YYYY"
+  if (!["MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD"].includes(dateFormat)) {
+    return { ok: false, error: "Invalid date format." }
+  }
+
+  const csvDelimiter = nonEmpty(formData.get("csv_delimiter")) ?? "comma"
+  if (!["comma", "tab", "semicolon"].includes(csvDelimiter)) {
+    return { ok: false, error: "Invalid CSV delimiter." }
+  }
+
   const logoUrl = nonEmpty(formData.get("logo_url"))
   if (logoUrl) {
     try {
@@ -52,15 +63,29 @@ export async function saveExportSettings(
     }
   }
 
+  // Build module_column_visibility from checkboxes: col_{moduleKey}_{colKey}
+  const moduleColumnVisibility: Record<string, string[]> = {}
+  for (const [moduleKey, cols] of Object.entries(MODULE_COLUMN_OPTIONS)) {
+    const visible = cols
+      .filter((c) => formData.get(`col_${moduleKey}_${c.key}`) === "on")
+      .map((c) => c.key)
+    if (visible.length > 0) {
+      moduleColumnVisibility[moduleKey] = visible
+    }
+  }
+
   const payload = {
     facility_id: facilityId,
     logo_url: logoUrl,
     header_text: nonEmpty(formData.get("header_text")),
     footer_text: nonEmpty(formData.get("footer_text")),
     paper_size: paperSize as "letter" | "a4",
+    date_format: dateFormat as "MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD",
+    csv_delimiter: csvDelimiter as "comma" | "tab" | "semicolon",
     include_facility_name: formData.get("include_facility_name") === "on",
     include_date: formData.get("include_date") === "on",
     include_submitted_by: formData.get("include_submitted_by") === "on",
+    module_column_visibility: moduleColumnVisibility,
   }
 
   const supabase = await createClient()
