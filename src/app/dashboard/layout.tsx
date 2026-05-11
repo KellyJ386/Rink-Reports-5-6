@@ -5,7 +5,7 @@ import { AppHeader } from "@/components/app/header"
 import { Toaster } from "@/components/ui/sonner"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 
-export default async function ReportsLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: ReactNode
