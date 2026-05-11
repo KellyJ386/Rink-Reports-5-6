@@ -99,8 +99,10 @@ export async function triggerManualPurge(
 
   const supabase = await createClient()
 
-  // Call the retention-aware purge function from migration 24
-  const { data, error } = await supabase.rpc("purge_module_data", {
+  // Call the retention-aware purge function from migration 24.
+  // Cast required: purge_module_data is not yet in the generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc("purge_module_data", {
     p_facility_id: facilityId,
     p_module_key: moduleKey.trim(),
   })
