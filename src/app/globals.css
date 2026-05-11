@@ -4,80 +4,96 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Seahawks palette: College Navy #002244 · Action Green #69BE28 · Wolf Gray #A5ACAF */
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.13 0.09 255);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.13 0.09 255);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.13 0.09 255);
-  --primary: oklch(0.13 0.09 255);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.004 214);
-  --secondary-foreground: oklch(0.13 0.09 255);
-  --muted: oklch(0.95 0.004 214);
-  --muted-foreground: oklch(0.55 0.012 214);
-  --accent: oklch(0.95 0.06 132);
-  --accent-foreground: oklch(0.13 0.09 255);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.90 0.005 214);
-  --input: oklch(0.90 0.005 214);
-  --ring: oklch(0.67 0.21 132);
-  --chart-1: oklch(0.67 0.21 132);
-  --chart-2: oklch(0.40 0.09 255);
-  --chart-3: oklch(0.71 0.007 214);
-  --chart-4: oklch(0.80 0.15 132);
-  --chart-5: oklch(0.65 0.12 220);
-  --sidebar: oklch(0.13 0.09 255);
-  --sidebar-foreground: oklch(1 0 0);
-  --sidebar-primary: oklch(0.67 0.21 132);
-  --sidebar-primary-foreground: oklch(0.13 0.09 255);
-  --sidebar-accent: oklch(0.20 0.08 255);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(1 0 0 / 15%);
-  --sidebar-ring: oklch(0.67 0.21 132);
-}
+  /* ── Design tokens — always dark ─────────────────────────────────────────── */
+  --radius: 0.5rem;
 
-.dark {
-  --background: oklch(0.10 0.06 255);
-  --foreground: oklch(0.97 0.003 247);
-  --card: oklch(0.15 0.07 255);
-  --card-foreground: oklch(0.97 0.003 247);
-  --popover: oklch(0.15 0.07 255);
-  --popover-foreground: oklch(0.97 0.003 247);
-  --primary: oklch(0.67 0.21 132);
-  --primary-foreground: oklch(0.13 0.09 255);
-  --secondary: oklch(0.22 0.06 255);
+  /* Backgrounds */
+  --background:           oklch(0.09 0.045 255);   /* #081828 — deepest navy   */
+  --foreground:           oklch(0.97 0.003 247);   /* near-white               */
+
+  /* Cards / surfaces */
+  --card:                 oklch(0.13 0.065 255);   /* #0D2035 — lighter navy   */
+  --card-foreground:      oklch(0.97 0.003 247);
+  --popover:              oklch(0.13 0.065 255);
+  --popover-foreground:   oklch(0.97 0.003 247);
+
+  /* Brand green — #4DFF00 */
+  --primary:              oklch(0.87 0.28 131);
+  --primary-foreground:   oklch(0.09 0.045 255);
+
+  /* Secondary surface */
+  --secondary:            oklch(0.18 0.065 255);
   --secondary-foreground: oklch(0.97 0.003 247);
-  --muted: oklch(0.22 0.06 255);
-  --muted-foreground: oklch(0.65 0.008 214);
-  --accent: oklch(0.22 0.06 255);
-  --accent-foreground: oklch(0.97 0.003 247);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.50 0.15 132);
-  --chart-1: oklch(0.67 0.21 132);
+
+  /* Muted */
+  --muted:                oklch(0.18 0.065 255);
+  --muted-foreground:     oklch(0.55 0.010 247);
+
+  /* Accent (hover states on main content) */
+  --accent:               oklch(0.18 0.065 255);
+  --accent-foreground:    oklch(0.97 0.003 247);
+
+  /* Destructive */
+  --destructive:          oklch(0.60 0.22 27);
+
+  /* Borders / inputs */
+  --border:               oklch(1 0 0 / 9%);
+  --input:                oklch(1 0 0 / 14%);
+  --ring:                 oklch(0.87 0.28 131);
+
+  /* Charts */
+  --chart-1: oklch(0.87 0.28 131);
   --chart-2: oklch(0.65 0.008 214);
   --chart-3: oklch(0.70 0.15 220);
   --chart-4: oklch(0.55 0.18 132);
   --chart-5: oklch(0.45 0.10 255);
-  --sidebar: oklch(0.15 0.07 255);
-  --sidebar-foreground: oklch(0.97 0.003 247);
-  --sidebar-primary: oklch(0.67 0.21 132);
-  --sidebar-primary-foreground: oklch(0.13 0.09 255);
-  --sidebar-accent: oklch(0.22 0.06 255);
+
+  /* ── Sidebar ──────────────────────────────────────────────────────────────── */
+  --sidebar:                      oklch(0.075 0.04 255); /* #07111E — darkest    */
+  --sidebar-foreground:           oklch(0.97 0.003 247);
+  --sidebar-primary:              oklch(0.87 0.28 131);  /* #4DFF00 green        */
+  --sidebar-primary-foreground:   oklch(0.09 0.045 255); /* dark navy on green   */
+  --sidebar-accent:               oklch(0.13 0.065 255); /* card-level highlight */
+  --sidebar-accent-foreground:    oklch(0.97 0.003 247);
+  --sidebar-border:               oklch(1 0 0 / 8%);
+  --sidebar-ring:                 oklch(0.87 0.28 131);
+}
+
+/* .dark kept for explicit overrides / future toggle */
+.dark {
+  --background:           oklch(0.09 0.045 255);
+  --foreground:           oklch(0.97 0.003 247);
+  --card:                 oklch(0.13 0.065 255);
+  --card-foreground:      oklch(0.97 0.003 247);
+  --popover:              oklch(0.13 0.065 255);
+  --popover-foreground:   oklch(0.97 0.003 247);
+  --primary:              oklch(0.87 0.28 131);
+  --primary-foreground:   oklch(0.09 0.045 255);
+  --secondary:            oklch(0.18 0.065 255);
+  --secondary-foreground: oklch(0.97 0.003 247);
+  --muted:                oklch(0.18 0.065 255);
+  --muted-foreground:     oklch(0.55 0.010 247);
+  --accent:               oklch(0.18 0.065 255);
+  --accent-foreground:    oklch(0.97 0.003 247);
+  --destructive:          oklch(0.60 0.22 27);
+  --border:               oklch(1 0 0 / 9%);
+  --input:                oklch(1 0 0 / 14%);
+  --ring:                 oklch(0.87 0.28 131);
+  --sidebar:              oklch(0.075 0.04 255);
+  --sidebar-foreground:   oklch(0.97 0.003 247);
+  --sidebar-primary:      oklch(0.87 0.28 131);
+  --sidebar-primary-foreground: oklch(0.09 0.045 255);
+  --sidebar-accent:       oklch(0.13 0.065 255);
   --sidebar-accent-foreground: oklch(0.97 0.003 247);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.50 0.15 132);
+  --sidebar-border:       oklch(1 0 0 / 8%);
+  --sidebar-ring:         oklch(0.87 0.28 131);
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

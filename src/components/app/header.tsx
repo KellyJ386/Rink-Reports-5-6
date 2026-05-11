@@ -30,14 +30,15 @@ export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
   }, [fullName, email])
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:px-6">
       <div className="lg:hidden">
-        <AppMobileSidebar isAdmin={isAdmin} />
+        <AppMobileSidebar isAdmin={isAdmin} email={email} fullName={fullName} />
       </div>
 
       <Link
         href="/dashboard"
         className="hidden text-sm font-semibold tracking-tight lg:block"
+        style={{ fontFamily: "var(--font-anton), Anton, Impact, sans-serif" }}
       >
         Rink Reports
       </Link>
@@ -46,9 +47,9 @@ export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Open user menu"
-            className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-2 text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2 text-sm shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
           >
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
               {initials}
             </span>
             <span className="hidden max-w-[160px] truncate sm:inline">
