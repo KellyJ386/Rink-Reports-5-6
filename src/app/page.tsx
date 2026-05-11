@@ -87,7 +87,7 @@ function ModuleIcon({ d }: { d: string }) {
 
 export default async function Home() {
   const current = await getCurrentUser()
-  if (current) redirect("/reports")
+  if (current) redirect("/dashboard")
 
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"

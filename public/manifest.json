@@ -1,0 +1,24 @@
+{
+  "name": "Rink Reports",
+  "short_name": "RinkReports",
+  "description": "Operations console for Max Facility ice rinks.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#001A3A",
+  "theme_color": "#001A3A",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
