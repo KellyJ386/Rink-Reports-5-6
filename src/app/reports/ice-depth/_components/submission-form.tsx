@@ -271,15 +271,50 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     <div className="flex flex-col gap-0">
       <FormError message={state.error} />
 
+      {/* Module sub-header: point progress */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 0 8px",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: DISPLAY_FONT,
+            fontSize: 13,
+            fontWeight: 900,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "#4DFF00",
+          }}
+        >
+          Point {currentIdx + 1} of {sortedPoints.length}
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--muted-foreground)",
+          }}
+        >
+          {filledCount} recorded
+        </div>
+      </div>
+
       {/* Progress bar */}
       <div
         style={{
-          height: 5,
+          height: 4,
           width: "100%",
-          background: "var(--muted)",
+          background: "rgba(255,255,255,0.08)",
           borderRadius: 9999,
           overflow: "hidden",
-          marginBottom: 8,
+          marginBottom: 10,
         }}
       >
         <div
@@ -293,31 +328,19 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         />
       </div>
 
-      {/* Step counter */}
+      {/* USA Hockey rink — edge-to-edge feel on mobile */}
       <div
+        className="relative w-full"
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "4px 0 10px",
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "var(--muted-foreground)",
+          aspectRatio: "380/740",
+          borderRadius: 12,
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.08)",
         }}
       >
-        <span>
-          Point {currentIdx + 1} of {sortedPoints.length}
-        </span>
-        <span>{filledCount} recorded</span>
-      </div>
-
-      {/* USA Hockey rink */}
-      <div className="relative w-full" style={{ aspectRatio: "380/740" }}>
         <USARink
           points={rinkPoints}
-          className="h-full w-full rounded-xl border"
+          className="h-full w-full"
           showValues
         />
       </div>
