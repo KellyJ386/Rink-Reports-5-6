@@ -30,5 +30,5 @@ export async function loginAction(
     return { error: error.message, email }
   }
 
-  redirect("/admin")
+  redirect("/dashboard")
 }

@@ -21,7 +21,7 @@ export default function LoginPage() {
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
         <CardDescription>
-          Enter your email and password to access the admin console.
+          Enter your email and password to access your account.
         </CardDescription>
       </CardHeader>
       <CardContent>

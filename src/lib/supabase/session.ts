@@ -54,10 +54,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Authenticated users on /login or /signup -> redirect to /admin
+  // Authenticated users on /login or /signup -> redirect to /dashboard
   if (user && AUTH_PAGES.includes(pathname)) {
     const url = request.nextUrl.clone()
-    url.pathname = "/admin"
+    url.pathname = "/dashboard"
     url.search = ""
     return NextResponse.redirect(url)
   }
