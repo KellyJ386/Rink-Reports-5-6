@@ -1,7 +1,6 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
-import { Badge, type BadgeProps } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -50,17 +49,6 @@ function NotAvailable({
       </Card>
     </div>
   )
-}
-
-function statusBadgeVariant(status: string): BadgeProps["variant"] {
-  switch (status) {
-    case "published":
-      return "success"
-    case "cancelled":
-      return "outline"
-    default:
-      return "info"
-  }
 }
 
 function statusLabel(status: string): string {
@@ -215,42 +203,90 @@ export default async function MySchedulePage({
   }
   const shifts = (shiftsRaw ?? []) as unknown as ShiftRow[]
 
+  const DISPLAY_FONT =
+    "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
+  const NAVY = "#003B6F"
+  const NAVY_LIGHT = "#0055A3"
+  const GREEN = "#4DFF00"
+  const GREEN_INK = "#1F6B00"
+  const GREY = "#A5ACAF"
+  const LINE = "#e5e7eb"
+
+  const statusColors: Record<string, string> = {
+    published: "#1F6B00",
+    cancelled: GREY,
+    draft: "#0EA5E9",
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
+    <div
+      style={{
+        maxWidth: 600,
+        margin: "0 auto",
+        padding: "24px 16px 48px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+      }}
+    >
+      {/* Header */}
       <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
+        <p style={{ fontSize: 12, color: GREY, marginBottom: 12 }}>
+          <Link
+            href="/reports/scheduling"
+            style={{ color: GREY, textDecoration: "none" }}
+          >
             Scheduling
-          </Link>{" "}
-          / My schedule
+          </Link>
+          {" / My schedule"}
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          My schedule
+        <h1
+          style={{
+            fontFamily: DISPLAY_FONT,
+            fontSize: "clamp(30px, 6vw, 44px)",
+            lineHeight: 1,
+            letterSpacing: "0.01em",
+            textTransform: "uppercase",
+            color: NAVY,
+            margin: 0,
+          }}
+        >
+          My Schedule
         </h1>
       </div>
 
       {/* View toggle */}
-      <div className="flex items-center gap-1 rounded-md border w-fit p-0.5">
-        <Link
-          href={`/reports/scheduling/my-schedule?view=list`}
-          className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-            currentView === "list"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent"
-          }`}
-        >
-          List
-        </Link>
-        <Link
-          href={`/reports/scheduling/my-schedule?view=week`}
-          className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-            currentView === "week"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent"
-          }`}
-        >
-          Week
-        </Link>
+      <div
+        style={{
+          display: "flex",
+          gap: 3,
+          background: "#fff",
+          border: `1px solid ${LINE}`,
+          borderRadius: 9,
+          padding: 3,
+          width: "fit-content",
+        }}
+      >
+        {(["list", "week"] as const).map((v) => (
+          <Link
+            key={v}
+            href={`/reports/scheduling/my-schedule?view=${v}`}
+            style={{
+              padding: "7px 16px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              borderRadius: 6,
+              background: currentView === v ? NAVY : "transparent",
+              color: currentView === v ? "#fff" : NAVY,
+              cursor: "pointer",
+              textTransform: "uppercase",
+              letterSpacing: ".04em",
+              textDecoration: "none",
+            }}
+          >
+            {v}
+          </Link>
+        ))}
       </div>
 
       {currentView === "week" ? (
@@ -261,43 +297,85 @@ export default async function MySchedulePage({
         />
       ) : (
         <>
+          {/* Date filter */}
           <form
             method="get"
-            className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-end"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              background: "#fff",
+              border: `1px solid ${LINE}`,
+              borderRadius: 14,
+              padding: "14px 16px",
+              alignItems: "flex-end",
+            }}
           >
-            <div className="flex flex-1 flex-col gap-1">
-              <label htmlFor="from" className="text-xs font-medium">
-                From
-              </label>
-              <input
-                id="from"
-                name="from"
-                type="date"
-                defaultValue={toDateInput(fromDate)}
-                className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              />
-            </div>
-            <div className="flex flex-1 flex-col gap-1">
-              <label htmlFor="to" className="text-xs font-medium">
-                To
-              </label>
-              <input
-                id="to"
-                name="to"
-                type="date"
-                defaultValue={toDateInput(toDate)}
-                className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              />
-            </div>
-            <div className="flex flex-1 flex-col gap-1">
-              <label htmlFor="status" className="text-xs font-medium">
+            {[
+              { id: "from", label: "From", defaultValue: toDateInput(fromDate), type: "date" },
+              { id: "to", label: "To", defaultValue: toDateInput(toDate), type: "date" },
+            ].map((f) => (
+              <div
+                key={f.id}
+                style={{ display: "flex", flexDirection: "column", gap: 4, flex: "1 1 130px" }}
+              >
+                <label
+                  htmlFor={f.id}
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: ".12em",
+                    color: GREY,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {f.label}
+                </label>
+                <input
+                  id={f.id}
+                  name={f.id}
+                  type={f.type}
+                  defaultValue={f.defaultValue}
+                  style={{
+                    height: 40,
+                    border: `1px solid ${LINE}`,
+                    borderRadius: 8,
+                    padding: "0 12px",
+                    fontSize: 13,
+                    color: NAVY,
+                    outline: "none",
+                    background: "#fff",
+                  }}
+                />
+              </div>
+            ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: "1 1 130px" }}>
+              <label
+                htmlFor="status"
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: ".12em",
+                  color: GREY,
+                  textTransform: "uppercase",
+                }}
+              >
                 Status
               </label>
               <select
                 id="status"
                 name="status"
                 defaultValue={statusFilter}
-                className="border-input bg-background h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                style={{
+                  height: 40,
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 8,
+                  padding: "0 12px",
+                  fontSize: 13,
+                  color: NAVY,
+                  outline: "none",
+                  background: "#fff",
+                }}
               >
                 <option value="published">Published</option>
                 <option value="all">All</option>
@@ -305,40 +383,104 @@ export default async function MySchedulePage({
             </div>
             <button
               type="submit"
-              className="bg-primary text-primary-foreground h-11 rounded-md px-4 text-sm font-medium shadow-xs hover:bg-primary/90"
+              style={{
+                height: 40,
+                padding: "0 20px",
+                borderRadius: 8,
+                border: 0,
+                background: NAVY,
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
             >
               Apply
             </button>
           </form>
 
           {shifts.length === 0 ? (
-            <Card>
-              <CardHeader>
-                <CardDescription>No upcoming shifts</CardDescription>
-              </CardHeader>
-            </Card>
+            <div
+              style={{
+                background: "#fff",
+                border: `1px solid ${LINE}`,
+                borderRadius: 14,
+                padding: "24px 16px",
+                textAlign: "center",
+                color: GREY,
+                fontSize: 13,
+              }}
+            >
+              No shifts in this range
+            </div>
           ) : (
-            <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
-              {shifts.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex flex-col gap-2 px-4 py-3 text-sm"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">
-                      {formatDateRange(s.starts_at, s.ends_at, tz)}
-                    </span>
-                    <Badge variant={statusBadgeVariant(s.status)}>
+            <div
+              style={{
+                background: "#fff",
+                border: `1px solid ${LINE}`,
+                borderRadius: 14,
+                overflow: "hidden",
+                boxShadow: "0 1px 2px rgba(0,0,0,.04)",
+              }}
+            >
+              {shifts.map((s, i) => {
+                const color = statusColors[s.status] ?? GREY
+                return (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 14px",
+                      borderBottom:
+                        i < shifts.length - 1 ? `1px solid ${LINE}` : "none",
+                      borderLeft: `3px solid ${color}`,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>
+                        {formatDateRange(s.starts_at, s.ends_at, tz)}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 6,
+                          marginTop: 3,
+                          alignItems: "center",
+                        }}
+                      >
+                        <span style={{ fontSize: 11.5, color: GREY }}>
+                          {s.departments?.name ?? "—"}
+                        </span>
+                        {s.role_label ? (
+                          <span style={{ fontSize: 11.5, color: GREY }}>
+                            · {s.role_label}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 9999,
+                        background: `${color}18`,
+                        color,
+                        letterSpacing: ".06em",
+                        textTransform: "uppercase",
+                        flexShrink: 0,
+                      }}
+                    >
                       {statusLabel(s.status)}
-                    </Badge>
+                    </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{s.departments?.name ?? "—"}</span>
-                    {s.role_label ? <span>· {s.role_label}</span> : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                )
+              })}
+            </div>
           )}
         </>
       )}

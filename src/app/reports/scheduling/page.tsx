@@ -1,7 +1,6 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -16,6 +15,20 @@ import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
 import { formatDateRange, formatDateTime } from "./_components/format-utils"
 
 export const dynamic = "force-dynamic"
+
+const DISPLAY_FONT =
+  "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
+const NAVY = "#003B6F"
+const NAVY_LIGHT = "#0055A3"
+const NAVY_DARK = "#001A3A"
+const GREEN = "#4DFF00"
+const GREEN_DARK = "#3DB800"
+const GREEN_INK = "#1F6B00"
+const GREY = "#A5ACAF"
+const LINE = "#e5e7eb"
+const BG2 = "#f8f9fa"
+const RED = "#F42A2A"
+const YELLOW = "#FFB800"
 
 function NotAvailable({
   title,
@@ -51,33 +64,42 @@ function NotAvailable({
   )
 }
 
-const QUICK_LINKS: { href: string; title: string; description: string }[] = [
-  {
-    href: "/reports/scheduling/my-schedule",
-    title: "My schedule",
-    description: "All your upcoming shifts.",
-  },
-  {
-    href: "/reports/scheduling/time-off",
-    title: "Time off",
-    description: "Request and track time-off.",
-  },
-  {
-    href: "/reports/scheduling/availability",
-    title: "Availability",
-    description: "Set the hours you can work.",
-  },
-  {
-    href: "/reports/scheduling/swaps",
-    title: "Shift swaps",
-    description: "Trade shifts with coworkers.",
-  },
-  {
-    href: "/reports/scheduling/notifications",
-    title: "Notifications",
-    description: "Schedule alerts and updates.",
-  },
-]
+function toISODate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d)
+  r.setDate(r.getDate() + n)
+  return r
+}
+
+type ShiftRow = {
+  id: string
+  starts_at: string
+  ends_at: string
+  role_label: string | null
+  department_id: string
+  status: string
+  departments: { name: string } | null
+}
+
+type OpenShiftRow = {
+  id: string
+  approval_required: boolean
+  claim_status: string
+  schedule_shifts: {
+    id: string
+    starts_at: string
+    ends_at: string
+    role_label: string | null
+    department_id: string
+    departments: { name: string } | null
+  } | null
+}
+
+const DAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 
 export default async function SchedulingDashboardPage() {
   const current = await requireUser()
@@ -118,10 +140,10 @@ export default async function SchedulingDashboardPage() {
   }
 
   const now = new Date()
-  const in7 = new Date(now)
-  in7.setDate(in7.getDate() + 7)
   const in14 = new Date(now)
   in14.setDate(in14.getDate() + 14)
+  const in28 = new Date(now)
+  in28.setDate(in28.getDate() + 28)
 
   const [
     { data: myShiftsRaw },
@@ -137,7 +159,7 @@ export default async function SchedulingDashboardPage() {
       .eq("employee_id", employeeRow.id)
       .eq("status", "published")
       .gte("starts_at", now.toISOString())
-      .lte("starts_at", in7.toISOString())
+      .lte("starts_at", in28.toISOString())
       .order("starts_at", { ascending: true }),
     supabase
       .from("schedule_open_shifts")
@@ -159,179 +181,648 @@ export default async function SchedulingDashboardPage() {
   ])
 
   const tz = facility?.timezone ?? null
-
-  type ShiftRow = {
-    id: string
-    starts_at: string
-    ends_at: string
-    role_label: string | null
-    department_id: string
-    status: string
-    departments: { name: string } | null
-  }
   const myShifts = (myShiftsRaw ?? []) as unknown as ShiftRow[]
-
-  type OpenShiftRow = {
-    id: string
-    approval_required: boolean
-    claim_status: string
-    schedule_shifts: {
-      id: string
-      starts_at: string
-      ends_at: string
-      role_label: string | null
-      department_id: string
-      departments: { name: string } | null
-    } | null
-  }
   const openShiftsAll = (openShiftsRaw ?? []) as unknown as OpenShiftRow[]
-  const openShifts = openShiftsAll.filter((row) => {
-    const shift = row.schedule_shifts
-    if (!shift) return false
-    const startTs = new Date(shift.starts_at).getTime()
-    return startTs >= now.getTime() && startTs <= in14.getTime()
+  const openShifts = openShiftsAll
+    .filter((row) => {
+      const shift = row.schedule_shifts
+      if (!shift) return false
+      const startTs = new Date(shift.starts_at).getTime()
+      return startTs >= now.getTime() && startTs <= in14.getTime()
+    })
+    .slice(0, 5)
+
+  const nextShift = myShifts[0] ?? null
+  const upcomingShifts = myShifts.slice(0, 8)
+
+  // Build 7-day week strip (today + 6 days)
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(now, i)
+    const iso = toISODate(d)
+    const hasShift = myShifts.some((s) => toISODate(new Date(s.starts_at)) === iso)
+    const isNext =
+      nextShift !== null && toISODate(new Date(nextShift.starts_at)) === iso
+    return { date: d, iso, hasShift, isNext, label: DAY_LABELS[d.getDay()] }
   })
 
+  function formatShiftTime(shift: ShiftRow): string {
+    try {
+      const start = new Date(shift.starts_at).toLocaleTimeString("en-US", {
+        timeZone: tz || undefined,
+        hour: "numeric",
+        minute: "2-digit",
+      })
+      const end = new Date(shift.ends_at).toLocaleTimeString("en-US", {
+        timeZone: tz || undefined,
+        hour: "numeric",
+        minute: "2-digit",
+      })
+      return `${start} – ${end}`
+    } catch {
+      return formatDateRange(shift.starts_at, shift.ends_at, tz)
+    }
+  }
+
+  function formatShiftDay(shift: ShiftRow): { day: string; date: number } {
+    const d = new Date(shift.starts_at)
+    return {
+      day: DAY_LABELS[d.getDay()],
+      date: d.getDate(),
+    }
+  }
+
+  function formatNextShiftLabel(shift: ShiftRow): string {
+    try {
+      const d = new Date(shift.starts_at)
+      const diffMs = d.getTime() - now.getTime()
+      const diffH = Math.round(diffMs / 3_600_000)
+      if (diffH < 24) return `IN ${diffH}H`
+      const diffD = Math.round(diffH / 24)
+      return `IN ${diffD}D`
+    } catch {
+      return ""
+    }
+  }
+
+  function formatNextShiftHero(shift: ShiftRow): string {
+    const d = new Date(shift.starts_at)
+    return `${DAY_LABELS[d.getDay()]} ${d.getDate()}`
+  }
+
+  const firstName = employeeRow.first_name ?? ""
+
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Scheduling
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Scheduling
-          {employeeRow.first_name ? `, ${employeeRow.first_name}` : ""}
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "0 auto",
+        padding: "24px 16px 48px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 0,
+      }}
+    >
+      {/* Breadcrumb */}
+      <p style={{ fontSize: 12, color: GREY, marginBottom: 16 }}>
+        <Link href="/reports" style={{ color: GREY, textDecoration: "none" }}>
+          Reports
+        </Link>
+        {" / Scheduling"}
+      </p>
+
+      {/* Page header */}
+      <div style={{ marginBottom: 24 }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: ".16em",
+            color: GREY,
+            textTransform: "uppercase",
+          }}
+        >
+          {firstName ? `HEY ${firstName.toUpperCase()}` : "WELCOME"}
+        </div>
+        <h1
+          style={{
+            fontFamily: DISPLAY_FONT,
+            fontSize: "clamp(32px, 8vw, 48px)",
+            lineHeight: 1,
+            letterSpacing: "0.01em",
+            textTransform: "uppercase",
+            color: NAVY,
+            margin: "6px 0 0",
+          }}
+        >
+          My Schedule
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your shifts, time off, and swaps in one place.
-        </p>
       </div>
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">
-            My next 7 days
-          </h2>
+      {/* Next shift hero */}
+      {nextShift ? (
+        <div
+          style={{
+            background: `linear-gradient(135deg, ${NAVY} 0%, ${NAVY_DARK} 100%)`,
+            borderRadius: 20,
+            padding: "20px 20px 18px",
+            color: "#fff",
+            position: "relative",
+            overflow: "hidden",
+            marginBottom: 16,
+          }}
+        >
+          {/* Green radial glow */}
+          <div
+            style={{
+              position: "absolute",
+              top: -40,
+              right: -40,
+              width: 160,
+              height: 160,
+              borderRadius: 9999,
+              background:
+                "radial-gradient(circle, rgba(77,255,0,.22), transparent 70%)",
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            style={{
+              fontSize: 9.5,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: GREEN,
+              textTransform: "uppercase",
+            }}
+          >
+            {`NEXT SHIFT · ${formatNextShiftLabel(nextShift)}`}
+          </div>
+          <div
+            style={{
+              fontFamily: DISPLAY_FONT,
+              fontSize: "clamp(38px, 10vw, 52px)",
+              lineHeight: 0.95,
+              letterSpacing: "-.01em",
+              color: "#fff",
+              marginTop: 8,
+            }}
+          >
+            {formatNextShiftHero(nextShift)}
+          </div>
+          <div
+            style={{
+              fontFamily: DISPLAY_FONT,
+              fontSize: 26,
+              color: GREEN,
+              lineHeight: 1,
+              marginTop: 8,
+              letterSpacing: ".01em",
+            }}
+          >
+            {formatShiftTime(nextShift).toUpperCase()}
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: "rgba(255,255,255,.72)",
+              marginTop: 6,
+            }}
+          >
+            {nextShift.departments?.name ?? "—"}
+            {nextShift.role_label ? ` · ${nextShift.role_label}` : ""}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              marginTop: 16,
+            }}
+          >
+            <Link
+              href="/reports/scheduling/swaps"
+              style={{
+                flex: 1,
+                height: 40,
+                borderRadius: 9,
+                border: "1px solid rgba(255,255,255,.18)",
+                background: "rgba(255,255,255,.08)",
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: ".06em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textDecoration: "none",
+              }}
+            >
+              Request swap
+            </Link>
+            <Link
+              href="/reports/scheduling/my-schedule"
+              style={{
+                flex: 1,
+                height: 40,
+                borderRadius: 9,
+                border: 0,
+                background: `linear-gradient(180deg,${GREEN_DARK},${GREEN_DARK})`,
+                color: NAVY_DARK,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: ".06em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textDecoration: "none",
+                boxShadow: "0 2px 0 0 #2E9900",
+              }}
+            >
+              Full schedule
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: `linear-gradient(135deg, ${NAVY} 0%, ${NAVY_DARK} 100%)`,
+            borderRadius: 20,
+            padding: "20px 20px 18px",
+            color: "#fff",
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9.5,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: GREEN,
+            }}
+          >
+            NEXT SHIFT
+          </div>
+          <div
+            style={{
+              fontSize: 16,
+              color: "rgba(255,255,255,.6)",
+              marginTop: 10,
+            }}
+          >
+            No upcoming shifts scheduled
+          </div>
+        </div>
+      )}
+
+      {/* Week strip */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap: 4,
+          marginBottom: 24,
+        }}
+      >
+        {weekDays.map((d) => (
+          <div
+            key={d.iso}
+            style={{
+              padding: "8px 2px 6px",
+              textAlign: "center",
+              borderRadius: 10,
+              background: d.isNext ? GREEN : d.hasShift ? "#fff" : "#f3f4f6",
+              border: `1px solid ${d.isNext ? GREEN : d.hasShift ? LINE : "transparent"}`,
+              color: d.isNext ? NAVY_DARK : d.hasShift ? NAVY : GREY,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 8.5,
+                fontWeight: 800,
+                letterSpacing: ".08em",
+                textTransform: "uppercase",
+              }}
+            >
+              {d.label}
+            </div>
+            <div
+              style={{
+                fontFamily: DISPLAY_FONT,
+                fontSize: 18,
+                lineHeight: 1.15,
+              }}
+            >
+              {d.date.getDate()}
+            </div>
+            <div
+              style={{
+                width: 4,
+                height: 4,
+                borderRadius: 9999,
+                margin: "3px auto 0",
+                background: d.isNext ? NAVY_DARK : d.hasShift ? GREEN : "transparent",
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Upcoming shifts */}
+      <div style={{ marginBottom: 24 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: 10,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: GREY,
+              textTransform: "uppercase",
+            }}
+          >
+            Upcoming
+          </div>
           <Link
             href="/reports/scheduling/my-schedule"
-            className="text-sm text-muted-foreground hover:underline"
+            style={{ fontSize: 12, color: NAVY_LIGHT, textDecoration: "none" }}
           >
-            View all
+            View all →
           </Link>
         </div>
-        {myShifts.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardDescription>No upcoming shifts</CardDescription>
-            </CardHeader>
-          </Card>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
-            {myShifts.map((s) => (
-              <li
-                key={s.id}
-                className="flex flex-col gap-1 px-4 py-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">
-                    {formatDateRange(s.starts_at, s.ends_at, tz)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {s.departments?.name ?? "—"}
-                  </span>
-                </div>
-                {s.role_label ? (
-                  <span className="text-xs text-muted-foreground">
-                    {s.role_label}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Open shifts</h2>
-        <p className="text-xs text-muted-foreground">
-          Unfilled shifts in your facility, next 14 days.
-        </p>
-        {openShifts.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardDescription>No open shifts available</CardDescription>
-            </CardHeader>
-          </Card>
+        {upcomingShifts.length === 0 ? (
+          <div
+            style={{
+              background: "#fff",
+              border: `1px solid ${LINE}`,
+              borderRadius: 14,
+              padding: "20px 16px",
+              textAlign: "center",
+              color: GREY,
+              fontSize: 13,
+            }}
+          >
+            No upcoming shifts
+          </div>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {upcomingShifts.map((s) => {
+              const { day, date } = formatShiftDay(s)
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    background: "#fff",
+                    border: `1px solid ${LINE}`,
+                    borderRadius: 14,
+                    padding: "12px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    boxShadow: "0 1px 2px rgba(0,0,0,.04)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 44,
+                      height: 48,
+                      borderRadius: 9,
+                      background: NAVY,
+                      color: "#fff",
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 8.5,
+                        fontWeight: 800,
+                        color: GREEN,
+                        letterSpacing: ".1em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {day}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: DISPLAY_FONT,
+                        fontSize: 20,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {date}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ fontSize: 13, fontWeight: 700, color: NAVY }}
+                    >
+                      {formatShiftTime(s)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: GREY,
+                        marginTop: 2,
+                      }}
+                    >
+                      {s.departments?.name ?? "—"}
+                      {s.role_label ? ` · ${s.role_label}` : ""}
+                    </div>
+                  </div>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={GREY}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ flexShrink: 0 }}
+                  >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Open shifts */}
+      {openShifts.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: GREY,
+              textTransform: "uppercase",
+              marginBottom: 10,
+            }}
+          >
+            Open · Pick up
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {openShifts.map((row) => {
               const shift = row.schedule_shifts
               if (!shift) return null
+              const d = new Date(shift.starts_at)
               return (
-                <li
+                <div
                   key={row.id}
-                  className="flex flex-col gap-2 px-4 py-3 text-sm"
+                  style={{
+                    background: "rgba(77,255,0,.06)",
+                    border: `1px solid rgba(77,255,0,.30)`,
+                    borderRadius: 14,
+                    padding: "12px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">
-                      {formatDateTime(shift.starts_at, tz)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {shift.departments?.name ?? "—"}
-                    </span>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 48,
+                      borderRadius: 9,
+                      background: "#fff",
+                      border: `1px solid ${LINE}`,
+                      color: NAVY,
+                      display: "grid",
+                      placeItems: "center",
+                      flexShrink: 0,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 8.5,
+                        fontWeight: 800,
+                        letterSpacing: ".1em",
+                        textTransform: "uppercase",
+                        color: GREY,
+                      }}
+                    >
+                      {DAY_LABELS[d.getDay()]}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: DISPLAY_FONT,
+                        fontSize: 20,
+                        lineHeight: 1,
+                        color: NAVY,
+                      }}
+                    >
+                      {d.getDate()}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      until {formatDateTime(shift.ends_at, tz)}
-                    </span>
-                    {shift.role_label ? (
-                      <Badge variant="outline">{shift.role_label}</Badge>
-                    ) : null}
-                    {row.approval_required ? (
-                      <Badge variant="warning">Approval required</Badge>
-                    ) : null}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ fontSize: 13, fontWeight: 700, color: NAVY }}
+                    >
+                      {formatDateTime(shift.starts_at, tz)}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: GREY, marginTop: 2 }}>
+                      {shift.departments?.name ?? "—"}
+                      {shift.role_label ? ` · ${shift.role_label}` : ""}
+                      {row.approval_required ? " · Approval req." : ""}
+                    </div>
                   </div>
                   <ClaimOpenShiftButton openShiftId={row.id} />
-                </li>
+                </div>
               )
             })}
-          </ul>
-        )}
-      </section>
+          </div>
+        </div>
+      )}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Quick links</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {QUICK_LINKS.map((link) => (
+      {/* Quick links */}
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: ".16em",
+            color: GREY,
+            textTransform: "uppercase",
+            marginBottom: 10,
+          }}
+        >
+          Quick links
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+          }}
+        >
+          {[
+            { href: "/reports/scheduling/my-schedule", label: "My schedule", desc: "All upcoming shifts" },
+            { href: "/reports/scheduling/time-off", label: "Time off", desc: "Request & track" },
+            { href: "/reports/scheduling/availability", label: "Availability", desc: "Set working hours" },
+            {
+              href: "/reports/scheduling/swaps",
+              label: "Shift swaps",
+              desc: "Trade with coworkers",
+            },
+            {
+              href: "/reports/scheduling/notifications",
+              label: "Notifications",
+              desc: unreadCount && unreadCount > 0
+                ? `${unreadCount} unread`
+                : "Schedule alerts",
+              badge: unreadCount && unreadCount > 0 ? unreadCount : null,
+            },
+          ].map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="group rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              style={{ textDecoration: "none" }}
             >
-              <Card className="h-full transition-colors group-hover:bg-accent/30">
-                <CardHeader className="flex flex-row items-center justify-between gap-2">
-                  <div className="flex flex-col gap-1">
-                    <CardTitle className="text-base">{link.title}</CardTitle>
-                    <CardDescription className="text-xs">
-                      {link.description}
-                    </CardDescription>
+              <div
+                style={{
+                  background: "#fff",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 14,
+                  padding: "14px 14px",
+                  position: "relative",
+                  boxShadow: "0 1px 2px rgba(0,0,0,.04)",
+                }}
+              >
+                {link.badge ? (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      right: 10,
+                      minWidth: 18,
+                      height: 18,
+                      padding: "0 5px",
+                      borderRadius: 9999,
+                      background: RED,
+                      color: "#fff",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      display: "grid",
+                      placeItems: "center",
+                    }}
+                  >
+                    {link.badge}
                   </div>
-                  {link.href.endsWith("/notifications") &&
-                  unreadCount &&
-                  unreadCount > 0 ? (
-                    <Badge aria-label={`${unreadCount} unread notifications`}>
-                      {unreadCount}
-                    </Badge>
-                  ) : null}
-                </CardHeader>
-              </Card>
+                ) : null}
+                <div
+                  style={{
+                    fontFamily: DISPLAY_FONT,
+                    fontSize: 15,
+                    color: NAVY,
+                    textTransform: "uppercase",
+                    letterSpacing: ".02em",
+                    marginBottom: 2,
+                  }}
+                >
+                  {link.label}
+                </div>
+                <div style={{ fontSize: 11.5, color: GREY }}>{link.desc}</div>
+              </div>
             </Link>
           ))}
         </div>
-      </section>
+      </div>
     </div>
   )
 }
