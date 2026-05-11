@@ -256,11 +256,13 @@ export default async function AccidentsHomePage() {
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
   const NAVY = "#003B6F"
-  const NAVY_LIGHT = "#0055A3"
   const GREEN = "#4DFF00"
-  const GREY = "#A5ACAF"
-  const LINE = "#e5e7eb"
   const RED = "#F42A2A"
+  // Theme-responsive
+  const SURFACE = "var(--card)"
+  const BORDER = "var(--border)"
+  const SECONDARY = "var(--muted-foreground)"
+  const FOREGROUND = "var(--foreground)"
 
   return (
     <div
@@ -275,10 +277,10 @@ export default async function AccidentsHomePage() {
     >
       {/* Breadcrumb + header */}
       <div>
-        <p style={{ fontSize: 12, color: GREY, marginBottom: 12 }}>
+        <p style={{ fontSize: 12, color: SECONDARY, marginBottom: 12 }}>
           <Link
             href="/reports"
-            style={{ color: GREY, textDecoration: "none" }}
+            style={{ color: SECONDARY, textDecoration: "none" }}
           >
             Reports
           </Link>
@@ -305,7 +307,7 @@ export default async function AccidentsHomePage() {
                 lineHeight: 1,
                 letterSpacing: "0.01em",
                 textTransform: "uppercase",
-                color: NAVY,
+                color: FOREGROUND,
                 margin: 0,
               }}
             >
@@ -316,7 +318,7 @@ export default async function AccidentsHomePage() {
         <p
           style={{
             fontSize: 13,
-            color: GREY,
+            color: SECONDARY,
             marginTop: 8,
           }}
         >
@@ -343,7 +345,7 @@ export default async function AccidentsHomePage() {
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: ".16em",
-              color: GREY,
+              color: SECONDARY,
               textTransform: "uppercase",
             }}
           >
@@ -351,8 +353,8 @@ export default async function AccidentsHomePage() {
           </div>
           <div
             style={{
-              background: "#fff",
-              border: `1px solid ${LINE}`,
+              background: SURFACE,
+              border: `1px solid ${BORDER}`,
               borderRadius: 14,
               overflow: "hidden",
               boxShadow: "0 1px 2px rgba(0,0,0,.04)",
@@ -372,7 +374,7 @@ export default async function AccidentsHomePage() {
                     gap: 12,
                     padding: "12px 14px",
                     borderBottom:
-                      i < recent.length - 1 ? `1px solid ${LINE}` : "none",
+                      i < recent.length - 1 ? `1px solid ${BORDER}` : "none",
                     textDecoration: "none",
                     color: "inherit",
                   }}
@@ -383,12 +385,12 @@ export default async function AccidentsHomePage() {
                       width: 10,
                       height: 10,
                       borderRadius: 9999,
-                      background: severityColor ?? GREY,
+                      background: severityColor ?? "#9DB2C8",
                       flexShrink: 0,
                     }}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: FOREGROUND }}>
                       {r.injured_person_name || "—"}
                     </div>
                     <div
@@ -410,7 +412,7 @@ export default async function AccidentsHomePage() {
                             background: severityColor
                               ? `${severityColor}20`
                               : "#f3f4f6",
-                            color: severityColor ?? GREY,
+                            color: severityColor ?? "#9DB2C8",
                             letterSpacing: ".04em",
                             textTransform: "uppercase",
                           }}
@@ -419,7 +421,7 @@ export default async function AccidentsHomePage() {
                         </span>
                       ) : null}
                       {medical ? (
-                        <span style={{ fontSize: 11.5, color: GREY }}>
+                        <span style={{ fontSize: 11.5, color: SECONDARY }}>
                           {medical}
                         </span>
                       ) : null}
@@ -428,7 +430,7 @@ export default async function AccidentsHomePage() {
                   <div
                     style={{
                       fontSize: 11.5,
-                      color: GREY,
+                      color: SECONDARY,
                       flexShrink: 0,
                       textAlign: "right",
                     }}
@@ -440,7 +442,7 @@ export default async function AccidentsHomePage() {
                     height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={GREY}
+                    stroke={SECONDARY}
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"

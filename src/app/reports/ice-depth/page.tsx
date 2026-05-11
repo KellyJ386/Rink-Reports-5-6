@@ -296,6 +296,29 @@ export default async function IceDepthHomePage() {
                     border: "1px solid rgba(77,255,0,0.2)",
                   }}
                 >
+                  {layout.description ?? "Record depth measurements for this layout."}
+                </div>
+                {/* Point count badge */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "2px 10px",
+                      borderRadius: 9999,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      background: "var(--secondary)",
+                      color: "var(--muted-foreground)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    {layout.activePoints.length} point
+                    {layout.activePoints.length !== 1 ? "s" : ""}
+                  </span>
                   {layout.activePoints.length} point{layout.activePoints.length !== 1 ? "s" : ""}
                 </div>
               </div>

@@ -21,14 +21,15 @@ interface Props {
 }
 
 const NAVY = "#003B6F"
-const NAVY_LIGHT = "#0055A3"
 const GREEN = "#4DFF00"
 const GREEN_INK = "#1F6B00"
-const GREY = "#A5ACAF"
-const LINE = "#e5e7eb"
-const LINE_SOFT = "#f3f4f6"
-const RED = "#F42A2A"
 const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
+// Theme-responsive via CSS custom properties
+const SURFACE = "var(--card)"
+const ELEVATED = "var(--secondary)"
+const BORDER = "var(--border)"
+const SECONDARY = "var(--muted-foreground)"
+const FOREGROUND = "var(--foreground)"
 
 function toISODate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -99,8 +100,8 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
           type="button"
           onClick={prevWeek}
           style={{
-            width: 36, height: 36, borderRadius: 8, border: `1px solid ${LINE}`,
-            background: "#fff", color: NAVY, cursor: "pointer",
+            width: 36, height: 36, borderRadius: 8, border: `1px solid ${BORDER}`,
+            background: SURFACE, color: FOREGROUND, cursor: "pointer",
             display: "grid", placeItems: "center",
           }}
         >
@@ -109,9 +110,9 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
           </svg>
         </button>
         <div style={{
-          padding: "0 14px", height: 36, borderRadius: 8, background: "#fff",
-          border: `1px solid ${LINE}`, display: "flex", alignItems: "center",
-          color: NAVY, fontSize: 13, fontWeight: 600, gap: 6,
+          padding: "0 14px", height: 36, borderRadius: 8, background: SURFACE,
+          border: `1px solid ${BORDER}`, display: "flex", alignItems: "center",
+          color: FOREGROUND, fontSize: 13, fontWeight: 600, gap: 6,
         }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
@@ -122,8 +123,8 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
           type="button"
           onClick={nextWeek}
           style={{
-            width: 36, height: 36, borderRadius: 8, border: `1px solid ${LINE}`,
-            background: "#fff", color: NAVY, cursor: "pointer",
+            width: 36, height: 36, borderRadius: 8, border: `1px solid ${BORDER}`,
+            background: SURFACE, color: FOREGROUND, cursor: "pointer",
             display: "grid", placeItems: "center",
           }}
         >
@@ -135,14 +136,14 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
 
       {/* Grid */}
       <div style={{
-        background: "#fff", border: `1px solid ${LINE}`, borderRadius: 14,
+        background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 14,
         overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.05)",
       }}>
         {/* Day headers */}
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-          borderBottom: `1px solid ${LINE}`,
+          borderBottom: `1px solid ${BORDER}`,
         }}>
           {days.map((d) => {
             const key = toISODate(d)
@@ -151,23 +152,23 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
               <div
                 key={key}
                 style={{
-                  borderRight: `1px solid ${LINE}`,
+                  borderRight: `1px solid ${BORDER}`,
                   padding: "10px 8px",
                   textAlign: "center",
-                  background: isToday ? "rgba(77,255,0,.08)" : "#fff",
+                  background: isToday ? "rgba(77,255,0,.08)" : SURFACE,
                 }}
               >
                 <div style={{
                   fontSize: 9.5, fontWeight: 700, letterSpacing: ".1em",
                   textTransform: "uppercase",
-                  color: isToday ? GREEN_INK : GREY,
+                  color: isToday ? GREEN_INK : SECONDARY,
                 }}>
                   {SHORT_DAY_NAMES[d.getDay()]}
                 </div>
                 <div style={{
                   fontFamily: DISPLAY_FONT,
                   fontSize: 22, lineHeight: 1.1,
-                  color: isToday ? NAVY : NAVY,
+                  color: FOREGROUND,
                 }}>
                   {d.getDate()}
                 </div>
@@ -196,19 +197,19 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
               <div
                 key={key}
                 style={{
-                  borderRight: `1px solid ${LINE}`,
+                  borderRight: `1px solid ${BORDER}`,
                   minHeight: 120,
                   padding: 6,
                   display: "flex",
                   flexDirection: "column",
                   gap: 4,
-                  background: isToday ? "rgba(77,255,0,.03)" : "#fff",
+                  background: isToday ? "rgba(77,255,0,.04)" : SURFACE,
                 }}
               >
                 {dayShifts.length === 0 && (
                   <span style={{
                     display: "block", marginTop: 8, fontSize: 11,
-                    color: LINE, textAlign: "center",
+                    color: BORDER, textAlign: "center",
                   }}>—</span>
                 )}
                 {dayShifts.map((s) => {
@@ -221,29 +222,29 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
                         borderRadius: 7,
                         padding: "5px 7px",
                         background: isCancelled
-                          ? LINE_SOFT
+                          ? ELEVATED
                           : isPublished
-                          ? "rgba(0,59,111,.08)"
-                          : "rgba(14,165,233,.10)",
-                        borderLeft: `3px solid ${isCancelled ? GREY : isPublished ? NAVY : "#0EA5E9"}`,
+                          ? "rgba(0,59,111,.15)"
+                          : "rgba(14,165,233,.15)",
+                        borderLeft: `3px solid ${isCancelled ? "#9DB2C8" : isPublished ? NAVY : "#0EA5E9"}`,
                         opacity: isCancelled ? 0.55 : 1,
                       }}
                     >
                       <div style={{
                         fontSize: 10.5, fontWeight: 700,
-                        color: isCancelled ? GREY : NAVY,
+                        color: isCancelled ? SECONDARY : FOREGROUND,
                         textDecoration: isCancelled ? "line-through" : "none",
                         fontVariantNumeric: "tabular-nums",
                       }}>
                         {formatTime(s.starts_at, timezone)}–{formatTime(s.ends_at, timezone)}
                       </div>
                       {s.departments?.name ? (
-                        <div style={{ fontSize: 10, color: GREY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 10, color: SECONDARY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {s.departments.name}
                         </div>
                       ) : null}
                       {s.role_label ? (
-                        <div style={{ fontSize: 9.5, color: GREY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: 0.7 }}>
+                        <div style={{ fontSize: 9.5, color: SECONDARY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: 0.7 }}>
                           {s.role_label}
                         </div>
                       ) : null}

@@ -206,15 +206,17 @@ export default async function MySchedulePage({
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
   const NAVY = "#003B6F"
-  const NAVY_LIGHT = "#0055A3"
   const GREEN = "#4DFF00"
   const GREEN_INK = "#1F6B00"
-  const GREY = "#A5ACAF"
-  const LINE = "#e5e7eb"
+  const SURFACE = "var(--card)"
+  const ELEVATED = "var(--secondary)"
+  const BORDER = "var(--border)"
+  const SECONDARY = "var(--muted-foreground)"
+  const FOREGROUND = "var(--foreground)"
 
   const statusColors: Record<string, string> = {
     published: "#1F6B00",
-    cancelled: GREY,
+    cancelled: "#9DB2C8",
     draft: "#0EA5E9",
   }
 
@@ -231,10 +233,10 @@ export default async function MySchedulePage({
     >
       {/* Header */}
       <div>
-        <p style={{ fontSize: 12, color: GREY, marginBottom: 12 }}>
+        <p style={{ fontSize: 12, color: SECONDARY, marginBottom: 12 }}>
           <Link
             href="/reports/scheduling"
-            style={{ color: GREY, textDecoration: "none" }}
+            style={{ color: SECONDARY, textDecoration: "none" }}
           >
             Scheduling
           </Link>
@@ -247,7 +249,7 @@ export default async function MySchedulePage({
             lineHeight: 1,
             letterSpacing: "0.01em",
             textTransform: "uppercase",
-            color: NAVY,
+            color: FOREGROUND,
             margin: 0,
           }}
         >
@@ -260,8 +262,8 @@ export default async function MySchedulePage({
         style={{
           display: "flex",
           gap: 3,
-          background: "#fff",
-          border: `1px solid ${LINE}`,
+          background: SURFACE,
+          border: `1px solid ${BORDER}`,
           borderRadius: 9,
           padding: 3,
           width: "fit-content",
@@ -276,8 +278,8 @@ export default async function MySchedulePage({
               fontSize: 12.5,
               fontWeight: 700,
               borderRadius: 6,
-              background: currentView === v ? NAVY : "transparent",
-              color: currentView === v ? "#fff" : NAVY,
+              background: currentView === v ? GREEN : "transparent",
+              color: currentView === v ? GREEN_INK : SECONDARY,
               cursor: "pointer",
               textTransform: "uppercase",
               letterSpacing: ".04em",
@@ -304,8 +306,8 @@ export default async function MySchedulePage({
               display: "flex",
               flexWrap: "wrap",
               gap: 10,
-              background: "#fff",
-              border: `1px solid ${LINE}`,
+              background: SURFACE,
+              border: `1px solid ${BORDER}`,
               borderRadius: 14,
               padding: "14px 16px",
               alignItems: "flex-end",
@@ -325,7 +327,7 @@ export default async function MySchedulePage({
                     fontSize: 10,
                     fontWeight: 800,
                     letterSpacing: ".12em",
-                    color: GREY,
+                    color: SECONDARY,
                     textTransform: "uppercase",
                   }}
                 >
@@ -338,13 +340,13 @@ export default async function MySchedulePage({
                   defaultValue={f.defaultValue}
                   style={{
                     height: 40,
-                    border: `1px solid ${LINE}`,
+                    border: `1px solid ${BORDER}`,
                     borderRadius: 8,
                     padding: "0 12px",
                     fontSize: 13,
-                    color: NAVY,
+                    color: FOREGROUND,
                     outline: "none",
-                    background: "#fff",
+                    background: SURFACE,
                   }}
                 />
               </div>
@@ -356,7 +358,7 @@ export default async function MySchedulePage({
                   fontSize: 10,
                   fontWeight: 800,
                   letterSpacing: ".12em",
-                  color: GREY,
+                  color: SECONDARY,
                   textTransform: "uppercase",
                 }}
               >
@@ -368,13 +370,13 @@ export default async function MySchedulePage({
                 defaultValue={statusFilter}
                 style={{
                   height: 40,
-                  border: `1px solid ${LINE}`,
+                  border: `1px solid ${BORDER}`,
                   borderRadius: 8,
                   padding: "0 12px",
                   fontSize: 13,
-                  color: NAVY,
+                  color: FOREGROUND,
                   outline: "none",
-                  background: "#fff",
+                  background: SURFACE,
                 }}
               >
                 <option value="published">Published</option>
@@ -403,12 +405,12 @@ export default async function MySchedulePage({
           {shifts.length === 0 ? (
             <div
               style={{
-                background: "#fff",
-                border: `1px solid ${LINE}`,
+                background: SURFACE,
+                border: `1px solid ${BORDER}`,
                 borderRadius: 14,
                 padding: "24px 16px",
                 textAlign: "center",
-                color: GREY,
+                color: SECONDARY,
                 fontSize: 13,
               }}
             >
@@ -417,15 +419,15 @@ export default async function MySchedulePage({
           ) : (
             <div
               style={{
-                background: "#fff",
-                border: `1px solid ${LINE}`,
+                background: SURFACE,
+                border: `1px solid ${BORDER}`,
                 borderRadius: 14,
                 overflow: "hidden",
                 boxShadow: "0 1px 2px rgba(0,0,0,.04)",
               }}
             >
               {shifts.map((s, i) => {
-                const color = statusColors[s.status] ?? GREY
+                const color = statusColors[s.status] ?? "#9DB2C8"
                 return (
                   <div
                     key={s.id}
@@ -435,12 +437,12 @@ export default async function MySchedulePage({
                       gap: 12,
                       padding: "12px 14px",
                       borderBottom:
-                        i < shifts.length - 1 ? `1px solid ${LINE}` : "none",
+                        i < shifts.length - 1 ? `1px solid ${BORDER}` : "none",
                       borderLeft: `3px solid ${color}`,
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}>
                         {formatDateRange(s.starts_at, s.ends_at, tz)}
                       </div>
                       <div
@@ -452,11 +454,11 @@ export default async function MySchedulePage({
                           alignItems: "center",
                         }}
                       >
-                        <span style={{ fontSize: 11.5, color: GREY }}>
+                        <span style={{ fontSize: 11.5, color: SECONDARY }}>
                           {s.departments?.name ?? "—"}
                         </span>
                         {s.role_label ? (
-                          <span style={{ fontSize: 11.5, color: GREY }}>
+                          <span style={{ fontSize: 11.5, color: SECONDARY }}>
                             · {s.role_label}
                           </span>
                         ) : null}
