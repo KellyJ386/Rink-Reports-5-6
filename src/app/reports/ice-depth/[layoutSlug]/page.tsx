@@ -74,7 +74,6 @@ export default async function IceDepthLayoutSubmissionPage({
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
-        showSignOut
       />
     )
   }
