@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { SyncStatusBadge } from "@/components/offline/sync-status-badge"
 import { AppMobileSidebar } from "./mobile-sidebar"
 
 interface AppHeaderProps {
@@ -43,7 +44,8 @@ export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
         Rink Reports
       </Link>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-3">
+        <SyncStatusBadge />
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Open user menu"

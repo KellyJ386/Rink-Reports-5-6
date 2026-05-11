@@ -9,7 +9,15 @@ export type UserProfile = {
   is_active: boolean
 }
 
+export type ActiveEmployee = {
+  id: string
+  facility_id: string
+  role_key: string
+}
+
 export type AuthedUser = {
   authUser: User
   profile: UserProfile | null
+  /** Populated by requireUser() — the active employee record for this session. */
+  employee?: ActiveEmployee | null
 }
