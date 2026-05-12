@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
+import { startPreviewAs } from "@/lib/auth/preview-actions"
+
 import {
   deactivateEmployee,
   deleteEmployee,
@@ -268,6 +270,20 @@ export function EmployeesClient({
                         >
                           Edit
                         </Button>
+                        {e.is_active ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              runRowAction(e.id, (id) => startPreviewAs(id))
+                            }
+                            disabled={isPending}
+                            title={`Preview the app as ${e.first_name} ${e.last_name}`}
+                          >
+                            Preview
+                          </Button>
+                        ) : null}
                         {e.is_active ? (
                           <Button
                             type="button"
