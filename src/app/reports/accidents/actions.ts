@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
+import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
 import type {
@@ -310,6 +311,13 @@ export async function submitAccidentReport(
       // best-effort side-effect, not a precondition.
     }
   }
+
+  void dispatchRulesForSubmission({
+    facilityId: employeeRow.facility_id,
+    sourceModule: "accident_reports",
+    sourceRecordId: reportId,
+    subject: "Accident report submitted",
+  })
 
   revalidatePath("/reports/accidents")
   revalidatePath(`/reports/accidents/${reportId}`)

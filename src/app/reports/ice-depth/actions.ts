@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
+import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
 import type { Severity, SubmittedMeasurement } from "./types"
@@ -322,6 +323,13 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   } catch {
     // Alerts are best-effort; do not fail the submission.
   }
+
+  void dispatchRulesForSubmission({
+    facilityId: employeeRow.facility_id,
+    sourceModule: "ice_depth",
+    sourceRecordId: sessionId,
+    subject: `Ice depth session submitted (${layout.slug})`,
+  })
 
   return {
     ok: true,

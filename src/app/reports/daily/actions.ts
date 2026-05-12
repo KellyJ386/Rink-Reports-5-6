@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
+import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
 export type SubmissionFormState = {
@@ -192,6 +193,13 @@ async function performSubmit(
       return { ok: false, error: dbError(noteErr, "Failed to save note.") }
     }
   }
+
+  void dispatchRulesForSubmission({
+    facilityId: employeeRow.facility_id,
+    sourceModule: "daily_reports",
+    sourceRecordId: submissionId,
+    subject: `Daily report submitted (${areaSlug})`,
+  })
 
   return {
     ok: true,
