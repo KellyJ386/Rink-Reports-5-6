@@ -80,6 +80,11 @@ export function FacilitiesTable({ facilities, selectedId }: Props) {
                 </div>
                 <div className="flex items-center gap-2">
                   <Button asChild size="sm" variant="outline">
+                    <Link href={`/admin/employees?facility=${facility.id}`}>
+                      Manage employees
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
                     <Link href={`/admin/facility?id=${facility.id}`}>
                       {isSelected ? "Editing" : "Edit"}
                     </Link>
