@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
+import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
 import type {
@@ -373,6 +374,13 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
       })
     }
   }
+
+  void dispatchRulesForSubmission({
+    facilityId: employeeRow.facility_id,
+    sourceModule: "refrigeration",
+    sourceRecordId: reportId,
+    subject: "Refrigeration report submitted",
+  })
 
   return {
     ok: true,

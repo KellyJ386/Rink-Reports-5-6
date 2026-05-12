@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
+import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
 export type SubmissionFormState = {
@@ -144,6 +145,16 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
       error: dbError(insertErr, "Failed to submit incident report."),
     }
   }
+
+  // Fan out to any matching notification routing rules. Best-effort —
+  // dispatch failures must never block a successful submission.
+  void dispatchRulesForSubmission({
+    facilityId: employeeRow.facility_id,
+    sourceModule: "incident_reports",
+    sourceRecordId: inserted.id,
+    subject: `Incident report submitted by ${reporterName}`,
+    body: description,
+  })
 
   return {
     ok: true,

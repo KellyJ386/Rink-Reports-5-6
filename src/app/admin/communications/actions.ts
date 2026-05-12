@@ -636,10 +636,16 @@ export async function removeGroupMember(id: string): Promise<SimpleResult> {
 // Routing rules
 // ============================================================================
 
-type TargetKind = "group" | "role" | "employee"
+type TargetKind = "group" | "role" | "employee" | "department"
 
 function isTargetKind(v: string): v is TargetKind {
-  return v === "group" || v === "role" || v === "employee"
+  return v === "group" || v === "role" || v === "employee" || v === "department"
+}
+
+const ALLOWED_TIMINGS = ["immediate", "end_of_day", "weekly", "manual"] as const
+type Timing = (typeof ALLOWED_TIMINGS)[number]
+function isTiming(s: string): s is Timing {
+  return (ALLOWED_TIMINGS as readonly string[]).includes(s)
 }
 
 function parseRoutingForm(formData: FormData): {
@@ -652,6 +658,9 @@ function parseRoutingForm(formData: FormData): {
     target_group_id: string | null
     target_role_key: string | null
     target_employee_id: string | null
+    target_department_id: string | null
+    timing: Timing
+    attach_pdf: boolean
     priority: number
     is_active: boolean
   }
@@ -682,6 +691,7 @@ function parseRoutingForm(formData: FormData): {
   let target_group_id: string | null = null
   let target_role_key: string | null = null
   let target_employee_id: string | null = null
+  let target_department_id: string | null = null
   if (targetKindRaw === "group") {
     target_group_id = nonEmpty(formData.get("target_group_id"))
     if (!target_group_id)
@@ -692,6 +702,12 @@ function parseRoutingForm(formData: FormData): {
       return { ok: false, error: "Pick a target role." }
     if (!ROLE_KEY_RE.test(target_role_key))
       return { ok: false, error: "Invalid role key." }
+  } else if (targetKindRaw === "department") {
+    target_department_id = nonEmpty(formData.get("target_department_id"))
+    if (!target_department_id)
+      return { ok: false, error: "Pick a target department." }
+    if (!UUID_RE.test(target_department_id))
+      return { ok: false, error: "Invalid department id." }
   } else {
     target_employee_id = nonEmpty(formData.get("target_employee_id"))
     if (!target_employee_id)
@@ -701,6 +717,12 @@ function parseRoutingForm(formData: FormData): {
   const priority = asInt(formData.get("priority")) ?? 0
   const is_active = formData.get("is_active") !== "off"
   const name = nonEmpty(formData.get("name"))
+
+  const timingRaw = nonEmpty(formData.get("timing")) ?? "immediate"
+  if (!isTiming(timingRaw)) {
+    return { ok: false, error: "Invalid timing value." }
+  }
+  const attach_pdf = formData.get("attach_pdf") === "on"
 
   return {
     ok: true,
@@ -712,6 +734,9 @@ function parseRoutingForm(formData: FormData): {
       target_group_id,
       target_role_key,
       target_employee_id,
+      target_department_id,
+      timing: timingRaw,
+      attach_pdf,
       priority,
       is_active,
     },
@@ -729,7 +754,9 @@ export async function createRoutingRule(
     const parsed = parseRoutingForm(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const supabase = await createClient()
-    const { data, error } = await supabase
+    // target_department_id, timing, attach_pdf aren't in generated types yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from("communication_routing_rules")
       .insert({ facility_id: facility.facilityId, ...parsed.data })
       .select("*")
@@ -776,7 +803,9 @@ export async function updateRoutingRule(
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
       .maybeSingle()
-    const { data, error } = await supabase
+    // target_department_id, timing, attach_pdf aren't in generated types yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from("communication_routing_rules")
       .update(parsed.data)
       .eq("id", id)
@@ -885,6 +914,40 @@ export async function deleteRoutingRule(id: string): Promise<SimpleResult> {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
     }
+  }
+}
+
+/**
+ * Preview the resolved recipient set for a single routing rule. Returns the
+ * matching employees so the admin can sanity-check a rule before saving it.
+ */
+export async function previewRoutingRecipients(ruleId: string): Promise<
+  | { ok: true; recipients: Array<{ id: string; first_name: string; last_name: string; email: string | null }> }
+  | { ok: false; error: string }
+> {
+  try {
+    await requireAdmin()
+    if (!ruleId) return { ok: false, error: "Missing rule id." }
+    const supabase = await createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: ids, error } = await (supabase as any).rpc(
+      "resolve_rule_recipients",
+      { p_rule_id: ruleId },
+    )
+    if (error) return { ok: false, error: error.message }
+    const employeeIds = (ids as Array<{ employee_id: string }> | null ?? []).map(
+      (r) => r.employee_id,
+    )
+    if (employeeIds.length === 0) return { ok: true, recipients: [] }
+
+    const { data: emps, error: empErr } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name, email")
+      .in("id", employeeIds)
+    if (empErr) return { ok: false, error: empErr.message }
+    return { ok: true, recipients: emps ?? [] }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
 

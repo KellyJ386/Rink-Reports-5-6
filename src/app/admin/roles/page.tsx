@@ -13,6 +13,7 @@ import { type PermissionLevel } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
 import { MODULE_KEYS, type ModuleKey } from "../permissions/types"
+import { RoleManager, type ManagedRole } from "./_components/role-manager"
 import {
   RolesMatrix,
   type RoleDefaultsMap,
@@ -21,7 +22,7 @@ import {
 
 export const dynamic = "force-dynamic"
 
-export const metadata = { title: "Role Defaults | MFO / Rink Reports" }
+export const metadata = { title: "Roles | MFO / Rink Reports" }
 
 type SearchParams = Promise<{ facility?: string }>
 
@@ -31,6 +32,9 @@ type RoleRow = {
   key: string
   display_name: string
   hierarchy_level: number
+  is_system: boolean
+  is_active: boolean | null
+  description: string | null
 }
 
 type DefaultsRow = {
@@ -81,10 +85,16 @@ export default async function RolesPage({
   const supabase = await createClient()
 
   const [{ data: rolesRaw }, { data: defaultsRaw }] = await Promise.all([
-    supabase
+    // is_active and description were added in migration 44; cast through any
+    // until the generated types catch up.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
       .from("roles")
-      .select("id, facility_id, key, display_name, hierarchy_level")
+      .select(
+        "id, facility_id, key, display_name, hierarchy_level, is_system, is_active, description",
+      )
       .eq("facility_id", facilityId)
+      .order("is_active", { ascending: false })
       .order("hierarchy_level", { ascending: true }),
     // role_module_permission_defaults isn't in generated types yet; cast.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,11 +128,23 @@ export default async function RolesPage({
     )
   }
 
-  const roleList: RoleListItem[] = roles.map((r) => ({
+  const activeRoles = roles.filter((r) => r.is_active !== false)
+
+  const roleList: RoleListItem[] = activeRoles.map((r) => ({
     id: r.id,
     key: r.key,
     display_name: r.display_name,
     hierarchy_level: r.hierarchy_level,
+  }))
+
+  const managedRoles: ManagedRole[] = roles.map((r) => ({
+    id: r.id,
+    key: r.key,
+    display_name: r.display_name,
+    hierarchy_level: r.hierarchy_level,
+    is_system: r.is_system,
+    is_active: r.is_active !== false,
+    description: r.description,
   }))
 
   const defaultsMap: RoleDefaultsMap = {}
@@ -145,17 +167,30 @@ export default async function RolesPage({
       <Header />
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">How defaults work</CardTitle>
+          <CardTitle className="text-base">How permissions resolve</CardTitle>
           <CardDescription>
-            These levels are the fallback for any employee whose own row in{" "}
+            For each (employee, module) the system picks the first hit from:
+            explicit override → role default → MAX(department default) →
+            facility default → no access. Per-employee overrides live in{" "}
             <Link href="/admin/permissions" className="underline">
               Module Access Control
-            </Link>{" "}
-            doesn&apos;t override them. Per-employee overrides always win.
+            </Link>
+            .
           </CardDescription>
         </CardHeader>
       </Card>
-      <RolesMatrix roles={roleList} defaults={defaultsMap} />
+      <RoleManager facilityId={facilityId} roles={managedRoles} />
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Role permission defaults</CardTitle>
+          <CardDescription>
+            Set the default permission level each role gets per module.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RolesMatrix roles={roleList} defaults={defaultsMap} />
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -163,10 +198,9 @@ export default async function RolesPage({
 function Header() {
   return (
     <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Role Defaults</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Roles</h1>
       <p className="text-muted-foreground text-sm">
-        Set the default permission level each role gets per module. Employees
-        without an explicit override inherit these.
+        Manage facility roles and the permission defaults each role grants.
       </p>
     </div>
   )

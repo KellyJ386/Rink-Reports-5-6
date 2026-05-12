@@ -116,9 +116,14 @@ export type GroupDetail = {
   facility_employees: EmployeeLite[]
 }
 
+// Columns added in migration 45 aren't yet in the generated RoutingRuleRow
+// type. Override them explicitly so the UI can read them without an `any` cast.
 export type RoutingRuleWithRefs = RoutingRuleRow & {
   target_group: GroupRow | null
   target_employee: EmployeeLite | null
+  target_department_id: string | null
+  timing: "immediate" | "end_of_day" | "weekly" | "manual" | null
+  attach_pdf: boolean | null
 }
 
 export type ReminderWithRefs = ReminderRow & {
