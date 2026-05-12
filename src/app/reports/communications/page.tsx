@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
+import { signPdfUrl } from "@/lib/notifications/pdf/upload"
 import { createClient } from "@/lib/supabase/server"
 
 import { AcknowledgeAlertForm } from "./_components/acknowledge-alert-form"
@@ -301,15 +302,30 @@ export default async function CommunicationsInboxPage({
         | null
     }
 
-    const { data: messageRaw } = await supabase
+    // pdf_url was added in migration 48 and isn't in the generated select
+    // overloads yet. Cast the client through unknown so the new column is
+    // selectable without regenerating types.
+    const sbForMessage = supabase as unknown as {
+      from: (t: string) => {
+        select: (cols: string) => {
+          eq: (
+            col: string,
+            val: string,
+          ) => { maybeSingle: () => Promise<{ data: unknown }> }
+        }
+      }
+    }
+    const { data: messageRaw } = await sbForMessage
       .from("communication_messages")
       .select(
-        "id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)"
+        "id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
       )
       .eq("id", messageParam)
       .maybeSingle()
 
-    const message = messageRaw as unknown as MessageJoined | null
+    const message = messageRaw as unknown as
+      | (MessageJoined & { pdf_url: string | null })
+      | null
 
     if (!message) {
       return (
@@ -319,6 +335,10 @@ export default async function CommunicationsInboxPage({
         />
       )
     }
+
+    const pdfSignedUrl = message.pdf_url
+      ? await signPdfUrl(supabase, message.pdf_url)
+      : null
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
@@ -346,6 +366,7 @@ export default async function CommunicationsInboxPage({
             sent_at: message.sent_at,
             requires_acknowledgement: message.requires_acknowledgement,
             sender_name: fullName(message.sender),
+            pdf_signed_url: pdfSignedUrl,
           }}
           recipient={{
             read_at: recipientRow.read_at,
