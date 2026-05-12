@@ -2,6 +2,8 @@
 // so these are hand-rolled to match the backbone schema (see
 // supabase/migrations/00000000000002_backbone_schema.sql).
 
+import type { PermissionLevel } from "@/lib/permissions"
+
 export const MODULE_KEYS = [
   "daily_reports",
   "ice_depth",
@@ -30,14 +32,6 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   admin: "Admin",
 }
 
-export type PermissionField = "can_view" | "can_submit" | "can_admin"
-
-export type PermissionFlags = {
-  can_view: boolean
-  can_submit: boolean
-  can_admin: boolean
-}
-
 export type Employee = {
   id: string
   full_name: string
@@ -47,10 +41,7 @@ export type Employee = {
   departments: string[]
 }
 
-export type PermissionMap = Record<string, Partial<Record<ModuleKey, PermissionFlags>>>
-
-export const EMPTY_FLAGS: PermissionFlags = {
-  can_view: false,
-  can_submit: false,
-  can_admin: false,
-}
+export type ModulePermissionMap = Record<
+  string,
+  Partial<Record<ModuleKey, PermissionLevel>>
+>

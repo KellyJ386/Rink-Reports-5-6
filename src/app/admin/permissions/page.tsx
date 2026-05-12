@@ -9,16 +9,15 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { requireAdmin } from "@/lib/auth"
+import { type PermissionLevel } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
 import { PermissionsClient } from "./_components/permissions-client"
 import {
-  EMPTY_FLAGS,
   MODULE_KEYS,
   type Employee,
   type ModuleKey,
-  type PermissionFlags,
-  type PermissionMap,
+  type ModulePermissionMap,
 } from "./types"
 
 type EmployeeRow = {
@@ -49,9 +48,7 @@ type EmployeeDepartmentRow = {
 type ModulePermissionRow = {
   employee_id: string
   module_key: string
-  can_view: boolean
-  can_submit: boolean
-  can_admin: boolean
+  permission_level: PermissionLevel
 }
 
 export const dynamic = "force-dynamic"
@@ -62,8 +59,6 @@ export default async function PermissionsPage() {
   await requireAdmin()
   const supabase = await createClient()
 
-  // Bias toward simple separate queries (per the spec) and stitch in memory.
-  // RLS scopes everything to the caller's facility.
   const { data: employeesRaw } = await supabase
     .from("employees")
     .select("id, first_name, last_name, email, facility_id, role_id")
@@ -112,9 +107,11 @@ export default async function PermissionsPage() {
             ? employeeIds
             : ["00000000-0000-0000-0000-000000000000"],
         ),
-      supabase
+      // permission_level isn't in generated types yet; cast.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any)
         .from("module_permissions")
-        .select("employee_id, module_key, can_view, can_submit, can_admin")
+        .select("employee_id, module_key, permission_level")
         .in(
           "employee_id",
           employeeIds.length
@@ -163,26 +160,21 @@ export default async function PermissionsPage() {
     }
   })
 
-  const permissionMap: PermissionMap = {}
+  const permissionMap: ModulePermissionMap = {}
   for (const p of perms) {
     if (!(MODULE_KEYS as readonly string[]).includes(p.module_key)) continue
     const key = p.module_key as ModuleKey
-    const flags: PermissionFlags = {
-      can_view: p.can_view,
-      can_submit: p.can_submit,
-      can_admin: p.can_admin,
-    }
     const existing = permissionMap[p.employee_id] ?? {}
-    existing[key] = flags
+    existing[key] = p.permission_level
     permissionMap[p.employee_id] = existing
   }
 
   // Ensure every employee has at least an empty bag so the client doesn't
-  // have to handle undefined.
+  // have to handle undefined, and every module has a defaulted level.
   for (const e of employeeList) {
     if (!permissionMap[e.id]) permissionMap[e.id] = {}
     for (const k of MODULE_KEYS) {
-      if (!permissionMap[e.id]![k]) permissionMap[e.id]![k] = { ...EMPTY_FLAGS }
+      if (!permissionMap[e.id]![k]) permissionMap[e.id]![k] = "none"
     }
   }
 
@@ -204,8 +196,8 @@ function Header() {
         Module Access Control
       </h1>
       <p className="text-muted-foreground text-sm">
-        Toggle per-employee access to each module. V = View, S = Submit, A =
-        Admin.
+        Pick a permission level per employee per module. Levels are
+        cumulative: each higher level includes everything below it.
       </p>
     </div>
   )
