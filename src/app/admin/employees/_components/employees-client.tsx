@@ -7,12 +7,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
+import { startPreviewAs } from "@/lib/auth/preview-actions"
+
 import {
   deactivateEmployee,
   deleteEmployee,
   reactivateEmployee,
 } from "../actions"
 import type {
+  CustomFieldDef,
+  CustomFieldValueMap,
   DepartmentRow,
   EmployeeListItem,
   RoleRow,
@@ -24,6 +28,8 @@ type Props = {
   employees: EmployeeListItem[]
   roles: RoleRow[]
   departments: DepartmentRow[]
+  customFields: CustomFieldDef[]
+  customValuesByEmployee: Record<string, CustomFieldValueMap>
   canDelete: boolean
 }
 
@@ -46,6 +52,8 @@ export function EmployeesClient({
   employees,
   roles,
   departments,
+  customFields,
+  customValuesByEmployee,
   canDelete,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -268,6 +276,20 @@ export function EmployeesClient({
                             variant="ghost"
                             size="sm"
                             onClick={() =>
+                              runRowAction(e.id, (id) => startPreviewAs(id))
+                            }
+                            disabled={isPending}
+                            title={`Preview the app as ${e.first_name} ${e.last_name}`}
+                          >
+                            Preview
+                          </Button>
+                        ) : null}
+                        {e.is_active ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
                               runRowAction(e.id, deactivateEmployee)
                             }
                             disabled={isPending}
@@ -322,6 +344,10 @@ export function EmployeesClient({
         facilityId={facilityId}
         roles={roles}
         departments={departments}
+        customFields={customFields}
+        customValues={
+          editing ? (customValuesByEmployee[editing.id] ?? {}) : {}
+        }
         editing={editing}
       />
     </div>

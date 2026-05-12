@@ -6,8 +6,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PreviewBanner } from "@/components/preview-banner"
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { requireUser } from "@/lib/auth"
+import { getPreviewContext } from "@/lib/auth/preview"
 import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
@@ -161,14 +163,29 @@ function ModuleTile({
 export default async function DashboardPage() {
   const current = await requireUser()
   const supabase = await createClient()
+  const preview = await getPreviewContext()
 
-  const { data: employeeRow } = await supabase
-    .from("employees")
-    .select("id, first_name, facility_id")
-    .eq("user_id", current.authUser.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
+  // If preview is active, render the dashboard from the target employee's
+  // perspective. Otherwise resolve the caller's own employee row.
+  let employeeRow: { id: string; first_name: string; facility_id: string } | null
+  if (preview.active && preview.target) {
+    const { data } = await supabase
+      .from("employees")
+      .select("id, first_name, facility_id")
+      .eq("id", preview.target.id)
+      .limit(1)
+      .maybeSingle()
+    employeeRow = data ?? null
+  } else {
+    const { data } = await supabase
+      .from("employees")
+      .select("id, first_name, facility_id")
+      .eq("user_id", current.authUser.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle()
+    employeeRow = data ?? null
+  }
 
   if (!employeeRow) {
     return (
@@ -210,7 +227,9 @@ export default async function DashboardPage() {
   const firstName = employeeRow.first_name
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8">
+    <>
+      <PreviewBanner />
+      <div className="mx-auto w-full max-w-5xl px-4 py-8">
       <div className="mb-8">
         <h1
           style={{
@@ -258,6 +277,7 @@ export default async function DashboardPage() {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }

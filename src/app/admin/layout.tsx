@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 
 import { Sidebar } from "@/components/admin/sidebar"
 import { AdminHeader } from "@/components/admin/header"
+import { PreviewBanner } from "@/components/preview-banner"
 import { Toaster } from "@/components/ui/sonner"
 import { requireAdmin } from "@/lib/auth"
 
@@ -18,6 +19,7 @@ export default async function AdminLayout({
     <div className="min-h-screen bg-background">
       <Sidebar email={email} fullName={fullName} />
       <div className="flex min-h-screen flex-col lg:pl-64">
+        <PreviewBanner />
         <AdminHeader email={email} fullName={fullName} />
         <main className="flex-1">{children}</main>
       </div>

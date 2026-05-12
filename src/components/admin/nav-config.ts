@@ -10,6 +10,7 @@ import {
   FileText,
   MessageSquare,
   ScrollText,
+  Settings2,
   Shield,
   ShieldCheck,
   Snowflake,
@@ -36,6 +37,11 @@ export const adminNavGroups: AdminNavGroup[] = [
     items: [
       { label: "Facility Settings", href: "/admin/facility", icon: Building2 },
       { label: "Employee/User Setup", href: "/admin/employees", icon: Users },
+      {
+        label: "Custom Employee Fields",
+        href: "/admin/employees/custom-fields",
+        icon: Settings2,
+      },
       { label: "Role Defaults", href: "/admin/roles", icon: ShieldCheck },
       {
         label: "Module Access Control",
