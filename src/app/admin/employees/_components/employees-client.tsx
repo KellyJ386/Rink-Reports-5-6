@@ -13,6 +13,8 @@ import {
   reactivateEmployee,
 } from "../actions"
 import type {
+  CustomFieldDef,
+  CustomFieldValueMap,
   DepartmentRow,
   EmployeeListItem,
   RoleRow,
@@ -24,6 +26,8 @@ type Props = {
   employees: EmployeeListItem[]
   roles: RoleRow[]
   departments: DepartmentRow[]
+  customFields: CustomFieldDef[]
+  customValuesByEmployee: Record<string, CustomFieldValueMap>
   canDelete: boolean
 }
 
@@ -46,6 +50,8 @@ export function EmployeesClient({
   employees,
   roles,
   departments,
+  customFields,
+  customValuesByEmployee,
   canDelete,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -322,6 +328,10 @@ export function EmployeesClient({
         facilityId={facilityId}
         roles={roles}
         departments={departments}
+        customFields={customFields}
+        customValues={
+          editing ? (customValuesByEmployee[editing.id] ?? {}) : {}
+        }
         editing={editing}
       />
     </div>
