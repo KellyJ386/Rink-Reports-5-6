@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +13,11 @@ import {
 } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
-import { setModulePermissionLevel } from "../actions"
+import {
+  applyRoleDefaultsToEmployee,
+  copyPermissionsBetweenEmployees,
+  setModulePermissionLevel,
+} from "../actions"
 import {
   MODULE_KEYS,
   MODULE_LABELS,
@@ -23,6 +28,7 @@ import {
 
 type Props = {
   employees: Employee[]
+  allEmployees: Employee[]
   permissions: ModulePermissionMap
 }
 
@@ -45,13 +51,21 @@ const LEVEL_BADGE_CLASS: Record<PermissionLevel, string> = {
   admin: "bg-rose-800/60 text-rose-100",
 }
 
+type PermissionRowExtraProps = {
+  otherEmployees: Employee[]
+}
+
 const PermissionRow = memo(function PermissionRow({
   employee,
   perms,
-}: PermissionRowProps) {
+  otherEmployees,
+}: PermissionRowProps & PermissionRowExtraProps) {
   const [, startTransition] = useTransition()
   const [local, setLocal] = useState<RowPerms>(perms)
   const [lastSynced, setLastSynced] = useState<RowPerms>(perms)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const [copyFromId, setCopyFromId] = useState<string>("")
+  const router = useRouter()
 
   if (lastSynced !== perms) {
     setLastSynced(perms)
@@ -75,18 +89,78 @@ const PermissionRow = memo(function PermissionRow({
     })
   }
 
+  function onApplyDefaults() {
+    if (
+      !confirm(
+        `Wipe all per-module overrides for ${employee.full_name}? They will fall back to their role's defaults.`,
+      )
+    ) {
+      return
+    }
+    startTransition(async () => {
+      const res = await applyRoleDefaultsToEmployee(employee.id)
+      if (res.ok) {
+        toast.success(`${employee.full_name} reset to role defaults.`)
+        setActionsOpen(false)
+        router.refresh()
+      } else {
+        toast.error(res.error)
+      }
+    })
+  }
+
+  function onCopyFrom() {
+    if (!copyFromId) {
+      toast.error("Pick an employee to copy from.")
+      return
+    }
+    const sourceName =
+      otherEmployees.find((e) => e.id === copyFromId)?.full_name ?? "that employee"
+    if (
+      !confirm(
+        `Replace ${employee.full_name}'s overrides with those from ${sourceName}? Modules without a source override will fall back to role defaults.`,
+      )
+    ) {
+      return
+    }
+    startTransition(async () => {
+      const res = await copyPermissionsBetweenEmployees(employee.id, copyFromId)
+      if (res.ok) {
+        toast.success(`Copied permissions from ${sourceName}.`)
+        setActionsOpen(false)
+        setCopyFromId("")
+        router.refresh()
+      } else {
+        toast.error(res.error)
+      }
+    })
+  }
+
   return (
     <tr className="hover:bg-muted/30">
       <th
         scope="row"
         className="bg-background sticky left-0 z-10 border-b px-3 py-2 text-left align-top font-normal"
       >
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium">{employee.full_name}</span>
-          <span className="text-muted-foreground text-xs">
-            {employee.email ?? ""}
-          </span>
-          <div className="mt-1 flex flex-wrap gap-1">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-0.5">
+              <span className="font-medium">{employee.full_name}</span>
+              <span className="text-muted-foreground text-xs">
+                {employee.email ?? ""}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionsOpen((v) => !v)}
+              aria-label={`Bulk actions for ${employee.full_name}`}
+              aria-expanded={actionsOpen}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded px-1.5 py-0.5 text-xs"
+            >
+              ⋯
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1">
             {employee.role_display_name ? (
               <Badge variant="secondary">{employee.role_display_name}</Badge>
             ) : null}
@@ -99,6 +173,46 @@ const PermissionRow = memo(function PermissionRow({
               </span>
             ))}
           </div>
+          {actionsOpen ? (
+            <div className="bg-muted/40 mt-1 flex flex-col gap-2 rounded-md border p-2">
+              <button
+                type="button"
+                onClick={onApplyDefaults}
+                className="hover:bg-accent rounded px-2 py-1 text-left text-xs"
+              >
+                Apply role defaults
+              </button>
+              <div className="flex flex-col gap-1">
+                <label
+                  htmlFor={`copy-from-${employee.id}`}
+                  className="text-muted-foreground text-[10px] uppercase tracking-wider"
+                >
+                  Copy from
+                </label>
+                <select
+                  id={`copy-from-${employee.id}`}
+                  value={copyFromId}
+                  onChange={(e) => setCopyFromId(e.target.value)}
+                  className="border-input bg-background focus-visible:ring-ring/50 rounded-md border px-1.5 py-1 text-xs focus-visible:ring-[3px]"
+                >
+                  <option value="">Pick employee…</option>
+                  {otherEmployees.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.full_name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={onCopyFrom}
+                  disabled={!copyFromId}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 rounded px-2 py-1 text-xs"
+                >
+                  Copy permissions
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </th>
 
@@ -135,7 +249,11 @@ const PermissionRow = memo(function PermissionRow({
   )
 })
 
-export function PermissionsTable({ employees, permissions }: Props) {
+export function PermissionsTable({
+  employees,
+  allEmployees,
+  permissions,
+}: Props) {
   return (
     <div className="flex flex-col gap-2">
       <div className="relative max-h-[70vh] overflow-auto rounded-md border">
@@ -166,6 +284,7 @@ export function PermissionsTable({ employees, permissions }: Props) {
                 key={emp.id}
                 employee={emp}
                 perms={permissions[emp.id] ?? {}}
+                otherEmployees={allEmployees.filter((e) => e.id !== emp.id)}
               />
             ))}
             {employees.length === 0 ? (

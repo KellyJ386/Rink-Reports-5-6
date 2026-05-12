@@ -46,7 +46,11 @@ export function PermissionsClient({ employees, permissions }: Props) {
         </span>
       </div>
 
-      <PermissionsTable employees={filtered} permissions={permissions} />
+      <PermissionsTable
+        employees={filtered}
+        allEmployees={employees}
+        permissions={permissions}
+      />
     </div>
   )
 }
