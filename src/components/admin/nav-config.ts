@@ -11,6 +11,7 @@ import {
   MessageSquare,
   ScrollText,
   Shield,
+  ShieldCheck,
   Snowflake,
   Thermometer,
   Users,
@@ -35,6 +36,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     items: [
       { label: "Facility Settings", href: "/admin/facility", icon: Building2 },
       { label: "Employee/User Setup", href: "/admin/employees", icon: Users },
+      { label: "Role Defaults", href: "/admin/roles", icon: ShieldCheck },
       {
         label: "Module Access Control",
         href: "/admin/permissions",
