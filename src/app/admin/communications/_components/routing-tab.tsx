@@ -25,6 +25,7 @@ import {
 import {
   createRoutingRule,
   deleteRoutingRule,
+  previewRoutingRecipients,
   setRoutingRuleActive,
   updateRoutingRule,
 } from "../actions"
@@ -36,15 +37,27 @@ import type {
 } from "../types"
 import { ROLE_KEYS, SEVERITIES, SOURCE_MODULES } from "../types"
 
+type DepartmentLite = { id: string; name: string }
+
+type TargetKind = "group" | "role" | "employee" | "department"
+
+const TIMINGS = [
+  { key: "immediate", label: "Immediate (send now)" },
+  { key: "end_of_day", label: "End of day digest" },
+  { key: "weekly", label: "Weekly (next Monday)" },
+  { key: "manual", label: "Manual (queued, no auto-send)" },
+] as const
+
 const NULL_STATE: ActionState = { ok: null }
 
 type Props = {
   rules: RoutingRuleWithRefs[]
   groups: GroupRow[]
   employees: EmployeeLite[]
+  departments: DepartmentLite[]
 }
 
-export function RoutingTab({ rules, groups, employees }: Props) {
+export function RoutingTab({ rules, groups, employees, departments }: Props) {
   return (
     <div className="flex flex-col gap-4">
       {rules.length === 0 ? (
@@ -65,21 +78,38 @@ export function RoutingTab({ rules, groups, employees }: Props) {
               rule={r}
               groups={groups}
               employees={employees}
+              departments={departments}
             />
           ))}
         </ul>
       )}
-      <RuleCreateCard groups={groups} employees={employees} />
+      <RuleCreateCard
+        groups={groups}
+        employees={employees}
+        departments={departments}
+      />
     </div>
   )
 }
 
-function targetSummary(rule: RoutingRuleWithRefs): string {
+function targetSummary(
+  rule: RoutingRuleWithRefs,
+  departments: DepartmentLite[],
+): string {
   if (rule.target_group) return `Group: ${rule.target_group.name}`
   if (rule.target_role_key) return `Role: ${rule.target_role_key}`
   if (rule.target_employee)
     return `Employee: ${rule.target_employee.first_name} ${rule.target_employee.last_name}`
+  if (rule.target_department_id) {
+    const d = departments.find((x) => x.id === rule.target_department_id)
+    return `Department: ${d?.name ?? rule.target_department_id}`
+  }
   return "—"
+}
+
+function timingLabel(t: string | null | undefined): string {
+  if (!t) return "immediate"
+  return TIMINGS.find((x) => x.key === t)?.label ?? t
 }
 
 function moduleLabel(key: string): string {
@@ -90,14 +120,20 @@ function RuleRowItem({
   rule,
   groups,
   employees,
+  departments,
 }: {
   rule: RoutingRuleWithRefs
   groups: GroupRow[]
   employees: EmployeeLite[]
+  departments: DepartmentLite[]
 }) {
   const [editing, setEditing] = useState(false)
   const [activePending, startActive] = useTransition()
   const [delPending, startDel] = useTransition()
+  const [previewPending, startPreview] = useTransition()
+  const [preview, setPreview] = useState<
+    Array<{ id: string; first_name: string; last_name: string; email: string | null }> | null
+  >(null)
   function onToggleActive() {
     startActive(async () => {
       const r = await setRoutingRuleActive(rule.id, !rule.is_active)
@@ -110,6 +146,16 @@ function RuleRowItem({
       const r = await deleteRoutingRule(rule.id)
       if (!r.ok) toast.error(r.error)
       else toast.success("Routing rule deleted.")
+    })
+  }
+  function onPreview() {
+    startPreview(async () => {
+      const r = await previewRoutingRecipients(rule.id)
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      setPreview(r.recipients)
     })
   }
   return (
@@ -129,6 +175,14 @@ function RuleRowItem({
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onPreview}
+            disabled={previewPending}
+          >
+            {previewPending ? "Loading…" : "Preview recipients"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -170,16 +224,48 @@ function RuleRowItem({
           </div>
           <div>
             <span className="font-medium uppercase">Target:</span>{" "}
-            {targetSummary(rule)}
+            {targetSummary(rule, departments)}
+          </div>
+          <div>
+            <span className="font-medium uppercase">Timing:</span>{" "}
+            {timingLabel(rule.timing)}
+          </div>
+          <div>
+            <span className="font-medium uppercase">Attach PDF:</span>{" "}
+            {rule.attach_pdf ? "yes (generator not yet implemented)" : "no"}
           </div>
         </div>
       )}
+      {preview && !editing ? (
+        <div className="rounded-md border bg-background/60 p-2 text-xs">
+          <div className="text-muted-foreground mb-1 font-medium uppercase">
+            Recipients ({preview.length})
+          </div>
+          {preview.length === 0 ? (
+            <div className="text-muted-foreground">
+              No active employees match this rule.
+            </div>
+          ) : (
+            <ul className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
+              {preview.map((r) => (
+                <li key={r.id}>
+                  {r.last_name}, {r.first_name}
+                  {r.email ? (
+                    <span className="text-muted-foreground"> · {r.email}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
       {editing && (
         <RuleForm
           mode="edit"
           rule={rule}
           groups={groups}
           employees={employees}
+          departments={departments}
           onDone={() => setEditing(false)}
         />
       )}
@@ -190,9 +276,11 @@ function RuleRowItem({
 function RuleCreateCard({
   groups,
   employees,
+  departments,
 }: {
   groups: GroupRow[]
   employees: EmployeeLite[]
+  departments: DepartmentLite[]
 }) {
   return (
     <Card>
@@ -210,16 +298,18 @@ function RuleCreateCard({
           rule={null}
           groups={groups}
           employees={employees}
+          departments={departments}
         />
       </CardContent>
     </Card>
   )
 }
 
-function initialTargetKind(rule: RoutingRuleWithRefs | null): "group" | "role" | "employee" {
+function initialTargetKind(rule: RoutingRuleWithRefs | null): TargetKind {
   if (!rule) return "group"
   if (rule.target_group_id) return "group"
   if (rule.target_role_key) return "role"
+  if (rule.target_department_id) return "department"
   return "employee"
 }
 
@@ -228,19 +318,21 @@ function RuleForm({
   rule,
   groups,
   employees,
+  departments,
   onDone,
 }: {
   mode: "create" | "edit"
   rule: RoutingRuleWithRefs | null
   groups: GroupRow[]
   employees: EmployeeLite[]
+  departments: DepartmentLite[]
   onDone?: () => void
 }) {
   const [state, action, pending] = useActionState(
     mode === "create" ? createRoutingRule : updateRoutingRule,
     NULL_STATE,
   )
-  const [targetKind, setTargetKind] = useState<"group" | "role" | "employee">(
+  const [targetKind, setTargetKind] = useState<TargetKind>(
     initialTargetKind(rule),
   )
   const [sourceModule, setSourceModule] = useState(rule?.source_module ?? SOURCE_MODULES[0]?.key ?? "")
@@ -248,6 +340,11 @@ function RuleForm({
   const [targetGroupId, setTargetGroupId] = useState(rule?.target_group_id ?? "")
   const [targetRoleKey, setTargetRoleKey] = useState(rule?.target_role_key ?? "")
   const [targetEmployeeId, setTargetEmployeeId] = useState(rule?.target_employee_id ?? "")
+  const [targetDepartmentId, setTargetDepartmentId] = useState(
+    rule?.target_department_id ?? "",
+  )
+  const [timing, setTiming] = useState<string>(rule?.timing ?? "immediate")
+  const [attachPdf, setAttachPdf] = useState<boolean>(!!rule?.attach_pdf)
   useEffect(() => {
     if (state.ok === true) {
       toast.success(state.message ?? "Saved.")
@@ -324,6 +421,41 @@ function RuleForm({
             className="font-mono text-xs"
           />
         </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor={`rr-timing-${rule?.id ?? "new"}`}>Timing</Label>
+          <input type="hidden" name="timing" value={timing} />
+          <Select value={timing} onValueChange={(v) => setTiming(v)}>
+            <SelectTrigger id={`rr-timing-${rule?.id ?? "new"}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMINGS.map((t) => (
+                <SelectItem key={t.key} value={t.key}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-muted-foreground text-xs">
+            End-of-day / weekly queue into <code>notification_outbox</code>;
+            a scheduler drains them. See scheduler-todo.md.
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="attach_pdf"
+              checked={attachPdf}
+              onChange={(e) => setAttachPdf(e.target.checked)}
+            />
+            Attach PDF of the submission
+          </Label>
+          <span className="text-muted-foreground text-xs">
+            Stored as a preference now; the PDF generator is a follow-up. The
+            flag won&apos;t produce attachments until that ships.
+          </span>
+        </div>
       </div>
 
       <fieldset className="flex flex-col gap-2 rounded-md border p-3">
@@ -331,7 +463,7 @@ function RuleForm({
           Target
         </legend>
         <div className="flex flex-wrap gap-3 text-sm">
-          {(["group", "role", "employee"] as const).map((k) => (
+          {(["group", "role", "department", "employee"] as const).map((k) => (
             <label key={k} className="flex items-center gap-2">
               <input
                 type="radio"
@@ -382,6 +514,37 @@ function RuleForm({
                     {k}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {targetKind === "department" && (
+          <div className="flex flex-col gap-1">
+            <Label htmlFor={`rr-tgt-d-${rule?.id ?? "new"}`}>Department</Label>
+            <input
+              type="hidden"
+              name="target_department_id"
+              value={targetDepartmentId}
+            />
+            <Select
+              value={targetDepartmentId || undefined}
+              onValueChange={(v) => setTargetDepartmentId(v)}
+            >
+              <SelectTrigger id={`rr-tgt-d-${rule?.id ?? "new"}`}>
+                <SelectValue placeholder="Pick department…" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.length === 0 ? (
+                  <SelectItem value="__none__" disabled>
+                    No departments configured
+                  </SelectItem>
+                ) : (
+                  departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>

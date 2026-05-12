@@ -471,7 +471,7 @@ async function GroupsTabLoader({
 
 async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [rulesRes, groupsRes, employeesRes] = await Promise.all([
+  const [rulesRes, groupsRes, employeesRes, deptsRes] = await Promise.all([
     supabase
       .from("communication_routing_rules")
       .select("*")
@@ -490,10 +490,25 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       .eq("facility_id", facilityId)
       .eq("is_active", true)
       .order("last_name", { ascending: true }),
+    supabase
+      .from("departments")
+      .select("id, name")
+      .eq("facility_id", facilityId)
+      .order("name", { ascending: true }),
   ])
-  const rules = (rulesRes.data ?? []) as RoutingRuleRow[]
+  // rulesRes.data carries the migration-45 columns (target_department_id,
+  // timing, attach_pdf) at runtime, but the generated RoutingRuleRow type
+  // doesn't yet know about them. Cast through unknown to widen.
+  const rules = (rulesRes.data ?? []) as unknown as Array<
+    RoutingRuleRow & {
+      target_department_id: string | null
+      timing: "immediate" | "end_of_day" | "weekly" | "manual" | null
+      attach_pdf: boolean | null
+    }
+  >
   const groups = (groupsRes.data ?? []) as GroupRow[]
   const employees = (employeesRes.data ?? []) as EmployeeLite[]
+  const departments = (deptsRes.data ?? []) as Array<{ id: string; name: string }>
   const groupById = new Map(groups.map((g) => [g.id, g]))
   const empById = new Map(employees.map((e) => [e.id, e]))
   const list: RoutingRuleWithRefs[] = rules.map((r) => ({
@@ -506,7 +521,14 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       : null,
   }))
 
-  return <RoutingTab rules={list} groups={groups} employees={employees} />
+  return (
+    <RoutingTab
+      rules={list}
+      groups={groups}
+      employees={employees}
+      departments={departments}
+    />
+  )
 }
 
 // ---------------------------------------------------------------------------
