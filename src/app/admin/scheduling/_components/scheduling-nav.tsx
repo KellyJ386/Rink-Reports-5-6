@@ -9,7 +9,11 @@ const SCHEDULING_NAV: { label: string; href: string }[] = [
   { label: "Overview", href: "/admin/scheduling" },
   { label: "Shifts", href: "/admin/scheduling/shifts" },
   { label: "Templates", href: "/admin/scheduling/templates" },
-  { label: "Publish", href: "/admin/scheduling/publish" },
+  { label: "Publish history", href: "/admin/scheduling/publish" },
+  {
+    label: "Publish requests",
+    href: "/admin/scheduling/publish/requests",
+  },
   { label: "Time-Off", href: "/admin/scheduling/time-off" },
   { label: "Swaps", href: "/admin/scheduling/swaps" },
   { label: "Compliance", href: "/admin/scheduling/compliance" },
@@ -20,10 +24,25 @@ const SCHEDULING_NAV: { label: string; href: string }[] = [
 export function SchedulingNav() {
   const pathname = usePathname()
 
-  const isActive = (href: string) => {
-    if (href === "/admin/scheduling") return pathname === "/admin/scheduling"
-    return pathname === href || pathname.startsWith(href + "/")
-  }
+  // Longest-prefix match so a more specific entry wins over its parent
+  // (e.g. /publish/requests beats /publish).
+  const activeHref = (() => {
+    let best: string | null = null
+    for (const item of SCHEDULING_NAV) {
+      if (item.href === "/admin/scheduling") {
+        if (pathname === "/admin/scheduling") {
+          if (best === null) best = item.href
+        }
+        continue
+      }
+      if (pathname === item.href || pathname.startsWith(item.href + "/")) {
+        if (best === null || item.href.length > best.length) best = item.href
+      }
+    }
+    return best
+  })()
+
+  const isActive = (href: string) => href === activeHref
 
   return (
     <nav className="border-border bg-background sticky top-0 z-10 border-b">
