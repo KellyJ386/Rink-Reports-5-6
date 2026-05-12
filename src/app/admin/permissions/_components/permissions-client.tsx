@@ -4,12 +4,12 @@ import { useMemo, useState } from "react"
 
 import { Input } from "@/components/ui/input"
 
-import type { Employee, PermissionMap } from "../types"
+import type { Employee, ModulePermissionMap } from "../types"
 import { PermissionsTable } from "./permissions-table"
 
 type Props = {
   employees: Employee[]
-  permissions: PermissionMap
+  permissions: ModulePermissionMap
 }
 
 export function PermissionsClient({ employees, permissions }: Props) {
