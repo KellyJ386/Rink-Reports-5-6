@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { RefreshCw, AlertCircle } from "lucide-react"
 
-import { useSyncQueue, retryFailedSubmissions } from "@/lib/offline/use-sync-queue"
+import { useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { cn } from "@/lib/utils"
 
 export function SyncStatusBadge() {
