@@ -8,3 +8,10 @@ export {
   levelRank,
   type PermissionLevel,
 } from "./levels"
+
+// Server-only resolver helpers live in "./effective". Import them directly
+// from @/lib/permissions/effective in server components / actions.
+export type {
+  EffectivePermission,
+  PermissionSource,
+} from "./types"
