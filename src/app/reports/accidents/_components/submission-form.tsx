@@ -111,7 +111,6 @@ export function SubmissionForm({
   useEffect(() => {
     if (state.error) {
       toast.error(state.error)
-      setConfirmOpen(false)
     }
   }, [state.error])
 
