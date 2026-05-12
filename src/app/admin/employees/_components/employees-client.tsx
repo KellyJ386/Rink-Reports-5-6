@@ -207,9 +207,12 @@ export function EmployeesClient({
                           {initialsOf(e.first_name, e.last_name)}
                         </span>
                         <div className="flex flex-col">
-                          <span className="font-medium">
+                          <a
+                            href={`/admin/employees/${e.id}`}
+                            className="font-medium hover:underline"
+                          >
                             {e.first_name} {e.last_name}
-                          </span>
+                          </a>
                           <span className="text-muted-foreground text-xs">
                             {e.employee_code ?? "—"}
                             {e.is_minor ? " · Minor" : ""}
