@@ -18,7 +18,7 @@ const STORE_NAME = "submissions"
 // ---------------------------------------------------------------------------
 // Install: cache shell
 // ---------------------------------------------------------------------------
-self.addEventListener("install", (event) => {
+self.addEventListener("install", () => {
   self.skipWaiting()
 })
 

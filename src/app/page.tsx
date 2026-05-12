@@ -77,7 +77,6 @@ function ModuleIcon({ d }: { d: string }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: d }}
     />
   )
