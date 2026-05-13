@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server"
 import type {
   AccidentReportSnapshot,
   BodyPartsPayloadEntry,
+  WitnessPayloadEntry,
 } from "./types"
 
 export type AccidentFormState = {
@@ -26,6 +27,7 @@ function dbError(err: SupabaseError, fallback: string): string {
 
 const MAX_BODY_PARTS = 24
 const ALLOWED_SIDES = new Set(["front", "back", "both", "none"])
+const MAX_WITNESSES = 5
 
 function parseBodyParts(raw: string): BodyPartsPayloadEntry[] {
   if (!raw.trim()) return []
@@ -60,9 +62,38 @@ function parseBodyParts(raw: string): BodyPartsPayloadEntry[] {
   return out
 }
 
+function parseWitnesses(raw: string): WitnessPayloadEntry[] {
+  if (!raw.trim()) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const out: WitnessPayloadEntry[] = []
+  for (const item of parsed) {
+    if (out.length >= MAX_WITNESSES) break
+    if (!item || typeof item !== "object") continue
+    const obj = item as Record<string, unknown>
+    const name = typeof obj.name === "string" ? obj.name.trim() : ""
+    if (!name) continue
+    const contactRaw = typeof obj.contact === "string" ? obj.contact.trim() : ""
+    const statementRaw =
+      typeof obj.statement === "string" ? obj.statement.trim() : ""
+    out.push({
+      name,
+      contact: contactRaw.length > 0 ? contactRaw : null,
+      statement: statementRaw.length > 0 ? statementRaw : null,
+    })
+  }
+  return out
+}
+
 type FormFields = {
   injured_person_name: string
   injured_person_contact: string
+  injured_person_age: number | null
   description: string
   occurred_at: string
   location_dropdown_id: string | null
@@ -73,6 +104,7 @@ type FormFields = {
   workers_comp: boolean
   workers_comp_ack: boolean
   body_parts: BodyPartsPayloadEntry[]
+  witnesses: WitnessPayloadEntry[]
 }
 
 function readFields(formData: FormData): FormFields {
@@ -80,11 +112,18 @@ function readFields(formData: FormData): FormFields {
     const v = String(formData.get(k) ?? "").trim()
     return v.length > 0 ? v : null
   }
+  const rawAge = String(formData.get("injured_person_age") ?? "").trim()
+  let age: number | null = null
+  if (rawAge.length > 0) {
+    const parsed = Number(rawAge)
+    if (Number.isFinite(parsed)) age = Math.trunc(parsed)
+  }
   return {
     injured_person_name: String(formData.get("injured_person_name") ?? "").trim(),
     injured_person_contact: String(
       formData.get("injured_person_contact") ?? ""
     ).trim(),
+    injured_person_age: age,
     description: String(formData.get("description") ?? "").trim(),
     occurred_at: String(formData.get("occurred_at") ?? "").trim(),
     location_dropdown_id: optional("location_dropdown_id"),
@@ -95,6 +134,7 @@ function readFields(formData: FormData): FormFields {
     workers_comp: String(formData.get("workers_comp") ?? "") === "on",
     workers_comp_ack: String(formData.get("workers_comp_ack") ?? "") === "on",
     body_parts: parseBodyParts(String(formData.get("body_parts_json") ?? "")),
+    witnesses: parseWitnesses(String(formData.get("witnesses_json") ?? "")),
   }
 }
 
@@ -102,6 +142,10 @@ function validate(fields: FormFields): string | null {
   if (!fields.injured_person_name) return "Please enter the injured person's name."
   if (!fields.injured_person_contact)
     return "Please enter a contact for the injured person."
+  if (fields.injured_person_age === null)
+    return "Please enter the injured person's age."
+  if (fields.injured_person_age < 0 || fields.injured_person_age > 120)
+    return "Age must be between 0 and 120."
   if (!fields.description) return "Please describe what happened."
   if (!fields.occurred_at) return "Please choose when the accident happened."
   const occurred = new Date(fields.occurred_at)
@@ -177,24 +221,30 @@ export async function submitAccidentReport(
       ? new Date().toISOString()
       : null
 
-  // Insert accident_reports (omit edit_window_ends_at — DB sets default).
+  // injured_person_age is added by migration 00000000000051 and is not yet in
+  // the generated Database types. Cast via `as any` per the offline-sync
+  // pattern (see CLAUDE.md / src/app/api/offline-sync/route.ts).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const insertPayload: any = {
+    facility_id: employeeRow.facility_id,
+    employee_id: employeeRow.id,
+    injured_person_name: fields.injured_person_name,
+    injured_person_contact: fields.injured_person_contact,
+    injured_person_age: fields.injured_person_age,
+    description: fields.description,
+    occurred_at: occurredIso,
+    location_dropdown_id: fields.location_dropdown_id,
+    activity_dropdown_id: fields.activity_dropdown_id,
+    severity_dropdown_id: fields.severity_dropdown_id,
+    medical_attention_dropdown_id: fields.medical_attention_dropdown_id,
+    primary_injury_type_dropdown_id: fields.primary_injury_type_dropdown_id,
+    workers_comp: fields.workers_comp,
+    workers_comp_acknowledged_at: workersCompAckAt,
+  }
+
   const { data: inserted, error: insertErr } = await supabase
     .from("accident_reports")
-    .insert({
-      facility_id: employeeRow.facility_id,
-      employee_id: employeeRow.id,
-      injured_person_name: fields.injured_person_name,
-      injured_person_contact: fields.injured_person_contact,
-      description: fields.description,
-      occurred_at: occurredIso,
-      location_dropdown_id: fields.location_dropdown_id,
-      activity_dropdown_id: fields.activity_dropdown_id,
-      severity_dropdown_id: fields.severity_dropdown_id,
-      medical_attention_dropdown_id: fields.medical_attention_dropdown_id,
-      primary_injury_type_dropdown_id: fields.primary_injury_type_dropdown_id,
-      workers_comp: fields.workers_comp,
-      workers_comp_acknowledged_at: workersCompAckAt,
-    })
+    .insert(insertPayload)
     .select(
       "id, facility_id, employee_id, injured_person_name, injured_person_contact, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
     )
@@ -233,6 +283,26 @@ export async function submitAccidentReport(
     }
   }
 
+  // Insert witnesses in batch. The accident_witnesses table is added by
+  // migration 51 and not yet in the generated Database types.
+  if (fields.witnesses.length > 0) {
+    const witnessRows = fields.witnesses.map((w, i) => ({
+      accident_id: reportId,
+      facility_id: employeeRow.facility_id,
+      name: w.name,
+      contact: w.contact,
+      statement: w.statement,
+      sort_order: i,
+    }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: wErr } = await (supabase as any)
+      .from("accident_witnesses")
+      .insert(witnessRows)
+    if (wErr) {
+      return cleanupAndFail(dbError(wErr, "Failed to save witnesses."))
+    }
+  }
+
   // Build snapshot for change log.
   const snapshot: AccidentReportSnapshot = {
     id: inserted.id,
@@ -240,6 +310,7 @@ export async function submitAccidentReport(
     employee_id: inserted.employee_id,
     injured_person_name: inserted.injured_person_name,
     injured_person_contact: inserted.injured_person_contact,
+    injured_person_age: fields.injured_person_age,
     description: inserted.description,
     occurred_at: inserted.occurred_at,
     submitted_at: inserted.submitted_at,
@@ -252,6 +323,7 @@ export async function submitAccidentReport(
     medical_attention_dropdown_id: inserted.medical_attention_dropdown_id,
     primary_injury_type_dropdown_id: inserted.primary_injury_type_dropdown_id,
     body_parts: fields.body_parts,
+    witnesses: fields.witnesses,
   }
 
   const { error: logErr } = await supabase.from("accident_change_log").insert({
@@ -382,6 +454,22 @@ export async function updateAccidentReport(
 
   const existingBp = existingBpRaw ?? []
 
+  // Existing witnesses (for snapshot + replace).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existingWitnessesRaw } = await (supabase as any)
+    .from("accident_witnesses")
+    .select("id, name, contact, statement, sort_order")
+    .eq("accident_id", reportId)
+    .order("sort_order", { ascending: true })
+
+  const existingWitnesses: Array<{
+    id: string
+    name: string
+    contact: string | null
+    statement: string | null
+    sort_order: number
+  }> = existingWitnessesRaw ?? []
+
   const occurredIso = new Date(fields.occurred_at).toISOString()
 
   // Stamp workers_comp_acknowledged_at if newly acknowledged.
@@ -390,21 +478,25 @@ export async function updateAccidentReport(
       (fields.workers_comp_ack ? new Date().toISOString() : null)
     : null
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updatePayload: any = {
+    injured_person_name: fields.injured_person_name,
+    injured_person_contact: fields.injured_person_contact,
+    injured_person_age: fields.injured_person_age,
+    description: fields.description,
+    occurred_at: occurredIso,
+    location_dropdown_id: fields.location_dropdown_id,
+    activity_dropdown_id: fields.activity_dropdown_id,
+    severity_dropdown_id: fields.severity_dropdown_id,
+    medical_attention_dropdown_id: fields.medical_attention_dropdown_id,
+    primary_injury_type_dropdown_id: fields.primary_injury_type_dropdown_id,
+    workers_comp: fields.workers_comp,
+    workers_comp_acknowledged_at: nextWcAck,
+  }
+
   const { data: updated, error: updErr } = await supabase
     .from("accident_reports")
-    .update({
-      injured_person_name: fields.injured_person_name,
-      injured_person_contact: fields.injured_person_contact,
-      description: fields.description,
-      occurred_at: occurredIso,
-      location_dropdown_id: fields.location_dropdown_id,
-      activity_dropdown_id: fields.activity_dropdown_id,
-      severity_dropdown_id: fields.severity_dropdown_id,
-      medical_attention_dropdown_id: fields.medical_attention_dropdown_id,
-      primary_injury_type_dropdown_id: fields.primary_injury_type_dropdown_id,
-      workers_comp: fields.workers_comp,
-      workers_comp_acknowledged_at: nextWcAck,
-    })
+    .update(updatePayload)
     .eq("id", reportId)
     .select(
       "id, facility_id, employee_id, injured_person_name, injured_person_contact, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
@@ -495,12 +587,47 @@ export async function updateAccidentReport(
     }
   }
 
+  // Reconcile witnesses by full replace within the edit window. This is the
+  // simplest correct behaviour given the (accident_id, sort_order) unique
+  // constraint and the small row count (<=5).
+  if (existingWitnesses.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: delErr } = await (supabase as any)
+      .from("accident_witnesses")
+      .delete()
+      .eq("accident_id", reportId)
+    if (delErr) {
+      return { ok: false, error: dbError(delErr, "Failed to update witnesses.") }
+    }
+  }
+  if (fields.witnesses.length > 0) {
+    const witnessRows = fields.witnesses.map((w, i) => ({
+      accident_id: reportId,
+      facility_id: existing.facility_id,
+      name: w.name,
+      contact: w.contact,
+      statement: w.statement,
+      sort_order: i,
+    }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: insErr } = await (supabase as any)
+      .from("accident_witnesses")
+      .insert(witnessRows)
+    if (insErr) {
+      return { ok: false, error: dbError(insErr, "Failed to update witnesses.") }
+    }
+  }
+
   const beforeSnapshot: AccidentReportSnapshot = {
     id: existing.id,
     facility_id: existing.facility_id,
     employee_id: existing.employee_id,
     injured_person_name: existing.injured_person_name,
     injured_person_contact: existing.injured_person_contact,
+    // injured_person_age not yet on the select() above; derive from the row
+    // via a separate read would be heavier. The before-snapshot is best-effort
+    // and the after-snapshot carries the new value.
+    injured_person_age: null,
     description: existing.description,
     occurred_at: existing.occurred_at,
     submitted_at: existing.submitted_at,
@@ -518,6 +645,11 @@ export async function updateAccidentReport(
         ? r.side
         : "none") as BodyPartsPayloadEntry["side"],
     })),
+    witnesses: existingWitnesses.map((w) => ({
+      name: w.name,
+      contact: w.contact,
+      statement: w.statement,
+    })),
   }
   const afterSnapshot: AccidentReportSnapshot = {
     id: updated.id,
@@ -525,6 +657,7 @@ export async function updateAccidentReport(
     employee_id: updated.employee_id,
     injured_person_name: updated.injured_person_name,
     injured_person_contact: updated.injured_person_contact,
+    injured_person_age: fields.injured_person_age,
     description: updated.description,
     occurred_at: updated.occurred_at,
     submitted_at: updated.submitted_at,
@@ -537,6 +670,7 @@ export async function updateAccidentReport(
     medical_attention_dropdown_id: updated.medical_attention_dropdown_id,
     primary_injury_type_dropdown_id: updated.primary_injury_type_dropdown_id,
     body_parts: fields.body_parts,
+    witnesses: fields.witnesses,
   }
 
   await supabase.from("accident_change_log").insert({

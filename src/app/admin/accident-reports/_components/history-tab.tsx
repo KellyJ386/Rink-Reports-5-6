@@ -16,6 +16,8 @@ import type {
   AccidentReportDetail,
   AccidentReportListItem,
   AccidentReportRow,
+  AccidentReportWithAge,
+  AccidentWitnessRow,
   BodyPartSelectionWithDropdown,
   DropdownLite,
   EmployeeLite,
@@ -231,12 +233,19 @@ export async function HistoryTabLoader({
       baseReport = (data ?? null) as AccidentReportRow | null
     }
     if (baseReport) {
-      const [bpsRes, notesRes, logRes, reporterRes] = await Promise.all([
+      const [bpsRes, witnessRes, notesRes, logRes, reporterRes] = await Promise.all([
         supabase
           .from("accident_body_part_selections")
           .select("*")
           .eq("accident_id", baseReport.id)
           .order("created_at", { ascending: true }),
+        // accident_witnesses isn't in the generated Database types yet.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any)
+          .from("accident_witnesses")
+          .select("id, facility_id, accident_id, name, contact, statement, sort_order, created_at, updated_at")
+          .eq("accident_id", baseReport.id)
+          .order("sort_order", { ascending: true }),
         supabase
           .from("accident_followup_notes")
           .select("*")
@@ -257,6 +266,7 @@ export async function HistoryTabLoader({
       ])
 
       const bpsRows = (bpsRes.data ?? []) as AccidentBodyPartSelectionRow[]
+      const witnessRows = (witnessRes.data ?? []) as AccidentWitnessRow[]
       const noteRows = (notesRes.data ?? []) as AccidentFollowupNoteRow[]
       const logRows = (logRes.data ?? []) as AccidentChangeLogRow[]
 
@@ -285,7 +295,7 @@ export async function HistoryTabLoader({
       }))
 
       detail = {
-        report: baseReport,
+        report: baseReport as AccidentReportWithAge,
         injury_type: baseReport.primary_injury_type_dropdown_id
           ? (dropdownsById.get(baseReport.primary_injury_type_dropdown_id) ??
             null)
@@ -305,6 +315,7 @@ export async function HistoryTabLoader({
           : null,
         employee: (reporterRes.data ?? null) as EmployeeLite | null,
         body_parts: bps,
+        witnesses: witnessRows,
         notes: noteRows.map((n) => ({
           ...n,
           author: n.employee_id ? (extrasById.get(n.employee_id) ?? null) : null,

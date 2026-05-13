@@ -1,7 +1,13 @@
 /**
  * Canonical body part keys used by the SVG diagram. These match
- * `accident_dropdowns.key` for category 'body_part' (see migration
- * 00000000000010_accident_reports_schema.sql, seed_default_accident_dropdowns).
+ * `accident_dropdowns.key` for category 'body_part' (see migrations
+ * 00000000000010_accident_reports_schema.sql and
+ * 00000000000051_accident_witnesses_and_age.sql, which split head_neck into
+ * head / face_jaw / neck and added shoulders).
+ *
+ * `head_neck` is retained for backwards compatibility with historical reports;
+ * the staff submission form does not offer it. Read-only renderers should map
+ * `head_neck` to both `head` and `neck` so older reports remain visible.
  */
 export const BODY_PART_KEYS = [
   "feet",
@@ -11,14 +17,25 @@ export const BODY_PART_KEYS = [
   "upper_legs",
   "hips",
   "torso",
+  "shoulders",
   "arms",
   "elbows",
   "hands",
   "fingers",
+  "neck",
+  "face_jaw",
+  "head",
   "head_neck",
 ] as const
 
 export type BodyPartKey = (typeof BODY_PART_KEYS)[number]
+
+export const LEGACY_BODY_PART_KEYS = ["head_neck"] as const
+export type LegacyBodyPartKey = (typeof LEGACY_BODY_PART_KEYS)[number]
+
+export function isLegacyBodyPartKey(key: BodyPartKey): key is LegacyBodyPartKey {
+  return (LEGACY_BODY_PART_KEYS as readonly string[]).includes(key)
+}
 
 export type BodySide = "front" | "back" | "both" | "none"
 
@@ -32,10 +49,14 @@ export const EMPTY_BODY_SELECTIONS: BodySelections = {
   upper_legs: "none",
   hips: "none",
   torso: "none",
+  shoulders: "none",
   arms: "none",
   elbows: "none",
   hands: "none",
   fingers: "none",
+  neck: "none",
+  face_jaw: "none",
+  head: "none",
   head_neck: "none",
 }
 
@@ -47,10 +68,14 @@ export const BODY_PART_LABELS: Record<BodyPartKey, string> = {
   upper_legs: "Upper Legs",
   hips: "Hips",
   torso: "Torso",
+  shoulders: "Shoulders",
   arms: "Arms",
   elbows: "Elbows",
   hands: "Hands",
   fingers: "Fingers",
+  neck: "Neck",
+  face_jaw: "Face / Jaw",
+  head: "Head",
   head_neck: "Head/Neck",
 }
 

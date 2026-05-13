@@ -37,6 +37,7 @@ type InitialReport = {
   id: string
   injured_person_name: string
   injured_person_contact: string
+  injured_person_age: number | null
   description: string
   occurred_at: string
   workers_comp: boolean
@@ -53,10 +54,26 @@ type InitialBodyPart = {
   side: string
 }
 
+type InitialWitness = {
+  name: string
+  contact: string
+  statement: string
+}
+
+type WitnessRow = {
+  name: string
+  contact: string
+  statement: string
+}
+
+const MAX_WITNESSES = 5
+const EMPTY_WITNESS: WitnessRow = { name: "", contact: "", statement: "" }
+
 type Props = {
   reportId: string
   initialReport: InitialReport
   initialBodyParts: InitialBodyPart[]
+  initialWitnesses: InitialWitness[]
   locations: DropdownOption[]
   activities: DropdownOption[]
   severities: DropdownOption[]
@@ -112,6 +129,7 @@ export function EditForm({
   reportId,
   initialReport,
   initialBodyParts,
+  initialWitnesses,
   locations,
   activities,
   severities,
@@ -131,6 +149,19 @@ export function EditForm({
   )
   const [injuredContact, setInjuredContact] = useState(
     initialReport.injured_person_contact
+  )
+  const [injuredAge, setInjuredAge] = useState(
+    initialReport.injured_person_age === null ||
+      initialReport.injured_person_age === undefined
+      ? ""
+      : String(initialReport.injured_person_age)
+  )
+  const [witnesses, setWitnesses] = useState<WitnessRow[]>(() =>
+    initialWitnesses.map((w) => ({
+      name: w.name,
+      contact: w.contact,
+      statement: w.statement,
+    }))
   )
   const [locationId, setLocationId] = useState(
     initialReport.location_dropdown_id ?? ""
@@ -181,9 +212,35 @@ export function EditForm({
     return JSON.stringify(entries)
   }, [selections, bodyPartIdMap])
 
+  const witnessesJson = useMemo(() => {
+    const cleaned = witnesses
+      .map((w) => ({
+        name: w.name.trim(),
+        contact: w.contact.trim(),
+        statement: w.statement.trim(),
+      }))
+      .filter((w) => w.name.length > 0)
+    return JSON.stringify(cleaned)
+  }, [witnesses])
+
   const handleSelectionChange = (key: BodyPartKey, side: BodySide) => {
     setSelections((prev) => ({ ...prev, [key]: side }))
   }
+
+  const addWitness = () =>
+    setWitnesses((prev) =>
+      prev.length >= MAX_WITNESSES ? prev : [...prev, { ...EMPTY_WITNESS }]
+    )
+  const removeWitness = (idx: number) =>
+    setWitnesses((prev) => prev.filter((_, i) => i !== idx))
+  const updateWitness = (
+    idx: number,
+    field: keyof WitnessRow,
+    value: string
+  ) =>
+    setWitnesses((prev) =>
+      prev.map((w, i) => (i === idx ? { ...w, [field]: value } : w))
+    )
 
   const selectedMedical = medicalAttentions.find(
     (m) => m.id === medicalAttentionId
@@ -197,6 +254,7 @@ export function EditForm({
       <FormError message={state.error} />
 
       <input type="hidden" name="body_parts_json" value={bodyPartsJson} />
+      <input type="hidden" name="witnesses_json" value={witnessesJson} />
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="injured_person_name">Injured person&apos;s name</Label>
@@ -220,6 +278,24 @@ export function EditForm({
           inputMode="text"
           value={injuredContact}
           onChange={(e) => setInjuredContact(e.target.value)}
+          className="h-12 text-base"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="injured_person_age">Age</Label>
+        <Input
+          id="injured_person_age"
+          name="injured_person_age"
+          required
+          type="number"
+          min={0}
+          max={120}
+          step={1}
+          inputMode="numeric"
+          placeholder="Years"
+          value={injuredAge}
+          onChange={(e) => setInjuredAge(e.target.value)}
           className="h-12 text-base"
         />
       </div>
@@ -315,6 +391,74 @@ export function EditForm({
           onChange={(e) => setDescription(e.target.value)}
           className="min-h-32 text-base"
         />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <Label>Witnesses (optional, up to {MAX_WITNESSES})</Label>
+          {witnesses.length < MAX_WITNESSES ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={addWitness}
+            >
+              Add witness
+            </Button>
+          ) : null}
+        </div>
+        {witnesses.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No witnesses added.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {witnesses.map((w, idx) => (
+              <li
+                key={idx}
+                className="flex flex-col gap-2 rounded-lg border bg-card p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Witness {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeWitness(idx)}
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <Input
+                  placeholder="Name"
+                  autoComplete="name"
+                  value={w.name}
+                  onChange={(e) => updateWitness(idx, "name", e.target.value)}
+                  className="h-11 text-base"
+                />
+                <Input
+                  placeholder="Phone or email (optional)"
+                  autoComplete="off"
+                  value={w.contact}
+                  onChange={(e) =>
+                    updateWitness(idx, "contact", e.target.value)
+                  }
+                  className="h-11 text-base"
+                />
+                <Textarea
+                  placeholder="What they saw (optional)"
+                  rows={3}
+                  value={w.statement}
+                  onChange={(e) =>
+                    updateWitness(idx, "statement", e.target.value)
+                  }
+                  className="min-h-20 text-base"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
