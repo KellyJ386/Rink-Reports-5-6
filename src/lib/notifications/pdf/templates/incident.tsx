@@ -55,12 +55,16 @@ async function fetchIncidentRecord(
     .maybeSingle()
   if (!row) return null
 
+  // Defence-in-depth: every secondary lookup is pinned to the report's
+  // facility so a malformed parent row pointing at a foreign-facility
+  // type / severity / employee can't leak into the rendered PDF.
   let type: Chip | null = null
   if (row.incident_type_id) {
     const { data } = await sb
       .from("incident_types")
       .select("name, color, slug")
       .eq("id", row.incident_type_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) type = { display_name: data.name, color: data.color, key: data.slug }
   }
@@ -71,6 +75,7 @@ async function fetchIncidentRecord(
       .from("incident_severity_levels")
       .select("display_name, color, key")
       .eq("id", row.severity_level_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) severity = { display_name: data.display_name, color: data.color, key: data.key }
   }
@@ -81,6 +86,7 @@ async function fetchIncidentRecord(
       .from("employees")
       .select("first_name, last_name")
       .eq("id", row.employee_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) submitter = { first_name: data.first_name, last_name: data.last_name }
   }

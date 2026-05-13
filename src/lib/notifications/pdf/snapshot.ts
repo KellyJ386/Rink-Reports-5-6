@@ -21,12 +21,19 @@ export type SubmissionSnapshot = {
 
 type Sb = SupabaseClient
 
-async function fetchEmployeeName(sb: Sb, employeeId: string | null) {
+async function fetchEmployeeName(
+  sb: Sb,
+  employeeId: string | null,
+  facilityId: string,
+) {
   if (!employeeId) return null
+  // Defence-in-depth: pin facility so a malformed parent record can't surface
+  // a foreign employee's name in the PDF. Service-role bypasses RLS.
   const { data } = await sb
     .from("employees")
     .select("first_name, last_name")
     .eq("id", employeeId)
+    .eq("facility_id", facilityId)
     .maybeSingle()
   if (!data) return null
   return `${data.first_name} ${data.last_name}`
@@ -42,7 +49,7 @@ async function snapshotIncident(sb: Sb, recordId: string): Promise<SubmissionSna
     .maybeSingle()
   if (!r) return null
 
-  const submitter = await fetchEmployeeName(sb, r.employee_id)
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
   return {
     facility_id: r.facility_id,
     source_module: "incident_reports",
@@ -70,7 +77,7 @@ async function snapshotAccident(sb: Sb, recordId: string): Promise<SubmissionSna
     .eq("id", recordId)
     .maybeSingle()
   if (!r) return null
-  const submitter = await fetchEmployeeName(sb, r.employee_id)
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
   return {
     facility_id: r.facility_id,
     source_module: "accident_reports",
@@ -96,7 +103,7 @@ async function snapshotDaily(sb: Sb, recordId: string): Promise<SubmissionSnapsh
     .eq("id", recordId)
     .maybeSingle()
   if (!r) return null
-  const submitter = await fetchEmployeeName(sb, r.employee_id)
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
   return {
     facility_id: r.facility_id,
     source_module: "daily_reports",
@@ -119,7 +126,7 @@ async function snapshotRefrigeration(sb: Sb, recordId: string): Promise<Submissi
     .eq("id", recordId)
     .maybeSingle()
   if (!r) return null
-  const submitter = await fetchEmployeeName(sb, r.employee_id)
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
   return {
     facility_id: r.facility_id,
     source_module: "refrigeration",
@@ -139,7 +146,7 @@ async function snapshotAirQuality(sb: Sb, recordId: string): Promise<SubmissionS
     .eq("id", recordId)
     .maybeSingle()
   if (!r) return null
-  const submitter = await fetchEmployeeName(sb, r.employee_id)
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
   return {
     facility_id: r.facility_id,
     source_module: "air_quality",
@@ -159,7 +166,7 @@ async function snapshotIceDepth(sb: Sb, recordId: string): Promise<SubmissionSna
     .eq("id", recordId)
     .maybeSingle()
   if (!r) return null
-  const submitter = await fetchEmployeeName(sb, r.employee_id)
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
   return {
     facility_id: r.facility_id,
     source_module: "ice_depth",

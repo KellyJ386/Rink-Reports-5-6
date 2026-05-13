@@ -55,12 +55,16 @@ async function fetchIceDepthRecord(
     .maybeSingle()
   if (!row) return null
 
+  // Defence-in-depth: pin facility_id on every secondary lookup so foreign
+  // layouts / employees can't leak through even if the parent row were ever
+  // malformed.
   let layout_name: string | null = null
   if (row.layout_id) {
     const { data } = await sb
       .from("ice_depth_layouts")
       .select("name")
       .eq("id", row.layout_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) layout_name = data.name
   }
@@ -71,6 +75,7 @@ async function fetchIceDepthRecord(
       .from("employees")
       .select("first_name, last_name")
       .eq("id", row.employee_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) submitter = { first_name: data.first_name, last_name: data.last_name }
   }

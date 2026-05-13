@@ -79,10 +79,14 @@ async function fetchAccidentRecord(
     row.primary_injury_type_dropdown_id,
   ].filter((id): id is string => !!id)
 
+  // Defence-in-depth: pin facility_id on every secondary lookup so even a
+  // malformed parent row pointing at a foreign-facility dropdown can't leak
+  // the foreign display_name / color into this tenant's PDF.
   const { data: dropdownsRaw } = dropdownIds.length
     ? await sb
         .from("accident_dropdowns")
         .select("id, category, display_name, key, color, metadata")
+        .eq("facility_id", row.facility_id)
         .in("id", dropdownIds)
     : { data: [] }
 
@@ -104,6 +108,7 @@ async function fetchAccidentRecord(
     ? await sb
         .from("accident_dropdowns")
         .select("id, display_name")
+        .eq("facility_id", row.facility_id)
         .in("id", bodyDropdownIds)
     : { data: [] }
 
@@ -131,6 +136,7 @@ async function fetchAccidentRecord(
       .from("employees")
       .select("first_name, last_name")
       .eq("id", row.employee_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (emp) submitter = { first_name: emp.first_name, last_name: emp.last_name }
   }

@@ -85,6 +85,7 @@ export async function renderRefrigerationPdf(
       .from("employees")
       .select("first_name, last_name")
       .eq("id", row.employee_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (emp) submitter = { first_name: emp.first_name, last_name: emp.last_name }
   }

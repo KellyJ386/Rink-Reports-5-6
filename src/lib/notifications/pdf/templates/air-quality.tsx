@@ -62,12 +62,14 @@ export async function renderAirQualityPdf(
     .maybeSingle()
   if (!row) return null
 
+  // Defence-in-depth: pin facility_id on every secondary lookup.
   let location_name: string | null = null
   if (row.location_id) {
     const { data } = await sb
       .from("air_quality_locations")
       .select("name")
       .eq("id", row.location_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) location_name = data.name
   }
@@ -78,6 +80,7 @@ export async function renderAirQualityPdf(
       .from("air_quality_equipment")
       .select("name")
       .eq("id", row.equipment_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) equipment_name = data.name
   }
@@ -130,6 +133,7 @@ export async function renderAirQualityPdf(
       .from("employees")
       .select("first_name, last_name")
       .eq("id", row.employee_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (emp) submitter = { first_name: emp.first_name, last_name: emp.last_name }
   }

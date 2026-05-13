@@ -52,6 +52,8 @@ async function fetchDailyRecord(
     .maybeSingle()
   if (!row) return null
 
+  // Defence-in-depth: every secondary lookup pinned to the submission's
+  // facility so foreign areas / templates / employees can't surface.
   let area_name: string | null = null
   let area_color: string | null = null
   if (row.area_id) {
@@ -59,6 +61,7 @@ async function fetchDailyRecord(
       .from("daily_report_areas")
       .select("name, color")
       .eq("id", row.area_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) {
       area_name = data.name
@@ -73,6 +76,7 @@ async function fetchDailyRecord(
       .from("daily_report_templates")
       .select("name, description")
       .eq("id", row.template_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) {
       template_name = data.name
@@ -86,6 +90,7 @@ async function fetchDailyRecord(
       .from("employees")
       .select("first_name, last_name")
       .eq("id", row.employee_id)
+      .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) submitter = { first_name: data.first_name, last_name: data.last_name }
   }
@@ -121,6 +126,7 @@ async function fetchDailyRecord(
     ? await sb
         .from("employees")
         .select("id, first_name, last_name")
+        .eq("facility_id", row.facility_id)
         .in("id", noteEmployeeIds)
     : { data: [] }
   const empById = new Map(
