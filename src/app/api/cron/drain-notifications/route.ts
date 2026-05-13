@@ -3,8 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
-import { renderSubmissionPdf } from "@/lib/notifications/pdf/render"
-import { fetchSubmissionSnapshot } from "@/lib/notifications/pdf/snapshot"
+import { renderPdfForModule } from "@/lib/notifications/pdf/render"
 import { uploadSubmissionPdf } from "@/lib/notifications/pdf/upload"
 import type { Database } from "@/types/database"
 
@@ -161,34 +160,33 @@ async function renderDuePdfs(
   for (const u of unique) {
     stats.attempted += 1
     try {
-      const snapshot = await fetchSubmissionSnapshot(
+      const rendered = await renderPdfForModule(
         supabase,
         u.source_module,
         u.source_record_id,
       )
-      if (!snapshot) continue
+      if (!rendered) continue
 
-      // Defence-in-depth: the snapshot fetcher uses the service-role client
-      // and reads across all facilities, so a malformed outbox row
+      // Defence-in-depth: renderPdfForModule reads the source row with the
+      // service-role client (RLS bypassed). A malformed outbox row
       // (attacker-controlled facility_id paired with a foreign
       // source_record_id) would otherwise let us render and upload the
       // foreign record into the outbox row's facility folder.
-      if (snapshot.facility_id !== u.facility_id) {
+      if (rendered.facility_id !== u.facility_id) {
         console.warn(
           "[cron/drain-notifications] facility mismatch for outbox source",
-          { outbox_facility: u.facility_id, snapshot_facility: snapshot.facility_id },
+          { outbox_facility: u.facility_id, snapshot_facility: rendered.facility_id },
         )
         stats.failed += 1
         continue
       }
 
-      const buffer = await renderSubmissionPdf(snapshot)
       const path = await uploadSubmissionPdf(
         supabase,
         u.facility_id,
         u.source_module,
         u.source_record_id,
-        buffer,
+        rendered.buffer,
       )
       const { error: upErr } = await supabase
         .from("notification_outbox")
