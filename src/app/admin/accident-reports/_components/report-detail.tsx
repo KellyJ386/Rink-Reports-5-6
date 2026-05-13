@@ -76,6 +76,7 @@ export function ReportDetail({ detail, backHref }: Props) {
     severity,
     employee,
     body_parts,
+    witnesses,
     notes,
     change_log,
   } = detail
@@ -127,6 +128,12 @@ export function ReportDetail({ detail, backHref }: Props) {
               {report.injured_person_name}
             </Field>
             <Field label="Contact">{report.injured_person_contact}</Field>
+            <Field label="Age">
+              {report.injured_person_age === null ||
+              report.injured_person_age === undefined
+                ? "—"
+                : `${report.injured_person_age}`}
+            </Field>
             <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
             <Field label="Submitted at">{fmt(report.submitted_at)}</Field>
             <Field label="Severity">
@@ -194,6 +201,37 @@ export function ReportDetail({ detail, backHref }: Props) {
                     {b.notes}
                   </li>
                 ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Witnesses */}
+        <section className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold">
+            Witnesses ({witnesses.length})
+          </h3>
+          {witnesses.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No witnesses recorded.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {witnesses.map((w) => (
+                <li
+                  key={w.id}
+                  className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{w.name}</span>
+                    {w.contact ? (
+                      <span className="text-muted-foreground text-xs">
+                        {w.contact}
+                      </span>
+                    ) : null}
+                  </div>
+                  {w.statement ? (
+                    <p className="text-sm whitespace-pre-wrap">{w.statement}</p>
+                  ) : null}
+                </li>
+              ))}
             </ul>
           )}
         </section>

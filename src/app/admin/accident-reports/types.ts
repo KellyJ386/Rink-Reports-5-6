@@ -67,8 +67,28 @@ export type BodyPartSelectionWithDropdown = AccidentBodyPartSelectionRow & {
   body_part: DropdownLite | null
 }
 
+// accident_witnesses is added by migration 00000000000051 and not yet present
+// in the generated Database types -- mirror the row shape locally.
+export type AccidentWitnessRow = {
+  id: string
+  facility_id: string
+  accident_id: string
+  name: string
+  contact: string | null
+  statement: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string | null
+}
+
+// AccidentReportRow does not yet carry injured_person_age (added by migration
+// 00000000000051). Layer it locally so admin components can render it.
+export type AccidentReportWithAge = AccidentReportRow & {
+  injured_person_age: number | null
+}
+
 export type AccidentReportDetail = {
-  report: AccidentReportRow
+  report: AccidentReportWithAge
   injury_type: DropdownLite | null
   location: DropdownLite | null
   activity: DropdownLite | null
@@ -76,6 +96,7 @@ export type AccidentReportDetail = {
   severity: DropdownLite | null
   employee: EmployeeLite | null
   body_parts: BodyPartSelectionWithDropdown[]
+  witnesses: AccidentWitnessRow[]
   notes: Array<AccidentFollowupNoteRow & { author: EmployeeLite | null }>
   change_log: Array<AccidentChangeLogRow & { actor: EmployeeLite | null }>
 }

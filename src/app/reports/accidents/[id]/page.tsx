@@ -38,6 +38,7 @@ type ReportRow = {
   employee_id: string | null
   injured_person_name: string
   injured_person_contact: string
+  injured_person_age: number | null
   description: string
   occurred_at: string
   submitted_at: string
@@ -55,6 +56,14 @@ type BodyPartRow = {
   id: string
   body_part_dropdown_id: string
   side: string
+}
+
+type WitnessRow = {
+  id: string
+  name: string
+  contact: string | null
+  statement: string | null
+  sort_order: number
 }
 
 function partition(rows: DropdownRow[]): {
@@ -157,7 +166,7 @@ export default async function AccidentReportPage({
     supabase
       .from("accident_reports")
       .select(
-        "id, facility_id, employee_id, injured_person_name, injured_person_contact, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
+        "id, facility_id, employee_id, injured_person_name, injured_person_contact, injured_person_age, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
       )
       .eq("id", id)
       .maybeSingle(),
@@ -167,34 +176,47 @@ export default async function AccidentReportPage({
     redirect("/reports/accidents")
   }
 
-  const report = reportRow as ReportRow
+  const report = reportRow as unknown as ReportRow
 
-  const [{ data: bpRowsRaw }, { data: dropdownRowsRaw }, { data: workersCompRow }, { data: facility }] =
-    await Promise.all([
-      supabase
-        .from("accident_body_part_selections")
-        .select("id, body_part_dropdown_id, side")
-        .eq("accident_id", report.id),
-      supabase
-        .from("accident_dropdowns")
-        .select("id, category, key, display_name, color, sort_order, metadata")
-        .eq("facility_id", report.facility_id)
-        .order("sort_order", { ascending: true })
-        .order("display_name", { ascending: true }),
-      supabase
-        .from("accident_workers_comp_settings")
-        .select("instructions, is_active")
-        .eq("facility_id", report.facility_id)
-        .eq("is_active", true)
-        .maybeSingle(),
-      supabase
-        .from("facilities")
-        .select("timezone")
-        .eq("id", report.facility_id)
-        .maybeSingle(),
-    ])
+  const [
+    { data: bpRowsRaw },
+    { data: witnessRowsRaw },
+    { data: dropdownRowsRaw },
+    { data: workersCompRow },
+    { data: facility },
+  ] = await Promise.all([
+    supabase
+      .from("accident_body_part_selections")
+      .select("id, body_part_dropdown_id, side")
+      .eq("accident_id", report.id),
+    // accident_witnesses isn't in the generated Database types yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("accident_witnesses")
+      .select("id, name, contact, statement, sort_order")
+      .eq("accident_id", report.id)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("accident_dropdowns")
+      .select("id, category, key, display_name, color, sort_order, metadata")
+      .eq("facility_id", report.facility_id)
+      .order("sort_order", { ascending: true })
+      .order("display_name", { ascending: true }),
+    supabase
+      .from("accident_workers_comp_settings")
+      .select("instructions, is_active")
+      .eq("facility_id", report.facility_id)
+      .eq("is_active", true)
+      .maybeSingle(),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", report.facility_id)
+      .maybeSingle(),
+  ])
 
   const bodyPartRows = (bpRowsRaw ?? []) as BodyPartRow[]
+  const witnessRows = (witnessRowsRaw ?? []) as WitnessRow[]
   const dropdownRows = (dropdownRowsRaw ?? []) as DropdownRow[]
   const tz = facility?.timezone ?? null
 
@@ -270,6 +292,11 @@ export default async function AccidentReportPage({
               body_part_dropdown_id: r.body_part_dropdown_id,
               side: r.side,
             }))}
+            initialWitnesses={witnessRows.map((w) => ({
+              name: w.name,
+              contact: w.contact ?? "",
+              statement: w.statement ?? "",
+            }))}
             locations={locations}
             activities={activities}
             severities={severities}
@@ -283,6 +310,7 @@ export default async function AccidentReportPage({
         <ReadOnlyView
           report={report}
           bodyPartRows={bodyPartRows}
+          witnesses={witnessRows}
           dropdownsById={byId}
           timezone={tz}
           editWindowOpen={editWindowOpen}

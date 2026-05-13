@@ -12,6 +12,7 @@ type ReportRow = {
   id: string
   injured_person_name: string
   injured_person_contact: string
+  injured_person_age: number | null
   description: string
   occurred_at: string
   submitted_at: string
@@ -31,6 +32,14 @@ type BodyPartRow = {
   side: string
 }
 
+type WitnessRow = {
+  id: string
+  name: string
+  contact: string | null
+  statement: string | null
+  sort_order: number
+}
+
 type DropdownRow = {
   id: string
   category: string
@@ -42,6 +51,7 @@ type DropdownRow = {
 type Props = {
   report: ReportRow
   bodyPartRows: BodyPartRow[]
+  witnesses: WitnessRow[]
   dropdownsById: Map<string, DropdownRow>
   timezone: string | null
   editWindowOpen: boolean
@@ -96,6 +106,7 @@ function DetailRow({
 export function ReadOnlyView({
   report,
   bodyPartRows,
+  witnesses,
   dropdownsById,
   timezone,
   editWindowOpen,
@@ -113,6 +124,15 @@ export function ReadOnlyView({
             value={report.injured_person_name}
           />
           <DetailRow label="Contact" value={report.injured_person_contact} />
+          <DetailRow
+            label="Age"
+            value={
+              report.injured_person_age === null ||
+              report.injured_person_age === undefined
+                ? null
+                : String(report.injured_person_age)
+            }
+          />
           <DetailRow
             label="When it happened"
             value={formatTimestamp(report.occurred_at, timezone)}
@@ -172,6 +192,40 @@ export function ReadOnlyView({
             Body parts affected
           </p>
           <BodyDiagram selections={selections} readOnly />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Witnesses ({witnesses.length})
+          </p>
+          {witnesses.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No witnesses recorded.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {witnesses.map((w) => (
+                <li
+                  key={w.id}
+                  className="flex flex-col gap-1 rounded-md border bg-muted/30 p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{w.name}</span>
+                    {w.contact ? (
+                      <span className="text-xs text-muted-foreground">
+                        {w.contact}
+                      </span>
+                    ) : null}
+                  </div>
+                  {w.statement ? (
+                    <p className="whitespace-pre-wrap text-sm">{w.statement}</p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
 

@@ -44,6 +44,15 @@ export type BodyPartsPayloadEntry = {
 }
 
 /**
+ * Wire-format payload for witnesses submitted via hidden input.
+ */
+export type WitnessPayloadEntry = {
+  name: string
+  contact: string | null
+  statement: string | null
+}
+
+/**
  * Snapshot of an accident_reports row written into accident_change_log.after.
  */
 export type AccidentReportSnapshot = {
@@ -52,6 +61,7 @@ export type AccidentReportSnapshot = {
   employee_id: string | null
   injured_person_name: string
   injured_person_contact: string
+  injured_person_age: number | null
   description: string
   occurred_at: string
   submitted_at: string
@@ -64,4 +74,5 @@ export type AccidentReportSnapshot = {
   medical_attention_dropdown_id: string | null
   primary_injury_type_dropdown_id: string | null
   body_parts: BodyPartsPayloadEntry[]
+  witnesses: WitnessPayloadEntry[]
 }
