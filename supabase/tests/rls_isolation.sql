@@ -90,11 +90,21 @@ values
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@fac-b.test')
 on conflict (id) do nothing;
 
-insert into public.users (id, email, is_super_admin)
+-- public.users.facility_id MUST be set: current_facility_id() reads from
+-- users.facility_id, not employees.facility_id. Without this every RLS
+-- policy that gates on facility_id = current_facility_id() returns 0 rows
+-- for both Alice's own facility and the foreign one, which would mask real
+-- bugs.
+insert into public.users (id, facility_id, email, is_super_admin)
 values
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'alice@fac-a.test', false),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@fac-b.test',   false)
-on conflict (id) do nothing;
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'alice@fac-a.test', false),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222',
+   'bob@fac-b.test',   false)
+on conflict (id) do update
+  set facility_id = excluded.facility_id;
 
 insert into public.employees (
   id, facility_id, user_id, role_id, first_name, last_name, email, is_active
@@ -200,16 +210,123 @@ select pg_temp.expect_error(
     )$$,
   'alice CANNOT INSERT module_permissions into facility B');
 
--- effective_module_permission for an employee in facility B should resolve to 'none'
--- from Alice's vantage point (the function is SECURITY DEFINER so it actually
--- computes; the assertion is that we don't crash and don't leak).
+-- ---------------------------------------------------------------------------
+-- M2: effective_module_permission resolvers are tenant-scoped.
+--
+-- After migration 49, the resolvers return 'none' (and source='none') when
+-- the target employee is outside the caller's facility. Previously they
+-- computed across tenants and were an enumeration oracle.
+-- ---------------------------------------------------------------------------
 select pg_temp.expect_count(
   $$select case
       when public.effective_module_permission(
         'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid,
         'daily_reports'
+      ) = 'none'::module_permission_level then 1 else 0 end$$,
+  1, 'M2: effective_module_permission returns ''none'' cross-facility');
+
+select pg_temp.expect_count(
+  $$select case
+      when (public.effective_module_permission_with_source(
+              'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid,
+              'daily_reports')).source = 'none' then 1 else 0 end$$,
+  1, 'M2: _with_source returns source=''none'' cross-facility');
+
+-- Sanity check: same-facility resolution still works (returns something,
+-- even if that something is 'none' due to no defaults set up).
+select pg_temp.expect_count(
+  $$select case
+      when public.effective_module_permission(
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+        'daily_reports'
       ) is not null then 1 else 0 end$$,
-  1, 'effective_module_permission runs across facilities (does not crash)');
+  1, 'M2: same-facility resolution returns a value');
+
+-- ---------------------------------------------------------------------------
+-- H4: dispatch_rules_for_submission is caller-gated.
+--
+-- After migration 49 the function requires the caller to be either a
+-- super_admin OR acting inside p_facility_id AND holding submit-or-higher
+-- on p_source_module. Cross-facility calls must error; calls with no
+-- submit permission must error.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_error(
+  $$select public.dispatch_rules_for_submission(
+      '22222222-2222-2222-2222-222222222222'::uuid,  -- facility B
+      'incident_reports', null, null, null, 'Spam', 'Spam body')$$,
+  'H4: dispatch rejects cross-facility call');
+
+-- Alice's 'staff' role has no submit-on-incident_reports default (the role
+-- defaults table is empty in the test fixture), so this should also error.
+select pg_temp.expect_error(
+  $$select public.dispatch_rules_for_submission(
+      '11111111-1111-1111-1111-111111111111'::uuid,  -- alice's own facility
+      'incident_reports', null, null, null, 'Spam', 'Spam body')$$,
+  'H4: dispatch rejects own-facility call without submit permission');
+
+-- ---------------------------------------------------------------------------
+-- M1: notification_outbox direct INSERT / UPDATE blocked for authenticated.
+--
+-- The dispatcher and drainer are SECURITY DEFINER; the cron route uses the
+-- service-role key. No authenticated client should be able to write rows
+-- directly. Migration 49 set both policies' check clauses to false.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$with attempt as (
+      insert into public.notification_outbox (
+        facility_id, source_module, recipient_employee_id,
+        subject, body, scheduled_for, status
+      ) values (
+        '11111111-1111-1111-1111-111111111111',
+        'incident_reports',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'forged', 'forged body', now(), 'pending'
+      )
+      on conflict do nothing
+      returning 1
+    )
+    select count(*) from attempt$$,
+  0, 'M1: direct INSERT into notification_outbox returns 0 rows for authenticated');
+
+-- ---------------------------------------------------------------------------
+-- M5: drain_notification_outbox restricted to super_admin / service role.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_error(
+  $$select public.drain_notification_outbox(500)$$,
+  'M5: drain_notification_outbox rejects authenticated callers');
+
+-- ---------------------------------------------------------------------------
+-- H3: communication_group_members cross-facility group_id (RLS only).
+--
+-- The application-layer guard lives in addEmployeeToGroup(). The RLS
+-- policy enforces the row's own facility_id matches the caller; a
+-- cross-facility group_id paired with the caller's own facility_id is
+-- still RLS-permitted (the violated invariant is the application's).
+-- We verify the RLS gate by asserting Alice cannot write rows tagged
+-- with facility B at all.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.communication_group_members (
+      facility_id, group_id, employee_id
+    ) values (
+      '22222222-2222-2222-2222-222222222222',
+      gen_random_uuid(),
+      'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+    )$$,
+  'H3: cross-facility group-membership INSERT blocked by RLS');
+
+-- ---------------------------------------------------------------------------
+-- M5 (positive): as postgres (BYPASSRLS), drain accepts p_facility_id.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+select pg_temp.expect_count(
+  $$select case
+      when (select message_count from public.drain_notification_outbox(
+              p_max_rows := 10,
+              p_facility_id := '11111111-1111-1111-1111-111111111111')) is not null
+        then 1 else 0 end$$,
+  1, 'M5: drain_notification_outbox accepts p_facility_id when called as postgres');
 
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.
