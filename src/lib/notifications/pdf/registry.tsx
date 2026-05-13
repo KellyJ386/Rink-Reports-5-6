@@ -44,8 +44,10 @@ export function getModulePdfRenderer(
 // add the import + register call here.
 // -----------------------------------------------------------------------------
 import { renderAccidentReportPdf } from "./templates/accident"
+import { renderDailyReportPdf } from "./templates/daily"
 import { renderIceDepthPdf } from "./templates/ice-depth"
 import { renderIncidentReportPdf } from "./templates/incident"
 registerModulePdfRenderer("accident_reports", renderAccidentReportPdf)
+registerModulePdfRenderer("daily_reports", renderDailyReportPdf)
 registerModulePdfRenderer("ice_depth", renderIceDepthPdf)
 registerModulePdfRenderer("incident_reports", renderIncidentReportPdf)
