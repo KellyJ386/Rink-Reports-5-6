@@ -116,6 +116,22 @@ export async function addEmployeeToGroup(
     if (empErr) return { ok: false, error: empErr.message }
     if (!employee) return { ok: false, error: "Employee not found" }
 
+    // Verify the target group is in the same facility as the employee.
+    // The group_id FK doesn't enforce this, and the table's RLS only checks
+    // the row's own facility_id (which we set from the employee). Without
+    // this check, a facility admin could add their employee into a foreign
+    // facility's group.
+    const { data: group, error: grpErr } = await supabase
+      .from("communication_groups")
+      .select("id, facility_id")
+      .eq("id", groupId)
+      .maybeSingle()
+    if (grpErr) return { ok: false, error: grpErr.message }
+    if (!group) return { ok: false, error: "Group not found" }
+    if (group.facility_id !== employee.facility_id) {
+      return { ok: false, error: "Group is in a different facility" }
+    }
+
     const { error } = await supabase
       .from("communication_group_members")
       .insert({

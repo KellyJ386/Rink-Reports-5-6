@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto"
+
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
@@ -9,6 +11,8 @@ import type { Database } from "@/types/database"
 // Force dynamic; service-role env vars must not be evaluated at build.
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+// Cap CPU exposure for unauthorised callers and PDF render heavy batches.
+export const maxDuration = 60
 
 /**
  * Drains notification_outbox by invoking drain_notification_outbox().
@@ -19,14 +23,21 @@ export const runtime = "nodejs"
  * outbox rows. The SQL drain then copies pdf_url onto the resulting
  * communication_messages row.
  *
- * PDF rendering failures don't block the drain: the row keeps pdf_url
- * NULL, the message goes out without an attachment, and an error is
- * logged. This keeps the in-app notification arriving on time even
- * when a single source record is malformed.
+ * PDF rendering failures don't block the drain. We do enforce that the
+ * fetched snapshot's facility_id matches the outbox row's facility_id —
+ * the snapshot fetcher runs with service-role credentials so RLS is
+ * bypassed; without this check, a malformed outbox row could cause the
+ * cron worker to render and stash a foreign tenant's record into the
+ * current tenant's storage folder.
  *
  * Expected to be called by an external scheduler (Vercel Cron, GitHub
  * Actions, supabase scheduled function, ...). The scheduler must send
- * `Authorization: Bearer ${CRON_SECRET}`. Service-role key is required.
+ * `Authorization: Bearer ${CRON_SECRET}`; the compare is timing-safe.
+ *
+ * On any failure the response body is intentionally opaque. Detailed
+ * errors are written to server logs only — UUIDs and Supabase error
+ * strings could span tenants and would leak through this route, which
+ * is authenticated by a single static secret with no per-tenant binding.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
@@ -37,8 +48,7 @@ export async function GET(request: Request) {
     )
   }
 
-  const authHeader = request.headers.get("authorization") ?? ""
-  if (authHeader !== `Bearer ${secret}`) {
+  if (!authorize(request.headers.get("authorization"), secret)) {
     return NextResponse.json(
       { ok: false, error: "unauthorized" },
       { status: 401 },
@@ -67,37 +77,49 @@ export async function GET(request: Request) {
   )
 
   if (error) {
-    return NextResponse.json(
-      { ok: false, error: error.message, pdf: pdfResult },
-      { status: 500 },
-    )
+    console.error("[cron/drain-notifications] drain failed:", error)
+    return NextResponse.json({ ok: false }, { status: 500 })
   }
 
   const row = Array.isArray(data) ? data[0] : data
+  // Return counts only — never UUIDs or error strings.
   return NextResponse.json({
     ok: true,
     sent: row?.sent_count ?? 0,
     failed: row?.failed_count ?? 0,
     messages: row?.message_count ?? 0,
-    pdf: pdfResult,
+    pdf: {
+      attempted: pdfResult.attempted,
+      rendered: pdfResult.rendered,
+      failed: pdfResult.failed,
+    },
   })
+}
+
+/**
+ * Constant-time bearer-token comparison. Hashes both sides so length
+ * differences don't leak via Buffer length checks.
+ */
+function authorize(header: string | null, secret: string): boolean {
+  if (!header) return false
+  const expected = `Bearer ${secret}`
+  const a = createHash("sha256").update(header).digest()
+  const b = createHash("sha256").update(expected).digest()
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 type PdfStats = {
   attempted: number
   rendered: number
   failed: number
-  errors: string[]
 }
 
 async function renderDuePdfs(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
 ): Promise<PdfStats> {
-  const stats: PdfStats = { attempted: 0, rendered: 0, failed: 0, errors: [] }
+  const stats: PdfStats = { attempted: 0, rendered: 0, failed: 0 }
 
-  // Pull due rows that still need a PDF. Limit aggressively — heavy
-  // batches risk exceeding the cron route's serverless timeout.
   const { data: rowsRaw, error: selErr } = await supabase
     .from("notification_outbox")
     .select("facility_id, source_module, source_record_id")
@@ -108,7 +130,7 @@ async function renderDuePdfs(
     .limit(200)
 
   if (selErr) {
-    stats.errors.push(`outbox query: ${selErr.message}`)
+    console.error("[cron/drain-notifications] outbox query failed:", selErr)
     return stats
   }
 
@@ -118,8 +140,6 @@ async function renderDuePdfs(
     source_record_id: string | null
   }>
 
-  // Dedupe by (facility, source_record) — one PDF per source event even
-  // when many recipients are queued for it.
   const seen = new Set<string>()
   const unique: Array<{
     facility_id: string
@@ -146,11 +166,22 @@ async function renderDuePdfs(
         u.source_module,
         u.source_record_id,
       )
-      if (!snapshot) {
-        // No fetcher / record deleted — leave pdf_url null. Don't count
-        // as an error; the message still sends without an attachment.
+      if (!snapshot) continue
+
+      // Defence-in-depth: the snapshot fetcher uses the service-role client
+      // and reads across all facilities, so a malformed outbox row
+      // (attacker-controlled facility_id paired with a foreign
+      // source_record_id) would otherwise let us render and upload the
+      // foreign record into the outbox row's facility folder.
+      if (snapshot.facility_id !== u.facility_id) {
+        console.warn(
+          "[cron/drain-notifications] facility mismatch for outbox source",
+          { outbox_facility: u.facility_id, snapshot_facility: snapshot.facility_id },
+        )
+        stats.failed += 1
         continue
       }
+
       const buffer = await renderSubmissionPdf(snapshot)
       const path = await uploadSubmissionPdf(
         supabase,
@@ -168,16 +199,19 @@ async function renderDuePdfs(
         .is("pdf_url", null)
       if (upErr) {
         stats.failed += 1
-        stats.errors.push(`update ${u.source_record_id}: ${upErr.message}`)
+        console.error(
+          "[cron/drain-notifications] outbox update failed:",
+          upErr,
+        )
         continue
       }
       stats.rendered += 1
     } catch (e) {
       stats.failed += 1
-      const msg = e instanceof Error ? e.message : String(e)
-      stats.errors.push(`${u.source_module}/${u.source_record_id}: ${msg}`)
       console.error(
-        `[notifications/pdf] render failed for ${u.source_module}/${u.source_record_id}:`,
+        "[cron/drain-notifications] render failed:",
+        u.source_module,
+        u.source_record_id,
         e,
       )
     }

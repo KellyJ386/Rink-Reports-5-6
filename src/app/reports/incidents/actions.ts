@@ -148,7 +148,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
 
   // Fan out to any matching notification routing rules. Best-effort —
   // dispatch failures must never block a successful submission.
-  void dispatchRulesForSubmission({
+  await dispatchRulesForSubmission({
     facilityId: employeeRow.facility_id,
     sourceModule: "incident_reports",
     sourceRecordId: inserted.id,

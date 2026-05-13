@@ -4,17 +4,33 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 export const PDF_BUCKET = "notification-pdfs"
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MODULE_KEY_RE = /^[a-z0-9_]{1,64}$/
+
 /**
  * Path layout: '<facility_id>/<source_module>/<source_record_id>.pdf'.
  * The first segment matches the storage.objects RLS check in migration 48
  * (foldername[1]::uuid = current_facility_id), so authenticated reads
  * stay scoped to the caller's facility automatically.
+ *
+ * Validates inputs to keep a regressed caller from producing a path that
+ * traverses out of its facility folder. Service-role writes bypass RLS,
+ * so we defensively reject anything that isn't a UUID / safe key here.
  */
 export function pdfObjectPath(
   facilityId: string,
   sourceModule: string,
   sourceRecordId: string,
 ): string {
+  if (!UUID_RE.test(facilityId)) {
+    throw new Error(`pdfObjectPath: invalid facilityId`)
+  }
+  if (!UUID_RE.test(sourceRecordId)) {
+    throw new Error(`pdfObjectPath: invalid sourceRecordId`)
+  }
+  if (!MODULE_KEY_RE.test(sourceModule)) {
+    throw new Error(`pdfObjectPath: invalid sourceModule`)
+  }
   return `${facilityId}/${sourceModule}/${sourceRecordId}.pdf`
 }
 
@@ -30,7 +46,7 @@ export async function uploadSubmissionPdf(
   sourceRecordId: string,
   buffer: Buffer,
 ): Promise<string> {
-  const path = pdfObjectPath(facilityId, sourceModule, sourceRecordId)
+  const path = pdfObjectPath(facilityId, sourceModule, sourceRecordId) // throws on bad input
   const { error } = await serviceRoleClient.storage
     .from(PDF_BUCKET)
     .upload(path, buffer, {

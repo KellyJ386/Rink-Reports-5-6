@@ -324,7 +324,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
     // Alerts are best-effort; do not fail the submission.
   }
 
-  void dispatchRulesForSubmission({
+  await dispatchRulesForSubmission({
     facilityId: employeeRow.facility_id,
     sourceModule: "ice_depth",
     sourceRecordId: sessionId,

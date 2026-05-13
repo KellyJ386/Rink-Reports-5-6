@@ -415,7 +415,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
     }
   }
 
-  void dispatchRulesForSubmission({
+  await dispatchRulesForSubmission({
     facilityId: employeeRow.facility_id,
     sourceModule: "air_quality",
     sourceRecordId: reportId,
