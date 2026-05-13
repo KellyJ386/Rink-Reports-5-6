@@ -9,8 +9,10 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer"
 import React from "react"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
-import type { SubmissionSnapshot } from "./snapshot"
+import { getModulePdfRenderer } from "./registry"
+import { fetchSubmissionSnapshot, type SubmissionSnapshot } from "./snapshot"
 
 const styles = StyleSheet.create({
   page: {
@@ -102,12 +104,49 @@ function SubmissionPdf({ snapshot }: { snapshot: SubmissionSnapshot }) {
 }
 
 /**
- * Render a SubmissionSnapshot to a PDF buffer. Throws on render failure;
- * callers must catch and degrade gracefully (the cron route logs and
- * leaves pdf_url null so the message still sends without an attachment).
+ * Render a SubmissionSnapshot to a PDF buffer using the generic template.
+ * Kept for completeness; new code should call renderPdfForModule() so
+ * per-module templates can take over where they're registered.
  */
 export async function renderSubmissionPdf(
   snapshot: SubmissionSnapshot,
 ): Promise<Buffer> {
   return await renderToBuffer(<SubmissionPdf snapshot={snapshot} />)
+}
+
+export type RenderedPdf = {
+  facility_id: string
+  buffer: Buffer
+}
+
+/**
+ * Render a PDF for (source_module, source_record_id). Dispatches through
+ * the module registry: if a per-module template is registered the function
+ * returns whatever that template produces; otherwise it falls back to the
+ * generic SubmissionPdf via fetchSubmissionSnapshot. Returns null when no
+ * data was found (deleted source row, or no fetcher).
+ *
+ * Always carries facility_id from the actual record back to the caller so
+ * the cron route can keep its defence-in-depth facility cross-check.
+ */
+export async function renderPdfForModule(
+  sb: SupabaseClient,
+  sourceModule: string,
+  sourceRecordId: string,
+): Promise<RenderedPdf | null> {
+  const moduleRenderer = getModulePdfRenderer(sourceModule)
+  if (moduleRenderer) {
+    const result = await moduleRenderer(sb, sourceRecordId)
+    if (!result) return null
+    return {
+      facility_id: result.facility_id,
+      buffer: await renderToBuffer(result.document),
+    }
+  }
+  const snapshot = await fetchSubmissionSnapshot(sb, sourceModule, sourceRecordId)
+  if (!snapshot) return null
+  return {
+    facility_id: snapshot.facility_id,
+    buffer: await renderToBuffer(<SubmissionPdf snapshot={snapshot} />),
+  }
 }
