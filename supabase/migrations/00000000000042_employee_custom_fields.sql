@@ -25,7 +25,14 @@ end$$;
 
 -- -----------------------------------------------------------------------------
 -- 1. employee_custom_fields
+--
+-- Migration 38 created an earlier version of this table (columns
+-- field_name/field_value) that is incompatible with this schema. It was never
+-- wired up to the application and carries no production data, so drop it
+-- here before recreating with the definition-based shape.
 -- -----------------------------------------------------------------------------
+drop table if exists public.employee_custom_fields cascade;
+
 create table if not exists public.employee_custom_fields (
   id           uuid primary key default gen_random_uuid(),
   facility_id  uuid not null references public.facilities(id) on delete restrict,
