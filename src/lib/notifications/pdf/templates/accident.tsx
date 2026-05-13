@@ -31,11 +31,18 @@ type BodyPart = {
   notes: string | null
 }
 
+type Witness = {
+  name: string
+  contact: string | null
+  statement: string | null
+}
+
 type AccidentRecord = {
   id: string
   facility_id: string
   injured_person_name: string
   injured_person_contact: string | null
+  injured_person_age: number | null
   description: string
   occurred_at: string
   submitted_at: string
@@ -48,6 +55,7 @@ type AccidentRecord = {
   primary_injury_type: DropdownLite | null
   submitter: { first_name: string; last_name: string } | null
   body_parts: BodyPart[]
+  witnesses: Witness[]
 }
 
 // -----------------------------------------------------------------------------
@@ -62,6 +70,7 @@ async function fetchAccidentRecord(
     .from("accident_reports")
     .select(
       `id, facility_id, employee_id, injured_person_name, injured_person_contact,
+       injured_person_age,
        description, occurred_at, submitted_at, workers_comp,
        workers_comp_acknowledged_at,
        location_dropdown_id, activity_dropdown_id, severity_dropdown_id,
@@ -130,6 +139,28 @@ async function fetchAccidentRecord(
     notes: b.notes,
   }))
 
+  // Witnesses (0..5). Defence-in-depth: pin facility_id to match the parent
+  // report's facility so a malformed row can't leak a foreign witness.
+  // accident_witnesses isn't in the generated Database types yet -- cast
+  // through `any`, matching the pattern in offline-sync/route.ts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: witnessRowsRaw } = await (sb as any)
+    .from("accident_witnesses")
+    .select("name, contact, statement, sort_order")
+    .eq("accident_id", recordId)
+    .eq("facility_id", row.facility_id)
+    .order("sort_order", { ascending: true })
+
+  const witnesses: Witness[] = ((witnessRowsRaw ?? []) as Array<{
+    name: string
+    contact: string | null
+    statement: string | null
+  }>).map((w) => ({
+    name: w.name,
+    contact: w.contact,
+    statement: w.statement,
+  }))
+
   let submitter: AccidentRecord["submitter"] = null
   if (row.employee_id) {
     const { data: emp } = await sb
@@ -146,6 +177,12 @@ async function fetchAccidentRecord(
     facility_id: row.facility_id,
     injured_person_name: row.injured_person_name,
     injured_person_contact: row.injured_person_contact,
+    // injured_person_age isn't in the generated Database types yet; cast.
+    injured_person_age:
+      typeof (row as { injured_person_age?: number | null })
+        .injured_person_age === "number"
+        ? (row as { injured_person_age: number }).injured_person_age
+        : null,
     description: row.description,
     occurred_at: row.occurred_at,
     submitted_at: row.submitted_at,
@@ -168,6 +205,7 @@ async function fetchAccidentRecord(
       : null,
     submitter,
     body_parts,
+    witnesses,
   }
 }
 
@@ -255,6 +293,26 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "#f8fafc",
   },
+  witnessBlock: {
+    marginBottom: 6,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 3,
+    backgroundColor: "#f8fafc",
+  },
+  witnessHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  witnessName: { fontSize: 10, fontWeight: 700, color: "#0f172a" },
+  witnessContact: { fontSize: 9, color: "#475569" },
+  witnessStatement: {
+    fontSize: 10,
+    color: "#0f172a",
+    lineHeight: 1.4,
+  },
   footer: {
     position: "absolute",
     left: 40,
@@ -339,6 +397,12 @@ function AccidentReportPdf({ r }: { r: AccidentRecord }) {
             <Text style={styles.rowLabel}>Contact</Text>
             <Text style={styles.rowValue}>{r.injured_person_contact ?? "—"}</Text>
           </View>
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>Age</Text>
+            <Text style={styles.rowValue}>
+              {r.injured_person_age === null ? "—" : String(r.injured_person_age)}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -404,6 +468,27 @@ function AccidentReportPdf({ r }: { r: AccidentRecord }) {
                 </View>
               ))}
             </View>
+          </View>
+        ) : null}
+
+        {r.witnesses.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>
+              Witnesses ({r.witnesses.length})
+            </Text>
+            {r.witnesses.map((w, i) => (
+              <View key={i} style={styles.witnessBlock} wrap={false}>
+                <View style={styles.witnessHeader}>
+                  <Text style={styles.witnessName}>{w.name}</Text>
+                  {w.contact ? (
+                    <Text style={styles.witnessContact}>{w.contact}</Text>
+                  ) : null}
+                </View>
+                {w.statement ? (
+                  <Text style={styles.witnessStatement}>{w.statement}</Text>
+                ) : null}
+              </View>
+            ))}
           </View>
         ) : null}
 
