@@ -37,6 +37,7 @@ type Props = {
     sent_at: string
     requires_acknowledgement: boolean
     sender_name: string | null
+    pdf_signed_url: string | null
   }
   recipient: {
     read_at: string | null
@@ -72,6 +73,18 @@ export function MessageDetail({ message, recipient, timezone }: Props) {
           <p className="whitespace-pre-wrap text-sm leading-relaxed">
             {message.body}
           </p>
+          {message.pdf_signed_url ? (
+            <p className="mt-4 text-sm">
+              <a
+                href={message.pdf_signed_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-10 items-center rounded-md border border-input bg-background px-3 font-medium hover:bg-accent"
+              >
+                Download PDF attachment
+              </a>
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
