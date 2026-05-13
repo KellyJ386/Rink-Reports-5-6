@@ -92,6 +92,34 @@ export async function setRoleModulePermissionLevel(
   }
 }
 
+/**
+ * Returns the caller's effective role hierarchy_level (the lowest one across
+ * their active employee rows), or null when the caller is a platform super
+ * admin or has no employee row. Used by createRole / setRoleHierarchy to
+ * stop an admin from minting a role whose hierarchy_level outranks their own.
+ *
+ * Convention in this codebase: LOWER number = HIGHER rank. So a caller with
+ * level 100 must not create or re-rank a role to anything below 100.
+ */
+async function callerHierarchyFloor(): Promise<number | null> {
+  const { profile } = await requireAdmin()
+  if (profile?.is_super_admin) return null
+
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("employees")
+    .select("roles!inner(hierarchy_level)")
+    .eq("user_id", profile!.id)
+    .eq("is_active", true)
+    .order("roles(hierarchy_level)", { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lvl = (data as any)?.roles?.hierarchy_level
+  return typeof lvl === "number" ? lvl : null
+}
+
 // -----------------------------------------------------------------------------
 // Create a new (custom) role within a facility.
 // -----------------------------------------------------------------------------
@@ -117,6 +145,15 @@ export async function createRole(input: {
     const level = Number(input.hierarchyLevel)
     if (!Number.isFinite(level) || level < 0 || level > 1000) {
       return err("Hierarchy level must be between 0 and 1000")
+    }
+
+    // Privilege guard: a non-super-admin caller may not mint a role that
+    // outranks their own (LOWER number = HIGHER rank in this codebase).
+    const floor = await callerHierarchyFloor()
+    if (floor !== null && level < floor) {
+      return err(
+        `Hierarchy level must be >= ${floor} (your own role's level).`,
+      )
     }
 
     const supabase = await createClient()
@@ -195,7 +232,29 @@ export async function setRoleHierarchy(
       return err("Hierarchy level must be between 0 and 1000")
     }
 
+    const floor = await callerHierarchyFloor()
+    if (floor !== null && level < floor) {
+      return err(
+        `Hierarchy level must be >= ${floor} (your own role's level).`,
+      )
+    }
+
     const supabase = await createClient()
+
+    // Also block lowering an existing role's level below the caller's floor.
+    // Without this, a caller could change a role they already outrank into
+    // one that outranks them.
+    if (floor !== null) {
+      const { data: existing } = await supabase
+        .from("roles")
+        .select("hierarchy_level")
+        .eq("id", roleId)
+        .maybeSingle()
+      if (existing && existing.hierarchy_level < floor) {
+        return err("Cannot modify a role that already outranks you.")
+      }
+    }
+
     const { error } = await supabase
       .from("roles")
       .update({ hierarchy_level: level })
