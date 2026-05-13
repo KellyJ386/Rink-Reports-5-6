@@ -312,7 +312,7 @@ export async function submitAccidentReport(
     }
   }
 
-  void dispatchRulesForSubmission({
+  await dispatchRulesForSubmission({
     facilityId: employeeRow.facility_id,
     sourceModule: "accident_reports",
     sourceRecordId: reportId,

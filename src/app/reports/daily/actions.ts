@@ -194,7 +194,7 @@ async function performSubmit(
     }
   }
 
-  void dispatchRulesForSubmission({
+  await dispatchRulesForSubmission({
     facilityId: employeeRow.facility_id,
     sourceModule: "daily_reports",
     sourceRecordId: submissionId,
