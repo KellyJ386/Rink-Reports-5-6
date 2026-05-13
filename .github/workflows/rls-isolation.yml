@@ -1,10 +1,19 @@
 name: RLS Isolation Tests
 
-# Runs supabase/tests/rls_isolation.sql against a freshly-migrated local
-# Supabase stack on every push to main and every PR. The test script wraps
+# Runs supabase/tests/rls_isolation.sql against a freshly-migrated Postgres
+# instance on every push to main and every PR. The test script wraps
 # everything in BEGIN ... ROLLBACK and raises an exception on any failed
 # assertion, so a non-zero psql exit means at least one cross-tenant gate
 # regressed.
+#
+# We boot supabase/postgres directly as a service container rather than
+# running `supabase start`. The full stack (kong, auth, realtime, studio,
+# storage-api, edge-runtime, etc.) is unnecessary for SQL-only tests, takes
+# 60-180s to come up, and adds many failure modes (image pulls, container
+# health, port collisions). The supabase/postgres image initializes the
+# auth/storage schemas plus the helper roles (anon, authenticated,
+# service_role) and exposes auth.uid()/auth.role(), which is everything
+# our migrations and tests need.
 
 on:
   push:
@@ -16,7 +25,6 @@ on:
       - "supabase/config.toml"
       - ".github/workflows/rls-isolation.yml"
 
-# Don't pile up concurrent runs on the same ref.
 concurrency:
   group: rls-isolation-${{ github.ref }}
   cancel-in-progress: true
@@ -24,35 +32,62 @@ concurrency:
 jobs:
   rls-isolation:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        # Pin to a known major-15 supabase/postgres release. Bump when
+        # supabase/config.toml's major_version changes.
+        image: supabase/postgres:15.1.1.78
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGURL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Boot local Supabase stack
-        # `supabase start` applies migrations from supabase/migrations on boot.
-        run: supabase start
 
       - name: Install psql client
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client
 
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; then
+              echo "Postgres is ready (attempt $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres failed to become ready" >&2
+          exit 1
+
+      - name: Apply migrations
+        # supabase/postgres init handles the auth/storage schemas + roles;
+        # we apply only the project's own migrations on top, in lexical
+        # order (which is what the supabase CLI does locally).
+        run: |
+          set -euo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$(basename "$f")"
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
       - name: Run RLS isolation tests
-        env:
-          # supabase/config.toml pins the local DB to 54322.
-          PGURL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: |
           psql "$PGURL" \
             -v ON_ERROR_STOP=1 \
             --echo-errors \
             -f supabase/tests/rls_isolation.sql
-
-      - name: Tear down
-        if: always()
-        run: supabase stop || true
