@@ -85,10 +85,7 @@ export default async function RolesPage({
   const supabase = await createClient()
 
   const [{ data: rolesRaw }, { data: defaultsRaw }] = await Promise.all([
-    // is_active and description were added in migration 44; cast through any
-    // until the generated types catch up.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("roles")
       .select(
         "id, facility_id, key, display_name, hierarchy_level, is_system, is_active, description",
@@ -96,9 +93,7 @@ export default async function RolesPage({
       .eq("facility_id", facilityId)
       .order("is_active", { ascending: false })
       .order("hierarchy_level", { ascending: true }),
-    // role_module_permission_defaults isn't in generated types yet; cast.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("role_module_permission_defaults")
       .select("role_id, module_key, permission_level")
       .eq("facility_id", facilityId),

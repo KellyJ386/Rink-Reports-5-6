@@ -105,6 +105,7 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       emergency_contact_name: emp.emergency_contact_name,
       emergency_contact_phone: emp.emergency_contact_phone,
       created_at: emp.created_at,
+      user_id: emp.user_id,
       role,
     },
     departments: (deptsRaw ?? []).map((d) => ({
