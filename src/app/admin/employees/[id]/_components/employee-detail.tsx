@@ -16,10 +16,14 @@ import type { PermissionSource } from "@/lib/permissions/types"
 
 import { MODULE_LABELS, type ModuleKey } from "../../../permissions/types"
 import {
+  addEmployeeCertification,
   addEmployeeToGroup,
   clearEmployeeModuleOverride,
+  deleteEmployeeCertification,
   removeEmployeeFromGroup,
   setEmployeeModuleOverride,
+  updateEmployeeCertification,
+  type CertificationInput,
 } from "../actions"
 
 export type EmployeeDetailData = {
@@ -60,14 +64,20 @@ export type EmployeeDetailData = {
     entity_id: string | null
     created_at: string
   }>
+  certifications: Array<{
+    id: string
+    name: string
+    issuer: string | null
+    issued_at: string | null
+    expires_at: string | null
+    notes: string | null
+  }>
 }
 
 const SOURCE_BADGE_LABEL: Record<PermissionSource, string> = {
   super_admin: "platform super",
   override: "override",
   role: "role",
-  department: "department",
-  facility: "facility",
   none: "none",
 }
 
@@ -75,8 +85,6 @@ const SOURCE_BADGE_CLASS: Record<PermissionSource, string> = {
   super_admin: "bg-rose-800/60 text-rose-100",
   override: "bg-violet-800/60 text-violet-100",
   role: "bg-sky-800/60 text-sky-100",
-  department: "bg-emerald-800/60 text-emerald-100",
-  facility: "bg-amber-800/60 text-amber-100",
   none: "bg-muted text-muted-foreground",
 }
 
@@ -86,6 +94,7 @@ export function EmployeeDetail({ data }: { data: EmployeeDetailData }) {
       <TabsList className="flex flex-wrap">
         <TabsTrigger value="profile">Profile</TabsTrigger>
         <TabsTrigger value="departments">Departments</TabsTrigger>
+        <TabsTrigger value="certifications">Certifications</TabsTrigger>
         <TabsTrigger value="access">Module Access</TabsTrigger>
         <TabsTrigger value="groups">Communication Groups</TabsTrigger>
         <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -96,6 +105,9 @@ export function EmployeeDetail({ data }: { data: EmployeeDetailData }) {
       </TabsContent>
       <TabsContent value="departments">
         <DepartmentsTab data={data} />
+      </TabsContent>
+      <TabsContent value="certifications">
+        <CertificationsTab data={data} />
       </TabsContent>
       <TabsContent value="access">
         <ModuleAccessTab data={data} />
@@ -197,6 +209,260 @@ function DepartmentsTab({ data }: { data: EmployeeDetailData }) {
         </p>
       </CardContent>
     </Card>
+  )
+}
+
+type CertificationRow = EmployeeDetailData["certifications"][number]
+
+const EMPTY_CERT: CertificationInput = {
+  name: "",
+  issuer: null,
+  issued_at: null,
+  expires_at: null,
+  notes: null,
+}
+
+function expirationStatus(
+  expiresAt: string | null
+): { label: string; tone: "ok" | "warn" | "danger" | "none" } {
+  if (!expiresAt) return { label: "No expiration", tone: "none" }
+  const today = new Date()
+  const exp = new Date(expiresAt + "T00:00:00")
+  const days = Math.round(
+    (exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  )
+  if (days < 0) return { label: `Expired ${-days}d ago`, tone: "danger" }
+  if (days <= 30) return { label: `Expires in ${days}d`, tone: "warn" }
+  return { label: `Expires ${expiresAt}`, tone: "ok" }
+}
+
+function CertificationsTab({ data }: { data: EmployeeDetailData }) {
+  const [, startTransition] = useTransition()
+  const [rows, setRows] = useState<CertificationRow[]>(data.certifications)
+  const [draft, setDraft] = useState<CertificationInput>(EMPTY_CERT)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  function commit(action: () => Promise<{ ok: boolean; error?: string }>) {
+    startTransition(async () => {
+      const r = await action()
+      if (!r.ok) {
+        toast.error(r.error ?? "Failed.")
+      }
+    })
+  }
+
+  function handleAdd() {
+    if (!draft.name.trim()) {
+      toast.error("Name is required.")
+      return
+    }
+    const optimistic: CertificationRow = {
+      id: `tmp-${Date.now()}`,
+      name: draft.name.trim(),
+      issuer: draft.issuer?.trim() || null,
+      issued_at: draft.issued_at || null,
+      expires_at: draft.expires_at || null,
+      notes: draft.notes?.trim() || null,
+    }
+    setRows((rs) => [...rs, optimistic])
+    const payload = draft
+    setDraft(EMPTY_CERT)
+    commit(() => addEmployeeCertification(data.employee.id, payload))
+  }
+
+  function handleSaveEdit(id: string, input: CertificationInput) {
+    setRows((rs) =>
+      rs.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              name: input.name.trim(),
+              issuer: input.issuer?.trim() || null,
+              issued_at: input.issued_at || null,
+              expires_at: input.expires_at || null,
+              notes: input.notes?.trim() || null,
+            }
+          : r
+      )
+    )
+    setEditingId(null)
+    commit(() => updateEmployeeCertification(data.employee.id, id, input))
+  }
+
+  function handleDelete(id: string) {
+    if (!window.confirm("Delete this certification?")) return
+    setRows((rs) => rs.filter((r) => r.id !== id))
+    commit(() => deleteEmployeeCertification(data.employee.id, id))
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 p-6">
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium">Add certification</p>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+            <input
+              className="border-input bg-background col-span-2 rounded border px-2 py-1 text-sm"
+              placeholder="Name (e.g. CPR/AED)"
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            />
+            <input
+              className="border-input bg-background rounded border px-2 py-1 text-sm"
+              placeholder="Issuer (optional)"
+              value={draft.issuer ?? ""}
+              onChange={(e) => setDraft({ ...draft, issuer: e.target.value })}
+            />
+            <input
+              type="date"
+              className="border-input bg-background rounded border px-2 py-1 text-sm"
+              value={draft.issued_at ?? ""}
+              onChange={(e) =>
+                setDraft({ ...draft, issued_at: e.target.value || null })
+              }
+              title="Issued on"
+            />
+            <input
+              type="date"
+              className="border-input bg-background rounded border px-2 py-1 text-sm"
+              value={draft.expires_at ?? ""}
+              onChange={(e) =>
+                setDraft({ ...draft, expires_at: e.target.value || null })
+              }
+              title="Expires on"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleAdd}>
+              Add
+            </Button>
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          {rows.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No certifications on file yet.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {rows.map((r) => {
+                const status = expirationStatus(r.expires_at)
+                const isEditing = editingId === r.id
+                return (
+                  <li
+                    key={r.id}
+                    className="border-border rounded border p-3 text-sm"
+                  >
+                    {isEditing ? (
+                      <CertificationEditor
+                        initial={{
+                          name: r.name,
+                          issuer: r.issuer,
+                          issued_at: r.issued_at,
+                          expires_at: r.expires_at,
+                          notes: r.notes,
+                        }}
+                        onCancel={() => setEditingId(null)}
+                        onSave={(input) => handleSaveEdit(r.id, input)}
+                      />
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium">{r.name}</span>
+                          <span className="text-muted-foreground text-xs">
+                            {r.issuer ?? "—"}
+                            {r.issued_at ? ` · issued ${r.issued_at}` : ""}
+                          </span>
+                        </div>
+                        <Badge
+                          className={
+                            status.tone === "danger"
+                              ? "bg-rose-800/60 text-rose-100"
+                              : status.tone === "warn"
+                                ? "bg-amber-800/60 text-amber-100"
+                                : status.tone === "ok"
+                                  ? "bg-emerald-800/60 text-emerald-100"
+                                  : "bg-muted text-muted-foreground"
+                          }
+                        >
+                          {status.label}
+                        </Badge>
+                        <div className="ml-auto flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditingId(r.id)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(r.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CertificationEditor({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: CertificationInput
+  onCancel: () => void
+  onSave: (input: CertificationInput) => void
+}) {
+  const [v, setV] = useState<CertificationInput>(initial)
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+        <input
+          className="border-input bg-background col-span-2 rounded border px-2 py-1 text-sm"
+          value={v.name}
+          onChange={(e) => setV({ ...v, name: e.target.value })}
+        />
+        <input
+          className="border-input bg-background rounded border px-2 py-1 text-sm"
+          placeholder="Issuer"
+          value={v.issuer ?? ""}
+          onChange={(e) => setV({ ...v, issuer: e.target.value })}
+        />
+        <input
+          type="date"
+          className="border-input bg-background rounded border px-2 py-1 text-sm"
+          value={v.issued_at ?? ""}
+          onChange={(e) => setV({ ...v, issued_at: e.target.value || null })}
+        />
+        <input
+          type="date"
+          className="border-input bg-background rounded border px-2 py-1 text-sm"
+          value={v.expires_at ?? ""}
+          onChange={(e) => setV({ ...v, expires_at: e.target.value || null })}
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={() => onSave(v)}>
+          Save
+        </Button>
+      </div>
+    </div>
   )
 }
 

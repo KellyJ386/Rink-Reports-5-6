@@ -170,3 +170,126 @@ export async function removeEmployeeFromGroup(
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Employee certifications (CPR, refrigeration operator, first aid, etc.)
+// ---------------------------------------------------------------------------
+
+export type CertificationInput = {
+  name: string
+  issuer: string | null
+  issued_at: string | null
+  expires_at: string | null
+  notes: string | null
+}
+
+function parseCertificationInput(input: CertificationInput): string | null {
+  const name = input.name?.trim()
+  if (!name) return "Certification name is required."
+  if (name.length > 200) return "Certification name is too long."
+  if (input.issuer && input.issuer.length > 200) return "Issuer is too long."
+  for (const [field, value] of [
+    ["issued_at", input.issued_at],
+    ["expires_at", input.expires_at],
+  ] as const) {
+    if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return `${field} must be a YYYY-MM-DD date.`
+    }
+  }
+  return null
+}
+
+export async function addEmployeeCertification(
+  employeeId: string,
+  input: CertificationInput,
+): Promise<ActionResult> {
+  try {
+    await requireAdmin()
+    const err = parseCertificationInput(input)
+    if (err) return { ok: false, error: err }
+
+    const supabase = await createClient()
+    const { data: employee, error: empErr } = await supabase
+      .from("employees")
+      .select("id, facility_id")
+      .eq("id", employeeId)
+      .maybeSingle()
+    if (empErr) return { ok: false, error: empErr.message }
+    if (!employee) return { ok: false, error: "Employee not found" }
+
+    // employee_certifications not yet in generated Database types; cast.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any
+    const { error } = await sb.from("employee_certifications").insert({
+      facility_id: employee.facility_id,
+      employee_id: employeeId,
+      name: input.name.trim(),
+      issuer: input.issuer?.trim() || null,
+      issued_at: input.issued_at || null,
+      expires_at: input.expires_at || null,
+      notes: input.notes?.trim() || null,
+    })
+    if (error) return { ok: false, error: error.message }
+
+    revalidatePath(`/admin/employees/${employeeId}`)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
+  }
+}
+
+export async function updateEmployeeCertification(
+  employeeId: string,
+  certificationId: string,
+  input: CertificationInput,
+): Promise<ActionResult> {
+  try {
+    await requireAdmin()
+    const err = parseCertificationInput(input)
+    if (err) return { ok: false, error: err }
+
+    const supabase = await createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any
+    const { error } = await sb
+      .from("employee_certifications")
+      .update({
+        name: input.name.trim(),
+        issuer: input.issuer?.trim() || null,
+        issued_at: input.issued_at || null,
+        expires_at: input.expires_at || null,
+        notes: input.notes?.trim() || null,
+      })
+      .eq("id", certificationId)
+      .eq("employee_id", employeeId)
+    if (error) return { ok: false, error: error.message }
+
+    revalidatePath(`/admin/employees/${employeeId}`)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
+  }
+}
+
+export async function deleteEmployeeCertification(
+  employeeId: string,
+  certificationId: string,
+): Promise<ActionResult> {
+  try {
+    await requireAdmin()
+    const supabase = await createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any
+    const { error } = await sb
+      .from("employee_certifications")
+      .delete()
+      .eq("id", certificationId)
+      .eq("employee_id", employeeId)
+    if (error) return { ok: false, error: error.message }
+
+    revalidatePath(`/admin/employees/${employeeId}`)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
+  }
+}

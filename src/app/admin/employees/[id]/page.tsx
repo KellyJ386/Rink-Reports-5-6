@@ -38,6 +38,10 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
   }
   if (!emp) notFound()
 
+  // employee_certifications not yet in generated Database types; cast.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+
   const [
     { data: rolesRaw },
     { data: deptsRaw },
@@ -45,6 +49,7 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
     { data: groupsRaw },
     { data: memberRaw },
     { data: auditRaw },
+    { data: certsRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -77,6 +82,11 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       .or(`actor_employee_id.eq.${emp.id},entity_id.eq.${emp.id}`)
       .order("created_at", { ascending: false })
       .limit(25),
+    sb
+      .from("employee_certifications")
+      .select("id, name, issuer, issued_at, expires_at, notes")
+      .eq("employee_id", emp.id)
+      .order("expires_at", { ascending: true, nullsFirst: false }),
   ])
 
   const role =
@@ -129,6 +139,14 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       entity_id: a.entity_id,
       created_at: a.created_at,
     })),
+    certifications: ((certsRaw ?? []) as Array<{
+      id: string
+      name: string
+      issuer: string | null
+      issued_at: string | null
+      expires_at: string | null
+      notes: string | null
+    }>).map((c) => ({ ...c })),
   }
 
   return (

@@ -169,9 +169,9 @@ export default async function RolesPage({
         <CardHeader>
           <CardTitle className="text-base">How permissions resolve</CardTitle>
           <CardDescription>
-            For each (employee, module) the system picks the first hit from:
-            explicit override → role default → MAX(department default) →
-            facility default → no access. Per-employee overrides live in{" "}
+            For each (employee, module) the system picks the first hit
+            from: explicit override → role default → no access. Per-employee
+            overrides live in{" "}
             <Link href="/admin/permissions" className="underline">
               Module Access Control
             </Link>
