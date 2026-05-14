@@ -74,8 +74,11 @@ export function ReadOnlyFacilityView({ facility, counts }: Props) {
               value={facility.is_active ? "Active" : "Inactive"}
             />
             <ReadOnlyField label="Address" value={facility.address ?? "—"} />
+            <ReadOnlyField label="City" value={facility.city ?? "—"} />
+            <ReadOnlyField label="State" value={facility.state ?? "—"} />
             <ReadOnlyField label="Zip code" value={facility.zip_code ?? "—"} />
             <ReadOnlyField label="Phone" value={facility.phone ?? "—"} />
+            <ReadOnlyField label="Email" value={facility.email ?? "—"} />
             <ReadOnlyField
               label="Created"
               value={formatDate(facility.created_at)}
