@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState, EmployeeFormInput } from "./types"
@@ -318,8 +319,30 @@ export async function createEmployee(
       return { ok: false, error: cfErr }
     }
 
+    // Send the welcome / set-password invite. Failure here does NOT roll back
+    // the employee record — the admin can re-send later via the row action.
+    let inviteWarning: string | null = null
+    if (input.email) {
+      const invite = await inviteEmployeeByEmail({
+        employeeId: inserted.id as string,
+        facilityId: facility.facilityId,
+        email: input.email,
+        fullName: `${input.first_name} ${input.last_name}`.trim(),
+      })
+      if (!invite.ok) {
+        inviteWarning = invite.error
+      }
+    }
+
     revalidatePath("/admin/employees")
-    return { ok: true, message: "Employee created." }
+    return {
+      ok: true,
+      message: inviteWarning
+        ? `Employee created. Invite email failed: ${inviteWarning}`
+        : input.email
+          ? "Employee created. Invite email sent — they'll set their password from the link."
+          : "Employee created. Add an email to send them an access invite.",
+    }
   } catch (e) {
     return {
       ok: false,
