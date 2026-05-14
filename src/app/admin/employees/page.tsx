@@ -144,9 +144,6 @@ export default async function EmployeesPage({
   }
 
   const supabase = await createClient()
-  // employee_custom_fields/_values aren't in generated types yet; cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
 
   const [
     { data: rolesRaw },
@@ -180,7 +177,7 @@ export default async function EmployeesPage({
       .from("employee_departments")
       .select("employee_id, department_id, is_primary")
       .eq("facility_id", facilityId),
-    sb
+    supabase
       .from("employee_custom_fields")
       .select(
         "id, facility_id, key, label, field_type, is_required, sort_order, is_active",
@@ -189,7 +186,7 @@ export default async function EmployeesPage({
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true }),
-    sb
+    supabase
       .from("employee_custom_field_values")
       .select("employee_id, field_id, value")
       .eq("facility_id", facilityId),

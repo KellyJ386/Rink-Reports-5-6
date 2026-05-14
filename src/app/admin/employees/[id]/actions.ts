@@ -46,9 +46,7 @@ export async function setEmployeeModuleOverride(
     if (empErr) return { ok: false, error: empErr.message }
     if (!employee) return { ok: false, error: "Employee not found" }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-    const { error } = await sb
+    const { error } = await supabase
       .from("module_permissions")
       .upsert(
         {

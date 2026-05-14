@@ -68,10 +68,7 @@ export async function setRoleModulePermissionLevel(
     if (roleErr) return err(roleErr.message)
     if (!role) return err("Role not found")
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-
-    const { error: upErr } = await sb
+    const { error: upErr } = await supabase
       .from("role_module_permission_defaults")
       .upsert(
         {
@@ -125,8 +122,7 @@ async function callerHierarchyFloor(
     .limit(1)
     .maybeSingle()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lvl = (data as any)?.roles?.hierarchy_level
+  const lvl = (data as { roles: { hierarchy_level: number } | null } | null)?.roles?.hierarchy_level
   return typeof lvl === "number" ? lvl : null
 }
 
@@ -170,19 +166,18 @@ export async function createRole(input: {
     }
 
     const supabase = await createClient()
-    const insertRow: Record<string, unknown> = {
+    const insertRow = {
       facility_id: input.facilityId,
       key: trimmedKey,
       display_name: trimmedName,
       hierarchy_level: level,
       is_system: false,
+      description: input.description ? input.description.trim() : undefined,
     }
-    if (input.description) insertRow.description = input.description.trim()
 
     const { data, error } = await supabase
       .from("roles")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .insert(insertRow as any)
+      .insert(insertRow)
       .select("id")
       .single()
 
@@ -214,13 +209,14 @@ export async function renameRole(
     }
 
     const supabase = await createClient()
-    const update: Record<string, unknown> = { display_name: trimmed }
-    if (description !== undefined) update.description = description.trim() || null
+    const update = {
+      display_name: trimmed,
+      ...(description !== undefined ? { description: description.trim() || null } : {}),
+    }
 
     const { error } = await supabase
       .from("roles")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .update(update as any)
+      .update(update)
       .eq("id", roleId)
 
     if (error) return err(error.message)
@@ -295,8 +291,7 @@ export async function deactivateRole(
     await requireAdmin()
     const supabase = await createClient()
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("deactivate_role", {
+    const { data, error } = await supabase.rpc("deactivate_role", {
       p_role_id: roleId,
       p_force: force,
     })
@@ -323,8 +318,7 @@ export async function reactivateRole(roleId: string): Promise<ActionResult> {
   try {
     await requireAdmin()
     const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("reactivate_role", {
+    const { data, error } = await supabase.rpc("reactivate_role", {
       p_role_id: roleId,
     })
     if (error) return err(error.message)
@@ -348,8 +342,7 @@ export async function copyRolePermissionDefaults(
     if (sourceRoleId === targetRoleId) return err("Source and target must differ")
 
     const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
+    const { data, error } = await supabase.rpc(
       "copy_role_permission_defaults",
       { p_source_role_id: sourceRoleId, p_target_role_id: targetRoleId },
     )

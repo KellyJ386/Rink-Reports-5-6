@@ -121,9 +121,7 @@ async function persistCustomFieldValues(
   formData: FormData,
 ): Promise<string | null> {
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const { data: defsRaw, error: defsErr } = await sb
+  const { data: defsRaw, error: defsErr } = await supabase
     .from("employee_custom_fields")
     .select("id, key, label, field_type, is_required, is_active")
     .eq("facility_id", facilityId)
@@ -184,13 +182,13 @@ async function persistCustomFieldValues(
   }
 
   if (toUpsert.length > 0) {
-    const { error: upErr } = await sb
+    const { error: upErr } = await supabase
       .from("employee_custom_field_values")
       .upsert(toUpsert, { onConflict: "employee_id,field_id" })
     if (upErr) return upErr.message
   }
   if (toDelete.length > 0) {
-    const { error: delErr } = await sb
+    const { error: delErr } = await supabase
       .from("employee_custom_field_values")
       .delete()
       .eq("employee_id", employeeId)

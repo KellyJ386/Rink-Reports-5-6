@@ -62,9 +62,7 @@ export default async function CustomFieldsPage({
   }
 
   const supabase = await createClient()
-  // employee_custom_fields isn't in generated types yet; cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: fieldsRaw } = await (supabase as any)
+  const { data: fieldsRaw } = await supabase
     .from("employee_custom_fields")
     .select("id, facility_id, key, label, field_type, is_required, sort_order, is_active")
     .eq("facility_id", facilityId)

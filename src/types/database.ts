@@ -232,6 +232,7 @@ export type Database = {
           employee_id: string | null
           facility_id: string
           id: string
+          injured_person_age: number | null
           injured_person_contact: string
           injured_person_name: string
           location_dropdown_id: string | null
@@ -252,6 +253,7 @@ export type Database = {
           employee_id?: string | null
           facility_id: string
           id?: string
+          injured_person_age?: number | null
           injured_person_contact: string
           injured_person_name: string
           location_dropdown_id?: string | null
@@ -272,6 +274,7 @@ export type Database = {
           employee_id?: string | null
           facility_id?: string
           id?: string
+          injured_person_age?: number | null
           injured_person_contact?: string
           injured_person_name?: string
           location_dropdown_id?: string | null
@@ -336,6 +339,57 @@ export type Database = {
           },
         ]
       }
+      accident_witnesses: {
+        Row: {
+          accident_id: string
+          contact: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          name: string
+          sort_order: number
+          statement: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          accident_id: string
+          contact?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          name: string
+          sort_order?: number
+          statement?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          accident_id?: string
+          contact?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          statement?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accident_witnesses_accident_id_fkey"
+            columns: ["accident_id"]
+            isOneToOne: false
+            referencedRelation: "accident_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accident_witnesses_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       accident_workers_comp_settings: {
         Row: {
           created_at: string
@@ -367,6 +421,61 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_quality_change_log: {
+        Row: {
+          after: Json
+          before: Json
+          changed_by: string
+          created_at: string
+          facility_id: string
+          id: string
+          reason: string
+          submission_id: string
+        }
+        Insert: {
+          after?: Json
+          before?: Json
+          changed_by: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          reason: string
+          submission_id: string
+        }
+        Update: {
+          after?: Json
+          before?: Json
+          changed_by?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          reason?: string
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_quality_change_log_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_change_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_quality_change_log_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_reports"
             referencedColumns: ["id"]
           },
         ]
@@ -1241,6 +1350,7 @@ export type Database = {
           created_at: string
           facility_id: string
           id: string
+          pdf_url: string | null
           requires_acknowledgement: boolean
           sender_employee_id: string | null
           sent_at: string
@@ -1253,6 +1363,7 @@ export type Database = {
           created_at?: string
           facility_id: string
           id?: string
+          pdf_url?: string | null
           requires_acknowledgement?: boolean
           sender_employee_id?: string | null
           sent_at?: string
@@ -1265,6 +1376,7 @@ export type Database = {
           created_at?: string
           facility_id?: string
           id?: string
+          pdf_url?: string | null
           requires_acknowledgement?: boolean
           sender_employee_id?: string | null
           sent_at?: string
@@ -1421,47 +1533,62 @@ export type Database = {
       communication_routing_rules: {
         Row: {
           area_id: string | null
+          attach_pdf: boolean
           created_at: string
           facility_id: string
           id: string
           is_active: boolean
+          last_run_at: string | null
+          last_run_status: string | null
           name: string | null
           priority: number
           severity: string | null
           source_module: string
+          target_department_id: string | null
           target_employee_id: string | null
           target_group_id: string | null
           target_role_key: string | null
+          timing: string
           updated_at: string | null
         }
         Insert: {
           area_id?: string | null
+          attach_pdf?: boolean
           created_at?: string
           facility_id: string
           id?: string
           is_active?: boolean
+          last_run_at?: string | null
+          last_run_status?: string | null
           name?: string | null
           priority?: number
           severity?: string | null
           source_module: string
+          target_department_id?: string | null
           target_employee_id?: string | null
           target_group_id?: string | null
           target_role_key?: string | null
+          timing?: string
           updated_at?: string | null
         }
         Update: {
           area_id?: string | null
+          attach_pdf?: boolean
           created_at?: string
           facility_id?: string
           id?: string
           is_active?: boolean
+          last_run_at?: string | null
+          last_run_status?: string | null
           name?: string | null
           priority?: number
           severity?: string | null
           source_module?: string
+          target_department_id?: string | null
           target_employee_id?: string | null
           target_group_id?: string | null
           target_role_key?: string | null
+          timing?: string
           updated_at?: string | null
         }
         Relationships: [
@@ -1470,6 +1597,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_routing_rules_target_department_id_fkey"
+            columns: ["target_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
           {
@@ -1853,6 +1987,51 @@ export type Database = {
           },
         ]
       }
+      department_module_permission_defaults: {
+        Row: {
+          created_at: string
+          department_id: string
+          facility_id: string
+          id: string
+          module_key: string
+          permission_level: Database["public"]["Enums"]["module_permission_level"]
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          facility_id: string
+          id?: string
+          module_key: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          facility_id?: string
+          id?: string
+          module_key?: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_module_permission_defaults_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "department_module_permission_defaults_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
           color: string | null
@@ -1890,6 +2069,98 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "departments_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_custom_field_values: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          field_id: string
+          id: string
+          updated_at: string | null
+          value: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          field_id: string
+          id?: string
+          updated_at?: string | null
+          value?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          field_id?: string
+          id?: string
+          updated_at?: string | null
+          value?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_custom_field_values_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_custom_field_values_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_custom_fields: {
+        Row: {
+          created_at: string
+          facility_id: string
+          field_type: Database["public"]["Enums"]["employee_custom_field_type"]
+          id: string
+          is_active: boolean
+          is_required: boolean
+          key: string
+          label: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          field_type?: Database["public"]["Enums"]["employee_custom_field_type"]
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          key: string
+          label: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          field_type?: Database["public"]["Enums"]["employee_custom_field_type"]
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          key?: string
+          label?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_custom_fields_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
@@ -2041,6 +2312,8 @@ export type Database = {
       export_settings: {
         Row: {
           created_at: string
+          csv_delimiter: string
+          date_format: string
           facility_id: string
           footer_text: string | null
           header_text: string | null
@@ -2049,11 +2322,14 @@ export type Database = {
           include_facility_name: boolean
           include_submitted_by: boolean
           logo_url: string | null
+          module_column_visibility: Json
           paper_size: string
           updated_at: string | null
         }
         Insert: {
           created_at?: string
+          csv_delimiter?: string
+          date_format?: string
           facility_id: string
           footer_text?: string | null
           header_text?: string | null
@@ -2062,11 +2338,14 @@ export type Database = {
           include_facility_name?: boolean
           include_submitted_by?: boolean
           logo_url?: string | null
+          module_column_visibility?: Json
           paper_size?: string
           updated_at?: string | null
         }
         Update: {
           created_at?: string
+          csv_delimiter?: string
+          date_format?: string
           facility_id?: string
           footer_text?: string | null
           header_text?: string | null
@@ -2075,6 +2354,7 @@ export type Database = {
           include_facility_name?: boolean
           include_submitted_by?: boolean
           logo_url?: string | null
+          module_column_visibility?: Json
           paper_size?: string
           updated_at?: string | null
         }
@@ -2129,6 +2409,96 @@ export type Database = {
           zip_code?: string | null
         }
         Relationships: []
+      }
+      facility_module_permission_defaults: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          module_key: string
+          permission_level: Database["public"]["Enums"]["module_permission_level"]
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          module_key: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          module_key?: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_module_permission_defaults_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_change_log: {
+        Row: {
+          after: Json
+          before: Json
+          changed_by: string
+          created_at: string
+          facility_id: string
+          id: string
+          reason: string
+          session_id: string
+        }
+        Insert: {
+          after?: Json
+          before?: Json
+          changed_by: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          reason: string
+          session_id: string
+        }
+        Update: {
+          after?: Json
+          before?: Json
+          changed_by?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          reason?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_change_log_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_change_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_change_log_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ice_depth_followup_notes: {
         Row: {
@@ -2484,6 +2854,61 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: true
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_operation_change_log: {
+        Row: {
+          after: Json
+          before: Json
+          changed_by: string
+          created_at: string
+          facility_id: string
+          id: string
+          reason: string
+          report_id: string
+        }
+        Insert: {
+          after?: Json
+          before?: Json
+          changed_by: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          reason: string
+          report_id: string
+        }
+        Update: {
+          after?: Json
+          before?: Json
+          changed_by?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          reason?: string
+          report_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_operation_change_log_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operation_change_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_operation_change_log_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_submissions"
             referencedColumns: ["id"]
           },
         ]
@@ -3135,6 +3560,7 @@ export type Database = {
           facility_id: string
           id: string
           module_key: string
+          permission_level: Database["public"]["Enums"]["module_permission_level"]
           updated_at: string | null
         }
         Insert: {
@@ -3146,6 +3572,7 @@ export type Database = {
           facility_id: string
           id?: string
           module_key: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
           updated_at?: string | null
         }
         Update: {
@@ -3157,6 +3584,7 @@ export type Database = {
           facility_id?: string
           id?: string
           module_key?: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
           updated_at?: string | null
         }
         Relationships: [
@@ -3172,6 +3600,203 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_outbox: {
+        Row: {
+          attach_pdf: boolean
+          body: string | null
+          created_at: string
+          error: string | null
+          facility_id: string
+          id: string
+          pdf_url: string | null
+          recipient_employee_id: string
+          rule_id: string | null
+          scheduled_for: string
+          sent_at: string | null
+          source_module: string
+          source_record_id: string | null
+          status: string
+          subject: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          attach_pdf?: boolean
+          body?: string | null
+          created_at?: string
+          error?: string | null
+          facility_id: string
+          id?: string
+          pdf_url?: string | null
+          recipient_employee_id: string
+          rule_id?: string | null
+          scheduled_for?: string
+          sent_at?: string | null
+          source_module: string
+          source_record_id?: string | null
+          status?: string
+          subject?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          attach_pdf?: boolean
+          body?: string | null
+          created_at?: string
+          error?: string | null
+          facility_id?: string
+          id?: string
+          pdf_url?: string | null
+          recipient_employee_id?: string
+          rule_id?: string | null
+          scheduled_for?: string
+          sent_at?: string | null
+          source_module?: string
+          source_record_id?: string | null
+          status?: string
+          subject?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_outbox_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_recipient_employee_id_fkey"
+            columns: ["recipient_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "communication_routing_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      offline_sync_queue: {
+        Row: {
+          action: string
+          created_at: string
+          employee_id: string
+          error_message: string | null
+          facility_id: string
+          id: string
+          local_id: string
+          module_key: string
+          payload: Json
+          retry_count: number
+          started_at: string
+          sync_status: string
+          synced_at: string | null
+        }
+        Insert: {
+          action?: string
+          created_at?: string
+          employee_id: string
+          error_message?: string | null
+          facility_id: string
+          id?: string
+          local_id: string
+          module_key: string
+          payload?: Json
+          retry_count?: number
+          started_at?: string
+          sync_status?: string
+          synced_at?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          employee_id?: string
+          error_message?: string | null
+          facility_id?: string
+          id?: string
+          local_id?: string
+          module_key?: string
+          payload?: Json
+          retry_count?: number
+          started_at?: string
+          sync_status?: string
+          synced_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offline_sync_queue_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offline_sync_queue_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refrigeration_change_log: {
+        Row: {
+          after: Json
+          before: Json
+          changed_by: string
+          created_at: string
+          facility_id: string
+          id: string
+          reason: string
+          report_id: string
+        }
+        Insert: {
+          after?: Json
+          before?: Json
+          changed_by: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          reason: string
+          report_id: string
+        }
+        Update: {
+          after?: Json
+          before?: Json
+          changed_by?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          reason?: string
+          report_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refrigeration_change_log_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_change_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_change_log_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_reports"
             referencedColumns: ["id"]
           },
         ]
@@ -3628,6 +4253,8 @@ export type Database = {
           facility_id: string
           id: string
           keep_days: number
+          last_purge_count: number | null
+          last_purged_at: string | null
           module_key: string
           updated_at: string | null
         }
@@ -3637,6 +4264,8 @@ export type Database = {
           facility_id: string
           id?: string
           keep_days?: number
+          last_purge_count?: number | null
+          last_purged_at?: string | null
           module_key: string
           updated_at?: string | null
         }
@@ -3646,6 +4275,8 @@ export type Database = {
           facility_id?: string
           id?: string
           keep_days?: number
+          last_purge_count?: number | null
+          last_purged_at?: string | null
           module_key?: string
           updated_at?: string | null
         }
@@ -3659,33 +4290,87 @@ export type Database = {
           },
         ]
       }
+      role_module_permission_defaults: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          module_key: string
+          permission_level: Database["public"]["Enums"]["module_permission_level"]
+          role_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          module_key: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
+          role_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          module_key?: string
+          permission_level?: Database["public"]["Enums"]["module_permission_level"]
+          role_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_module_permission_defaults_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_module_permission_defaults_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           created_at: string
+          deactivated_at: string | null
+          description: string | null
           display_name: string
           facility_id: string
           hierarchy_level: number
           id: string
+          is_active: boolean
           is_system: boolean
           key: string
           updated_at: string | null
         }
         Insert: {
           created_at?: string
+          deactivated_at?: string | null
+          description?: string | null
           display_name: string
           facility_id: string
           hierarchy_level: number
           id?: string
+          is_active?: boolean
           is_system?: boolean
           key: string
           updated_at?: string | null
         }
         Update: {
           created_at?: string
+          deactivated_at?: string | null
+          description?: string | null
           display_name?: string
           facility_id?: string
           hierarchy_level?: number
           id?: string
+          is_active?: boolean
           is_system?: boolean
           key?: string
           updated_at?: string | null
@@ -4001,6 +4686,83 @@ export type Database = {
           {
             foreignKeyName: "schedule_publish_events_published_by_employee_id_fkey"
             columns: ["published_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_publish_requests: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by_employee_id: string | null
+          facility_id: string
+          id: string
+          notes: string | null
+          published_event_id: string | null
+          range_ends_at: string
+          range_starts_at: string
+          rejection_reason: string | null
+          requested_by_employee_id: string
+          status: Database["public"]["Enums"]["schedule_publish_request_status"]
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by_employee_id?: string | null
+          facility_id: string
+          id?: string
+          notes?: string | null
+          published_event_id?: string | null
+          range_ends_at: string
+          range_starts_at: string
+          rejection_reason?: string | null
+          requested_by_employee_id: string
+          status?: Database["public"]["Enums"]["schedule_publish_request_status"]
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by_employee_id?: string | null
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          published_event_id?: string | null
+          range_ends_at?: string
+          range_starts_at?: string
+          rejection_reason?: string | null
+          requested_by_employee_id?: string
+          status?: Database["public"]["Enums"]["schedule_publish_request_status"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_publish_requests_decided_by_employee_id_fkey"
+            columns: ["decided_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_publish_requests_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_publish_requests_published_event_id_fkey"
+            columns: ["published_event_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_publish_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_publish_requests_requested_by_employee_id_fkey"
+            columns: ["requested_by_employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
             referencedColumns: ["id"]
@@ -4490,7 +5252,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      copy_role_permission_defaults: {
+        Args: { p_source_role_id: string; p_target_role_id: string }
+        Returns: number
+      }
       current_employee_id: { Args: never; Returns: string }
+      current_employee_module_permission: {
+        Args: { p_module_key: string }
+        Returns: Database["public"]["Enums"]["module_permission_level"]
+      }
       current_facility_id: { Args: never; Returns: string }
       current_user_id: { Args: never; Returns: string }
       current_user_record: {
@@ -4515,6 +5285,42 @@ export type Database = {
         }
       }
       current_user_role: { Args: never; Returns: string }
+      deactivate_role: {
+        Args: { p_force?: boolean; p_role_id: string }
+        Returns: {
+          employee_count: number
+          message: string
+          ok: boolean
+        }[]
+      }
+      dispatch_rules_for_submission: {
+        Args: {
+          p_area_id?: string
+          p_body?: string
+          p_facility_id: string
+          p_severity?: string
+          p_source_module: string
+          p_source_record_id: string
+          p_subject?: string
+        }
+        Returns: number
+      }
+      drain_notification_outbox: {
+        Args: { p_facility_id?: string; p_max_rows?: number }
+        Returns: {
+          failed_count: number
+          message_count: number
+          sent_count: number
+        }[]
+      }
+      effective_module_permission: {
+        Args: { p_employee_id: string; p_module_key: string }
+        Returns: Database["public"]["Enums"]["module_permission_level"]
+      }
+      effective_module_permission_with_source: {
+        Args: { p_employee_id: string; p_module_key: string }
+        Returns: Record<string, unknown>
+      }
       get_employee_counts_by_facility: {
         Args: never
         Returns: {
@@ -4540,6 +5346,13 @@ export type Database = {
       purge_old_ice_operations_submissions: { Args: never; Returns: number }
       purge_old_incident_reports: { Args: never; Returns: number }
       purge_old_refrigeration_reports: { Args: never; Returns: number }
+      reactivate_role: { Args: { p_role_id: string }; Returns: boolean }
+      resolve_rule_recipients: {
+        Args: { p_rule_id: string }
+        Returns: {
+          employee_id: string
+        }[]
+      }
       scheduling_claim_open_shift: {
         Args: { p_open_shift_id: string }
         Returns: boolean
@@ -4580,7 +5393,18 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
-      [_ in never]: never
+      employee_custom_field_type: "text" | "number" | "date" | "boolean"
+      module_permission_level:
+        | "none"
+        | "view"
+        | "submit"
+        | "edit_own"
+        | "edit_all"
+        | "approve"
+        | "publish"
+        | "manage_settings"
+        | "admin"
+      schedule_publish_request_status: "pending" | "rejected" | "published"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4707,6 +5531,20 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      employee_custom_field_type: ["text", "number", "date", "boolean"],
+      module_permission_level: [
+        "none",
+        "view",
+        "submit",
+        "edit_own",
+        "edit_all",
+        "approve",
+        "publish",
+        "manage_settings",
+        "admin",
+      ],
+      schedule_publish_request_status: ["pending", "rejected", "published"],
+    },
   },
 } as const
