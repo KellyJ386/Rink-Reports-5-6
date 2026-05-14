@@ -14,9 +14,8 @@ import {
   deleteEmployee,
   reactivateEmployee,
 } from "../actions"
+import { inviteEmployee } from "../[id]/actions"
 import type {
-  CustomFieldDef,
-  CustomFieldValueMap,
   DepartmentRow,
   EmployeeListItem,
   RoleRow,
@@ -28,8 +27,6 @@ type Props = {
   employees: EmployeeListItem[]
   roles: RoleRow[]
   departments: DepartmentRow[]
-  customFields: CustomFieldDef[]
-  customValuesByEmployee: Record<string, CustomFieldValueMap>
   canDelete: boolean
 }
 
@@ -52,8 +49,6 @@ export function EmployeesClient({
   employees,
   roles,
   departments,
-  customFields,
-  customValuesByEmployee,
   canDelete,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -273,6 +268,20 @@ export function EmployeesClient({
                         >
                           Edit
                         </Button>
+                        {e.is_active && e.email && !e.user_id ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              runRowAction(e.id, inviteEmployee)
+                            }
+                            disabled={isPending}
+                            title={`Send a magic-link invite to ${e.email}`}
+                          >
+                            Invite
+                          </Button>
+                        ) : null}
                         {e.is_active ? (
                           <Button
                             type="button"
@@ -347,10 +356,6 @@ export function EmployeesClient({
         facilityId={facilityId}
         roles={roles}
         departments={departments}
-        customFields={customFields}
-        customValues={
-          editing ? (customValuesByEmployee[editing.id] ?? {}) : {}
-        }
         editing={editing}
       />
     </div>

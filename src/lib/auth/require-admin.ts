@@ -7,12 +7,12 @@ import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "./get-current-user"
 import type { AuthedUser } from "./types"
 
-const ADMIN_ROLE_KEYS = ["admin", "gm", "super_admin"] as const
+const ADMIN_ROLE_KEYS = ["admin", "super_admin"] as const
 
 /**
  * Server-side guard: requires that the current user is either a global super
  * admin (users.is_super_admin) or has an active employee row whose role.key is
- * one of admin/gm/super_admin for the user's current facility.
+ * one of admin/super_admin for the user's current facility.
  *
  * Redirects to /login when unauthenticated, or to /forbidden when
  * authenticated but lacking admin privileges. Splitting the two cases lets

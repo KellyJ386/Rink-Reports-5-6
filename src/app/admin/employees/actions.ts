@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
-import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState, EmployeeFormInput } from "./types"
@@ -100,106 +99,6 @@ function parseFormInput(
   }
 }
 
-type CustomFieldDefRow = {
-  id: string
-  key: string
-  label: string
-  field_type: "text" | "number" | "date" | "boolean"
-  is_required: boolean
-  is_active: boolean
-}
-
-/**
- * Read facility-scoped custom field definitions from the form and persist
- * the per-employee values. Inactive definitions are loaded too so existing
- * values aren't accidentally wiped just because the field was deactivated.
- *
- * Returns an error string on validation failure; null on success.
- */
-async function persistCustomFieldValues(
-  employeeId: string,
-  facilityId: string,
-  formData: FormData,
-): Promise<string | null> {
-  const supabase = await createClient()
-  const { data: defsRaw, error: defsErr } = await supabase
-    .from("employee_custom_fields")
-    .select("id, key, label, field_type, is_required, is_active")
-    .eq("facility_id", facilityId)
-  if (defsErr) return defsErr.message
-  const defs = (defsRaw ?? []) as CustomFieldDefRow[]
-  if (defs.length === 0) return null
-
-  const toUpsert: Array<{
-    facility_id: string
-    employee_id: string
-    field_id: string
-    value: string
-  }> = []
-  const toDelete: string[] = []
-
-  for (const def of defs) {
-    const name = `cf_${def.id}`
-    const raw = formData.get(name)
-
-    let value: string | null
-    if (def.field_type === "boolean") {
-      value = raw === "on" || raw === "true" ? "true" : "false"
-    } else if (typeof raw === "string" && raw.trim() !== "") {
-      value = raw.trim()
-    } else {
-      value = null
-    }
-
-    // Only require ACTIVE fields. A deactivated required field shouldn't
-    // block edits to the rest of the employee record.
-    if (def.is_active && def.is_required && def.field_type !== "boolean") {
-      if (!value) {
-        return `${def.label} is required.`
-      }
-    }
-
-    if (def.field_type === "number" && value !== null) {
-      if (!Number.isFinite(Number(value))) {
-        return `${def.label} must be a number.`
-      }
-    }
-    if (def.field_type === "date" && value !== null) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return `${def.label} must be a YYYY-MM-DD date.`
-      }
-    }
-
-    if (value === null) {
-      toDelete.push(def.id)
-    } else {
-      toUpsert.push({
-        facility_id: facilityId,
-        employee_id: employeeId,
-        field_id: def.id,
-        value,
-      })
-    }
-  }
-
-  if (toUpsert.length > 0) {
-    const { error: upErr } = await supabase
-      .from("employee_custom_field_values")
-      .upsert(toUpsert, { onConflict: "employee_id,field_id" })
-    if (upErr) return upErr.message
-  }
-  if (toDelete.length > 0) {
-    const { error: delErr } = await supabase
-      .from("employee_custom_field_values")
-      .delete()
-      .eq("employee_id", employeeId)
-      .in("field_id", toDelete)
-    if (delErr) return delErr.message
-  }
-
-  return null
-}
-
 async function resolveFacilityIdFromForm(
   formData: FormData
 ): Promise<{ ok: true; facilityId: string } | { ok: false; error: string }> {
@@ -282,37 +181,8 @@ export async function createEmployee(
       }
     }
 
-    const cfErr = await persistCustomFieldValues(
-      employeeId,
-      facility.facilityId,
-      formData,
-    )
-    if (cfErr) return { ok: false, error: cfErr }
-
-    // Send the welcome / set-password invite. Failure here does NOT roll back
-    // the employee record — the admin can re-send later via the row action.
-    let inviteWarning: string | null = null
-    if (input.email) {
-      const invite = await inviteEmployeeByEmail({
-        employeeId: employeeId as string,
-        facilityId: facility.facilityId,
-        email: input.email,
-        fullName: `${input.first_name} ${input.last_name}`.trim(),
-      })
-      if (!invite.ok) {
-        inviteWarning = invite.error
-      }
-    }
-
     revalidatePath("/admin/employees")
-    return {
-      ok: true,
-      message: inviteWarning
-        ? `Employee created. Invite email failed: ${inviteWarning}`
-        : input.email
-          ? "Employee created. Invite email sent — they'll set their password from the link."
-          : "Employee created. Add an email to send them an access invite.",
-    }
+    return { ok: true, message: "Employee created." }
   } catch (e) {
     return {
       ok: false,
@@ -458,9 +328,6 @@ export async function updateEmployee(
       }
     }
 
-    const cfErr = await persistCustomFieldValues(id, facility.facilityId, formData)
-    if (cfErr) return { ok: false, error: cfErr }
-
     revalidatePath("/admin/employees")
     return { ok: true, message: "Employee updated." }
   } catch (e) {
@@ -567,15 +434,13 @@ export async function deleteEmployee(id: string): Promise<ActionState> {
 
 // Canonical roles to seed when a facility has none.
 // We do NOT call seed_default_roles_for_facility() because that RPC is granted
-// to service_role only. Instead we upsert directly — RLS allows admin/gm/
+// to service_role only. Instead we upsert directly — RLS allows admin/
 // super_admin to insert into roles for their own facility.
 const CANONICAL_ROLES = [
   { key: "super_admin", display_name: "Super Admin", hierarchy_level: 0 },
   { key: "admin", display_name: "Administrator", hierarchy_level: 1 },
-  { key: "gm", display_name: "General Manager", hierarchy_level: 2 },
-  { key: "manager", display_name: "Manager", hierarchy_level: 3 },
-  { key: "supervisor", display_name: "Supervisor", hierarchy_level: 4 },
-  { key: "staff", display_name: "Staff", hierarchy_level: 5 },
+  { key: "manager", display_name: "Manager", hierarchy_level: 2 },
+  { key: "staff", display_name: "Staff", hierarchy_level: 3 },
 ] as const
 
 export async function seedRolesForCurrentFacility(
