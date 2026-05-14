@@ -18,8 +18,11 @@ export type FacilityFormInput = {
   timezone: string
   is_active?: boolean
   address?: string | null
+  city?: string | null
+  state?: string | null
   zip_code?: string | null
   phone?: string | null
+  email?: string | null
 }
 
 export type ActionResult<T = void> =

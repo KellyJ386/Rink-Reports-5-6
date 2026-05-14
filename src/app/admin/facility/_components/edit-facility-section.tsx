@@ -26,7 +26,8 @@ export function EditFacilitySection({ facility }: Props) {
           <div className="flex flex-col gap-1">
             <CardTitle>Edit {facility.name}</CardTitle>
             <CardDescription>
-              Update name, slug, timezone, and active status.
+              Update name, slug, timezone, mailing address, contact info, and
+              active status.
             </CardDescription>
           </div>
           <Button asChild size="sm" variant="ghost">
