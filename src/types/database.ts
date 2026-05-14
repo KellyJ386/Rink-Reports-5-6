@@ -5267,20 +5267,6 @@ export type Database = {
       }
       create_employee_complete: {
         Args: {
-          p_created_by?: string
-          p_department_ids?: string[]
-          p_email?: string
-          p_emergency_contact_name?: string
-          p_emergency_contact_phone?: string
-          p_employee_code?: string
-          p_facility_id: string
-          p_first_name: string
-          p_hire_date?: string
-          p_is_minor?: boolean
-          p_last_name: string
-          p_phone?: string
-          p_primary_department_id?: string
-          p_role_id: string
           p_facility_id: string
           p_role_id: string
           p_first_name: string
@@ -5300,12 +5286,6 @@ export type Database = {
       }
       create_facility_with_roles: {
         Args: {
-          p_address?: string
-          p_name: string
-          p_phone?: string
-          p_slug: string
-          p_timezone: string
-          p_zip_code?: string
           p_name: string
           p_slug: string
           p_timezone: string
