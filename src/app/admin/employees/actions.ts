@@ -574,15 +574,13 @@ export async function deleteEmployee(id: string): Promise<ActionState> {
 
 // Canonical roles to seed when a facility has none.
 // We do NOT call seed_default_roles_for_facility() because that RPC is granted
-// to service_role only. Instead we upsert directly — RLS allows admin/gm/
+// to service_role only. Instead we upsert directly — RLS allows admin/
 // super_admin to insert into roles for their own facility.
 const CANONICAL_ROLES = [
   { key: "super_admin", display_name: "Super Admin", hierarchy_level: 0 },
   { key: "admin", display_name: "Administrator", hierarchy_level: 1 },
-  { key: "gm", display_name: "General Manager", hierarchy_level: 2 },
-  { key: "manager", display_name: "Manager", hierarchy_level: 3 },
-  { key: "supervisor", display_name: "Supervisor", hierarchy_level: 4 },
-  { key: "staff", display_name: "Staff", hierarchy_level: 5 },
+  { key: "manager", display_name: "Manager", hierarchy_level: 2 },
+  { key: "staff", display_name: "Staff", hierarchy_level: 3 },
 ] as const
 
 export async function seedRolesForCurrentFacility(
