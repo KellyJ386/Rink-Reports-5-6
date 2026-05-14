@@ -440,7 +440,7 @@ export default async function CommunicationsInboxPage({
   const { data: recipientsRaw } = await supabase
     .from("communication_recipients")
     .select(
-      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
+      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
     )
     .eq("employee_id", employeeRow.id)
     .order("created_at", { ascending: false })
@@ -473,6 +473,7 @@ export default async function CommunicationsInboxPage({
         created_at: r.message.created_at,
         updated_at: r.message.updated_at,
         template_id: r.message.template_id,
+        pdf_url: r.message.pdf_url ?? null,
       },
       senderName: fullName(r.message.sender),
     }))
