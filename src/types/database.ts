@@ -1946,6 +1946,120 @@ export type Database = {
           },
         ]
       }
+      employee_certifications: {
+        Row: {
+          created_at: string
+          employee_id: string
+          expires_at: string | null
+          facility_id: string
+          id: string
+          issued_at: string | null
+          issuer: string | null
+          name: string
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          issued_at?: string | null
+          issuer?: string | null
+          name: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          issued_at?: string | null
+          issuer?: string | null
+          name?: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_certifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_certifications_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_invites: {
+        Row: {
+          accepted_at: string | null
+          created_at: string
+          email: string
+          employee_id: string
+          expires_at: string | null
+          facility_id: string
+          id: string
+          invited_by: string | null
+          last_error: string | null
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string
+          email: string
+          employee_id: string
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          invited_by?: string | null
+          last_error?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string
+          email?: string
+          employee_id?: string
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          invited_by?: string | null
+          last_error?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_invites_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_invites_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           created_at: string

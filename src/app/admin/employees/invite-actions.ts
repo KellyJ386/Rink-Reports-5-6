@@ -113,9 +113,7 @@ export async function inviteEmployee(employeeId: string): Promise<ActionState> {
 
     // Best-effort invite record. Failure here is non-fatal — the invite
     // has already gone out and the user_id binding succeeded.
-    // employee_invites is not yet in generated Database types; cast.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).from("employee_invites").insert({
+    await supabase.from("employee_invites").insert({
       facility_id: emp.facility_id,
       employee_id: emp.id,
       email: emp.email,
@@ -148,9 +146,7 @@ export async function revokeEmployeeInvite(
     if (!employeeId) return { ok: false, error: "Missing employee id." }
 
     const supabase = await createClient()
-    // employee_invites is not yet in generated Database types; cast.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("employee_invites")
       .update({ status: "revoked" })
       .eq("employee_id", employeeId)
