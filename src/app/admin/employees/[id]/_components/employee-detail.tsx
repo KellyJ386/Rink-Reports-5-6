@@ -18,6 +18,7 @@ import { MODULE_LABELS, type ModuleKey } from "../../../permissions/types"
 import {
   addEmployeeToGroup,
   clearEmployeeModuleOverride,
+  inviteEmployee,
   removeEmployeeFromGroup,
   setEmployeeModuleOverride,
 } from "../actions"
@@ -37,6 +38,7 @@ export type EmployeeDetailData = {
     emergency_contact_name: string | null
     emergency_contact_phone: string | null
     created_at: string
+    user_id: string | null
     role: {
       id: string
       key: string
@@ -112,6 +114,21 @@ export function EmployeeDetail({ data }: { data: EmployeeDetailData }) {
 
 function ProfileTab({ data }: { data: EmployeeDetailData }) {
   const e = data.employee
+  const [pending, startTransition] = useTransition()
+
+  function handleInvite() {
+    startTransition(async () => {
+      const result = await inviteEmployee(e.id)
+      if (!result.ok) {
+        toast.error(result.error)
+      } else if (result.invited) {
+        toast.success(`Invitation sent to ${e.email}.`)
+      } else {
+        toast.success("Existing account linked. No email sent.")
+      }
+    })
+  }
+
   return (
     <Card>
       <CardContent className="grid grid-cols-1 gap-x-6 gap-y-3 p-6 sm:grid-cols-2">
@@ -134,9 +151,28 @@ function ProfileTab({ data }: { data: EmployeeDetailData }) {
           label="Emergency phone"
           value={e.emergency_contact_phone ?? "—"}
         />
+        <Field
+          label="Login account"
+          value={e.user_id ? "Linked" : "Not linked"}
+        />
         <p className="text-muted-foreground col-span-full text-xs">
           To edit fields, use the Employees list and open the edit panel.
         </p>
+        {!e.user_id && e.email && (
+          <div className="col-span-full pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleInvite}
+              disabled={pending}
+            >
+              {pending ? "Sending…" : "Send login invitation"}
+            </Button>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Sends an invitation email to {e.email} so this employee can log in.
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
