@@ -36,7 +36,7 @@ function pickIdParam(
 }
 
 const FACILITY_COLUMNS =
-  "id, name, slug, timezone, settings, is_active, created_at, updated_at, address, zip_code, phone"
+  "id, name, slug, timezone, settings, is_active, created_at, updated_at, address, city, state, zip_code, phone, email"
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 

@@ -18,8 +18,27 @@ type CreateInput = {
   slug: string
   timezone: string
   address?: string | null
+  city?: string | null
+  state?: string | null
   zip_code?: string | null
   phone?: string | null
+  email?: string | null
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function normalizeEmail(input: string | null | undefined): string | null {
+  if (input === null || input === undefined) return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  return trimmed
+}
+
+function normalizeState(input: string | null | undefined): string | null {
+  if (input === null || input === undefined) return null
+  const trimmed = input.trim().toUpperCase()
+  if (!trimmed) return null
+  return trimmed
 }
 
 type UpdateInput = Partial<FacilityFormInput>
@@ -92,6 +111,10 @@ export async function createFacility(
   const name = normalizeName(rawInput.name)
   const slug = normalizeSlug(rawInput.slug)
   const timezone = normalizeTimezone(rawInput.timezone)
+  const email = normalizeEmail(rawInput.email)
+  if (email && !EMAIL_PATTERN.test(email)) {
+    return { ok: false, error: "Email must be a valid address." }
+  }
 
   const supabase = await createClient()
 
@@ -111,6 +134,43 @@ export async function createFacility(
   )
 
   if (error || !facilityId) {
+  const { data: facility, error: insertError } = await supabase
+    .from("facilities")
+    .insert({
+      name,
+      slug,
+      timezone,
+      address: rawInput.address ?? null,
+      city: rawInput.city ?? null,
+      state: normalizeState(rawInput.state),
+      zip_code: rawInput.zip_code ?? null,
+      phone: rawInput.phone ?? null,
+      email,
+    })
+    .select("id")
+    .single()
+
+  if (insertError || !facility) {
+    return {
+      ok: false,
+      error: describeDbError(insertError, "Failed to create facility."),
+    }
+  }
+
+  // Seed roles inline (the RPC is restricted to service_role).
+  const roleRows = CANONICAL_ROLES.map((role) => ({
+    facility_id: facility.id,
+    key: role.key,
+    display_name: role.display_name,
+    hierarchy_level: role.hierarchy_level,
+    is_system: true,
+  }))
+
+  const { error: rolesError } = await supabase
+    .from("roles")
+    .upsert(roleRows, { onConflict: "facility_id,key" })
+
+  if (rolesError) {
     return {
       ok: false,
       error: describeDbError(error, "Failed to create facility."),
@@ -138,8 +198,11 @@ export async function updateFacility(
     timezone?: string
     is_active?: boolean
     address?: string | null
+    city?: string | null
+    state?: string | null
     zip_code?: string | null
     phone?: string | null
+    email?: string | null
   } = {}
 
   if (typeof input.name === "string") {
@@ -167,11 +230,24 @@ export async function updateFacility(
   if ("address" in input) {
     patch.address = input.address ?? null
   }
+  if ("city" in input) {
+    patch.city = input.city ?? null
+  }
+  if ("state" in input) {
+    patch.state = normalizeState(input.state)
+  }
   if ("zip_code" in input) {
     patch.zip_code = input.zip_code ?? null
   }
   if ("phone" in input) {
     patch.phone = input.phone ?? null
+  }
+  if ("email" in input) {
+    const email = normalizeEmail(input.email)
+    if (email && !EMAIL_PATTERN.test(email)) {
+      return { ok: false, error: "Email must be a valid address." }
+    }
+    patch.email = email
   }
 
   if (Object.keys(patch).length === 0) {

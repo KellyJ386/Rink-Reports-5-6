@@ -114,9 +114,7 @@ function LayoutListRow({
 }) {
   const [activePending, startActive] = useTransition()
 
-  function onToggleActive(e: React.MouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
+  function onToggleActive() {
     startActive(async () => {
       const r = await setLayoutActive(layout.id, !layout.is_active)
       if (!r.ok) toast.error(r.error)
@@ -124,52 +122,56 @@ function LayoutListRow({
   }
 
   return (
-    <Link
-      href={`/admin/ice-depth?tab=layouts&layout=${layout.id}`}
+    <div
       className={cn(
-        "flex flex-col gap-1 rounded-md px-3 py-2 text-sm transition-colors",
+        "flex items-center gap-2 rounded-md text-sm transition-colors",
         active
           ? "bg-primary text-primary-foreground"
           : "hover:bg-accent hover:text-accent-foreground",
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">{layout.name}</span>
+      <Link
+        href={`/admin/ice-depth?tab=layouts&layout=${layout.id}`}
+        className="flex min-w-0 flex-1 flex-col gap-1 px-3 py-2"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">{layout.name}</span>
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+              active
+                ? "bg-primary-foreground/20"
+                : "bg-secondary text-secondary-foreground",
+            )}
+          >
+            {layout.active_point_count} pts
+          </span>
+        </div>
         <span
           className={cn(
-            "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-            active
-              ? "bg-primary-foreground/20"
-              : "bg-secondary text-secondary-foreground",
+            "font-mono text-xs",
+            active ? "text-primary-foreground/80" : "text-muted-foreground",
           )}
         >
-          {layout.active_point_count} pts
+          {layout.slug}
         </span>
-      </div>
-      <div
+      </Link>
+      <button
+        type="button"
+        onClick={onToggleActive}
+        disabled={activePending}
         className={cn(
-          "flex items-center justify-between gap-2 text-xs",
-          active ? "text-primary-foreground/80" : "text-muted-foreground",
+          "mr-3 shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+          active
+            ? "border-primary-foreground/30 hover:bg-primary-foreground/10"
+            : layout.is_active
+              ? "border-input hover:bg-background"
+              : "border-input bg-muted",
         )}
       >
-        <span className="font-mono">{layout.slug}</span>
-        <button
-          type="button"
-          onClick={onToggleActive}
-          disabled={activePending}
-          className={cn(
-            "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
-            active
-              ? "border-primary-foreground/30 hover:bg-primary-foreground/10"
-              : layout.is_active
-                ? "border-input hover:bg-background"
-                : "border-input bg-muted",
-          )}
-        >
-          {layout.is_active ? "Active" : "Off"}
-        </button>
-      </div>
-    </Link>
+        {layout.is_active ? "Active" : "Off"}
+      </button>
+    </div>
   )
 }
 

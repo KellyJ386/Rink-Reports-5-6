@@ -51,8 +51,11 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
   )
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
   const [address, setAddress] = useState(initial?.address ?? "")
+  const [city, setCity] = useState(initial?.city ?? "")
+  const [state, setState] = useState(initial?.state ?? "")
   const [zipCode, setZipCode] = useState(initial?.zip_code ?? "")
   const [phone, setPhone] = useState(initial?.phone ?? "")
+  const [email, setEmail] = useState(initial?.email ?? "")
   const [error, setError] = useState<string | null>(null)
 
   function handleNameChange(value: string) {
@@ -92,8 +95,11 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           slug,
           timezone,
           address: address || null,
+          city: city || null,
+          state: state || null,
           zip_code: zipCode || null,
           phone: phone || null,
+          email: email || null,
         })
         if (!res.ok) {
           setError(res.error)
@@ -108,8 +114,11 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           timezone,
           is_active: isActive,
           address: address || null,
+          city: city || null,
+          state: state || null,
           zip_code: zipCode || null,
           phone: phone || null,
+          email: email || null,
         })
         if (!res.ok) {
           setError(res.error)
@@ -190,6 +199,32 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
         />
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="flex flex-col gap-2 sm:col-span-2">
+          <Label htmlFor="facility-city">City</Label>
+          <Input
+            id="facility-city"
+            name="city"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="Syracuse"
+            disabled={isPending}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="facility-state">State</Label>
+          <Input
+            id="facility-state"
+            name="state"
+            value={state}
+            onChange={(e) => setState(e.target.value)}
+            placeholder="NY"
+            maxLength={2}
+            disabled={isPending}
+          />
+        </div>
+      </div>
+
       <div className="flex flex-col gap-2">
         <Label htmlFor="facility-zip">Zip code</Label>
         <Input
@@ -211,6 +246,19 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           placeholder="(555) 555-5555"
+          disabled={isPending}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="facility-email">Email</Label>
+        <Input
+          id="facility-email"
+          name="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="info@rink.example"
           disabled={isPending}
         />
       </div>
