@@ -24,8 +24,6 @@ import { cn } from "@/lib/utils"
 import { createEmployee, updateEmployee } from "../actions"
 import type {
   ActionState,
-  CustomFieldDef,
-  CustomFieldValueMap,
   DepartmentRow,
   EmployeeListItem,
   RoleRow,
@@ -37,8 +35,6 @@ type Props = {
   facilityId: string
   roles: RoleRow[]
   departments: DepartmentRow[]
-  customFields: CustomFieldDef[]
-  customValues: CustomFieldValueMap
   editing: EmployeeListItem | null
 }
 
@@ -66,8 +62,6 @@ function EmployeeFormBody({
   facilityId,
   roles,
   departments,
-  customFields,
-  customValues,
   editing,
 }: Props) {
   const isEdit = editing !== null
@@ -335,56 +329,6 @@ function EmployeeFormBody({
             <p className="text-muted-foreground -mt-2 text-xs">
               Emergency contact is optional for minors.
             </p>
-          )}
-
-          {customFields.length > 0 && (
-            <div className="flex flex-col gap-3 border-t pt-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Facility-specific fields
-              </p>
-              {customFields.map((field) => {
-                const name = `cf_${field.id}`
-                const stored = customValues[field.id] ?? ""
-                if (field.field_type === "boolean") {
-                  return (
-                    <label
-                      key={field.id}
-                      className="flex items-center gap-2 text-sm font-medium"
-                    >
-                      <input
-                        type="checkbox"
-                        name={name}
-                        defaultChecked={stored === "true"}
-                        className="border-input size-4 rounded border"
-                      />
-                      {field.label}
-                      {field.is_required && " *"}
-                    </label>
-                  )
-                }
-                const inputType =
-                  field.field_type === "number"
-                    ? "number"
-                    : field.field_type === "date"
-                      ? "date"
-                      : "text"
-                return (
-                  <div key={field.id} className="flex flex-col gap-1.5">
-                    <Label htmlFor={name}>
-                      {field.label}
-                      {field.is_required && " *"}
-                    </Label>
-                    <Input
-                      id={name}
-                      name={name}
-                      type={inputType}
-                      required={field.is_required}
-                      defaultValue={stored}
-                    />
-                  </div>
-                )
-              })}
-            </div>
           )}
 
           {errorMsg && (
