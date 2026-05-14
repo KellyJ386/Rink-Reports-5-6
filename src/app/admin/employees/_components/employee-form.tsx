@@ -97,6 +97,7 @@ function EmployeeFormBody({
     editing?.primary_department?.id ?? null
   )
   const [roleId, setRoleId] = useState(editing?.role?.id ?? "")
+  const [roleError, setRoleError] = useState<string | null>(null)
 
   // Close on success.
   useEffect(() => {
@@ -132,7 +133,18 @@ function EmployeeFormBody({
           </SheetDescription>
         </SheetHeader>
 
-        <form action={action} className="flex flex-col gap-4">
+        <form
+          action={action}
+          onSubmit={(e) => {
+            if (!roleId) {
+              e.preventDefault()
+              setRoleError("Role is required.")
+            } else {
+              setRoleError(null)
+            }
+          }}
+          className="flex flex-col gap-4"
+        >
           <input type="hidden" name="facility_id" value={facilityId} />
           {isEdit && editing && (
             <input type="hidden" name="id" value={editing.id} />
@@ -176,7 +188,13 @@ function EmployeeFormBody({
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="role_id">Role *</Label>
             <input type="hidden" name="role_id" value={roleId} />
-            <Select value={roleId || undefined} onValueChange={(v) => setRoleId(v)}>
+            <Select
+              value={roleId || undefined}
+              onValueChange={(v) => {
+                setRoleId(v)
+                if (v) setRoleError(null)
+              }}
+            >
               <SelectTrigger id="role_id">
                 <SelectValue placeholder="Select a role…" />
               </SelectTrigger>
@@ -188,6 +206,11 @@ function EmployeeFormBody({
                 ))}
               </SelectContent>
             </Select>
+            {roleError && (
+              <p role="alert" className="text-destructive text-xs">
+                {roleError}
+              </p>
+            )}
           </div>
 
           {departments.length > 0 && (
