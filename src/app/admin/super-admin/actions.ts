@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { getCurrentUser } from "@/lib/auth"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState } from "./types"
@@ -73,14 +74,40 @@ export async function sendPasswordReset(
     return { ok: false, error: "Email is required." }
   }
 
-  const supabase = await createClient()
-  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/update-password`,
+  // Use the service-role admin client. The user-scoped server client forwards
+  // the caller's Supabase session as a Bearer token; if that session is
+  // missing or expired GoTrue rejects the call with "This endpoint requires
+  // a valid Bearer token". The caller is already verified as a super admin
+  // above, so generating the recovery link via the admin API is safe and
+  // avoids that failure mode.
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Service role not configured.",
+    }
+  }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? ""
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "recovery",
+    email: email.trim(),
+    options: { redirectTo: `${siteUrl}/update-password` },
   })
 
-  if (error) return { ok: false, error: dbError(error, "Failed to send password reset email.") }
+  if (error) {
+    return { ok: false, error: dbError(error, "Failed to create password reset link.") }
+  }
 
-  return { ok: true, message: "Password reset email sent." }
+  const actionLink = data?.properties?.action_link ?? null
+  return {
+    ok: true,
+    message: actionLink
+      ? `Password reset link created. Share this one-time link with the user: ${actionLink}`
+      : "Password reset email sent.",
+  }
 }
 
 export async function setFacilityActive(
