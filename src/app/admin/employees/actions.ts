@@ -121,9 +121,7 @@ async function persistCustomFieldValues(
   formData: FormData,
 ): Promise<string | null> {
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const { data: defsRaw, error: defsErr } = await sb
+  const { data: defsRaw, error: defsErr } = await supabase
     .from("employee_custom_fields")
     .select("id, key, label, field_type, is_required, is_active")
     .eq("facility_id", facilityId)
@@ -184,13 +182,13 @@ async function persistCustomFieldValues(
   }
 
   if (toUpsert.length > 0) {
-    const { error: upErr } = await sb
+    const { error: upErr } = await supabase
       .from("employee_custom_field_values")
       .upsert(toUpsert, { onConflict: "employee_id,field_id" })
     if (upErr) return upErr.message
   }
   if (toDelete.length > 0) {
-    const { error: delErr } = await sb
+    const { error: delErr } = await supabase
       .from("employee_custom_field_values")
       .delete()
       .eq("employee_id", employeeId)
@@ -254,69 +252,41 @@ export async function createEmployee(
     const current = await getCurrentUser()
     const createdBy = current?.profile?.id ?? null
 
-    const { data: inserted, error: insErr } = await supabase
-      .from("employees")
-      .insert({
-        facility_id: facility.facilityId,
-        role_id: input.role_id,
-        employee_code: input.employee_code,
-        first_name: input.first_name,
-        last_name: input.last_name,
-        email: input.email,
-        phone: input.phone,
-        is_minor: input.is_minor,
-        emergency_contact_name: input.emergency_contact_name,
-        emergency_contact_phone: input.emergency_contact_phone,
-        hire_date: input.hire_date,
-        is_active: true,
-        created_by: createdBy,
-      })
-      .select("id")
-      .single()
+    // Atomically creates the employee row and department links in one DB
+    // transaction, eliminating the previous best-effort rollback pattern.
+    const { data: employeeId, error: rpcErr } = await supabase.rpc(
+      "create_employee_complete",
+      {
+        p_facility_id: facility.facilityId,
+        p_role_id: input.role_id,
+        p_first_name: input.first_name,
+        p_last_name: input.last_name,
+        p_email: input.email ?? null,
+        p_phone: input.phone ?? null,
+        p_employee_code: input.employee_code ?? null,
+        p_is_minor: input.is_minor,
+        p_emergency_contact_name: input.emergency_contact_name ?? null,
+        p_emergency_contact_phone: input.emergency_contact_phone ?? null,
+        p_hire_date: input.hire_date ?? null,
+        p_created_by: createdBy,
+        p_department_ids: input.department_ids.length > 0 ? input.department_ids : null,
+        p_primary_department_id: input.primary_department_id ?? null,
+      },
+    )
 
-    if (insErr || !inserted) {
+    if (rpcErr || !employeeId) {
       return {
         ok: false,
-        error: dbError(insErr, "Failed to create employee."),
-      }
-    }
-
-    // Insert department links.
-    // Multi-step "transaction" — Supabase REST has no client transactions.
-    // Strategy: if dept inserts fail, we delete the employee row to roll back.
-    // Documented choice: rollback on any dept-insert error to avoid orphan dept rows.
-    if (input.department_ids.length > 0) {
-      const deptRows = input.department_ids.map((deptId) => ({
-        facility_id: facility.facilityId,
-        employee_id: inserted.id as string,
-        department_id: deptId,
-        is_primary: deptId === input.primary_department_id,
-      }))
-
-      const { error: deptErr } = await supabase
-        .from("employee_departments")
-        .insert(deptRows)
-
-      if (deptErr) {
-        // Best-effort rollback.
-        await supabase.from("employees").delete().eq("id", inserted.id)
-        return {
-          ok: false,
-          error: dbError(deptErr, "Failed to assign departments."),
-        }
+        error: dbError(rpcErr, "Failed to create employee."),
       }
     }
 
     const cfErr = await persistCustomFieldValues(
-      inserted.id as string,
+      employeeId,
       facility.facilityId,
       formData,
     )
-    if (cfErr) {
-      // Best-effort rollback: delete the employee so no partial record persists.
-      await supabase.from("employees").delete().eq("id", inserted.id)
-      return { ok: false, error: cfErr }
-    }
+    if (cfErr) return { ok: false, error: cfErr }
 
     revalidatePath("/admin/employees")
     return { ok: true, message: "Employee created." }

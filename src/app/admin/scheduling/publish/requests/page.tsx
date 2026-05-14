@@ -62,9 +62,7 @@ export default async function PublishRequestsPage() {
     .limit(1)
     .maybeSingle<{ id: string }>()
 
-  // schedule_publish_requests isn't in generated types yet; cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rowsRaw } = await (supabase as any)
+  const { data: rowsRaw } = await supabase
     .from("schedule_publish_requests")
     .select(
       "id, facility_id, requested_by_employee_id, range_starts_at, range_ends_at, notes, status, decided_by_employee_id, decided_at, rejection_reason, created_at",

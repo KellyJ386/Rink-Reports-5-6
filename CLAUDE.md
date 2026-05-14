@@ -20,7 +20,24 @@ pnpm start        # next start
 pnpm lint         # eslint (flat config)
 ```
 
-There is no test runner configured. Do not invent one.
+There is no JS/TS test runner configured. Do not invent one.
+
+For the database, **`supabase/tests/rls_isolation.sql`** is the
+single regression-coverage script for cross-facility isolation
+and the new permission/dispatch/PDF gates added in PR #49. It runs
+as one transaction that ROLLBACKs at the end; failures raise so
+psql exits non-zero. The workflow `.github/workflows/rls-isolation.yml`
+runs it on every PR that touches `supabase/migrations/**`,
+`supabase/tests/**`, or `supabase/config.toml`. Locally:
+
+```bash
+supabase start                                              # boots stack + applies migrations
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -v ON_ERROR_STOP=1 -f supabase/tests/rls_isolation.sql
+```
+
+When adding a new RLS policy or SECURITY DEFINER function whose
+job is tenant isolation, add an assertion here.
 
 Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` before `pnpm dev`.
 

@@ -754,9 +754,7 @@ export async function createRoutingRule(
     const parsed = parseRoutingForm(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const supabase = await createClient()
-    // target_department_id, timing, attach_pdf aren't in generated types yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("communication_routing_rules")
       .insert({ facility_id: facility.facilityId, ...parsed.data })
       .select("*")
@@ -803,9 +801,7 @@ export async function updateRoutingRule(
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
       .maybeSingle()
-    // target_department_id, timing, attach_pdf aren't in generated types yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("communication_routing_rules")
       .update(parsed.data)
       .eq("id", id)
@@ -929,15 +925,12 @@ export async function previewRoutingRecipients(ruleId: string): Promise<
     await requireAdmin()
     if (!ruleId) return { ok: false, error: "Missing rule id." }
     const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: ids, error } = await (supabase as any).rpc(
+    const { data: ids, error } = await supabase.rpc(
       "resolve_rule_recipients",
       { p_rule_id: ruleId },
     )
     if (error) return { ok: false, error: error.message }
-    const employeeIds = (ids as Array<{ employee_id: string }> | null ?? []).map(
-      (r) => r.employee_id,
-    )
+    const employeeIds = (ids ?? []).map((r) => r.employee_id)
     if (employeeIds.length === 0) return { ok: true, recipients: [] }
 
     const { data: emps, error: empErr } = await supabase
