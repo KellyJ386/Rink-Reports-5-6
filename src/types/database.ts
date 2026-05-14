@@ -5256,6 +5256,36 @@ export type Database = {
         Args: { p_source_role_id: string; p_target_role_id: string }
         Returns: number
       }
+      create_employee_complete: {
+        Args: {
+          p_facility_id: string
+          p_role_id: string
+          p_first_name: string
+          p_last_name: string
+          p_email?: string | null
+          p_phone?: string | null
+          p_employee_code?: string | null
+          p_is_minor?: boolean
+          p_emergency_contact_name?: string | null
+          p_emergency_contact_phone?: string | null
+          p_hire_date?: string | null
+          p_created_by?: string | null
+          p_department_ids?: string[] | null
+          p_primary_department_id?: string | null
+        }
+        Returns: string
+      }
+      create_facility_with_roles: {
+        Args: {
+          p_name: string
+          p_slug: string
+          p_timezone: string
+          p_address?: string | null
+          p_zip_code?: string | null
+          p_phone?: string | null
+        }
+        Returns: string
+      }
       current_employee_id: { Args: never; Returns: string }
       current_employee_module_permission: {
         Args: { p_module_key: string }
