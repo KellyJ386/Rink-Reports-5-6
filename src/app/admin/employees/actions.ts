@@ -182,19 +182,12 @@ export async function createEmployee(
       }
     }
 
-    const cfErr = await persistCustomFieldValues(
-      employeeId,
-      facility.facilityId,
-      formData,
-    )
-    if (cfErr) return { ok: false, error: cfErr }
-
     // Send the welcome / set-password invite. Failure here does NOT roll back
     // the employee record — the admin can re-send later via the row action.
     let inviteWarning: string | null = null
     if (input.email) {
       const invite = await inviteEmployeeByEmail({
-        employeeId: inserted.id as string,
+        employeeId: employeeId as string,
         facilityId: facility.facilityId,
         email: input.email,
         fullName: `${input.first_name} ${input.last_name}`.trim(),
