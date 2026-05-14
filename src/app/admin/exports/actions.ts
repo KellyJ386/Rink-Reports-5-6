@@ -89,12 +89,9 @@ export async function saveExportSettings(
   }
 
   const supabase = await createClient()
-  // Cast required: generated types predate migrations 36-37 (date_format, csv_delimiter,
-  // module_column_visibility). Remove cast once types are regenerated after migration run.
   const { error } = await supabase
     .from("export_settings")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .upsert(payload as any, { onConflict: "facility_id" })
+    .upsert(payload, { onConflict: "facility_id" })
 
   if (error) return { ok: false, error: dbError(error, "Failed to save export settings.") }
 

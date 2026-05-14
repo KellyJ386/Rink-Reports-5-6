@@ -14,7 +14,7 @@ import {
   deleteEmployee,
   reactivateEmployee,
 } from "../actions"
-import { inviteEmployee } from "../invite-actions"
+import { inviteEmployee } from "../[id]/actions"
 import type {
   DepartmentRow,
   EmployeeListItem,

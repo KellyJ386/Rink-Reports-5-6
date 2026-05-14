@@ -6,7 +6,6 @@ import { getCurrentUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import {
-  CANONICAL_ROLES,
   DEFAULT_TIMEZONE,
   SLUG_PATTERN,
   TIMEZONE_OPTIONS,
@@ -119,51 +118,49 @@ export async function createFacility(
 
   const supabase = await createClient()
 
-  const { data: facility, error: insertError } = await supabase
-    .from("facilities")
-    .insert({
-      name,
-      slug,
-      timezone,
-      address: rawInput.address ?? null,
-      city: rawInput.city ?? null,
-      state: normalizeState(rawInput.state),
-      zip_code: rawInput.zip_code ?? null,
-      phone: rawInput.phone ?? null,
-      email,
-    })
-    .select("id")
-    .single()
+  // Atomically creates the facility and seeds canonical system roles in one
+  // transaction. Replaces the previous two-step approach that could leave an
+  // orphaned facility if the roles upsert failed.
+  const { data: facilityId, error } = await supabase.rpc(
+    "create_facility_with_roles",
+    {
+      p_name: name,
+      p_slug: slug,
+      p_timezone: timezone,
+      p_address: rawInput.address ?? null,
+      p_zip_code: rawInput.zip_code ?? null,
+      p_phone: rawInput.phone ?? null,
+    },
+  )
 
-  if (insertError || !facility) {
+  if (error || !facilityId) {
     return {
       ok: false,
-      error: describeDbError(insertError, "Failed to create facility."),
+      error: describeDbError(error, "Failed to create facility."),
     }
   }
 
-  // Seed roles inline (the RPC is restricted to service_role).
-  const roleRows = CANONICAL_ROLES.map((role) => ({
-    facility_id: facility.id,
-    key: role.key,
-    display_name: role.display_name,
-    hierarchy_level: role.hierarchy_level,
-    is_system: true,
-  }))
-
-  const { error: rolesError } = await supabase
-    .from("roles")
-    .upsert(roleRows, { onConflict: "facility_id,key" })
-
-  if (rolesError) {
-    return {
-      ok: false,
-      error: `Facility created, but seeding default roles failed: ${rolesError.message}`,
+  // The RPC's signature predates the city/state/email columns. Patch those in
+  // a follow-up update so the new facility row carries them.
+  if (rawInput.city != null || rawInput.state != null || email != null) {
+    const { error: patchError } = await supabase
+      .from("facilities")
+      .update({
+        city: rawInput.city ?? null,
+        state: normalizeState(rawInput.state),
+        email,
+      })
+      .eq("id", facilityId)
+    if (patchError) {
+      return {
+        ok: false,
+        error: describeDbError(patchError, "Facility created, but contact details failed to save."),
+      }
     }
   }
 
   revalidatePath("/admin/facility")
-  return { ok: true, data: { id: facility.id } }
+  return { ok: true, data: { id: facilityId } }
 }
 
 export async function updateFacility(
