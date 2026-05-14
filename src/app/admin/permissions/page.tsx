@@ -107,9 +107,7 @@ export default async function PermissionsPage() {
             ? employeeIds
             : ["00000000-0000-0000-0000-000000000000"],
         ),
-      // permission_level isn't in generated types yet; cast.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
+      supabase
         .from("module_permissions")
         .select("employee_id, module_key, permission_level")
         .in(

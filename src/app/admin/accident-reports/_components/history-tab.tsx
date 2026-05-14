@@ -239,9 +239,7 @@ export async function HistoryTabLoader({
           .select("*")
           .eq("accident_id", baseReport.id)
           .order("created_at", { ascending: true }),
-        // accident_witnesses isn't in the generated Database types yet.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (supabase as any)
+        supabase
           .from("accident_witnesses")
           .select("id, facility_id, accident_id, name, contact, statement, sort_order, created_at, updated_at")
           .eq("accident_id", baseReport.id)

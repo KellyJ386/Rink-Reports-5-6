@@ -101,9 +101,7 @@ export async function createCustomField(
     if (!parsed.ok) return { ok: false, error: parsed.error }
 
     const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-    const { error } = await sb.from("employee_custom_fields").insert({
+    const { error } = await supabase.from("employee_custom_fields").insert({
       facility_id: facility.facilityId,
       ...parsed.value,
     })
@@ -138,9 +136,7 @@ export async function updateCustomField(
     if (!parsed.ok) return { ok: false, error: parsed.error }
 
     const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-    const { error } = await sb
+    const { error } = await supabase
       .from("employee_custom_fields")
       .update(parsed.value)
       .eq("id", id)
@@ -167,9 +163,7 @@ export async function deleteCustomField(id: string): Promise<ActionState> {
     await requireAdmin()
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-    const { error } = await sb.from("employee_custom_fields").delete().eq("id", id)
+    const { error } = await supabase.from("employee_custom_fields").delete().eq("id", id)
     if (error) return { ok: false, error: error.message }
     revalidatePath("/admin/employees/custom-fields")
     revalidatePath("/admin/employees")

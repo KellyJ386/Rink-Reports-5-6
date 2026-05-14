@@ -73,10 +73,7 @@ export async function requestSchedulePublish(
     return { ok: false, error: "No draft shifts in range." }
   }
 
-  // schedule_publish_requests isn't in generated types yet; cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const { error } = await sb.from("schedule_publish_requests").insert({
+  const { error } = await supabase.from("schedule_publish_requests").insert({
     facility_id: ctx.facilityId,
     requested_by_employee_id: ctx.employeeId,
     range_starts_at: startsAt,
@@ -121,9 +118,7 @@ export async function approveAndPublishRequest(
 
   const supabase = await createClient()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const { data: reqRaw, error: reqErr } = await sb
+  const { data: reqRaw, error: reqErr } = await supabase
     .from("schedule_publish_requests")
     .select(
       "id, facility_id, requested_by_employee_id, range_starts_at, range_ends_at, status",
@@ -232,7 +227,7 @@ export async function approveAndPublishRequest(
   })
 
   // Finalize request row.
-  const { error: finErr } = await sb
+  const { error: finErr } = await supabase
     .from("schedule_publish_requests")
     .update({
       status: "published",
@@ -272,10 +267,8 @@ export async function rejectPublishRequest(
   }
 
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
 
-  const { data: reqRaw, error: reqErr } = await sb
+  const { data: reqRaw, error: reqErr } = await supabase
     .from("schedule_publish_requests")
     .select("id, facility_id, requested_by_employee_id, status")
     .eq("id", requestId)
@@ -300,7 +293,7 @@ export async function rejectPublishRequest(
     return { ok: false, error: "You cannot reject your own publish request." }
   }
 
-  const { error } = await sb
+  const { error } = await supabase
     .from("schedule_publish_requests")
     .update({
       status: "rejected",

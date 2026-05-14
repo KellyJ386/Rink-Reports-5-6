@@ -53,12 +53,8 @@ export async function setModulePermissionLevel(
 
     if (selErr) return { ok: false, error: selErr.message }
 
-    // permission_level isn't in generated types yet; cast the client.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-
     if (existing) {
-      const { error: updErr } = await sb
+      const { error: updErr } = await supabase
         .from("module_permissions")
         .update({ permission_level: level })
         .eq("id", existing.id)
@@ -66,7 +62,7 @@ export async function setModulePermissionLevel(
 
       if (updErr) return { ok: false, error: updErr.message }
     } else {
-      const { error: insErr } = await sb.from("module_permissions").insert({
+      const { error: insErr } = await supabase.from("module_permissions").insert({
         facility_id: employee.facility_id,
         employee_id: employeeId,
         module_key: moduleKey,
@@ -161,10 +157,7 @@ export async function copyPermissionsBetweenEmployees(
       return { ok: false, error: "Employees are in different facilities." }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-
-    const { data: sourceRowsRaw, error: srcErr } = await sb
+    const { data: sourceRowsRaw, error: srcErr } = await supabase
       .from("module_permissions")
       .select("module_key, permission_level")
       .eq("employee_id", sourceId)
@@ -186,7 +179,7 @@ export async function copyPermissionsBetweenEmployees(
         module_key: r.module_key,
         permission_level: r.permission_level,
       }))
-      const { error: upErr } = await sb
+      const { error: upErr } = await supabase
         .from("module_permissions")
         .upsert(upsertRows, { onConflict: "employee_id,module_key" })
       if (upErr) return { ok: false, error: upErr.message }
@@ -197,7 +190,7 @@ export async function copyPermissionsBetweenEmployees(
       (m) => !sourceModules.has(m),
     )
     if (modulesToDelete.length > 0) {
-      const { error: delErr } = await sb
+      const { error: delErr } = await supabase
         .from("module_permissions")
         .delete()
         .eq("employee_id", targetId)

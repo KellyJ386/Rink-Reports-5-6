@@ -99,8 +99,7 @@ export async function triggerManualPurge(
 
   const supabase = await createClient()
 
-  // Call the retention-aware purge function from migration 24.
-  // Cast required: purge_module_data is not yet in the generated types.
+  // purge_module_data is a custom DB function not captured in generated types.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any).rpc("purge_module_data", {
     p_facility_id: facilityId,
@@ -114,9 +113,8 @@ export async function triggerManualPurge(
   const deletedCount = typeof data === "number" ? data : 0
 
   // Record last purge timestamp and count.
-  // Cast required: generated types predate migration 37 (last_purged_at, last_purge_count).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("retention_settings") as any)
+  await supabase
+    .from("retention_settings")
     .update({
       last_purged_at: new Date().toISOString(),
       last_purge_count: deletedCount,
