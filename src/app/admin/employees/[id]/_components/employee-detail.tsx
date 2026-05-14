@@ -20,12 +20,12 @@ import {
   addEmployeeToGroup,
   clearEmployeeModuleOverride,
   deleteEmployeeCertification,
-  inviteEmployee,
   removeEmployeeFromGroup,
   setEmployeeModuleOverride,
   updateEmployeeCertification,
   type CertificationInput,
 } from "../actions"
+import { inviteEmployee } from "../../actions"
 
 export type EmployeeDetailData = {
   employee: {
