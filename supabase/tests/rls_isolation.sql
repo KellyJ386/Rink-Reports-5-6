@@ -175,16 +175,16 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT routing rule in facility B');
 
--- Department / facility permission defaults: empty for now, but RLS must apply.
+-- Employee invites + certifications: empty for now, but RLS must scope.
 select pg_temp.expect_count(
-  $$select count(*) from public.department_module_permission_defaults
+  $$select count(*) from public.employee_invites
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
-  0, 'alice CANNOT SELECT dept defaults in facility B');
+  0, 'alice CANNOT SELECT employee_invites in facility B');
 
 select pg_temp.expect_count(
-  $$select count(*) from public.facility_module_permission_defaults
+  $$select count(*) from public.employee_certifications
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
-  0, 'alice CANNOT SELECT facility defaults in facility B');
+  0, 'alice CANNOT SELECT employee_certifications in facility B');
 
 -- Notification outbox: empty for now, but RLS must scope.
 select pg_temp.expect_count(

@@ -15,8 +15,6 @@ import { createClient } from "@/lib/supabase/server"
 import { EmployeesClient } from "./_components/employees-client"
 import { SeedRolesButton } from "./_components/seed-roles-button"
 import type {
-  CustomFieldDef,
-  CustomFieldValueMap,
   DepartmentRow,
   EmployeeListItem,
   EmployeeRow,
@@ -150,8 +148,6 @@ export default async function EmployeesPage({
     { data: deptsRaw },
     { data: employeesRaw },
     { data: edRaw },
-    { data: cfDefsRaw },
-    { data: cfValuesRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -171,43 +167,15 @@ export default async function EmployeesPage({
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true })
       .limit(500),
-    // Fetch employee_departments in parallel using facility_id — avoids a
-    // second sequential round-trip that previously waited on employeeIds.
     supabase
       .from("employee_departments")
       .select("employee_id, department_id, is_primary")
-      .eq("facility_id", facilityId),
-    supabase
-      .from("employee_custom_fields")
-      .select(
-        "id, facility_id, key, label, field_type, is_required, sort_order, is_active",
-      )
-      .eq("facility_id", facilityId)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("employee_custom_field_values")
-      .select("employee_id, field_id, value")
       .eq("facility_id", facilityId),
   ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
   const departments = (deptsRaw ?? []) as DepartmentRow[]
   const employees = (employeesRaw ?? []) as EmployeeRow[]
-  const customFields = (cfDefsRaw ?? []) as CustomFieldDef[]
-  const customValueRows = (cfValuesRaw ?? []) as Array<{
-    employee_id: string
-    field_id: string
-    value: string | null
-  }>
-
-  const customValuesByEmployee: Record<string, CustomFieldValueMap> = {}
-  for (const v of customValueRows) {
-    const bucket = customValuesByEmployee[v.employee_id] ?? {}
-    bucket[v.field_id] = v.value
-    customValuesByEmployee[v.employee_id] = bucket
-  }
 
   // No roles? Show seed prompt.
   if (roles.length === 0) {
@@ -218,8 +186,8 @@ export default async function EmployeesPage({
           <CardHeader>
             <CardTitle>No roles yet</CardTitle>
             <CardDescription>
-              Seed the canonical role set (Super Admin, Administrator, GM,
-              Manager, Supervisor, Staff) to start adding employees.
+              Seed the canonical role set (Super Admin, Administrator,
+              Manager, Staff) to start adding employees.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -278,8 +246,6 @@ export default async function EmployeesPage({
         employees={list}
         roles={roles}
         departments={departments}
-        customFields={customFields}
-        customValuesByEmployee={customValuesByEmployee}
         canDelete={profile?.is_super_admin === true}
       />
     </div>

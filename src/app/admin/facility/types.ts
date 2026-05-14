@@ -54,8 +54,6 @@ export const CANONICAL_ROLES: ReadonlyArray<{
 }> = [
   { key: "super_admin", display_name: "Super Admin", hierarchy_level: 0 },
   { key: "admin", display_name: "Administrator", hierarchy_level: 1 },
-  { key: "gm", display_name: "General Manager", hierarchy_level: 2 },
-  { key: "manager", display_name: "Manager", hierarchy_level: 3 },
-  { key: "supervisor", display_name: "Supervisor", hierarchy_level: 4 },
-  { key: "staff", display_name: "Staff", hierarchy_level: 5 },
+  { key: "manager", display_name: "Manager", hierarchy_level: 2 },
+  { key: "staff", display_name: "Staff", hierarchy_level: 3 },
 ] as const

@@ -37,18 +37,3 @@ export type ActionState =
   | { ok: false; error: string }
   | { ok: null }
 
-export type CustomFieldType = "text" | "number" | "date" | "boolean"
-
-export type CustomFieldDef = {
-  id: string
-  facility_id: string
-  key: string
-  label: string
-  field_type: CustomFieldType
-  is_required: boolean
-  sort_order: number
-  is_active: boolean
-}
-
-/** Map of field_id -> stored string value. NULL/missing means "not set". */
-export type CustomFieldValueMap = Record<string, string | null>

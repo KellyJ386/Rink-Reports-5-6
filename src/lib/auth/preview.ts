@@ -28,7 +28,7 @@ export type PreviewContext = {
  *
  * Preview is active only when ALL of the following hold:
  *   1. There is a signed-in user.
- *   2. The user's profile is an active admin/gm/super_admin (or is_super_admin).
+ *   2. The user's profile is an active admin/super_admin (or is_super_admin).
  *   3. A PREVIEW_COOKIE is set.
  *   4. The cookie value is an active employee in the admin's facility
  *      (or any facility if the caller is super_admin).
@@ -67,7 +67,7 @@ export async function getPreviewContext(): Promise<PreviewContext> {
       .from("employees")
       .select("id, roles!inner(key)")
       .eq("id", realEmployeeId)
-      .in("roles.key", ["admin", "gm", "super_admin"])
+      .in("roles.key", ["admin", "super_admin"])
       .limit(1)
       .maybeSingle()
     isAdmin = adminEmp !== null
