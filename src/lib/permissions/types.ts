@@ -4,8 +4,6 @@ export type PermissionSource =
   | "super_admin"
   | "override"
   | "role"
-  | "department"
-  | "facility"
   | "none"
 
 export type EffectivePermission = {

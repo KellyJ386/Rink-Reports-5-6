@@ -34,11 +34,9 @@ export function isSeverity(v: string): v is Severity {
 // keys can be added to the database without breaking existing rules — this
 // is just the picker list.
 export const ROLE_KEYS: readonly string[] = [
-  "admin",
-  "gm",
   "super_admin",
-  "supervisor",
-  "operator",
+  "admin",
+  "manager",
   "staff",
 ] as const
 

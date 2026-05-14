@@ -3,7 +3,7 @@ import "server-only"
 import { createClient } from "@/lib/supabase/server"
 import type { AuthedUser } from "./types"
 
-const ADMIN_ROLE_KEYS = ["admin", "gm", "super_admin"] as const
+const ADMIN_ROLE_KEYS = ["admin", "super_admin"] as const
 
 /** Returns true if the user has super-admin flag or an active admin-level role. */
 export async function getIsAdmin(current: AuthedUser): Promise<boolean> {
