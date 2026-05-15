@@ -1416,31 +1416,49 @@ export type Database = {
           acknowledged_at: string | null
           created_at: string
           delivered_at: string | null
+          email_error: string | null
+          email_sent_at: string | null
+          email_status: string
           employee_id: string
           facility_id: string
           id: string
           message_id: string
           read_at: string | null
+          sms_error: string | null
+          sms_sent_at: string | null
+          sms_status: string
         }
         Insert: {
           acknowledged_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          email_error?: string | null
+          email_sent_at?: string | null
+          email_status?: string
           employee_id: string
           facility_id: string
           id?: string
           message_id: string
           read_at?: string | null
+          sms_error?: string | null
+          sms_sent_at?: string | null
+          sms_status?: string
         }
         Update: {
           acknowledged_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          email_error?: string | null
+          email_sent_at?: string | null
+          email_status?: string
           employee_id?: string
           facility_id?: string
           id?: string
           message_id?: string
           read_at?: string | null
+          sms_error?: string | null
+          sms_sent_at?: string | null
+          sms_status?: string
         }
         Relationships: [
           {
