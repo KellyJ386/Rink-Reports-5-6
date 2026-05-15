@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation"
 
-import { requireUser } from "@/lib/auth"
+import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 export type SendMessageFormState = {
@@ -45,7 +45,7 @@ async function resolveCurrentEmployee() {
     .limit(1)
     .maybeSingle()
 
-  return { supabase, employeeRow, error }
+  return { supabase, current, employeeRow, error }
 }
 
 type SendResult =
@@ -53,7 +53,7 @@ type SendResult =
   | { ok: false; error: string }
 
 async function performSendMessage(formData: FormData): Promise<SendResult> {
-  const { supabase, employeeRow, error: empErr } =
+  const { supabase, current, employeeRow, error: empErr } =
     await resolveCurrentEmployee()
 
   if (empErr) {
@@ -107,13 +107,19 @@ async function performSendMessage(formData: FormData): Promise<SendResult> {
     return { ok: false, error: "Pick at least one recipient group." }
   }
 
-  // Confirm groups belong to this facility and are active.
-  const { data: groupRows, error: groupErr } = await supabase
+  // Confirm groups belong to this facility and are active. Non-admin staff
+  // are further restricted to groups with staff_can_message=true (mig 59).
+  const isAdmin = await getIsAdmin(current)
+  let groupSelect = supabase
     .from("communication_groups")
-    .select("id, facility_id, is_active")
+    .select("id, facility_id, is_active, staff_can_message")
     .in("id", uniqueGroupIds)
     .eq("facility_id", employeeRow.facility_id)
     .eq("is_active", true)
+  if (!isAdmin) {
+    groupSelect = groupSelect.eq("staff_can_message", true)
+  }
+  const { data: groupRows, error: groupErr } = await groupSelect
 
   if (groupErr) {
     return {

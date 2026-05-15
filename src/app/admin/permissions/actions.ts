@@ -3,22 +3,11 @@
 import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
-import { PERMISSION_LEVELS, type PermissionLevel } from "@/lib/permissions"
+import { type PermissionLevel } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
-import { MODULE_KEYS, type ModuleKey } from "./types"
-
-function assertValidLevel(level: string): asserts level is PermissionLevel {
-  if (!(PERMISSION_LEVELS as readonly string[]).includes(level)) {
-    throw new Error(`Invalid permission level: ${level}`)
-  }
-}
-
-function assertValidModuleKey(key: string): asserts key is ModuleKey {
-  if (!(MODULE_KEYS as readonly string[]).includes(key)) {
-    throw new Error(`Invalid module key: ${key}`)
-  }
-}
+import { MODULE_KEYS } from "./types"
+import { assertValidLevel, assertValidModuleKey } from "./validators"
 
 export type ActionResult = { ok: true } | { ok: false; error: string }
 

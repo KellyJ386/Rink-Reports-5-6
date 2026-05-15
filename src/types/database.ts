@@ -1310,6 +1310,7 @@ export type Database = {
           name: string
           slug: string
           sort_order: number
+          staff_can_message: boolean
           updated_at: string | null
         }
         Insert: {
@@ -1321,6 +1322,7 @@ export type Database = {
           name: string
           slug: string
           sort_order?: number
+          staff_can_message?: boolean
           updated_at?: string | null
         }
         Update: {
@@ -1332,6 +1334,7 @@ export type Database = {
           name?: string
           slug?: string
           sort_order?: number
+          staff_can_message?: boolean
           updated_at?: string | null
         }
         Relationships: [

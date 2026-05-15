@@ -181,6 +181,14 @@ function GroupCreateCard() {
               placeholder="optional"
             />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="staff_can_message"
+              className="h-4 w-4"
+            />
+            <span>Staff can message this group</span>
+          </label>
           <Button type="submit" size="sm" disabled={pending}>
             {pending ? "Adding…" : "Add group"}
           </Button>
@@ -318,6 +326,15 @@ function GroupHeader({ group }: { group: GroupRow }) {
                 defaultValue={group.description ?? ""}
               />
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="staff_can_message"
+                defaultChecked={group.staff_can_message}
+                className="h-4 w-4"
+              />
+              <span>Staff can message this group</span>
+            </label>
             <div className="flex justify-end">
               <Button type="submit" size="sm" disabled={pending}>
                 {pending ? "Saving…" : "Save group"}
