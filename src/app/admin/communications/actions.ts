@@ -376,6 +376,7 @@ export async function createGroup(
     }
     const description = nonEmpty(formData.get("description"))
     const sort_order = asInt(formData.get("sort_order")) ?? 0
+    const staff_can_message = formData.get("staff_can_message") === "on"
     const supabase = await createClient()
     const { data, error } = await supabase
       .from("communication_groups")
@@ -385,6 +386,7 @@ export async function createGroup(
         slug,
         description,
         sort_order,
+        staff_can_message,
       })
       .select("*")
       .single()
@@ -430,6 +432,9 @@ export async function updateGroup(
     }
     const description = nonEmpty(formData.get("description"))
     const sort_order = asInt(formData.get("sort_order"))
+    const staffCanMessageRaw = formData.get("staff_can_message")
+    const staff_can_message =
+      staffCanMessageRaw === null ? null : staffCanMessageRaw === "on"
     const supabase = await createClient()
     const { data: before } = await supabase
       .from("communication_groups")
@@ -444,6 +449,7 @@ export async function updateGroup(
         slug,
         description,
         ...(sort_order !== null ? { sort_order } : {}),
+        ...(staff_can_message !== null ? { staff_can_message } : {}),
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)

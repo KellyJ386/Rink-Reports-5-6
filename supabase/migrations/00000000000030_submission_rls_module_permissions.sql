@@ -68,32 +68,51 @@ create policy refrigeration_reports_insert on public.refrigeration_reports
   );
 
 -- -----------------------------------------------------------------------------
--- air_quality_submissions
+-- air_quality_submissions (PHANTOM TABLE — see migration 61)
+-- Original name was a typo; the real table is public.air_quality_reports.
+-- Guarded with to_regclass so the migration applies cleanly on environments
+-- that never had the phantom table. The intended policy is recreated on the
+-- correct table in migration 61.
 -- -----------------------------------------------------------------------------
-drop policy if exists air_quality_submissions_insert on public.air_quality_submissions;
-create policy air_quality_submissions_insert on public.air_quality_submissions
-  for insert to authenticated
-  with check (
-    public.is_super_admin()
-    or (
-      facility_id = public.current_facility_id()
-      and public.has_module_permission('air_quality', 'submit')
-    )
-  );
+do $$
+begin
+  if to_regclass('public.air_quality_submissions') is not null then
+    drop policy if exists air_quality_submissions_insert on public.air_quality_submissions;
+    execute $sql$
+      create policy air_quality_submissions_insert on public.air_quality_submissions
+        for insert to authenticated
+        with check (
+          public.is_super_admin()
+          or (
+            facility_id = public.current_facility_id()
+            and public.has_module_permission('air_quality', 'submit')
+          )
+        )
+    $sql$;
+  end if;
+end$$;
 
 -- -----------------------------------------------------------------------------
--- ice_operation_reports
+-- ice_operation_reports (PHANTOM TABLE — see migration 61)
+-- Original name was a typo; the real table is public.ice_operations_submissions.
 -- -----------------------------------------------------------------------------
-drop policy if exists ice_operation_reports_insert on public.ice_operation_reports;
-create policy ice_operation_reports_insert on public.ice_operation_reports
-  for insert to authenticated
-  with check (
-    public.is_super_admin()
-    or (
-      facility_id = public.current_facility_id()
-      and public.has_module_permission('ice_operations', 'submit')
-    )
-  );
+do $$
+begin
+  if to_regclass('public.ice_operation_reports') is not null then
+    drop policy if exists ice_operation_reports_insert on public.ice_operation_reports;
+    execute $sql$
+      create policy ice_operation_reports_insert on public.ice_operation_reports
+        for insert to authenticated
+        with check (
+          public.is_super_admin()
+          or (
+            facility_id = public.current_facility_id()
+            and public.has_module_permission('ice_operations', 'submit')
+          )
+        )
+    $sql$;
+  end if;
+end$$;
 
 -- -----------------------------------------------------------------------------
 -- ice_depth_sessions
@@ -138,29 +157,45 @@ create policy schedule_swap_requests_insert on public.schedule_swap_requests
   );
 
 -- -----------------------------------------------------------------------------
--- shift_requests  (scheduling module — staff requesting open shifts)
+-- shift_requests (PHANTOM — see migration 61)
+-- Real table for staff claiming open shifts is public.schedule_open_shifts.
 -- -----------------------------------------------------------------------------
-drop policy if exists shift_requests_insert on public.shift_requests;
-create policy shift_requests_insert on public.shift_requests
-  for insert to authenticated
-  with check (
-    public.is_super_admin()
-    or (
-      facility_id = public.current_facility_id()
-      and public.has_module_permission('scheduling', 'submit')
-    )
-  );
+do $$
+begin
+  if to_regclass('public.shift_requests') is not null then
+    drop policy if exists shift_requests_insert on public.shift_requests;
+    execute $sql$
+      create policy shift_requests_insert on public.shift_requests
+        for insert to authenticated
+        with check (
+          public.is_super_admin()
+          or (
+            facility_id = public.current_facility_id()
+            and public.has_module_permission('scheduling', 'submit')
+          )
+        )
+    $sql$;
+  end if;
+end$$;
 
 -- -----------------------------------------------------------------------------
--- time_off_requests  (scheduling module)
+-- time_off_requests (PHANTOM — see migration 61)
+-- Real table is public.schedule_time_off_requests.
 -- -----------------------------------------------------------------------------
-drop policy if exists time_off_requests_insert on public.time_off_requests;
-create policy time_off_requests_insert on public.time_off_requests
-  for insert to authenticated
-  with check (
-    public.is_super_admin()
-    or (
-      facility_id = public.current_facility_id()
-      and public.has_module_permission('scheduling', 'submit')
-    )
-  );
+do $$
+begin
+  if to_regclass('public.time_off_requests') is not null then
+    drop policy if exists time_off_requests_insert on public.time_off_requests;
+    execute $sql$
+      create policy time_off_requests_insert on public.time_off_requests
+        for insert to authenticated
+        with check (
+          public.is_super_admin()
+          or (
+            facility_id = public.current_facility_id()
+            and public.has_module_permission('scheduling', 'submit')
+          )
+        )
+    $sql$;
+  end if;
+end$$;

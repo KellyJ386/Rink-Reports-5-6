@@ -25,20 +25,15 @@ export async function dispatchRulesForSubmission(
 ): Promise<number> {
   try {
     const supabase = await createClient()
-    // dispatch_rules_for_submission isn't in the generated types yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(
-      "dispatch_rules_for_submission",
-      {
-        p_facility_id: input.facilityId,
-        p_source_module: input.sourceModule,
-        p_source_record_id: input.sourceRecordId,
-        p_severity: input.severity ?? null,
-        p_area_id: input.areaId ?? null,
-        p_subject: input.subject ?? null,
-        p_body: input.body ?? null,
-      },
-    )
+    const { data, error } = await supabase.rpc("dispatch_rules_for_submission", {
+      p_facility_id: input.facilityId,
+      p_source_module: input.sourceModule,
+      p_source_record_id: input.sourceRecordId,
+      p_severity: input.severity ?? undefined,
+      p_area_id: input.areaId ?? undefined,
+      p_subject: input.subject ?? undefined,
+      p_body: input.body ?? undefined,
+    })
     if (error) {
       console.error("[notifications] dispatch failed:", error)
       return 0
@@ -57,11 +52,9 @@ export async function dispatchRulesForSubmission(
  */
 export async function previewRuleRecipients(ruleId: string): Promise<string[]> {
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc(
-    "resolve_rule_recipients",
-    { p_rule_id: ruleId },
-  )
+  const { data, error } = await supabase.rpc("resolve_rule_recipients", {
+    p_rule_id: ruleId,
+  })
   if (error || !data) return []
-  return (data as Array<{ employee_id: string }>).map((r) => r.employee_id)
+  return data.map((r) => r.employee_id)
 }

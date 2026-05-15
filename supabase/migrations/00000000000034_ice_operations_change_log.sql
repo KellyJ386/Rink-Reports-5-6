@@ -4,16 +4,36 @@
 -- Append-only change log for ice operation report corrections.
 -- =============================================================================
 
-create table if not exists public.ice_operation_change_log (
-  id              uuid        primary key default gen_random_uuid(),
-  facility_id     uuid        not null references public.facilities(id) on delete restrict,
-  report_id       uuid        not null references public.ice_operation_reports(id) on delete cascade,
-  changed_by      uuid        not null references public.employees(id) on delete restrict,
-  reason          text        not null,
-  before          jsonb       not null default '{}'::jsonb,
-  after           jsonb       not null default '{}'::jsonb,
-  created_at      timestamptz not null default now()
-);
+-- report_id originally FK'd to public.ice_operation_reports (phantom; real
+-- table is public.ice_operations_submissions). On environments without the
+-- phantom table, create the column without an FK; migration 61 binds the FK
+-- to the real table.
+do $$
+begin
+  if to_regclass('public.ice_operation_reports') is not null then
+    create table if not exists public.ice_operation_change_log (
+      id              uuid        primary key default gen_random_uuid(),
+      facility_id     uuid        not null references public.facilities(id) on delete restrict,
+      report_id       uuid        not null references public.ice_operation_reports(id) on delete cascade,
+      changed_by      uuid        not null references public.employees(id) on delete restrict,
+      reason          text        not null,
+      before          jsonb       not null default '{}'::jsonb,
+      after           jsonb       not null default '{}'::jsonb,
+      created_at      timestamptz not null default now()
+    );
+  else
+    create table if not exists public.ice_operation_change_log (
+      id              uuid        primary key default gen_random_uuid(),
+      facility_id     uuid        not null references public.facilities(id) on delete restrict,
+      report_id       uuid        not null,
+      changed_by      uuid        not null references public.employees(id) on delete restrict,
+      reason          text        not null,
+      before          jsonb       not null default '{}'::jsonb,
+      after           jsonb       not null default '{}'::jsonb,
+      created_at      timestamptz not null default now()
+    );
+  end if;
+end$$;
 
 comment on table public.ice_operation_change_log is
   'Append-only correction log for ice operation reports. '

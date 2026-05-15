@@ -139,6 +139,31 @@ insert into public.communication_routing_rules (
   ('11111111-1111-1111-1111-111111111111', 'incident_reports', 'immediate', 'staff'),
   ('22222222-2222-2222-2222-222222222222', 'incident_reports', 'immediate', 'staff');
 
+-- An offline_sync_queue row in each facility so cross-facility checks have
+-- non-empty targets (mig 31 + test for migration 59 follow-up isolation).
+insert into public.offline_sync_queue (
+  local_id, facility_id, employee_id, module_key, action, payload
+) values
+  ('11111111-1111-1111-1111-1111aaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'daily_reports', 'submit', '{}'::jsonb),
+  ('22222222-2222-2222-2222-2222bbbbbbbb',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   'daily_reports', 'submit', '{}'::jsonb)
+on conflict (local_id) do nothing;
+
+-- A communication_groups row in each facility — one staff-visible, one not —
+-- so we can assert that the migration-59 column exists and is queryable.
+insert into public.communication_groups (
+  facility_id, name, slug, is_active, staff_can_message
+) values
+  ('11111111-1111-1111-1111-111111111111', 'Managers A', 'managers-a', true, true),
+  ('11111111-1111-1111-1111-111111111111', 'Internal A', 'internal-a', true, false),
+  ('22222222-2222-2222-2222-222222222222', 'Managers B', 'managers-b', true, true)
+on conflict (facility_id, slug) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -191,6 +216,68 @@ select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT outbox rows in facility B');
+
+-- ---------------------------------------------------------------------------
+-- M-offline: offline_sync_queue cross-facility isolation (mig 31).
+--
+-- The sync queue holds report payloads captured offline. A regression in
+-- the SELECT/INSERT policies (e.g. dropping the facility_id check) would
+-- let a tenant see or write another tenant's pending submissions.
+-- ---------------------------------------------------------------------------
+-- Alice sees her own queued row.
+select pg_temp.expect_count(
+  $$select count(*) from public.offline_sync_queue
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'offline: alice can SELECT her own facility''s queue rows');
+
+-- Alice cannot see Bob's queued row.
+select pg_temp.expect_count(
+  $$select count(*) from public.offline_sync_queue
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'offline: alice CANNOT SELECT queue rows in facility B');
+
+-- Alice cannot insert a queue row tagged for facility B.
+select pg_temp.expect_error(
+  $$insert into public.offline_sync_queue (
+      local_id, facility_id, employee_id, module_key, action, payload
+    ) values (
+      gen_random_uuid(),
+      '22222222-2222-2222-2222-222222222222',
+      'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      'daily_reports', 'submit', '{}'::jsonb
+    )$$,
+  'offline: alice CANNOT INSERT queue rows tagged with facility B');
+
+-- Alice cannot insert a queue row on behalf of another employee, even within
+-- her own facility (with-check requires employee_id maps to auth.uid()).
+select pg_temp.expect_error(
+  $$insert into public.offline_sync_queue (
+      local_id, facility_id, employee_id, module_key, action, payload
+    ) values (
+      gen_random_uuid(),
+      '11111111-1111-1111-1111-111111111111',
+      'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      'daily_reports', 'submit', '{}'::jsonb
+    )$$,
+  'offline: alice CANNOT INSERT queue rows for a foreign employee');
+
+-- ---------------------------------------------------------------------------
+-- M59: communication_groups.staff_can_message column exists and is
+-- query-filterable. The application-layer compose page + send action
+-- (see src/app/reports/communications/) enforce that non-admin staff only
+-- target staff_can_message=true groups; this test just guards the column
+-- against accidental removal.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_groups
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and staff_can_message = true$$,
+  1, 'M59: alice can SELECT staff-visible groups in her facility');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_groups
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'M59: alice CANNOT SELECT groups in facility B');
 
 -- Audit logs: Alice cannot read facility B's audit_logs.
 select pg_temp.expect_count(

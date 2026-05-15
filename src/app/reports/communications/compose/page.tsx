@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { requireUser } from "@/lib/auth"
+import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { ComposeForm } from "../_components/compose-form"
@@ -91,16 +91,18 @@ export default async function CommunicationsComposePage() {
     )
   }
 
-  // TODO: spec says "staff can message managers/supervisors only" but enforcing
-  // that requires role-aware group flagging. For v1, allow ANY active group in
-  // the facility. The admin UI surfaces routing rules; this picker is permissive.
+  // Spec: staff may only message groups flagged staff_can_message=true
+  // (migration 59). Admins still see all active groups so they can broadcast.
+  const isAdmin = await getIsAdmin(current)
+  const groupsQuery = supabase
+    .from("communication_groups")
+    .select("id, name, description, is_active")
+    .eq("facility_id", employeeRow.facility_id)
+    .eq("is_active", true)
+    .order("name", { ascending: true })
+
   const [{ data: groupsRaw }, { data: templatesRaw }] = await Promise.all([
-    supabase
-      .from("communication_groups")
-      .select("id, name, description, is_active")
-      .eq("facility_id", employeeRow.facility_id)
-      .eq("is_active", true)
-      .order("name", { ascending: true }),
+    isAdmin ? groupsQuery : groupsQuery.eq("staff_can_message", true),
     supabase
       .from("communication_templates")
       .select("id, name, subject, body, requires_acknowledgement, is_active")

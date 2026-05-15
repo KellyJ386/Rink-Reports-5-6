@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto"
 
-import { createClient } from "@supabase/supabase-js"
+import { type SupabaseClient, createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
 import { renderPdfForModule } from "@/lib/notifications/pdf/render"
@@ -69,11 +69,9 @@ export async function GET(request: Request) {
 
   const pdfResult = await renderDuePdfs(supabase)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc(
-    "drain_notification_outbox",
-    { p_max_rows: 500 },
-  )
+  const { data, error } = await supabase.rpc("drain_notification_outbox", {
+    p_max_rows: 500,
+  })
 
   if (error) {
     console.error("[cron/drain-notifications] drain failed:", error)
@@ -114,8 +112,7 @@ type PdfStats = {
 }
 
 async function renderDuePdfs(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any,
+  supabase: SupabaseClient<Database>,
 ): Promise<PdfStats> {
   const stats: PdfStats = { attempted: 0, rendered: 0, failed: 0 }
 

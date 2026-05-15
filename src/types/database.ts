@@ -1310,6 +1310,7 @@ export type Database = {
           name: string
           slug: string
           sort_order: number
+          staff_can_message: boolean
           updated_at: string | null
         }
         Insert: {
@@ -1321,6 +1322,7 @@ export type Database = {
           name: string
           slug: string
           sort_order?: number
+          staff_can_message?: boolean
           updated_at?: string | null
         }
         Update: {
@@ -1332,6 +1334,7 @@ export type Database = {
           name?: string
           slug?: string
           sort_order?: number
+          staff_can_message?: boolean
           updated_at?: string | null
         }
         Relationships: [
@@ -1413,6 +1416,9 @@ export type Database = {
           acknowledged_at: string | null
           created_at: string
           delivered_at: string | null
+          email_error: string | null
+          email_sent_at: string | null
+          email_status: string
           employee_id: string
           facility_id: string
           id: string
@@ -1423,6 +1429,9 @@ export type Database = {
           acknowledged_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          email_error?: string | null
+          email_sent_at?: string | null
+          email_status?: string
           employee_id: string
           facility_id: string
           id?: string
@@ -1433,6 +1442,9 @@ export type Database = {
           acknowledged_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          email_error?: string | null
+          email_sent_at?: string | null
+          email_status?: string
           employee_id?: string
           facility_id?: string
           id?: string

@@ -4,16 +4,36 @@
 -- Append-only change log for air quality submission corrections.
 -- =============================================================================
 
-create table if not exists public.air_quality_change_log (
-  id              uuid        primary key default gen_random_uuid(),
-  facility_id     uuid        not null references public.facilities(id) on delete restrict,
-  submission_id   uuid        not null references public.air_quality_submissions(id) on delete cascade,
-  changed_by      uuid        not null references public.employees(id) on delete restrict,
-  reason          text        not null,
-  before          jsonb       not null default '{}'::jsonb,
-  after           jsonb       not null default '{}'::jsonb,
-  created_at      timestamptz not null default now()
-);
+-- The submission_id FK originally targeted public.air_quality_submissions —
+-- a phantom table name (real table is public.air_quality_reports). On
+-- environments where the phantom table doesn't exist, create the column
+-- without the FK; migration 61 retargets the FK to air_quality_reports.
+do $$
+begin
+  if to_regclass('public.air_quality_submissions') is not null then
+    create table if not exists public.air_quality_change_log (
+      id              uuid        primary key default gen_random_uuid(),
+      facility_id     uuid        not null references public.facilities(id) on delete restrict,
+      submission_id   uuid        not null references public.air_quality_submissions(id) on delete cascade,
+      changed_by      uuid        not null references public.employees(id) on delete restrict,
+      reason          text        not null,
+      before          jsonb       not null default '{}'::jsonb,
+      after           jsonb       not null default '{}'::jsonb,
+      created_at      timestamptz not null default now()
+    );
+  else
+    create table if not exists public.air_quality_change_log (
+      id              uuid        primary key default gen_random_uuid(),
+      facility_id     uuid        not null references public.facilities(id) on delete restrict,
+      submission_id   uuid        not null,
+      changed_by      uuid        not null references public.employees(id) on delete restrict,
+      reason          text        not null,
+      before          jsonb       not null default '{}'::jsonb,
+      after           jsonb       not null default '{}'::jsonb,
+      created_at      timestamptz not null default now()
+    );
+  end if;
+end$$;
 
 comment on table public.air_quality_change_log is
   'Append-only correction log for air quality submissions. '
