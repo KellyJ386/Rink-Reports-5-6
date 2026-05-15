@@ -1,0 +1,72 @@
+name: Migration Prefix Check
+
+# Rejects newly-introduced duplicate numeric prefixes in
+# supabase/migrations/. The repo's convention (CLAUDE.md) is a monotonic
+# 14-digit prefix per migration — collisions usually mean a merge picked
+# up two branches that each grabbed the same next number, and the
+# alphabetical fallback order is non-obvious.
+#
+# Historical duplicates already in main are grandfathered: we only fail
+# when a file added in this PR shares a prefix with another file (whether
+# the other file is also new or already in main).
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - ".github/workflows/migration-prefix-check.yml"
+
+jobs:
+  check-prefixes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify no new migration prefix collisions
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Files added (status A) in this PR under supabase/migrations/.
+          added=$(
+            git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" -- \
+              supabase/migrations/ || true
+          )
+
+          if [ -z "$added" ]; then
+            echo "No new migration files in this PR."
+            exit 0
+          fi
+
+          fail=0
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            name=$(basename "$path")
+            prefix=$(printf '%s\n' "$name" | awk -F'_' '{print $1}')
+            case "$prefix" in
+              ''|*[!0-9]*)
+                echo "::error file=$path::Migration filename must start with a numeric prefix (got '$prefix')."
+                fail=1
+                continue
+                ;;
+            esac
+            matches=$(ls supabase/migrations/ | grep "^${prefix}_" || true)
+            count=$(printf '%s\n' "$matches" | grep -c . || true)
+            if [ "$count" -gt 1 ]; then
+              echo "::error file=$path::Prefix '$prefix' collides with existing migration(s):"
+              printf '%s\n' "$matches" | sed 's/^/    /'
+              fail=1
+            fi
+          done <<< "$added"
+
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "Rename your new migration to use the next free monotonic prefix."
+            exit 1
+          fi
+          echo "No new prefix collisions introduced."
