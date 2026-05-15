@@ -10,9 +10,7 @@ export async function getEffectiveModulePermission(
   moduleKey: string,
 ): Promise<PermissionLevel> {
   const supabase = await createClient()
-  // effective_module_permission() is not yet in the generated types; cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any).rpc("effective_module_permission", {
+  const { data } = await supabase.rpc("effective_module_permission", {
     p_employee_id: employeeId,
     p_module_key: moduleKey,
   })
@@ -24,8 +22,7 @@ export async function getEffectiveModulePermissionWithSource(
   moduleKey: string,
 ): Promise<EffectivePermission> {
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any).rpc(
+  const { data } = await supabase.rpc(
     "effective_module_permission_with_source",
     { p_employee_id: employeeId, p_module_key: moduleKey },
   )
@@ -40,8 +37,7 @@ export async function getCurrentEmployeeModulePermission(
   moduleKey: string,
 ): Promise<PermissionLevel> {
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any).rpc(
+  const { data } = await supabase.rpc(
     "current_employee_module_permission",
     { p_module_key: moduleKey },
   )

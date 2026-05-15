@@ -6,12 +6,18 @@ import { redirect } from "next/navigation"
 import { requireUser } from "@/lib/auth"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
+import type { Database } from "@/types/database"
 
 import type {
   AccidentReportSnapshot,
   BodyPartsPayloadEntry,
   WitnessPayloadEntry,
 } from "./types"
+
+type AccidentReportInsert =
+  Database["public"]["Tables"]["accident_reports"]["Insert"]
+type AccidentReportUpdate =
+  Database["public"]["Tables"]["accident_reports"]["Update"]
 
 export type AccidentFormState = {
   ok?: boolean
@@ -221,11 +227,7 @@ export async function submitAccidentReport(
       ? new Date().toISOString()
       : null
 
-  // injured_person_age is added by migration 00000000000051 and is not yet in
-  // the generated Database types. Cast via `as any` per the offline-sync
-  // pattern (see CLAUDE.md / src/app/api/offline-sync/route.ts).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertPayload: any = {
+  const insertPayload: AccidentReportInsert = {
     facility_id: employeeRow.facility_id,
     employee_id: employeeRow.id,
     injured_person_name: fields.injured_person_name,
@@ -283,8 +285,7 @@ export async function submitAccidentReport(
     }
   }
 
-  // Insert witnesses in batch. The accident_witnesses table is added by
-  // migration 51 and not yet in the generated Database types.
+  // Insert witnesses in batch.
   if (fields.witnesses.length > 0) {
     const witnessRows = fields.witnesses.map((w, i) => ({
       accident_id: reportId,
@@ -294,8 +295,7 @@ export async function submitAccidentReport(
       statement: w.statement,
       sort_order: i,
     }))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: wErr } = await (supabase as any)
+    const { error: wErr } = await supabase
       .from("accident_witnesses")
       .insert(witnessRows)
     if (wErr) {
@@ -455,20 +455,13 @@ export async function updateAccidentReport(
   const existingBp = existingBpRaw ?? []
 
   // Existing witnesses (for snapshot + replace).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: existingWitnessesRaw } = await (supabase as any)
+  const { data: existingWitnessesRaw } = await supabase
     .from("accident_witnesses")
     .select("id, name, contact, statement, sort_order")
     .eq("accident_id", reportId)
     .order("sort_order", { ascending: true })
 
-  const existingWitnesses: Array<{
-    id: string
-    name: string
-    contact: string | null
-    statement: string | null
-    sort_order: number
-  }> = existingWitnessesRaw ?? []
+  const existingWitnesses = existingWitnessesRaw ?? []
 
   const occurredIso = new Date(fields.occurred_at).toISOString()
 
@@ -478,8 +471,7 @@ export async function updateAccidentReport(
       (fields.workers_comp_ack ? new Date().toISOString() : null)
     : null
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updatePayload: any = {
+  const updatePayload: AccidentReportUpdate = {
     injured_person_name: fields.injured_person_name,
     injured_person_contact: fields.injured_person_contact,
     injured_person_age: fields.injured_person_age,
@@ -591,8 +583,7 @@ export async function updateAccidentReport(
   // simplest correct behaviour given the (accident_id, sort_order) unique
   // constraint and the small row count (<=5).
   if (existingWitnesses.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: delErr } = await (supabase as any)
+    const { error: delErr } = await supabase
       .from("accident_witnesses")
       .delete()
       .eq("accident_id", reportId)
@@ -609,8 +600,7 @@ export async function updateAccidentReport(
       statement: w.statement,
       sort_order: i,
     }))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: insErr } = await (supabase as any)
+    const { error: insErr } = await supabase
       .from("accident_witnesses")
       .insert(witnessRows)
     if (insErr) {
