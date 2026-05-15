@@ -440,7 +440,7 @@ export default async function CommunicationsInboxPage({
   const { data: recipientsRaw } = await supabase
     .from("communication_recipients")
     .select(
-      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, email_status, email_sent_at, email_error, sms_status, sms_sent_at, sms_error, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
+      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, email_status, email_sent_at, email_error, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
     )
     .eq("employee_id", employeeRow.id)
     .order("created_at", { ascending: false })
@@ -464,9 +464,6 @@ export default async function CommunicationsInboxPage({
         email_status: r.email_status,
         email_sent_at: r.email_sent_at,
         email_error: r.email_error,
-        sms_status: r.sms_status,
-        sms_sent_at: r.sms_sent_at,
-        sms_error: r.sms_error,
       },
       message: {
         id: r.message.id,

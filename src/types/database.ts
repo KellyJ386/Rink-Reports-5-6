@@ -1424,9 +1424,6 @@ export type Database = {
           id: string
           message_id: string
           read_at: string | null
-          sms_error: string | null
-          sms_sent_at: string | null
-          sms_status: string
         }
         Insert: {
           acknowledged_at?: string | null
@@ -1440,9 +1437,6 @@ export type Database = {
           id?: string
           message_id: string
           read_at?: string | null
-          sms_error?: string | null
-          sms_sent_at?: string | null
-          sms_status?: string
         }
         Update: {
           acknowledged_at?: string | null
@@ -1456,9 +1450,6 @@ export type Database = {
           id?: string
           message_id?: string
           read_at?: string | null
-          sms_error?: string | null
-          sms_sent_at?: string | null
-          sms_status?: string
         }
         Relationships: [
           {

@@ -4,7 +4,6 @@ import { type SupabaseClient, createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
-import { isSmsConfigured, sendSms } from "@/lib/notifications/transport/sms"
 import type { Database } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -14,24 +13,21 @@ export const maxDuration = 60
 const BATCH_LIMIT = 100
 
 /**
- * Sends queued communication_recipients rows via Resend (email) and Twilio
- * (SMS). The two channels advance independently — a recipient with no phone
- * number resolves to email-sent + sms-skipped without blocking the row.
+ * Sends queued communication_recipients rows via Resend.
  *
  * Authenticated by the same CRON_SECRET as /api/cron/drain-notifications.
  * The drain worker should run first (promote outbox → recipients), then
  * this worker picks up the pending rows.
  *
- * Idempotency: each channel's status column is only ever advanced from
- * 'pending'. A re-run won't double-send because the UPDATE filters on
- * `*_status = 'pending'`, and on conflict the second writer simply
- * matches zero rows.
+ * Idempotency: email_status is only ever advanced from 'pending'. A re-run
+ * won't double-send because the UPDATE filters on `email_status='pending'`,
+ * and on conflict the second writer simply matches zero rows.
  *
- * If a provider is unconfigured (RESEND_API_KEY / TWILIO_* missing) the
- * worker skips that channel entirely — pending rows stay pending so they
- * retry once secrets are provisioned. We do NOT mark 'skipped' on missing
- * config, only on missing contact fields, so adding the API key later
- * still flushes the backlog.
+ * If Resend is unconfigured (RESEND_API_KEY / RESEND_FROM missing) the
+ * worker skips entirely — pending rows stay pending so they retry once
+ * secrets are provisioned. We do NOT mark 'skipped' on missing config,
+ * only on missing email address, so adding the API key later still
+ * flushes the backlog.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
@@ -62,13 +58,8 @@ export async function GET(request: Request) {
   })
 
   const email = isEmailConfigured() ? await runEmail(supabase) : SKIPPED
-  const sms = isSmsConfigured() ? await runSms(supabase) : SKIPPED
 
-  return NextResponse.json({
-    ok: true,
-    email,
-    sms,
-  })
+  return NextResponse.json({ ok: true, email })
 }
 
 type ChannelStats = {
@@ -90,26 +81,24 @@ const SKIPPED: ChannelStats = {
 type RecipientRow = {
   id: string
   message_id: string
-  employee: { email: string | null; phone: string | null } | null
+  employee: { email: string | null } | null
   message: { subject: string | null; body: string } | null
 }
 
 async function loadPending(
   supabase: SupabaseClient<Database>,
-  channel: "email" | "sms",
 ): Promise<RecipientRow[]> {
-  const statusCol = channel === "email" ? "email_status" : "sms_status"
   const { data, error } = await supabase
     .from("communication_recipients")
     .select(
-      "id, message_id, employees!inner(email, phone), communication_messages!inner(subject, body)",
+      "id, message_id, employees!inner(email), communication_messages!inner(subject, body)",
     )
-    .eq(statusCol, "pending")
+    .eq("email_status", "pending")
     .order("created_at", { ascending: true })
     .limit(BATCH_LIMIT)
 
   if (error) {
-    console.error("[send-communications] load failed:", channel, error)
+    console.error("[send-communications] load failed:", error)
     return []
   }
 
@@ -137,7 +126,7 @@ async function runEmail(
     failed: 0,
     skipped: 0,
   }
-  const rows = await loadPending(supabase, "email")
+  const rows = await loadPending(supabase)
   const nowIso = new Date().toISOString()
 
   for (const r of rows) {
@@ -162,42 +151,6 @@ async function runEmail(
   return stats
 }
 
-async function runSms(
-  supabase: SupabaseClient<Database>,
-): Promise<ChannelStats> {
-  const stats: ChannelStats = {
-    configured: true,
-    attempted: 0,
-    sent: 0,
-    failed: 0,
-    skipped: 0,
-  }
-  const rows = await loadPending(supabase, "sms")
-  const nowIso = new Date().toISOString()
-
-  for (const r of rows) {
-    stats.attempted += 1
-    const to = r.employee?.phone?.trim()
-    if (!to) {
-      await markSms(supabase, r.id, "skipped", null, "no phone")
-      stats.skipped += 1
-      continue
-    }
-    const subject = r.message?.subject?.trim()
-    const body = r.message?.body ?? ""
-    const sms = subject ? `${subject}\n\n${body}` : body
-    const result = await sendSms({ to, body: sms.slice(0, 1500) })
-    if (result.ok) {
-      await markSms(supabase, r.id, "sent", nowIso, null)
-      stats.sent += 1
-    } else {
-      await markSms(supabase, r.id, "failed", null, result.error)
-      stats.failed += 1
-    }
-  }
-  return stats
-}
-
 async function markEmail(
   supabase: SupabaseClient<Database>,
   recipientId: string,
@@ -215,24 +168,6 @@ async function markEmail(
     })
     .eq("id", recipientId)
     .eq("email_status", "pending")
-}
-
-async function markSms(
-  supabase: SupabaseClient<Database>,
-  recipientId: string,
-  status: "sent" | "failed" | "skipped",
-  sentAt: string | null,
-  error: string | null,
-) {
-  await supabase
-    .from("communication_recipients")
-    .update({
-      sms_status: status,
-      sms_sent_at: sentAt,
-      sms_error: error,
-    })
-    .eq("id", recipientId)
-    .eq("sms_status", "pending")
 }
 
 function authorize(header: string | null, secret: string): boolean {
