@@ -57,7 +57,21 @@ export async function GET(request: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
+  const startedAt = Date.now()
   const email = isEmailConfigured() ? await runEmail(supabase) : SKIPPED
+
+  console.log(
+    "[cron/send-communications] run complete",
+    JSON.stringify({
+      route: "/api/cron/send-communications",
+      duration_ms: Date.now() - startedAt,
+      configured: email.configured,
+      attempted: email.attempted,
+      sent: email.sent,
+      failed: email.failed,
+      skipped: email.skipped,
+    }),
+  )
 
   return NextResponse.json({ ok: true, email })
 }

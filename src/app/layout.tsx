@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next"
 import { Anton, Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { SwRegister } from "@/components/app/sw-register"
+import { Toaster } from "@/components/ui/sonner"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -50,6 +51,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <SwRegister />
+        <Toaster />
       </body>
     </html>
   )
