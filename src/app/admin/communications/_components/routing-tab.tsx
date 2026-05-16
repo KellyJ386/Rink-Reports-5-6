@@ -232,7 +232,9 @@ function RuleRowItem({
           </div>
           <div>
             <span className="font-medium uppercase">Attach PDF:</span>{" "}
-            {rule.attach_pdf ? "yes (generator not yet implemented)" : "no"}
+            {rule.attach_pdf
+              ? "yes (linked from the in-app message)"
+              : "no"}
           </div>
         </div>
       )}
@@ -452,8 +454,9 @@ function RuleForm({
             Attach PDF of the submission
           </Label>
           <span className="text-muted-foreground text-xs">
-            Stored as a preference now; the PDF generator is a follow-up. The
-            flag won&apos;t produce attachments until that ships.
+            Renders a PDF of the source record and links it from the in-app
+            message. Email attachments aren&apos;t supported yet — recipients
+            need to open the message in the app to download.
           </span>
         </div>
       </div>

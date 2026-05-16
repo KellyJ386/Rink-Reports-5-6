@@ -30,20 +30,41 @@ that function. It requires:
 `vercel.json` schedules it every 5 minutes. Other hosts can configure
 GitHub Actions, an external uptime ping, or pg_cron with the same path.
 
+## In-app PDF attachments (shipped)
+
+`attach_pdf` on a routing rule now renders a PDF of the source record
+and links it from the in-app message detail page:
+
+1. `renderDuePdfs()` in the drain cron route picks `notification_outbox`
+   rows with `attach_pdf = true` and `pdf_url IS NULL`, calls
+   `renderPdfForModule()` (`src/lib/notifications/pdf/render.tsx`), and
+   uploads the buffer via `uploadSubmissionPdf()`. The storage path is
+   stamped back onto the outbox row.
+2. `drain_notification_outbox()` copies `pdf_url` onto the
+   `communication_messages` row when it fans the outbox into messages.
+3. The recipient's inbox (`src/app/reports/communications/page.tsx`)
+   signs the storage path on read and `message-detail.tsx` renders a
+   "Download PDF attachment" button.
+
+Per-module templates exist for `accident_reports`, `air_quality`,
+`daily_reports`, `ice_depth`, `incident_reports`, and `refrigeration`.
+Other modules fall back to the generic `SubmissionPdf` template using
+`fetchSubmissionSnapshot`.
+
 ## Still deferred
 
-- **PDF attachments.** `attach_pdf` is stored on routing rules and on
-  outbox rows but the drain function ignores it. When a PDF renderer
-  is added it should generate the attachment, upload to Supabase
-  Storage, and store the object URL in a new column (e.g. `pdf_url`)
-  before the message is created. Until then the toggle is a no-op
-  preference; the UI surfaces this clearly.
-- **Failed-send retries.** The function only marks rows `sent` or
-  leaves them `pending`. It does not handle `failed` rows yet —
+- **Email attachments.** `sendEmail()` in
+  `src/lib/notifications/transport/email.ts` ships text-only. To attach
+  the PDF, sign `pdf_url`, fetch the buffer (or use a public URL), and
+  pass `attachments: [{ filename, content }]` through to Resend.
+  Adjust `runEmail()` in the send-communications cron route to pass
+  `pdf_url` from the joined message row.
+- **Failed-send retries.** The drain function only marks rows `sent`
+  or leaves them `pending`. It does not handle `failed` rows yet —
   there is no transport that can fail (insert into Postgres is the
-  whole pipeline). If a future transport (push, email) is added,
-  introduce an `attempts` column and exponential backoff in the
-  claim query.
+  whole pipeline). When a transport that can fail is added (email
+  bounce, push token expired), introduce an `attempts` column and
+  exponential backoff in the claim query.
 - **Per-recipient acknowledgement requirements.** The drain inserts
   `requires_acknowledgement = false`. If a future rule should require
   ack (e.g. accident reports with severity = critical), add a column
