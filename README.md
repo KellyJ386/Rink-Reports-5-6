@@ -22,3 +22,7 @@ Copy `.env.example` to `.env.local` and fill in your credentials before starting
 pnpm install
 pnpm dev
 ```
+
+## Production deploy
+
+See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the full runbook: Supabase + Resend + Vercel setup, required env vars, cron schedule, and post-deploy smoke tests.
