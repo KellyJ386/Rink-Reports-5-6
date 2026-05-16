@@ -67,6 +67,7 @@ export async function GET(request: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
+  const startedAt = Date.now()
   const pdfResult = await renderDuePdfs(supabase)
 
   const { data, error } = await supabase.rpc("drain_notification_outbox", {
@@ -79,12 +80,23 @@ export async function GET(request: Request) {
   }
 
   const row = Array.isArray(data) ? data[0] : data
-  // Return counts only — never UUIDs or error strings.
-  return NextResponse.json({
-    ok: true,
+  const summary = {
+    route: "/api/cron/drain-notifications",
+    duration_ms: Date.now() - startedAt,
     sent: row?.sent_count ?? 0,
     failed: row?.failed_count ?? 0,
     messages: row?.message_count ?? 0,
+    pdf_attempted: pdfResult.attempted,
+    pdf_rendered: pdfResult.rendered,
+    pdf_failed: pdfResult.failed,
+  }
+  console.log("[cron/drain-notifications] run complete", JSON.stringify(summary))
+  // Return counts only — never UUIDs or error strings.
+  return NextResponse.json({
+    ok: true,
+    sent: summary.sent,
+    failed: summary.failed,
+    messages: summary.messages,
     pdf: {
       attempted: pdfResult.attempted,
       rendered: pdfResult.rendered,

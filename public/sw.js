@@ -24,10 +24,13 @@ const DB_VERSION = 1
 const STORE_NAME = "submissions"
 
 // ---------------------------------------------------------------------------
-// Install: cache shell
+// Install: do NOT call skipWaiting() here. A staff member mid-shift filling
+// out a report shouldn't have the SW (and its IndexedDB queue) swapped from
+// under them. The new SW stays in "waiting" until the page posts
+// {type:"SKIP_WAITING"} — see the message handler and sw-register.tsx.
 // ---------------------------------------------------------------------------
 self.addEventListener("install", () => {
-  self.skipWaiting()
+  // intentionally no-op
 })
 
 // ---------------------------------------------------------------------------
@@ -175,6 +178,12 @@ self.addEventListener("message", (event) => {
   if (!event.data) return
 
   switch (event.data.type) {
+    case "SKIP_WAITING": {
+      // Page is signalling that the user accepted the update prompt.
+      self.skipWaiting()
+      break
+    }
+
     case "ENQUEUE_SUBMISSION": {
       openDB().then(async (db) => {
         const record = {

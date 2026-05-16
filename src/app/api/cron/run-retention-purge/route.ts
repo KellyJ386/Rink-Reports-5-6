@@ -58,6 +58,7 @@ export async function GET(request: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
+  const startedAt = Date.now()
   const results: Record<PurgeFn, number | "error"> = Object.fromEntries(
     PURGE_FUNCTIONS.map((fn) => [fn, 0 as number | "error"]),
   ) as Record<PurgeFn, number | "error">
@@ -95,6 +96,17 @@ export async function GET(request: Request) {
       stampErr,
     )
   }
+
+  console.log(
+    "[cron/run-retention-purge] run complete",
+    JSON.stringify({
+      route: "/api/cron/run-retention-purge",
+      duration_ms: Date.now() - startedAt,
+      total,
+      results,
+      ok: !anyFailed,
+    }),
+  )
 
   return NextResponse.json(
     {
