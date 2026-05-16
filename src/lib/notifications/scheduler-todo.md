@@ -56,14 +56,19 @@ Per-module templates exist for `accident_reports`, `air_quality`,
 Other modules fall back to the generic `SubmissionPdf` template using
 `fetchSubmissionSnapshot`.
 
+## Email send retries (shipped)
+
+Migration 62 adds `email_attempts` and `email_next_attempt_at` to
+`communication_recipients`. On a transient Resend failure the cron
+worker increments attempts, schedules the next retry per the backoff
+table in `send-communications/route.ts` (1m → 5m → 15m → 1h → terminal
+'failed'), and leaves the row in `email_status='pending'` so the
+ready-now partial index keeps the worker query cheap. Terminal
+failures surface as `email_status='failed'` with the last error in
+`email_error` so admins can triage.
+
 ## Still deferred
 
-- **Failed-send retries.** The drain function only marks rows `sent`
-  or leaves them `pending`. It does not handle `failed` rows yet —
-  there is no transport that can fail (insert into Postgres is the
-  whole pipeline). When a transport that can fail is added (email
-  bounce, push token expired), introduce an `attempts` column and
-  exponential backoff in the claim query.
 - **Per-recipient acknowledgement requirements.** The drain inserts
   `requires_acknowledgement = false`. If a future rule should require
   ack (e.g. accident reports with severity = critical), add a column

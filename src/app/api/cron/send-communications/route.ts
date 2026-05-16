@@ -13,6 +13,18 @@ export const maxDuration = 60
 
 const BATCH_LIMIT = 100
 
+// Retry budget. The schedule below is total elapsed before the row is
+// marked terminally 'failed':
+//   attempt 1 fails  → next retry in 1m
+//   attempt 2 fails  → next retry in 5m
+//   attempt 3 fails  → next retry in 15m
+//   attempt 4 fails  → next retry in 1h
+//   attempt 5 fails  → terminal 'failed' (~7.3 hours total)
+// Add new tiers to BACKOFF_MINUTES if more leniency is wanted; MAX_EMAIL_ATTEMPTS
+// is implicitly its length + 1 (the +1 is the in-flight attempt before any wait).
+const BACKOFF_MINUTES = [1, 5, 15, 60] as const
+const MAX_EMAIL_ATTEMPTS = BACKOFF_MINUTES.length + 1
+
 /**
  * Sends queued communication_recipients rows via Resend.
  *
@@ -70,6 +82,7 @@ export async function GET(request: Request) {
       attempted: email.attempted,
       sent: email.sent,
       failed: email.failed,
+      retried: email.retried,
       skipped: email.skipped,
     }),
   )
@@ -81,7 +94,8 @@ type ChannelStats = {
   configured: boolean
   attempted: number
   sent: number
-  failed: number
+  failed: number   // terminal failures (max attempts exceeded)
+  retried: number  // transient failures scheduled for a later attempt
   skipped: number
 }
 
@@ -90,12 +104,14 @@ const SKIPPED: ChannelStats = {
   attempted: 0,
   sent: 0,
   failed: 0,
+  retried: 0,
   skipped: 0,
 }
 
 type RecipientRow = {
   id: string
   message_id: string
+  attempts: number
   employee: { email: string | null } | null
   message: {
     subject: string | null
@@ -107,12 +123,17 @@ type RecipientRow = {
 async function loadPending(
   supabase: SupabaseClient<Database>,
 ): Promise<RecipientRow[]> {
-  const { data, error } = await supabase
+  const nowIso = new Date().toISOString()
+  // email_attempts / email_next_attempt_at are added in migration 62 and
+  // not yet in generated DB types — cast to bypass typing for those columns.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
     .from("communication_recipients")
     .select(
-      "id, message_id, employees!inner(email), communication_messages!inner(subject, body, pdf_url)",
+      "id, message_id, email_attempts, employees!inner(email), communication_messages!inner(subject, body, pdf_url)",
     )
     .eq("email_status", "pending")
+    .or(`email_next_attempt_at.is.null,email_next_attempt_at.lte.${nowIso}`)
     .order("created_at", { ascending: true })
     .limit(BATCH_LIMIT)
 
@@ -121,7 +142,8 @@ async function loadPending(
     return []
   }
 
-  return (data ?? []).map((r) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => {
     const emp = Array.isArray(r.employees) ? r.employees[0] : r.employees
     const msg = Array.isArray(r.communication_messages)
       ? r.communication_messages[0]
@@ -129,6 +151,7 @@ async function loadPending(
     return {
       id: r.id,
       message_id: r.message_id,
+      attempts: typeof r.email_attempts === "number" ? r.email_attempts : 0,
       employee: emp ?? null,
       message: msg ?? null,
     }
@@ -143,6 +166,7 @@ async function runEmail(
     attempted: 0,
     sent: 0,
     failed: 0,
+    retried: 0,
     skipped: 0,
   }
   const rows = await loadPending(supabase)
@@ -157,7 +181,7 @@ async function runEmail(
     stats.attempted += 1
     const to = r.employee?.email?.trim()
     if (!to) {
-      await markEmail(supabase, r.id, "skipped", null, "no email")
+      await markEmailSkipped(supabase, r.id, "no email")
       stats.skipped += 1
       continue
     }
@@ -188,30 +212,99 @@ async function runEmail(
       : undefined
 
     const result = await sendEmail({ to, subject, bodyText: body, attachments })
+    const nextAttempts = r.attempts + 1
     if (result.ok) {
-      await markEmail(supabase, r.id, "sent", nowIso, null)
+      await markEmailSent(supabase, r.id, nowIso, nextAttempts)
       stats.sent += 1
-    } else {
-      await markEmail(supabase, r.id, "failed", null, result.error)
+    } else if (nextAttempts >= MAX_EMAIL_ATTEMPTS) {
+      await markEmailTerminalFailure(supabase, r.id, nextAttempts, result.error)
       stats.failed += 1
+    } else {
+      const backoffMin = BACKOFF_MINUTES[nextAttempts - 1] ?? BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]
+      const nextAttemptAt = new Date(Date.now() + backoffMin * 60_000).toISOString()
+      await markEmailRetry(
+        supabase,
+        r.id,
+        nextAttempts,
+        nextAttemptAt,
+        result.error,
+      )
+      stats.retried += 1
     }
   }
   return stats
 }
 
-async function markEmail(
+async function markEmailSent(
   supabase: SupabaseClient<Database>,
   recipientId: string,
-  status: "sent" | "failed" | "skipped",
-  sentAt: string | null,
-  error: string | null,
+  sentAt: string,
+  attempts: number,
 ) {
   // Filter on email_status='pending' so concurrent workers can't double-send.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase as any)
+    .from("communication_recipients")
+    .update({
+      email_status: "sent",
+      email_sent_at: sentAt,
+      email_error: null,
+      email_attempts: attempts,
+      email_next_attempt_at: null,
+    })
+    .eq("id", recipientId)
+    .eq("email_status", "pending")
+}
+
+async function markEmailSkipped(
+  supabase: SupabaseClient<Database>,
+  recipientId: string,
+  error: string,
+) {
   await supabase
     .from("communication_recipients")
     .update({
-      email_status: status,
-      email_sent_at: sentAt,
+      email_status: "skipped",
+      email_sent_at: null,
+      email_error: error,
+    })
+    .eq("id", recipientId)
+    .eq("email_status", "pending")
+}
+
+async function markEmailRetry(
+  supabase: SupabaseClient<Database>,
+  recipientId: string,
+  attempts: number,
+  nextAttemptAt: string,
+  error: string,
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase as any)
+    .from("communication_recipients")
+    .update({
+      email_status: "pending",
+      email_attempts: attempts,
+      email_next_attempt_at: nextAttemptAt,
+      email_error: error,
+    })
+    .eq("id", recipientId)
+    .eq("email_status", "pending")
+}
+
+async function markEmailTerminalFailure(
+  supabase: SupabaseClient<Database>,
+  recipientId: string,
+  attempts: number,
+  error: string,
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase as any)
+    .from("communication_recipients")
+    .update({
+      email_status: "failed",
+      email_attempts: attempts,
+      email_next_attempt_at: null,
       email_error: error,
     })
     .eq("id", recipientId)
