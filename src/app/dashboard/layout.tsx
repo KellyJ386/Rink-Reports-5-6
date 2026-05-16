@@ -21,7 +21,7 @@ export default async function DashboardLayout({
       <AppSidebar isAdmin={isAdmin} email={email} fullName={fullName} />
       <div className="flex min-h-screen flex-col lg:pl-64">
         <AppHeader email={email} fullName={fullName} isAdmin={isAdmin} />
-        <main className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1">{children}</main>
       </div>
       <Toaster />
     </div>

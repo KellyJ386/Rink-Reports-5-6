@@ -25,7 +25,7 @@ export default async function ReportsLayout({
         <PreviewBanner />
         <OfflineBanner />
         <AppHeader email={email} fullName={fullName} isAdmin={isAdmin} />
-        <main className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1">{children}</main>
       </div>
       <Toaster />
     </div>

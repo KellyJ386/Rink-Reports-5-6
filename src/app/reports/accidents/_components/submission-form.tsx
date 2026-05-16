@@ -398,7 +398,8 @@ export function SubmissionForm({
                     <button
                       type="button"
                       onClick={() => removeWitness(idx)}
-                      className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                      aria-label={`Remove witness ${idx + 1}`}
+                      className="inline-flex h-10 items-center rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                     >
                       Remove
                     </button>

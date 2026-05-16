@@ -21,7 +21,7 @@ export default async function AdminLayout({
       <div className="flex min-h-screen flex-col lg:pl-64">
         <PreviewBanner />
         <AdminHeader email={email} fullName={fullName} />
-        <main className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1">{children}</main>
       </div>
       <Toaster />
     </div>

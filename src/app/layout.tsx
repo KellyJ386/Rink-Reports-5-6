@@ -35,7 +35,11 @@ export const viewport: Viewport = {
   themeColor: "#001A3A",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // viewportFit:'cover' lets the WebView extend behind iOS safe-area
+  // insets; the body padding in globals.css restores breathing room.
+  // maximumScale is left at the default (allow pinch-zoom) — restricting
+  // it breaks WCAG 1.4.4 for low-vision users.
+  viewportFit: "cover",
 }
 
 export default function RootLayout({
@@ -49,6 +53,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${anton.variable} dark h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
+        >
+          Skip to main content
+        </a>
         {children}
         <SwRegister />
         <Toaster />
