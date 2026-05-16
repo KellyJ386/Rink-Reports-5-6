@@ -30,10 +30,10 @@ that function. It requires:
 `vercel.json` schedules it every 5 minutes. Other hosts can configure
 GitHub Actions, an external uptime ping, or pg_cron with the same path.
 
-## In-app PDF attachments (shipped)
+## PDF attachments (shipped — in-app + email)
 
 `attach_pdf` on a routing rule now renders a PDF of the source record
-and links it from the in-app message detail page:
+and delivers it both via the in-app message and as an email attachment:
 
 1. `renderDuePdfs()` in the drain cron route picks `notification_outbox`
    rows with `attach_pdf = true` and `pdf_url IS NULL`, calls
@@ -45,6 +45,11 @@ and links it from the in-app message detail page:
 3. The recipient's inbox (`src/app/reports/communications/page.tsx`)
    signs the storage path on read and `message-detail.tsx` renders a
    "Download PDF attachment" button.
+4. `runEmail()` in the send-communications cron route reads the same
+   `pdf_url`, fetches the bytes once per path via `downloadPdf()` (cached
+   per batch), and passes them to Resend as a single
+   `rink-report.pdf` attachment. PDF download failures degrade to a
+   text-only send rather than blocking the run.
 
 Per-module templates exist for `accident_reports`, `air_quality`,
 `daily_reports`, `ice_depth`, `incident_reports`, and `refrigeration`.
@@ -53,12 +58,6 @@ Other modules fall back to the generic `SubmissionPdf` template using
 
 ## Still deferred
 
-- **Email attachments.** `sendEmail()` in
-  `src/lib/notifications/transport/email.ts` ships text-only. To attach
-  the PDF, sign `pdf_url`, fetch the buffer (or use a public URL), and
-  pass `attachments: [{ filename, content }]` through to Resend.
-  Adjust `runEmail()` in the send-communications cron route to pass
-  `pdf_url` from the joined message row.
 - **Failed-send retries.** The drain function only marks rows `sent`
   or leaves them `pending`. It does not handle `failed` rows yet —
   there is no transport that can fail (insert into Postgres is the

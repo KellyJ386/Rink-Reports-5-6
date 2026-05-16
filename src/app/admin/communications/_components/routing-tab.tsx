@@ -233,7 +233,7 @@ function RuleRowItem({
           <div>
             <span className="font-medium uppercase">Attach PDF:</span>{" "}
             {rule.attach_pdf
-              ? "yes (linked from the in-app message)"
+              ? "yes (in-app link + email attachment)"
               : "no"}
           </div>
         </div>
@@ -454,9 +454,8 @@ function RuleForm({
             Attach PDF of the submission
           </Label>
           <span className="text-muted-foreground text-xs">
-            Renders a PDF of the source record and links it from the in-app
-            message. Email attachments aren&apos;t supported yet — recipients
-            need to open the message in the app to download.
+            Renders a PDF of the source record, links it from the in-app
+            message, and attaches it to outbound emails.
           </span>
         </div>
       </div>

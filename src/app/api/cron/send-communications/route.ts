@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import { type SupabaseClient, createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
+import { downloadPdf } from "@/lib/notifications/pdf/upload"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
 import type { Database } from "@/types/database"
 
@@ -96,7 +97,11 @@ type RecipientRow = {
   id: string
   message_id: string
   employee: { email: string | null } | null
-  message: { subject: string | null; body: string } | null
+  message: {
+    subject: string | null
+    body: string
+    pdf_url: string | null
+  } | null
 }
 
 async function loadPending(
@@ -105,7 +110,7 @@ async function loadPending(
   const { data, error } = await supabase
     .from("communication_recipients")
     .select(
-      "id, message_id, employees!inner(email), communication_messages!inner(subject, body)",
+      "id, message_id, employees!inner(email), communication_messages!inner(subject, body, pdf_url)",
     )
     .eq("email_status", "pending")
     .order("created_at", { ascending: true })
@@ -143,6 +148,11 @@ async function runEmail(
   const rows = await loadPending(supabase)
   const nowIso = new Date().toISOString()
 
+  // A single message often fans out to many recipients; cache PDF bytes
+  // per storage path so we don't redownload N times in one batch.
+  // `null` cached value means "we tried and the object wasn't reachable".
+  const pdfCache = new Map<string, Buffer | null>()
+
   for (const r of rows) {
     stats.attempted += 1
     const to = r.employee?.email?.trim()
@@ -153,7 +163,31 @@ async function runEmail(
     }
     const subject = r.message?.subject?.trim() || "New message"
     const body = r.message?.body ?? ""
-    const result = await sendEmail({ to, subject, bodyText: body })
+
+    const pdfPath = r.message?.pdf_url ?? null
+    let pdfBuffer: Buffer | null = null
+    if (pdfPath) {
+      if (pdfCache.has(pdfPath)) {
+        pdfBuffer = pdfCache.get(pdfPath) ?? null
+      } else {
+        pdfBuffer = await downloadPdf(supabase, pdfPath)
+        pdfCache.set(pdfPath, pdfBuffer)
+        if (!pdfBuffer) {
+          // Log once per path — falling through to a text-only send is
+          // better than blocking the whole run on a single missing PDF.
+          console.warn(
+            "[send-communications] PDF download failed; sending text-only",
+            { pdf_url: pdfPath },
+          )
+        }
+      }
+    }
+
+    const attachments = pdfBuffer
+      ? [{ filename: "rink-report.pdf", content: pdfBuffer, contentType: "application/pdf" }]
+      : undefined
+
+    const result = await sendEmail({ to, subject, bodyText: body, attachments })
     if (result.ok) {
       await markEmail(supabase, r.id, "sent", nowIso, null)
       stats.sent += 1
