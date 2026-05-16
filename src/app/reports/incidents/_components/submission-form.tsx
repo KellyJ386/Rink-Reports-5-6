@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -100,7 +101,7 @@ export function SubmissionForm({
         <FormError message={state.error} />
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="reporter_name">Your name</Label>
+          <Label htmlFor="reporter_name">Your name<RequiredMark /></Label>
           <Input
             id="reporter_name"
             name="reporter_name"
@@ -114,7 +115,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="reporter_phone">Phone number</Label>
+          <Label htmlFor="reporter_phone">Phone number<RequiredMark /></Label>
           <Input
             id="reporter_phone"
             name="reporter_phone"
@@ -130,7 +131,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="occurred_at">When did it happen?</Label>
+          <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
           <Input
             id="occurred_at"
             name="occurred_at"
@@ -157,7 +158,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Incident type</Label>
+          <Label>Incident type<RequiredMark /></Label>
           <Select value={incidentTypeId} onValueChange={setIncidentTypeId} required>
             <SelectTrigger>
               <SelectValue placeholder="Select an incident type" />
@@ -173,7 +174,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Severity</Label>
+          <Label>Severity<RequiredMark /></Label>
           <Select value={severityLevelId} onValueChange={setSeverityLevelId} required>
             <SelectTrigger>
               <SelectValue placeholder="Select severity" />
@@ -189,7 +190,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="description">What happened?</Label>
+          <Label htmlFor="description">What happened?<RequiredMark /></Label>
           <Textarea
             id="description"
             name="description"

@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -224,7 +225,7 @@ export function SubmissionForm({
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="injured_person_name">
-            Injured person&apos;s name
+            Injured person&apos;s name<RequiredMark />
           </Label>
           <Input
             id="injured_person_name"
@@ -240,7 +241,7 @@ export function SubmissionForm({
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="injured_person_contact">
-            Contact (phone or email)
+            Contact (phone or email)<RequiredMark />
           </Label>
           <Input
             id="injured_person_contact"
@@ -256,7 +257,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="injured_person_age">Age</Label>
+          <Label htmlFor="injured_person_age">Age<RequiredMark /></Label>
           <Input
             id="injured_person_age"
             name="injured_person_age"
@@ -275,7 +276,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="occurred_at">When did it happen?</Label>
+          <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
           <Input
             id="occurred_at"
             name="occurred_at"
@@ -349,7 +350,7 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="description">What happened?</Label>
+          <Label htmlFor="description">What happened?<RequiredMark /></Label>
           <Textarea
             id="description"
             name="description"

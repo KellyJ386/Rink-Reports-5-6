@@ -9,6 +9,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -119,7 +120,7 @@ export function ComposeForm({ groups, templates }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="body">Message</Label>
+        <Label htmlFor="body">Message<RequiredMark /></Label>
         <Textarea
           id="body"
           name="body"
