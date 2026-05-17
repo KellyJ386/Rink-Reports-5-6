@@ -5,6 +5,7 @@ import { useActionState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Sheet,
   SheetContent,
@@ -93,7 +94,7 @@ function ItemFormBody({ onOpenChange, templateId, editing, bulk }: Props) {
         <form action={action} className="flex flex-col gap-4">
           <input type="hidden" name="template_id" value={templateId} />
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="labels">Labels *</Label>
+            <Label htmlFor="labels">Labels<RequiredMark /></Label>
             <Textarea
               id="labels"
               name="labels"
@@ -143,7 +144,7 @@ function ItemFormBody({ onOpenChange, templateId, editing, bulk }: Props) {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="label">Label *</Label>
+          <Label htmlFor="label">Label<RequiredMark /></Label>
           <Input
             id="label"
             name="label"
