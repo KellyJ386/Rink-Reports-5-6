@@ -11,7 +11,10 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  // *.i.posthog.com covers the default US cloud endpoint
+  // (us.i.posthog.com); EU customers point at eu.i.posthog.com. For
+  // self-hosted PostHog, add the host explicitly here.
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.i.posthog.com",
   "worker-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
