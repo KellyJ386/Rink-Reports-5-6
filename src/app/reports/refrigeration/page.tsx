@@ -248,6 +248,10 @@ export default async function RefrigerationHomePage() {
           label: f.label,
           field_type: isFieldType(f.field_type) ? f.field_type : "text",
           unit: f.unit,
+          // is_required was added in migration 64 and isn't in generated
+          // types yet. Falls back to false for pre-migration rows.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          is_required: Boolean((f as any).is_required),
           options: parseFieldOptions(f.options),
         })),
       equipment: sectionEquipment.map((e) => ({
@@ -261,6 +265,8 @@ export default async function RefrigerationHomePage() {
             label: f.label,
             field_type: isFieldType(f.field_type) ? f.field_type : "text",
             unit: f.unit,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            is_required: Boolean((f as any).is_required),
             options: parseFieldOptions(f.options),
           })),
       })),
