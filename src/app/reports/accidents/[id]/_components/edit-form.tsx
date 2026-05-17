@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
-import { BodyDiagram } from "@/components/staff/body-diagram/body-diagram"
+import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
