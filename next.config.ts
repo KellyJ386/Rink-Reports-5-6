@@ -34,6 +34,11 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
+  // Next.js <Image> optimization output. Default omits AVIF; explicitly
+  // listing it first lets supporting browsers pull the lighter format.
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
   async headers() {
     return [
       {
