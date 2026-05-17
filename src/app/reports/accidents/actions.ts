@@ -19,9 +19,19 @@ type AccidentReportInsert =
 type AccidentReportUpdate =
   Database["public"]["Tables"]["accident_reports"]["Update"]
 
+// Names match form input `name` attributes — keep them in sync with
+// the submission-form component.
+export type AccidentFieldName =
+  | "injured_person_name"
+  | "injured_person_contact"
+  | "injured_person_age"
+  | "occurred_at"
+  | "description"
+
 export type AccidentFormState = {
   ok?: boolean
   error?: string
+  fieldErrors?: Partial<Record<AccidentFieldName, string>>
 }
 
 type SupabaseError = { code?: string; message?: string } | null
@@ -144,19 +154,27 @@ function readFields(formData: FormData): FormFields {
   }
 }
 
-function validate(fields: FormFields): string | null {
-  if (!fields.injured_person_name) return "Please enter the injured person's name."
+// Collect all per-field validation errors so the user can fix them in
+// one pass. Insertion order matches the visual order of the form so the
+// auto-focus effect picks the topmost invalid field.
+function validateFields(
+  fields: FormFields,
+): Partial<Record<AccidentFieldName, string>> {
+  const errors: Partial<Record<AccidentFieldName, string>> = {}
+  if (!fields.injured_person_name)
+    errors.injured_person_name = "Please enter the injured person's name."
   if (!fields.injured_person_contact)
-    return "Please enter a contact for the injured person."
+    errors.injured_person_contact = "Please enter a contact for the injured person."
   if (fields.injured_person_age === null)
-    return "Please enter the injured person's age."
-  if (fields.injured_person_age < 0 || fields.injured_person_age > 120)
-    return "Age must be between 0 and 120."
-  if (!fields.description) return "Please describe what happened."
-  if (!fields.occurred_at) return "Please choose when the accident happened."
-  const occurred = new Date(fields.occurred_at)
-  if (Number.isNaN(occurred.getTime())) return "Invalid date and time."
-  return null
+    errors.injured_person_age = "Please enter the injured person's age."
+  else if (fields.injured_person_age < 0 || fields.injured_person_age > 120)
+    errors.injured_person_age = "Age must be between 0 and 120."
+  if (!fields.occurred_at)
+    errors.occurred_at = "Please choose when the accident happened."
+  else if (Number.isNaN(new Date(fields.occurred_at).getTime()))
+    errors.occurred_at = "Invalid date and time."
+  if (!fields.description) errors.description = "Please describe what happened."
+  return errors
 }
 
 function severityKeyToAlertSeverity(key: string | null | undefined): string {
@@ -183,8 +201,8 @@ export async function submitAccidentReport(
   formData: FormData
 ): Promise<AccidentFormState> {
   const fields = readFields(formData)
-  const validationError = validate(fields)
-  if (validationError) return { ok: false, error: validationError }
+  const fieldErrors = validateFields(fields)
+  if (Object.keys(fieldErrors).length > 0) return { ok: false, fieldErrors }
 
   const current = await requireUser()
   const supabase = await createClient()
@@ -406,8 +424,15 @@ export async function updateAccidentReport(
   formData: FormData
 ): Promise<AccidentFormState> {
   const fields = readFields(formData)
-  const validationError = validate(fields)
-  if (validationError) return { ok: false, error: validationError }
+  const fieldErrors = validateFields(fields)
+  if (Object.keys(fieldErrors).length > 0) {
+    // The edit form (accidents/[id]/_components/edit-form.tsx) only renders
+    // top-level state.error, not per-field errors. Collapse the first
+    // validation error into `error` so the user still sees feedback there.
+    // When edit-form adopts the FieldError pattern, drop this translation
+    // and return { fieldErrors } directly like submitAccidentReport.
+    return { ok: false, error: Object.values(fieldErrors)[0] }
+  }
 
   const current = await requireUser()
   const supabase = await createClient()

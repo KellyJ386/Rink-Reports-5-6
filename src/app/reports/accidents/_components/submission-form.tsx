@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
@@ -125,6 +126,17 @@ export function SubmissionForm({
       toast.error(state.error)
     }
   }, [state.error])
+
+  useEffect(() => {
+    // Move focus to the first invalid input on per-field validation
+    // failure so keyboard / screen-reader users don't have to hunt.
+    const firstErrorField = state.fieldErrors
+      ? Object.keys(state.fieldErrors)[0]
+      : undefined
+    if (!firstErrorField) return
+    const el = document.getElementById(firstErrorField) as HTMLElement | null
+    el?.focus()
+  }, [state.fieldErrors])
 
   const bodyPartIdMap = useMemo(
     () => buildBodyPartIdMap(bodyParts),
@@ -231,12 +243,15 @@ export function SubmissionForm({
             id="injured_person_name"
             name="injured_person_name"
             required
+            aria-invalid={state.fieldErrors?.injured_person_name ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.injured_person_name ? "injured_person_name-error" : undefined}
             autoComplete="name"
             enterKeyHint="next"
             value={injuredName}
             onChange={(e) => setInjuredName(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="injured_person_name-error" message={state.fieldErrors?.injured_person_name} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -247,6 +262,8 @@ export function SubmissionForm({
             id="injured_person_contact"
             name="injured_person_contact"
             required
+            aria-invalid={state.fieldErrors?.injured_person_contact ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.injured_person_contact ? "injured_person_contact-error" : undefined}
             inputMode="text"
             autoComplete="tel"
             enterKeyHint="next"
@@ -254,6 +271,7 @@ export function SubmissionForm({
             onChange={(e) => setInjuredContact(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="injured_person_contact-error" message={state.fieldErrors?.injured_person_contact} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -262,6 +280,8 @@ export function SubmissionForm({
             id="injured_person_age"
             name="injured_person_age"
             required
+            aria-invalid={state.fieldErrors?.injured_person_age ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.injured_person_age ? "injured_person_age-error" : undefined}
             type="number"
             min={0}
             max={120}
@@ -273,6 +293,7 @@ export function SubmissionForm({
             onChange={(e) => setInjuredAge(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="injured_person_age-error" message={state.fieldErrors?.injured_person_age} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -281,11 +302,14 @@ export function SubmissionForm({
             id="occurred_at"
             name="occurred_at"
             required
+            aria-invalid={state.fieldErrors?.occurred_at ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
             type="datetime-local"
             value={occurredAt}
             onChange={(e) => setOccurredAt(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />
         </div>
 
         <SelectField
@@ -355,6 +379,8 @@ export function SubmissionForm({
             id="description"
             name="description"
             required
+            aria-invalid={state.fieldErrors?.description ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
             rows={6}
             minLength={1}
             inputMode="text"
@@ -364,6 +390,7 @@ export function SubmissionForm({
             onChange={(e) => setDescription(e.target.value)}
             className="min-h-32 text-base"
           />
+          <FieldError id="description-error" message={state.fieldErrors?.description} />
         </div>
 
         <div className="flex flex-col gap-3">
