@@ -236,6 +236,10 @@ function RuleRowItem({
               ? "yes (in-app link + email attachment)"
               : "no"}
           </div>
+          <div>
+            <span className="font-medium uppercase">Ack required:</span>{" "}
+            {rule.requires_acknowledgement ? "yes" : "no"}
+          </div>
         </div>
       )}
       {preview && !editing ? (
@@ -347,6 +351,9 @@ function RuleForm({
   )
   const [timing, setTiming] = useState<string>(rule?.timing ?? "immediate")
   const [attachPdf, setAttachPdf] = useState<boolean>(!!rule?.attach_pdf)
+  const [requiresAck, setRequiresAck] = useState<boolean>(
+    !!rule?.requires_acknowledgement,
+  )
   useEffect(() => {
     if (state.ok === true) {
       toast.success(state.message ?? "Saved.")
@@ -456,6 +463,22 @@ function RuleForm({
           <span className="text-muted-foreground text-xs">
             Renders a PDF of the source record, links it from the in-app
             message, and attaches it to outbound emails.
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="requires_acknowledgement"
+              checked={requiresAck}
+              onChange={(e) => setRequiresAck(e.target.checked)}
+            />
+            Require recipient acknowledgement
+          </Label>
+          <span className="text-muted-foreground text-xs">
+            Recipients must explicitly acknowledge the message in their
+            inbox. Use for critical alerts (e.g. accident reports with
+            severity = critical).
           </span>
         </div>
       </div>

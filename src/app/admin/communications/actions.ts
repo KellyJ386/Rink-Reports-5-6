@@ -667,6 +667,7 @@ function parseRoutingForm(formData: FormData): {
     target_department_id: string | null
     timing: Timing
     attach_pdf: boolean
+    requires_acknowledgement: boolean
     priority: number
     is_active: boolean
   }
@@ -729,6 +730,8 @@ function parseRoutingForm(formData: FormData): {
     return { ok: false, error: "Invalid timing value." }
   }
   const attach_pdf = formData.get("attach_pdf") === "on"
+  const requires_acknowledgement =
+    formData.get("requires_acknowledgement") === "on"
 
   return {
     ok: true,
@@ -743,6 +746,7 @@ function parseRoutingForm(formData: FormData): {
       target_department_id,
       timing: timingRaw,
       attach_pdf,
+      requires_acknowledgement,
       priority,
       is_active,
     },
@@ -760,7 +764,10 @@ export async function createRoutingRule(
     const parsed = parseRoutingForm(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const supabase = await createClient()
-    const { data, error } = await supabase
+    // requires_acknowledgement was added in migration 63 and isn't in the
+    // generated Database types yet; cast to bypass the excess-property check.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from("communication_routing_rules")
       .insert({ facility_id: facility.facilityId, ...parsed.data })
       .select("*")
@@ -807,7 +814,10 @@ export async function updateRoutingRule(
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
       .maybeSingle()
-    const { data, error } = await supabase
+    // See createRoutingRule comment — requires_acknowledgement isn't in
+    // generated types yet (migration 63).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from("communication_routing_rules")
       .update(parsed.data)
       .eq("id", id)

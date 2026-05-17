@@ -67,13 +67,21 @@ ready-now partial index keeps the worker query cheap. Terminal
 failures surface as `email_status='failed'` with the last error in
 `email_error` so admins can triage.
 
+## Per-rule acknowledgement requirement (shipped)
+
+Migration 63 adds `requires_acknowledgement` to both
+`communication_routing_rules` and `notification_outbox`.
+`dispatch_rules_for_submission()` copies the rule's value onto each
+outbox row, and `drain_notification_outbox()` reads it back into the
+`communication_messages` insert instead of hard-coding false. Admins
+toggle it per rule in `/admin/communications` → Routing tab; the
+inbox already renders the ack-required affordance for any message
+where the column is true.
+
 ## Still deferred
 
-- **Per-recipient acknowledgement requirements.** The drain inserts
-  `requires_acknowledgement = false`. If a future rule should require
-  ack (e.g. accident reports with severity = critical), add a column
-  to `communication_routing_rules` and propagate it through the
-  outbox row to the message insert.
+- *(none — pipeline-level features list is empty. Future work is
+  product-driven: more dispatch sources, per-channel templates, etc.)*
 
 ## Local testing
 

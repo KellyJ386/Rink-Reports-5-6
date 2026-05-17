@@ -122,6 +122,7 @@ export type RoutingRuleWithRefs = RoutingRuleRow & {
   target_department_id: string | null
   timing: "immediate" | "end_of_day" | "weekly" | "manual" | null
   attach_pdf: boolean | null
+  requires_acknowledgement: boolean | null
 }
 
 export type ReminderWithRefs = ReminderRow & {
