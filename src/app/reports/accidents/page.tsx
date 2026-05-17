@@ -12,6 +12,7 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { SubmissionForm } from "./_components/submission-form"
+import { getAccidentDropdowns } from "./_lib/dropdowns"
 import type { BodyPartOption, DropdownOption } from "./types"
 
 export const dynamic = "force-dynamic"
@@ -184,18 +185,12 @@ export default async function AccidentsHomePage() {
   }
 
   const [
-    { data: dropdownRowsRaw },
+    dropdownRowsRaw,
     { data: workersCompRow },
     { data: userRow },
     { data: facility },
   ] = await Promise.all([
-    supabase
-      .from("accident_dropdowns")
-      .select("id, category, key, display_name, color, sort_order, metadata")
-      .eq("facility_id", employeeRow.facility_id)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .order("display_name", { ascending: true }),
+    getAccidentDropdowns(employeeRow.facility_id),
     supabase
       .from("accident_workers_comp_settings")
       .select("instructions, is_active")
