@@ -6,6 +6,7 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -133,7 +134,7 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="facility-name">Name</Label>
+        <Label htmlFor="facility-name">Name<RequiredMark /></Label>
         <Input
           id="facility-name"
           name="name"
@@ -147,7 +148,7 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="facility-slug">Slug</Label>
+        <Label htmlFor="facility-slug">Slug<RequiredMark /></Label>
         <Input
           id="facility-slug"
           name="slug"

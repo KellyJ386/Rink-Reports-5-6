@@ -258,7 +258,7 @@ export function EmployeesClient({
                       )}
                     </td>
                     <td className="border-b px-3 py-2 align-middle">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <Button
                           type="button"
                           variant="outline"
