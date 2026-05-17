@@ -409,6 +409,96 @@ select pg_temp.expect_error(
 -- staging; the migration itself verifies the function's signature exists.
 
 -- ---------------------------------------------------------------------------
+-- M6: requires_acknowledgement propagation (migration 63).
+--
+-- The original drain_notification_outbox() hard-coded
+-- requires_acknowledgement=false. Migration 63 adds the column to routing
+-- rules + outbox and recreates both SECURITY DEFINER functions to thread
+-- the value through. Without this assertion a regression of either
+-- function would silently revert ack-required messages to opt-out.
+--
+-- We can run dispatch + drain here because the `postgres` role of the
+-- local stack has both BYPASSRLS and matches the session_user check
+-- inside drain_notification_outbox. Each insert is then visible to the
+-- subsequent expect_count() query.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Two rules in facility A: one ack-required, one not. Both target Alice
+-- via her 'staff' role so resolve_rule_recipients returns her.
+insert into public.communication_routing_rules (
+  id, facility_id, source_module, timing, target_role_key,
+  requires_acknowledgement
+) values
+  ('ccccaaaa-1111-1111-1111-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111',
+   'accident_reports', 'immediate', 'staff', true),
+  ('ccccaaaa-2222-2222-2222-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111',
+   'daily_reports',    'immediate', 'staff', false);
+
+-- Dispatch both, capturing the outbox count so we can verify the column
+-- was set on the outbox row itself (the drain reads from this column).
+select public.dispatch_rules_for_submission(
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'accident_reports',
+  'dddd0001-1111-1111-1111-dddddddddddd'::uuid
+);
+select public.dispatch_rules_for_submission(
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'daily_reports',
+  'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox
+     where source_record_id = 'dddd0001-1111-1111-1111-dddddddddddd'::uuid
+       and requires_acknowledgement = true$$,
+  1,
+  'M6: outbox row from ack-required rule has requires_acknowledgement=true');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox
+     where source_record_id = 'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+       and requires_acknowledgement = false$$,
+  1,
+  'M6: outbox row from opt-out rule has requires_acknowledgement=false');
+
+-- Immediate-timing dispatch marks outbox rows status='sent' without
+-- creating messages — that's drain's job. Reset them to 'pending' so the
+-- drain has work to do, then run drain.
+update public.notification_outbox
+  set status = 'pending'
+  where source_record_id in (
+    'dddd0001-1111-1111-1111-dddddddddddd'::uuid,
+    'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+  );
+
+-- `select *` is the SQL-script equivalent of plpgsql's `perform`.
+select * from public.drain_notification_outbox(
+  p_max_rows    := 100,
+  p_facility_id := '11111111-1111-1111-1111-111111111111'::uuid
+);
+
+-- No prior test in this script inserts into communication_messages, so a
+-- direct count by the flag is unambiguous: exactly one message of each
+-- ack value should exist after drain.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_messages
+     where requires_acknowledgement = true$$,
+  1,
+  'M6: drained message from ack-required rule has requires_acknowledgement=true');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_messages
+     where requires_acknowledgement = false$$,
+  1,
+  'M6: drained message from opt-out rule has requires_acknowledgement=false');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
