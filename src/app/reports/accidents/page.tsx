@@ -255,8 +255,6 @@ export default async function AccidentsHomePage() {
 
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-  const NAVY = "#003B6F"
-  const GREEN = "#4DFF00"
   const RED = "#F42A2A"
   // Theme-responsive
   const SURFACE = "var(--card)"

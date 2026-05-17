@@ -22,7 +22,6 @@ const NAVY = "#003B6F"
 const NAVY_DARK = "#001A3A"
 const GREEN = "#4DFF00"
 const GREEN_DARK = "#3DB800"
-const GREEN_INK = "#1F6B00"
 const RED = "#F42A2A"
 // Theme-responsive via CSS custom properties
 const SURFACE = "var(--card)"

@@ -209,7 +209,6 @@ export default async function MySchedulePage({
   const GREEN = "#4DFF00"
   const GREEN_INK = "#1F6B00"
   const SURFACE = "var(--card)"
-  const ELEVATED = "var(--secondary)"
   const BORDER = "var(--border)"
   const SECONDARY = "var(--muted-foreground)"
   const FOREGROUND = "var(--foreground)"

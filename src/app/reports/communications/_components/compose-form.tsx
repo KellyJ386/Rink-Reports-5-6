@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
+import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
@@ -62,6 +63,19 @@ export function ComposeForm({ groups, templates }: Props) {
       toast.error(state.error)
     }
   }, [state.error])
+
+  useEffect(() => {
+    // Move focus to the first invalid field on receipt. group_ids has no
+    // single focusable element — focus the first checkbox in the fieldset.
+    const firstErrorField = state.fieldErrors
+      ? Object.keys(state.fieldErrors)[0]
+      : undefined
+    if (!firstErrorField) return
+    const targetId =
+      firstErrorField === "group_ids" ? "group_ids_first" : firstErrorField
+    const el = document.getElementById(targetId) as HTMLElement | null
+    el?.focus()
+  }, [state.fieldErrors])
 
   function applyTemplate(id: string) {
     setTemplateId(id)
@@ -125,6 +139,8 @@ export function ComposeForm({ groups, templates }: Props) {
           id="body"
           name="body"
           required
+          aria-invalid={state.fieldErrors?.body ? "true" : undefined}
+          aria-describedby={state.fieldErrors?.body ? "body-error" : undefined}
           rows={6}
           minLength={1}
           enterKeyHint="done"
@@ -133,15 +149,22 @@ export function ComposeForm({ groups, templates }: Props) {
           onChange={(e) => setBody(e.target.value)}
           className="min-h-32 text-base"
         />
+        <FieldError id="body-error" message={state.fieldErrors?.body} />
       </div>
 
-      <fieldset className="flex flex-col gap-2 rounded-xl border bg-card p-3">
-        <legend className="px-1 text-sm font-medium">Recipient groups</legend>
+      <fieldset
+        className="flex flex-col gap-2 rounded-xl border bg-card p-3"
+        aria-invalid={state.fieldErrors?.group_ids ? "true" : undefined}
+        aria-describedby={state.fieldErrors?.group_ids ? "group_ids-error" : undefined}
+      >
+        <legend className="px-1 text-sm font-medium">
+          Recipient groups<RequiredMark />
+        </legend>
         <p className="text-xs text-muted-foreground">
           Pick one or more groups. We&apos;ll deliver to each member.
         </p>
         <div className="flex flex-col gap-1">
-          {groups.map((g) => {
+          {groups.map((g, gIdx) => {
             const checked = groupIds.has(g.id)
             return (
               <label
@@ -149,6 +172,7 @@ export function ComposeForm({ groups, templates }: Props) {
                 className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md px-2 py-2 hover:bg-accent/40"
               >
                 <input
+                  id={gIdx === 0 ? "group_ids_first" : undefined}
                   type="checkbox"
                   name="group_ids"
                   value={g.id}
@@ -168,6 +192,7 @@ export function ComposeForm({ groups, templates }: Props) {
             )
           })}
         </div>
+        <FieldError id="group_ids-error" message={state.fieldErrors?.group_ids} />
       </fieldset>
 
       <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-card px-3 py-2">

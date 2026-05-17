@@ -5,8 +5,11 @@ import { redirect } from "next/navigation"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+export type ComposeFieldName = "body" | "group_ids"
+
 export type SendMessageFormState = {
   error?: string
+  fieldErrors?: Partial<Record<ComposeFieldName, string>>
 }
 
 export type AckAlertFormState = {
@@ -50,7 +53,7 @@ async function resolveCurrentEmployee() {
 
 type SendResult =
   | { ok: true; redirectTo: string }
-  | { ok: false; error: string }
+  | { ok: false; error?: string; fieldErrors?: Partial<Record<ComposeFieldName, string>> }
 
 async function performSendMessage(formData: FormData): Promise<SendResult> {
   const { supabase, current, employeeRow, error: empErr } =
@@ -92,10 +95,6 @@ async function performSendMessage(formData: FormData): Promise<SendResult> {
   const templateId =
     templateIdRaw.length > 0 && isUuid(templateIdRaw) ? templateIdRaw : null
 
-  if (!body) {
-    return { ok: false, error: "Please enter a message." }
-  }
-
   const groupIds = formData
     .getAll("group_ids")
     .map((v) => String(v).trim())
@@ -103,8 +102,16 @@ async function performSendMessage(formData: FormData): Promise<SendResult> {
 
   const uniqueGroupIds = Array.from(new Set(groupIds))
 
+  // Collect field-level errors in visual order so auto-focus picks the
+  // topmost invalid field. Top-level errors (DB, permission) returned
+  // separately via `error`.
+  const fieldErrors: Partial<Record<ComposeFieldName, string>> = {}
+  if (!body) fieldErrors.body = "Please enter a message."
   if (uniqueGroupIds.length === 0) {
-    return { ok: false, error: "Pick at least one recipient group." }
+    fieldErrors.group_ids = "Pick at least one recipient group."
+  }
+  if (Object.keys(fieldErrors).length > 0) {
+    return { ok: false, fieldErrors }
   }
 
   // Confirm groups belong to this facility and are active. Non-admin staff
@@ -226,7 +233,7 @@ export async function sendCommunicationsMessage(
 ): Promise<SendMessageFormState> {
   const result = await performSendMessage(formData)
   if (!result.ok) {
-    return { error: result.error }
+    return { error: result.error, fieldErrors: result.fieldErrors }
   }
   redirect(result.redirectTo)
 }
