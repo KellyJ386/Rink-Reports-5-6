@@ -2,6 +2,16 @@
 
 import { useMemo, useState, useTransition } from "react"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +67,10 @@ export function EmployeesClient({
   const [editing, setEditing] = useState<EmployeeListItem | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [rowError, setRowError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [, startTransition] = useTransition()
 
   const filtered = useMemo(() => {
@@ -326,15 +340,12 @@ export function EmployeesClient({
                             type="button"
                             variant="destructive"
                             size="sm"
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Delete ${e.first_name} ${e.last_name}? This cannot be undone.`
-                                )
-                              ) {
-                                runRowAction(e.id, deleteEmployee)
-                              }
-                            }}
+                            onClick={() =>
+                              setPendingDelete({
+                                id: e.id,
+                                name: `${e.first_name} ${e.last_name}`,
+                              })
+                            }
                             disabled={isPending}
                           >
                             Delete
@@ -358,6 +369,38 @@ export function EmployeesClient({
         departments={departments}
         editing={editing}
       />
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this employee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `Delete ${pendingDelete.name}? This cannot be undone.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDelete) {
+                  runRowAction(pendingDelete.id, deleteEmployee)
+                }
+                setPendingDelete(null)
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
