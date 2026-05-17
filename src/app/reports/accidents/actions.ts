@@ -425,14 +425,7 @@ export async function updateAccidentReport(
 ): Promise<AccidentFormState> {
   const fields = readFields(formData)
   const fieldErrors = validateFields(fields)
-  if (Object.keys(fieldErrors).length > 0) {
-    // The edit form (accidents/[id]/_components/edit-form.tsx) only renders
-    // top-level state.error, not per-field errors. Collapse the first
-    // validation error into `error` so the user still sees feedback there.
-    // When edit-form adopts the FieldError pattern, drop this translation
-    // and return { fieldErrors } directly like submitAccidentReport.
-    return { ok: false, error: Object.values(fieldErrors)[0] }
-  }
+  if (Object.keys(fieldErrors).length > 0) return { ok: false, fieldErrors }
 
   const current = await requireUser()
   const supabase = await createClient()
