@@ -71,6 +71,10 @@ export function EmployeesClient({
     id: string
     name: string
   } | null>(null)
+  const [pendingDeactivate, setPendingDeactivate] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [, startTransition] = useTransition()
 
   const filtered = useMemo(() => {
@@ -316,7 +320,10 @@ export function EmployeesClient({
                             variant="ghost"
                             size="sm"
                             onClick={() =>
-                              runRowAction(e.id, deactivateEmployee)
+                              setPendingDeactivate({
+                                id: e.id,
+                                name: `${e.first_name} ${e.last_name}`,
+                              })
                             }
                             disabled={isPending}
                           >
@@ -397,6 +404,37 @@ export function EmployeesClient({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDeactivate !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeactivate(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate this employee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeactivate
+                ? `${pendingDeactivate.name} will lose access immediately and stop appearing in shift assignments and routing rules. You can reactivate them later from this same list.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDeactivate) {
+                  runRowAction(pendingDeactivate.id, deactivateEmployee)
+                }
+                setPendingDeactivate(null)
+              }}
+            >
+              Deactivate
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
