@@ -8,6 +8,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -85,7 +86,7 @@ export function BladeChangeForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Blade set</Label>
+        <Label>Blade set<RequiredMark /></Label>
         <Select value={equipmentId} onValueChange={setEquipmentId} required>
           <SelectTrigger>
             <SelectValue placeholder="Select a blade set" />
@@ -101,7 +102,7 @@ export function BladeChangeForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="occurred_at">When did it happen?</Label>
+        <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
         <Input
           id="occurred_at"
           name="occurred_at"
