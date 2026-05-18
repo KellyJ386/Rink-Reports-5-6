@@ -206,20 +206,7 @@ export default async function DashboardPage() {
     )
   }
 
-  const { data: modulePerms } = await supabase
-    .from("module_permissions")
-    .select("module_key, can_view, can_submit")
-    .eq("employee_id", employeeRow.id)
-
-  const submittableKeys = new Set(
-    (modulePerms ?? [])
-      .filter((row) => row.can_submit || row.can_view)
-      .map((row) => row.module_key),
-  )
-
-  const modules = (Object.keys(KNOWN_MODULES) as ModuleKey[]).filter((key) =>
-    submittableKeys.has(key),
-  )
+  const modules = Object.keys(KNOWN_MODULES) as ModuleKey[]
 
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
@@ -248,34 +235,22 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {modules.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No modules assigned yet</CardTitle>
-            <CardDescription>
-              You don&apos;t have access to any staff modules yet. Talk to your
-              supervisor.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            gap: 16,
-          }}
-        >
-          {modules.map((key) => (
-            <ModuleTile
-              key={key}
-              moduleKey={key}
-              href={KNOWN_MODULES[key].href}
-              title={KNOWN_MODULES[key].title}
-            />
-          ))}
-        </div>
-      )}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+          gap: 16,
+        }}
+      >
+        {modules.map((key) => (
+          <ModuleTile
+            key={key}
+            moduleKey={key}
+            href={KNOWN_MODULES[key].href}
+            title={KNOWN_MODULES[key].title}
+          />
+        ))}
+      </div>
       </div>
     </>
   )
