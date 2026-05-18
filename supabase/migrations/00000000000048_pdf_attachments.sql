@@ -31,10 +31,29 @@ comment on column public.communication_messages.pdf_url is
 
 -- -----------------------------------------------------------------------------
 -- Storage bucket. Private — RLS on storage.objects controls access.
+-- The `public` column was added to storage.buckets in storage-api v0.10
+-- (mid-2022). The supabase/postgres image used by CI bundles an older
+-- storage schema where that column is missing, so gate the insert on
+-- information_schema. Production already has the column; result is the
+-- same private bucket either way (public defaults to false).
 -- -----------------------------------------------------------------------------
-insert into storage.buckets (id, name, public)
-values ('notification-pdfs', 'notification-pdfs', false)
-on conflict (id) do nothing;
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'storage'
+       and table_name   = 'buckets'
+       and column_name  = 'public'
+  ) then
+    insert into storage.buckets (id, name, public)
+    values ('notification-pdfs', 'notification-pdfs', false)
+    on conflict (id) do nothing;
+  else
+    insert into storage.buckets (id, name)
+    values ('notification-pdfs', 'notification-pdfs')
+    on conflict (id) do nothing;
+  end if;
+end $$;
 
 -- -----------------------------------------------------------------------------
 -- storage.objects RLS for this bucket only.
