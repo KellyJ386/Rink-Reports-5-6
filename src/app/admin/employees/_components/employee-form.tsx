@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
@@ -190,7 +191,11 @@ function EmployeeFormBody({
                 if (v) setRoleError(null)
               }}
             >
-              <SelectTrigger id="role_id">
+              <SelectTrigger
+                id="role_id"
+                aria-invalid={roleError ? "true" : undefined}
+                aria-describedby={roleError ? "role_id-error" : undefined}
+              >
                 <SelectValue placeholder="Select a role…" />
               </SelectTrigger>
               <SelectContent>
@@ -201,11 +206,7 @@ function EmployeeFormBody({
                 ))}
               </SelectContent>
             </Select>
-            {roleError && (
-              <p role="alert" className="text-destructive text-xs">
-                {roleError}
-              </p>
-            )}
+            <FieldError id="role_id-error" message={roleError ?? undefined} />
           </div>
 
           {departments.length > 0 && (
