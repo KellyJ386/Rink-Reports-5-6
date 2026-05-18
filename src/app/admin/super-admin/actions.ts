@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
-import type { ActionState } from "./types"
+import type { ActionState, InviteServiceHealth } from "./types"
 
 async function requireSuperAdmin() {
   const current = await getCurrentUser()
@@ -107,6 +107,91 @@ export async function sendPasswordReset(
     message: actionLink
       ? `Password reset link created. Share this one-time link with the user: ${actionLink}`
       : "Password reset email sent.",
+  }
+}
+
+/**
+ * Probes Supabase Auth's admin endpoint with the configured service-role key
+ * and reports the exact failure mode. Lets super admins distinguish "key is
+ * missing", "key is rejected (401)", and "key is for the wrong project (403)"
+ * without resorting to curl. Surfaces the same misconfiguration that produces
+ * the friendly "Email invitations aren't available" toast on the Invite flow.
+ */
+export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
+  await requireSuperAdmin()
+
+  const checkedAt = new Date().toISOString()
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!url || !serviceKey) {
+    return {
+      ok: false,
+      reason: "not_configured",
+      detail:
+        "SUPABASE_SERVICE_ROLE_KEY is not set on this server. Add it to the environment (and redeploy on Vercel) before retrying.",
+      checkedAt,
+    }
+  }
+
+  // Lightest possible admin call: list one user. Same auth path that
+  // inviteUserByEmail uses, so a 200 here proves the Invite flow can authenticate.
+  let response: Response
+  try {
+    response = await fetch(
+      `${url.replace(/\/$/, "")}/auth/v1/admin/users?page=1&per_page=1`,
+      {
+        method: "GET",
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+        },
+        cache: "no-store",
+      },
+    )
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "other",
+      detail:
+        e instanceof Error
+          ? `Network error reaching Supabase Auth: ${e.message}`
+          : "Network error reaching Supabase Auth.",
+      checkedAt,
+    }
+  }
+
+  if (response.ok) {
+    return { ok: true, checkedAt }
+  }
+
+  const body = await response.text().catch(() => "")
+  if (response.status === 401) {
+    return {
+      ok: false,
+      reason: "unauthorized",
+      status: 401,
+      detail:
+        "Service-role key invalid (HTTP 401 from GoTrue). The configured SUPABASE_SERVICE_ROLE_KEY was rejected — it's missing, rotated, or padded with whitespace. Copy the current service_role key from the Supabase dashboard (Settings → API) and update the env.",
+      checkedAt,
+    }
+  }
+  if (response.status === 403) {
+    return {
+      ok: false,
+      reason: "forbidden",
+      status: 403,
+      detail:
+        "Service-role key not authorized for this project (HTTP 403). Verify the key was issued by the same project as NEXT_PUBLIC_SUPABASE_URL.",
+      checkedAt,
+    }
+  }
+  return {
+    ok: false,
+    reason: "other",
+    status: response.status,
+    detail: `Unexpected response from Supabase Auth (HTTP ${response.status}). ${body.slice(0, 240)}`,
+    checkedAt,
   }
 }
 
