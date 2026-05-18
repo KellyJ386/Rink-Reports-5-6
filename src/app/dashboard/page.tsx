@@ -12,6 +12,8 @@ import { requireUser } from "@/lib/auth"
 import { getPreviewContext } from "@/lib/auth/preview"
 import { createClient } from "@/lib/supabase/server"
 
+import { hideDashboardModule, showDashboardModule } from "./actions"
+
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Dashboard | Rink Reports" }
 
@@ -64,16 +66,22 @@ const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
   scheduling:       { title: "Scheduling",       href: "/reports/scheduling" },
 }
 
+function isKnownModuleKey(key: string): key is ModuleKey {
+  return Object.prototype.hasOwnProperty.call(KNOWN_MODULES, key)
+}
+
 // ── Module tile ───────────────────────────────────────────────────────────────
 
 function ModuleTile({
   moduleKey,
   href,
   title,
+  showHideButton,
 }: {
   moduleKey: ModuleKey
   href: string
   title: string
+  showHideButton: boolean
 }) {
   const bg = MODULE_COLORS[moduleKey]
   const iconPath = MODULE_ICONS[moduleKey]
@@ -81,81 +89,120 @@ function ModuleTile({
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
   return (
-    <Link
-      href={href}
-      style={{ textDecoration: "none", outline: "none" }}
-      className="group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-2xl"
-    >
-      <div
-        style={{
-          background: bg,
-          borderRadius: 16,
-          minHeight: 200,
-          padding: 22,
-          display: "flex",
-          flexDirection: "column",
-          position: "relative",
-          overflow: "hidden",
-          boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-          transition:
-            "transform 0.18s cubic-bezier(.4,0,.2,1), box-shadow 0.18s",
-        }}
-        className="group-hover:-translate-y-0.5 group-hover:shadow-2xl"
+    <div style={{ position: "relative" }}>
+      <Link
+        href={href}
+        style={{ textDecoration: "none", outline: "none" }}
+        className="group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-2xl block"
       >
         <div
           style={{
-            width: 44,
-            height: 44,
-            borderRadius: 12,
-            background: "rgba(255,255,255,0.15)",
+            background: bg,
+            borderRadius: 16,
+            minHeight: 200,
+            padding: 22,
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: "auto",
+            flexDirection: "column",
+            position: "relative",
+            overflow: "hidden",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+            transition:
+              "transform 0.18s cubic-bezier(.4,0,.2,1), box-shadow 0.18s",
           }}
+          className="group-hover:-translate-y-0.5 group-hover:shadow-2xl"
         >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            focusable="false"
-            dangerouslySetInnerHTML={{ __html: iconPath }}
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "auto",
+            }}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#ffffff"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+              dangerouslySetInnerHTML={{ __html: iconPath }}
+            />
+          </div>
+
+          <div
+            style={{
+              fontFamily: DISPLAY_FONT,
+              fontSize: 28,
+              lineHeight: 1,
+              letterSpacing: "0.01em",
+              textTransform: "uppercase",
+              color: "#ffffff",
+              marginTop: 40,
+            }}
+          >
+            {title}
+          </div>
+
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 4,
+              background: "#4DFF00",
+              opacity: 0.7,
+            }}
           />
         </div>
+      </Link>
 
-        <div
-          style={{
-            fontFamily: DISPLAY_FONT,
-            fontSize: 28,
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-            textTransform: "uppercase",
-            color: "#ffffff",
-            marginTop: 40,
-          }}
-        >
-          {title}
-        </div>
-
-        <div
+      {showHideButton ? (
+        <form
+          action={hideDashboardModule}
           style={{
             position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 4,
-            background: "#4DFF00",
-            opacity: 0.7,
+            top: 10,
+            right: 10,
+            margin: 0,
+            zIndex: 1,
           }}
-        />
-      </div>
-    </Link>
+        >
+          <input type="hidden" name="moduleKey" value={moduleKey} />
+          <button
+            type="submit"
+            aria-label={`Hide ${title} from dashboard`}
+            title="Hide from dashboard"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 999,
+              background: "rgba(0, 0, 0, 0.4)",
+              color: "#ffffff",
+              border: "1px solid rgba(255, 255, 255, 0.25)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
+        </form>
+      ) : null}
+    </div>
   )
 }
 
@@ -168,11 +215,18 @@ export default async function DashboardPage() {
 
   // If preview is active, render the dashboard from the target employee's
   // perspective. Otherwise resolve the caller's own employee row.
-  let employeeRow: { id: string; first_name: string; facility_id: string } | null
+  let employeeRow:
+    | {
+        id: string
+        first_name: string
+        facility_id: string
+        hidden_modules: string[]
+      }
+    | null
   if (preview.active && preview.target) {
     const { data } = await supabase
       .from("employees")
-      .select("id, first_name, facility_id")
+      .select("id, first_name, facility_id, hidden_modules")
       .eq("id", preview.target.id)
       .limit(1)
       .maybeSingle()
@@ -180,7 +234,7 @@ export default async function DashboardPage() {
   } else {
     const { data } = await supabase
       .from("employees")
-      .select("id, first_name, facility_id")
+      .select("id, first_name, facility_id, hidden_modules")
       .eq("user_id", current.authUser.id)
       .eq("is_active", true)
       .limit(1)
@@ -208,7 +262,19 @@ export default async function DashboardPage() {
     )
   }
 
-  const modules = Object.keys(KNOWN_MODULES) as ModuleKey[]
+  // Hide/show controls write to the caller's own employees row via
+  // SECURITY DEFINER RPCs keyed on auth.uid(). In preview mode the page
+  // renders the target employee's preferences, so showing the controls
+  // would let an admin accidentally edit their own hidden list — disable
+  // them while previewing.
+  const canEditPreferences = !preview.active
+
+  const allKeys = Object.keys(KNOWN_MODULES) as ModuleKey[]
+  const hiddenSet = new Set(
+    (employeeRow.hidden_modules ?? []).filter(isKnownModuleKey),
+  )
+  const visibleModules = allKeys.filter((k) => !hiddenSet.has(k))
+  const hiddenModules = allKeys.filter((k) => hiddenSet.has(k))
 
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
@@ -218,41 +284,80 @@ export default async function DashboardPage() {
     <>
       <PreviewBanner />
       <div className="mx-auto w-full max-w-5xl px-4 py-8">
-      <div className="mb-8">
-        <h1
-          style={{
-            fontFamily: DISPLAY_FONT,
-            fontSize: "clamp(36px, 6vw, 52px)",
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-            textTransform: "uppercase",
-            color: "var(--foreground)",
-            margin: 0,
-          }}
-        >
-          {firstName ? `Hi, ${firstName}` : "Welcome"}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Pick a module to get started.
-        </p>
-      </div>
+        <div className="mb-8">
+          <h1
+            style={{
+              fontFamily: DISPLAY_FONT,
+              fontSize: "clamp(36px, 6vw, 52px)",
+              lineHeight: 1,
+              letterSpacing: "0.01em",
+              textTransform: "uppercase",
+              color: "var(--foreground)",
+              margin: 0,
+            }}
+          >
+            {firstName ? `Hi, ${firstName}` : "Welcome"}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Pick a module to get started.
+          </p>
+        </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-          gap: 16,
-        }}
-      >
-        {modules.map((key) => (
-          <ModuleTile
-            key={key}
-            moduleKey={key}
-            href={KNOWN_MODULES[key].href}
-            title={KNOWN_MODULES[key].title}
-          />
-        ))}
-      </div>
+        {visibleModules.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>All tiles hidden</CardTitle>
+              <CardDescription>
+                You&apos;ve hidden every module tile. Restore one below to get
+                back to work.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+              gap: 16,
+            }}
+          >
+            {visibleModules.map((key) => (
+              <ModuleTile
+                key={key}
+                moduleKey={key}
+                href={KNOWN_MODULES[key].href}
+                title={KNOWN_MODULES[key].title}
+                showHideButton={canEditPreferences}
+              />
+            ))}
+          </div>
+        )}
+
+        {canEditPreferences && hiddenModules.length > 0 ? (
+          <section className="mt-10">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+              Hidden tiles
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tap to restore to your dashboard.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {hiddenModules.map((key) => (
+                <form action={showDashboardModule} key={key}>
+                  <input type="hidden" name="moduleKey" value={key} />
+                  <button
+                    type="submit"
+                    aria-label={`Restore ${KNOWN_MODULES[key].title} to dashboard`}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <span aria-hidden="true">+</span>
+                    <span>{KNOWN_MODULES[key].title}</span>
+                  </button>
+                </form>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </>
   )

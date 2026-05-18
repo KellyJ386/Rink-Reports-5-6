@@ -2354,6 +2354,7 @@ export type Database = {
           employee_code: string | null
           facility_id: string
           first_name: string
+          hidden_modules: string[]
           hire_date: string | null
           id: string
           is_active: boolean
@@ -2374,6 +2375,7 @@ export type Database = {
           employee_code?: string | null
           facility_id: string
           first_name: string
+          hidden_modules?: string[]
           hire_date?: string | null
           id?: string
           is_active?: boolean
@@ -2394,6 +2396,7 @@ export type Database = {
           employee_code?: string | null
           facility_id?: string
           first_name?: string
+          hidden_modules?: string[]
           hire_date?: string | null
           id?: string
           is_active?: boolean
@@ -5502,6 +5505,10 @@ export type Database = {
         Args: { p_module_key: string }
         Returns: boolean
       }
+      hide_dashboard_module: {
+        Args: { p_module_key: string }
+        Returns: undefined
+      }
       is_super_admin: { Args: never; Returns: boolean }
       purge_old_accident_reports: { Args: never; Returns: number }
       purge_old_air_quality_reports: { Args: never; Returns: number }
@@ -5552,6 +5559,10 @@ export type Database = {
       }
       seed_default_scheduling_config: {
         Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      show_dashboard_module: {
+        Args: { p_module_key: string }
         Returns: undefined
       }
       show_limit: { Args: never; Returns: number }
