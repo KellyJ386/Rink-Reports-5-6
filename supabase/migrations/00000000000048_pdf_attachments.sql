@@ -33,9 +33,12 @@ comment on column public.communication_messages.pdf_url is
 -- Storage bucket. Private — RLS on storage.objects controls access.
 -- The `public` column was added to storage.buckets in storage-api v0.10
 -- (mid-2022). The supabase/postgres image used by CI bundles an older
--- storage schema where that column is missing, so gate the insert on
--- information_schema. Production already has the column; result is the
--- same private bucket either way (public defaults to false).
+-- storage schema where that column is missing. Use EXECUTE so the INSERT
+-- text is only parsed at the moment its branch runs — a static IF/ELSE
+-- with a literal `insert into storage.buckets (id, name, public)` would
+-- be parsed even on the not-taken branch in some PL/pgSQL paths and
+-- fail. Production already has the column; either branch results in
+-- the same private bucket (public defaults to false).
 -- -----------------------------------------------------------------------------
 do $$
 begin
@@ -45,13 +48,17 @@ begin
        and table_name   = 'buckets'
        and column_name  = 'public'
   ) then
-    insert into storage.buckets (id, name, public)
-    values ('notification-pdfs', 'notification-pdfs', false)
-    on conflict (id) do nothing;
+    execute $sql$
+      insert into storage.buckets (id, name, public)
+      values ('notification-pdfs', 'notification-pdfs', false)
+      on conflict (id) do nothing
+    $sql$;
   else
-    insert into storage.buckets (id, name)
-    values ('notification-pdfs', 'notification-pdfs')
-    on conflict (id) do nothing;
+    execute $sql$
+      insert into storage.buckets (id, name)
+      values ('notification-pdfs', 'notification-pdfs')
+      on conflict (id) do nothing
+    $sql$;
   end if;
 end $$;
 
