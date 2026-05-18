@@ -1,8 +1,9 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
+import { revalidatePath, updateTag } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { accidentDropdownsTag } from "@/app/reports/accidents/_lib/dropdowns"
 import { createClient } from "@/lib/supabase/server"
 import type { Json } from "@/types/database"
 
@@ -112,6 +113,7 @@ export async function createDropdown(
       return { ok: false, error: dbError(error, "Failed to create dropdown.") }
     }
     revalidatePath("/admin/accident-reports")
+    updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true, message: "Dropdown created." }
   } catch (e) {
     return {
@@ -174,6 +176,7 @@ export async function updateDropdown(
       return { ok: false, error: dbError(error, "Failed to update dropdown.") }
     }
     revalidatePath("/admin/accident-reports")
+    updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true, message: "Dropdown updated." }
   } catch (e) {
     return {
@@ -202,6 +205,7 @@ export async function setDropdownActive(
       return { ok: false, error: dbError(error, "Failed to update dropdown.") }
     }
     revalidatePath("/admin/accident-reports")
+    updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true }
   } catch (e) {
     return {
@@ -252,6 +256,7 @@ export async function deleteDropdown(id: string): Promise<SimpleResult> {
       return { ok: false, error: dbError(error, "Failed to delete dropdown.") }
     }
     revalidatePath("/admin/accident-reports")
+    updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true }
   } catch (e) {
     return {
@@ -411,6 +416,7 @@ export async function seedAccidentDefaults(): Promise<SimpleResult> {
       return { ok: false, error: dbError(error, "Failed to seed defaults.") }
     }
     revalidatePath("/admin/accident-reports")
+    updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true }
   } catch (e) {
     return {

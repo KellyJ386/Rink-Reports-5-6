@@ -351,6 +351,10 @@ function WeekGridView({
           const key = isoDay(d)
           const dayShifts = shiftsByDay.get(key) ?? []
           const isToday = key === today
+          // Day context for AT consumers — the visible cell text would
+          // otherwise leave them with no way to tell which day a shift
+          // button belongs to.
+          const dayLabel = `${DAY_SHORT[d.getUTCDay()]} ${d.getUTCDate()}`
           return (
             <div
               key={key}
@@ -364,6 +368,13 @@ function WeekGridView({
                   key={s.id}
                   type="button"
                   onClick={() => onShiftClick(s.id)}
+                  aria-label={`${
+                    s.employee
+                      ? `${s.employee.first_name} ${s.employee.last_name}`
+                      : "Open"
+                  } shift ${formatTimeRange(s.starts_at, s.ends_at)} on ${dayLabel}${
+                    s.department ? `, ${s.department.name}` : ""
+                  }${s.status === "cancelled" ? " (cancelled)" : ""}. Click to edit.`}
                   className={cn(
                     "w-full rounded px-1.5 py-1 text-left text-xs transition-colors hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     selectedShiftId === s.id ? "ring-2 ring-primary" : "",
@@ -395,6 +406,7 @@ function WeekGridView({
               <button
                 type="button"
                 onClick={() => onDayClick(key)}
+                aria-label={`Add a shift on ${dayLabel}`}
                 className="mt-auto w-full rounded border border-dashed px-1.5 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-primary transition-colors"
               >
                 + Add

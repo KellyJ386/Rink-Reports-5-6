@@ -8,6 +8,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -140,7 +141,7 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
       <input type="hidden" name="equipment_id" value={equipmentId} />
 
       <div className="flex flex-col gap-2">
-        <Label>Rink</Label>
+        <Label>Rink<RequiredMark /></Label>
         <Select value={rinkId} onValueChange={setRinkId} required>
           <SelectTrigger>
             <SelectValue placeholder="Select a rink" />
@@ -156,7 +157,7 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Zamboni</Label>
+        <Label>Zamboni<RequiredMark /></Label>
         <Select value={equipmentId} onValueChange={setEquipmentId} required>
           <SelectTrigger>
             <SelectValue placeholder="Select a zamboni" />
@@ -172,7 +173,7 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="occurred_at">When did the check happen?</Label>
+        <Label htmlFor="occurred_at">When did the check happen?<RequiredMark /></Label>
         <Input
           id="occurred_at"
           name="occurred_at"
@@ -250,7 +251,7 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
                         htmlFor={`notes-${item.id}`}
                         className="text-xs uppercase tracking-wide text-muted-foreground"
                       >
-                        What&apos;s wrong? (required)
+                        What&apos;s wrong?<RequiredMark />
                       </Label>
                       <Input
                         id={`notes-${item.id}`}

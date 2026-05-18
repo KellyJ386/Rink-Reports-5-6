@@ -123,6 +123,8 @@ function ModuleTile({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
             dangerouslySetInnerHTML={{ __html: iconPath }}
           />
         </div>

@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
 
 import { Button } from "@/components/ui/button"
+import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -57,6 +59,11 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
   const [phone, setPhone] = useState(initial?.phone ?? "")
   const [email, setEmail] = useState(initial?.email ?? "")
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string
+    slug?: string
+    email?: string
+  }>({})
 
   function handleNameChange(value: string) {
     setName(value)
@@ -70,23 +77,48 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
     setSlugDirty(true)
   }
 
-  function clientValidate(): string | null {
-    if (name.trim().length < 2) return "Name must be at least 2 characters."
-    if (!slug.trim()) return "Slug is required."
-    if (!SLUG_PATTERN.test(slug.trim())) {
-      return "Slug must be lowercase letters, numbers, and hyphens (e.g. max-ice-center)."
+  function clientValidate(): {
+    name?: string
+    slug?: string
+  } {
+    const out: { name?: string; slug?: string } = {}
+    if (name.trim().length < 2) out.name = "Name must be at least 2 characters."
+    if (!slug.trim()) out.slug = "Slug is required."
+    else if (!SLUG_PATTERN.test(slug.trim()))
+      out.slug =
+        "Slug must be lowercase letters, numbers, and hyphens (e.g. max-ice-center)."
+    return out
+  }
+
+  function applyServerError(res: { error: string; fieldErrors?: typeof fieldErrors }) {
+    if (res.fieldErrors && Object.keys(res.fieldErrors).length > 0) {
+      setFieldErrors(res.fieldErrors)
+      setError(null)
+      // Focus first invalid input in visual order so keyboard users
+      // don't have to hunt.
+      const order: Array<keyof typeof res.fieldErrors> = ["name", "slug", "email"]
+      const first = order.find((k) => res.fieldErrors?.[k])
+      if (first) {
+        document.getElementById(`facility-${first}`)?.focus()
+      }
+      return
     }
-    return null
+    setError(res.error)
+    setFieldErrors({})
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
-    const validationError = clientValidate()
-    if (validationError) {
-      setError(validationError)
+    const clientErrors = clientValidate()
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors)
+      const order: Array<keyof typeof clientErrors> = ["name", "slug"]
+      const first = order.find((k) => clientErrors[k])
+      if (first) document.getElementById(`facility-${first}`)?.focus()
       return
     }
+    setFieldErrors({})
 
     startTransition(async () => {
       if (mode === "create") {
@@ -102,7 +134,7 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           email: email || null,
         })
         if (!res.ok) {
-          setError(res.error)
+          applyServerError(res)
           return
         }
         onClose?.()
@@ -121,7 +153,7 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           email: email || null,
         })
         if (!res.ok) {
-          setError(res.error)
+          applyServerError(res)
           return
         }
         onClose?.()
@@ -133,7 +165,7 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="facility-name">Name</Label>
+        <Label htmlFor="facility-name">Name<RequiredMark /></Label>
         <Input
           id="facility-name"
           name="name"
@@ -142,12 +174,15 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           placeholder="Max Ice Center"
           autoFocus
           required
+          aria-invalid={fieldErrors.name ? "true" : undefined}
+          aria-describedby={fieldErrors.name ? "facility-name-error" : undefined}
           disabled={isPending}
         />
+        <FieldError id="facility-name-error" message={fieldErrors.name} />
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="facility-slug">Slug</Label>
+        <Label htmlFor="facility-slug">Slug<RequiredMark /></Label>
         <Input
           id="facility-slug"
           name="slug"
@@ -155,9 +190,15 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           onChange={(e) => handleSlugChange(e.target.value)}
           placeholder="max-ice-center"
           required
+          aria-invalid={fieldErrors.slug ? "true" : undefined}
+          aria-describedby={
+            fieldErrors.slug
+              ? "facility-slug-error facility-slug-help"
+              : "facility-slug-help"
+          }
           disabled={isPending}
-          aria-describedby="facility-slug-help"
         />
+        <FieldError id="facility-slug-error" message={fieldErrors.slug} />
         <p
           id="facility-slug-help"
           className="text-muted-foreground text-xs"
@@ -259,8 +300,13 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="info@rink.example"
+          aria-invalid={fieldErrors.email ? "true" : undefined}
+          aria-describedby={
+            fieldErrors.email ? "facility-email-error" : undefined
+          }
           disabled={isPending}
         />
+        <FieldError id="facility-email-error" message={fieldErrors.email} />
       </div>
 
       {mode === "edit" && (

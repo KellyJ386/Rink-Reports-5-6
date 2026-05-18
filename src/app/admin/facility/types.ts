@@ -25,9 +25,23 @@ export type FacilityFormInput = {
   email?: string | null
 }
 
+/**
+ * Names that may carry per-field validation errors back from the
+ * facility form action. Keep in sync with the form's input `name`
+ * attributes so the form-side dispatcher can look them up directly.
+ */
+export type FacilityFieldName = "name" | "slug" | "email"
+
 export type ActionResult<T = void> =
   | { ok: true; data?: T }
-  | { ok: false; error: string }
+  | {
+      ok: false
+      error: string
+      // Optional per-field errors. Older consumers can ignore this and
+      // keep rendering `error` alone; the facility form opts in to
+      // routing each fieldErrors entry to its corresponding <FieldError>.
+      fieldErrors?: Partial<Record<FacilityFieldName, string>>
+    }
 
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 

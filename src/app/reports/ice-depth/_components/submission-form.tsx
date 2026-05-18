@@ -54,7 +54,6 @@ const DISPLAY_FONT =
 
 const NAVY = "#003B6F"
 const GREEN = "#4DFF00"
-const GREEN_DARK = "#3DB800"
 const GREEN_PRESS = "#2E9900"
 
 function severityFor(

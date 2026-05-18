@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { BodyDiagram } from "@/components/staff/body-diagram/body-diagram"
+import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,

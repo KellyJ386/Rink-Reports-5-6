@@ -11,6 +11,17 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error(error)
+    // Forward to PostHog if configured. Dynamic import keeps posthog-js
+    // out of the error boundary's critical render path — if posthog-js
+    // itself fails to load (network, ad-blocker), the boundary still
+    // works locally.
+    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+      void import("posthog-js")
+        .then(({ default: posthog }) => {
+          posthog.captureException(error, { digest: error.digest })
+        })
+        .catch(() => {})
+    }
   }, [error])
 
   return (

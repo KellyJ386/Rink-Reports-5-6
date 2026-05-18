@@ -5,6 +5,7 @@ import { useActionState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Sheet,
   SheetContent,
@@ -81,7 +82,7 @@ function SeverityFormBody({ onOpenChange, editing }: Props) {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="key">Key *</Label>
+          <Label htmlFor="key">Key<RequiredMark /></Label>
           <Input
             id="key"
             name="key"
@@ -97,7 +98,7 @@ function SeverityFormBody({ onOpenChange, editing }: Props) {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="display_name">Display name *</Label>
+          <Label htmlFor="display_name">Display name<RequiredMark /></Label>
           <Input
             id="display_name"
             name="display_name"

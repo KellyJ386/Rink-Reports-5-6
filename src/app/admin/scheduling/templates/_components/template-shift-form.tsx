@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -82,7 +83,7 @@ export function TemplateShiftForm(props: Props) {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ts_dept">Department *</Label>
+          <Label htmlFor="ts_dept">Department<RequiredMark /></Label>
           <input type="hidden" name="department_id" value={departmentId} />
           <Select
             value={departmentId || undefined}
@@ -101,7 +102,7 @@ export function TemplateShiftForm(props: Props) {
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ts_dow">Day *</Label>
+          <Label htmlFor="ts_dow">Day<RequiredMark /></Label>
           <input type="hidden" name="day_of_week" value={dayOfWeek} />
           <Select value={dayOfWeek} onValueChange={(v) => setDayOfWeek(v)}>
             <SelectTrigger id="ts_dow">
@@ -117,7 +118,7 @@ export function TemplateShiftForm(props: Props) {
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ts_count">Staff count *</Label>
+          <Label htmlFor="ts_count">Staff count<RequiredMark /></Label>
           <Input
             id="ts_count"
             name="staff_count"
@@ -131,7 +132,7 @@ export function TemplateShiftForm(props: Props) {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ts_start">Start time *</Label>
+          <Label htmlFor="ts_start">Start time<RequiredMark /></Label>
           <Input
             id="ts_start"
             name="start_time"
@@ -141,7 +142,7 @@ export function TemplateShiftForm(props: Props) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ts_end">End time *</Label>
+          <Label htmlFor="ts_end">End time<RequiredMark /></Label>
           <Input
             id="ts_end"
             name="end_time"

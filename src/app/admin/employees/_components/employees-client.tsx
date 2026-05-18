@@ -2,6 +2,16 @@
 
 import { useMemo, useState, useTransition } from "react"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +67,14 @@ export function EmployeesClient({
   const [editing, setEditing] = useState<EmployeeListItem | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [rowError, setRowError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [pendingDeactivate, setPendingDeactivate] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [, startTransition] = useTransition()
 
   const filtered = useMemo(() => {
@@ -258,7 +276,7 @@ export function EmployeesClient({
                       )}
                     </td>
                     <td className="border-b px-3 py-2 align-middle">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <Button
                           type="button"
                           variant="outline"
@@ -302,7 +320,10 @@ export function EmployeesClient({
                             variant="ghost"
                             size="sm"
                             onClick={() =>
-                              runRowAction(e.id, deactivateEmployee)
+                              setPendingDeactivate({
+                                id: e.id,
+                                name: `${e.first_name} ${e.last_name}`,
+                              })
                             }
                             disabled={isPending}
                           >
@@ -326,15 +347,12 @@ export function EmployeesClient({
                             type="button"
                             variant="destructive"
                             size="sm"
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Delete ${e.first_name} ${e.last_name}? This cannot be undone.`
-                                )
-                              ) {
-                                runRowAction(e.id, deleteEmployee)
-                              }
-                            }}
+                            onClick={() =>
+                              setPendingDelete({
+                                id: e.id,
+                                name: `${e.first_name} ${e.last_name}`,
+                              })
+                            }
                             disabled={isPending}
                           >
                             Delete
@@ -358,6 +376,69 @@ export function EmployeesClient({
         departments={departments}
         editing={editing}
       />
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this employee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `Delete ${pendingDelete.name}? This cannot be undone.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDelete) {
+                  runRowAction(pendingDelete.id, deleteEmployee)
+                }
+                setPendingDelete(null)
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDeactivate !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeactivate(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate this employee?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeactivate
+                ? `${pendingDeactivate.name} will lose access immediately and stop appearing in shift assignments and routing rules. You can reactivate them later from this same list.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDeactivate) {
+                  runRowAction(pendingDeactivate.id, deactivateEmployee)
+                }
+                setPendingDeactivate(null)
+              }}
+            >
+              Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

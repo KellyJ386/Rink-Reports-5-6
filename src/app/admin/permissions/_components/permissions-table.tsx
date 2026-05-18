@@ -4,6 +4,16 @@ import { memo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   PERMISSION_LEVELS,
@@ -65,6 +75,11 @@ const PermissionRow = memo(function PermissionRow({
   const [lastSynced, setLastSynced] = useState<RowPerms>(perms)
   const [actionsOpen, setActionsOpen] = useState(false)
   const [copyFromId, setCopyFromId] = useState<string>("")
+  const [pendingBulk, setPendingBulk] = useState<
+    | { kind: "applyDefaults" }
+    | { kind: "copyFrom"; sourceName: string; sourceId: string }
+    | null
+  >(null)
   const router = useRouter()
 
   if (lastSynced !== perms) {
@@ -90,13 +105,21 @@ const PermissionRow = memo(function PermissionRow({
   }
 
   function onApplyDefaults() {
-    if (
-      !confirm(
-        `Wipe all per-module overrides for ${employee.full_name}? They will fall back to their role's defaults.`,
-      )
-    ) {
+    setPendingBulk({ kind: "applyDefaults" })
+  }
+
+  function onCopyFrom() {
+    if (!copyFromId) {
+      toast.error("Pick an employee to copy from.")
       return
     }
+    const sourceName =
+      otherEmployees.find((e) => e.id === copyFromId)?.full_name ??
+      "that employee"
+    setPendingBulk({ kind: "copyFrom", sourceName, sourceId: copyFromId })
+  }
+
+  function confirmApplyDefaults() {
     startTransition(async () => {
       const res = await applyRoleDefaultsToEmployee(employee.id)
       if (res.ok) {
@@ -109,22 +132,9 @@ const PermissionRow = memo(function PermissionRow({
     })
   }
 
-  function onCopyFrom() {
-    if (!copyFromId) {
-      toast.error("Pick an employee to copy from.")
-      return
-    }
-    const sourceName =
-      otherEmployees.find((e) => e.id === copyFromId)?.full_name ?? "that employee"
-    if (
-      !confirm(
-        `Replace ${employee.full_name}'s overrides with those from ${sourceName}? Modules without a source override will fall back to role defaults.`,
-      )
-    ) {
-      return
-    }
+  function confirmCopyFrom(sourceId: string, sourceName: string) {
     startTransition(async () => {
-      const res = await copyPermissionsBetweenEmployees(employee.id, copyFromId)
+      const res = await copyPermissionsBetweenEmployees(employee.id, sourceId)
       if (res.ok) {
         toast.success(`Copied permissions from ${sourceName}.`)
         setActionsOpen(false)
@@ -137,6 +147,7 @@ const PermissionRow = memo(function PermissionRow({
   }
 
   return (
+    <>
     <tr className="hover:bg-muted/30">
       <th
         scope="row"
@@ -246,6 +257,44 @@ const PermissionRow = memo(function PermissionRow({
         )
       })}
     </tr>
+    <AlertDialog
+      open={pendingBulk !== null}
+      onOpenChange={(open) => {
+        if (!open) setPendingBulk(null)
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {pendingBulk?.kind === "applyDefaults"
+              ? "Reset to role defaults?"
+              : "Replace overrides?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {pendingBulk?.kind === "applyDefaults"
+              ? `Wipe all per-module overrides for ${employee.full_name}? They will fall back to their role's defaults.`
+              : pendingBulk?.kind === "copyFrom"
+                ? `Replace ${employee.full_name}'s overrides with those from ${pendingBulk.sourceName}? Modules without a source override will fall back to role defaults.`
+                : ""}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              const current = pendingBulk
+              setPendingBulk(null)
+              if (current?.kind === "applyDefaults") confirmApplyDefaults()
+              else if (current?.kind === "copyFrom")
+                confirmCopyFrom(current.sourceId, current.sourceName)
+            }}
+          >
+            Continue
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 })
 

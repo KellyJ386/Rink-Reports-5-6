@@ -51,7 +51,10 @@ export function AdminHeader({ email, fullName }: AdminHeaderProps) {
               className="h-4 w-4 shrink-0 text-muted-foreground"
               aria-hidden
             />
-            <span className="truncate font-medium text-foreground">
+            <span
+              aria-current="page"
+              className="truncate font-medium text-foreground"
+            >
               {sectionLabel}
             </span>
           </>
@@ -62,7 +65,10 @@ export function AdminHeader({ email, fullName }: AdminHeaderProps) {
               className="h-4 w-4 shrink-0 text-muted-foreground"
               aria-hidden
             />
-            <span className="truncate font-medium text-foreground">
+            <span
+              aria-current="page"
+              className="truncate font-medium text-foreground"
+            >
               Dashboard
             </span>
           </>

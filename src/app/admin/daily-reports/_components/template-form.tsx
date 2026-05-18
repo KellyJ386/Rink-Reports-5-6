@@ -5,6 +5,7 @@ import { useActionState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Sheet,
   SheetContent,
@@ -82,7 +83,7 @@ function TemplateFormBody({ onOpenChange, areaId, editing }: Props) {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="name">Name *</Label>
+          <Label htmlFor="name">Name<RequiredMark /></Label>
           <Input
             id="name"
             name="name"

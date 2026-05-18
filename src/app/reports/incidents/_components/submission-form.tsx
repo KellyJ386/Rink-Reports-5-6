@@ -16,8 +16,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -77,6 +79,29 @@ export function SubmissionForm({
     }
   }, [state.error])
 
+  useEffect(() => {
+    // On per-field validation failure, move focus to the first invalid
+    // input so keyboard / screen-reader users don't have to hunt for it.
+    const firstErrorField = state.fieldErrors
+      ? Object.keys(state.fieldErrors)[0]
+      : undefined
+    if (!firstErrorField) return
+    // Select trigger ids use the "_trigger" suffix because the Select
+    // root has no focusable element of its own; everything else is keyed
+    // by name == input id.
+    const idCandidates =
+      firstErrorField === "incident_type_id" || firstErrorField === "severity_level_id"
+        ? [`${firstErrorField}_trigger`]
+        : [firstErrorField]
+    for (const id of idCandidates) {
+      const el = document.getElementById(id) as HTMLElement | null
+      if (el) {
+        el.focus()
+        break
+      }
+    }
+  }, [state.fieldErrors])
+
   const handleSubmitClick = () => {
     if (!formRef.current?.checkValidity()) {
       formRef.current?.reportValidity()
@@ -100,25 +125,30 @@ export function SubmissionForm({
         <FormError message={state.error} />
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="reporter_name">Your name</Label>
+          <Label htmlFor="reporter_name">Your name<RequiredMark /></Label>
           <Input
             id="reporter_name"
             name="reporter_name"
             required
+            aria-invalid={state.fieldErrors?.reporter_name ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.reporter_name ? "reporter_name-error" : undefined}
             autoComplete="name"
             enterKeyHint="next"
             value={reporterName}
             onChange={(e) => setReporterName(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="reporter_name-error" message={state.fieldErrors?.reporter_name} />
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="reporter_phone">Phone number</Label>
+          <Label htmlFor="reporter_phone">Phone number<RequiredMark /></Label>
           <Input
             id="reporter_phone"
             name="reporter_phone"
             required
+            aria-invalid={state.fieldErrors?.reporter_phone ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.reporter_phone ? "reporter_phone-error" : undefined}
             type="tel"
             inputMode="tel"
             autoComplete="tel"
@@ -127,19 +157,23 @@ export function SubmissionForm({
             onChange={(e) => setReporterPhone(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="reporter_phone-error" message={state.fieldErrors?.reporter_phone} />
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="occurred_at">When did it happen?</Label>
+          <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
           <Input
             id="occurred_at"
             name="occurred_at"
             required
+            aria-invalid={state.fieldErrors?.occurred_at ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
             type="datetime-local"
             value={occurredAt}
             onChange={(e) => setOccurredAt(e.target.value)}
             className="h-12 text-base"
           />
+          <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -157,9 +191,13 @@ export function SubmissionForm({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Incident type</Label>
+          <Label htmlFor="incident_type_id_trigger">Incident type<RequiredMark /></Label>
           <Select value={incidentTypeId} onValueChange={setIncidentTypeId} required>
-            <SelectTrigger>
+            <SelectTrigger
+              id="incident_type_id_trigger"
+              aria-invalid={state.fieldErrors?.incident_type_id ? "true" : undefined}
+              aria-describedby={state.fieldErrors?.incident_type_id ? "incident_type_id-error" : undefined}
+            >
               <SelectValue placeholder="Select an incident type" />
             </SelectTrigger>
             <SelectContent>
@@ -170,12 +208,17 @@ export function SubmissionForm({
               ))}
             </SelectContent>
           </Select>
+          <FieldError id="incident_type_id-error" message={state.fieldErrors?.incident_type_id} />
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Severity</Label>
+          <Label htmlFor="severity_level_id_trigger">Severity<RequiredMark /></Label>
           <Select value={severityLevelId} onValueChange={setSeverityLevelId} required>
-            <SelectTrigger>
+            <SelectTrigger
+              id="severity_level_id_trigger"
+              aria-invalid={state.fieldErrors?.severity_level_id ? "true" : undefined}
+              aria-describedby={state.fieldErrors?.severity_level_id ? "severity_level_id-error" : undefined}
+            >
               <SelectValue placeholder="Select severity" />
             </SelectTrigger>
             <SelectContent>
@@ -186,14 +229,17 @@ export function SubmissionForm({
               ))}
             </SelectContent>
           </Select>
+          <FieldError id="severity_level_id-error" message={state.fieldErrors?.severity_level_id} />
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="description">What happened?</Label>
+          <Label htmlFor="description">What happened?<RequiredMark /></Label>
           <Textarea
             id="description"
             name="description"
             required
+            aria-invalid={state.fieldErrors?.description ? "true" : undefined}
+            aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
             rows={6}
             minLength={1}
             inputMode="text"
@@ -203,6 +249,7 @@ export function SubmissionForm({
             onChange={(e) => setDescription(e.target.value)}
             className="min-h-32 text-base"
           />
+          <FieldError id="description-error" message={state.fieldErrors?.description} />
         </div>
 
         <Button
