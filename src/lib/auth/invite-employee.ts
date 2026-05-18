@@ -6,6 +6,18 @@ export type InviteEmployeeResult =
   | { ok: true; userId: string; alreadyExisted: boolean }
   | { ok: false; error: string }
 
+// Hides the raw GoTrue "This endpoint requires a valid Bearer token" message
+// (signals missing/invalid SUPABASE_SERVICE_ROLE_KEY) from admins; everything
+// else passes through.
+function friendlyAuthError(raw: string | null | undefined): string {
+  const msg = (raw ?? "").trim()
+  if (!msg) return "Failed to send invite."
+  if (/bearer\s+token/i.test(msg) || /not\s*authoriz/i.test(msg)) {
+    return "Email invitations aren't available right now — service-role credentials are missing or invalid. Contact your administrator."
+  }
+  return msg
+}
+
 /**
  * Invite a newly-created employee to set up their account.
  *
@@ -58,7 +70,7 @@ export async function inviteEmployeeByEmail(params: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (error as any).status === 422
     if (!looksLikeDuplicate) {
-      return { ok: false, error: error.message || "Failed to send invite." }
+      return { ok: false, error: friendlyAuthError(error.message) }
     }
     alreadyExisted = true
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
