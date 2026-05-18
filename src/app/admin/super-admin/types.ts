@@ -27,3 +27,14 @@ export type ActionState =
   | { ok: true; message?: string }
   | { ok: false; error: string }
   | { ok: null }
+
+export type InviteServiceHealth =
+  | { ok: true; checkedAt: string }
+  | {
+      ok: false
+      reason: "not_configured" | "unauthorized" | "forbidden" | "other"
+      status?: number
+      detail: string
+      checkedAt: string
+    }
+  | { ok: null }
