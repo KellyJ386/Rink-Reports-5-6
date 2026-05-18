@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import { Textarea } from "@/components/ui/textarea"
 
 import {
@@ -57,7 +58,7 @@ export function TemplateForm({ editing, onClose, onSaved }: Props) {
       {isEdit && editing && <input type="hidden" name="id" value={editing.id} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="t_name">Name *</Label>
+          <Label htmlFor="t_name">Name<RequiredMark /></Label>
           <Input
             id="t_name"
             name="name"
@@ -66,7 +67,7 @@ export function TemplateForm({ editing, onClose, onSaved }: Props) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="t_slug">Slug *</Label>
+          <Label htmlFor="t_slug">Slug<RequiredMark /></Label>
           <Input
             id="t_slug"
             name="slug"

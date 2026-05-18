@@ -2,24 +2,35 @@
 // Rink Reports — Service Worker
 //
 // Strategy:
-//  - Navigation requests: network-first, cache fallback
-//  - Static assets (_next/static): cache-first
+//  - Navigation requests: network-only. When the network fails we return a
+//    synthetic "You're offline" page rather than serving a cached response.
+//    Caching authenticated HTML in a shared SW cache risks cross-user leak on
+//    shared kiosks (user B sees user A's previously rendered admin pages).
+//    The PWA's offline value is the IndexedDB submission queue below, not
+//    offline page browsing.
+//  - Static assets (_next/static): cache-first. Content-hashed by Next so
+//    they're safe to share across users.
 //  - Module form submissions (POST to /api/offline-sync): queued in IndexedDB
-//    when offline, replayed FIFO (by startedAt) when online
-//  - Supabase API calls: always network-only (no cache)
+//    when offline, replayed FIFO (by startedAt) when online.
+//  - Supabase API calls: always network-only (no cache).
 // =============================================================================
 
-const CACHE_NAME = "rink-reports-v2"
-const STATIC_CACHE = "rink-reports-static-v2"
+// CACHE_NAME bumped to v3 so installs that previously cached authenticated
+// HTML under v2 get their stale cache deleted on activate.
+const CACHE_NAME = "rink-reports-v3"
+const STATIC_CACHE = "rink-reports-static-v3"
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1
 const STORE_NAME = "submissions"
 
 // ---------------------------------------------------------------------------
-// Install: cache shell
+// Install: do NOT call skipWaiting() here. A staff member mid-shift filling
+// out a report shouldn't have the SW (and its IndexedDB queue) swapped from
+// under them. The new SW stays in "waiting" until the page posts
+// {type:"SKIP_WAITING"} — see the message handler and sw-register.tsx.
 // ---------------------------------------------------------------------------
 self.addEventListener("install", () => {
-  self.skipWaiting()
+  // intentionally no-op
 })
 
 // ---------------------------------------------------------------------------
@@ -167,6 +178,12 @@ self.addEventListener("message", (event) => {
   if (!event.data) return
 
   switch (event.data.type) {
+    case "SKIP_WAITING": {
+      // Page is signalling that the user accepted the update prompt.
+      self.skipWaiting()
+      break
+    }
+
     case "ENQUEUE_SUBMISSION": {
       openDB().then(async (db) => {
         const record = {
@@ -255,20 +272,51 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
-  // Navigation requests: network-first, cache fallback
+  // Navigation requests: network-only. Authenticated HTML must NOT be cached
+  // (see header comment). On network failure return a synthetic offline page
+  // so the browser doesn't show its generic "no internet" UI.
   if (event.request.mode === "navigate") {
     event.respondWith(
-      fetch(event.request)
-        .then((res) => {
-          const clone = res.clone()
-          caches.open(CACHE_NAME).then((c) => c.put(event.request, clone))
-          return res
-        })
-        .catch(() => caches.match(event.request))
+      fetch(event.request).catch(() => offlineFallbackResponse())
     )
     return
   }
 })
+
+function offlineFallbackResponse() {
+  const body = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Offline — Rink Reports</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; background:#0f172a; color:#e2e8f0;
+         min-height:100vh; margin:0; display:flex; align-items:center; justify-content:center;
+         padding:1.5rem; }
+  main { max-width:24rem; text-align:center; }
+  h1 { font-size:1.25rem; margin:0 0 0.5rem; }
+  p { font-size:0.9rem; color:#94a3b8; margin:0 0 1.25rem; line-height:1.5; }
+  button { background:#3b82f6; color:#fff; border:0; padding:0.6rem 1.1rem; border-radius:0.375rem;
+           font-size:0.9rem; cursor:pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>You're offline</h1>
+  <p>Any reports you submit while offline are saved locally and will sync automatically once you're back online.</p>
+  <button onclick="location.reload()">Try again</button>
+</main>
+</body>
+</html>`
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Online event: trigger replay (for browsers without Background Sync API)

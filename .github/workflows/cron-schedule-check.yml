@@ -1,0 +1,29 @@
+name: Cron Schedule Check
+
+# Guards against the class of bug where a cron Route Handler lives under
+# src/app/api/cron/<name>/route.ts but has no matching vercel.json `crons`
+# entry, or vice versa — both shipped to prod once before this guard
+# existed. The check is the same one available locally via `pnpm check:cron`
+# and is dependency-free (no pnpm install needed in CI).
+
+on:
+  pull_request:
+    paths:
+      - "src/app/api/cron/**"
+      - "vercel.json"
+      - "scripts/check-cron-schedule.mjs"
+      - ".github/workflows/cron-schedule-check.yml"
+
+jobs:
+  check-cron-schedule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify cron routes match vercel.json schedule
+        run: node scripts/check-cron-schedule.mjs

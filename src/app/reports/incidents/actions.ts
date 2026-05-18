@@ -6,8 +6,23 @@ import { requireUser } from "@/lib/auth"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
+// Names match form input `name` attributes — keep them in sync.
+export type IncidentFieldName =
+  | "reporter_name"
+  | "reporter_phone"
+  | "description"
+  | "incident_type_id"
+  | "severity_level_id"
+  | "occurred_at"
+
 export type SubmissionFormState = {
+  // Top-level error (server failure, auth, permission, RPC). Renders in
+  // the form's <FormError> banner.
   error?: string
+  // Per-field validation errors. The form renders each one next to its
+  // input with aria-describedby so screen readers announce the message
+  // when the field gains focus.
+  fieldErrors?: Partial<Record<IncidentFieldName, string>>
 }
 
 type SupabaseError = { code?: string; message?: string } | null
@@ -19,7 +34,7 @@ function dbError(err: SupabaseError, fallback: string): string {
 
 type SubmissionResult =
   | { ok: true; redirectTo: string }
-  | { ok: false; error: string }
+  | { ok: false; error?: string; fieldErrors?: Partial<Record<IncidentFieldName, string>> }
 
 async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   const current = await requireUser()
@@ -35,31 +50,29 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   ).trim()
   const location = String(formData.get("location") ?? "").trim()
 
-  if (!reporterName) {
-    return { ok: false, error: "Please enter your name." }
-  }
-  if (!reporterPhone) {
-    return { ok: false, error: "Please enter a phone number." }
-  }
-  if (!description) {
-    return { ok: false, error: "Please describe what happened." }
-  }
-  if (!incidentTypeId) {
-    return { ok: false, error: "Please pick an incident type." }
-  }
-  if (!severityLevelId) {
-    return { ok: false, error: "Please pick a severity level." }
-  }
+  // Collect every field-level error so the user can fix all in one pass.
+  // Top-level/global errors (DB, permission, facility mismatch) are
+  // returned separately via `error`. Order matters: insertion order
+  // determines which field the form will auto-focus, so we follow the
+  // visual order of the inputs in the form.
+  const fieldErrors: Partial<Record<IncidentFieldName, string>> = {}
+  if (!reporterName) fieldErrors.reporter_name = "Please enter your name."
+  if (!reporterPhone) fieldErrors.reporter_phone = "Please enter a phone number."
   if (!occurredAtRaw) {
-    return { ok: false, error: "Please choose when the incident happened." }
+    fieldErrors.occurred_at = "Please choose when the incident happened."
+  } else if (Number.isNaN(new Date(occurredAtRaw + "Z").getTime())) {
+    // Appending "Z" just for validation; the raw value is passed to Postgres
+    // as-is so no server-timezone offset is applied.
+    fieldErrors.occurred_at = "Invalid date and time."
+  }
+  if (!incidentTypeId) fieldErrors.incident_type_id = "Please pick an incident type."
+  if (!severityLevelId) fieldErrors.severity_level_id = "Please pick a severity level."
+  if (!description) fieldErrors.description = "Please describe what happened."
+
+  if (Object.keys(fieldErrors).length > 0) {
+    return { ok: false, fieldErrors }
   }
 
-  // Validate the datetime-local string without a timezone round-trip.
-  // Appending "Z" just for validation; the raw value is passed to Postgres
-  // as-is so no server-timezone offset is applied.
-  if (Number.isNaN(new Date(occurredAtRaw + "Z").getTime())) {
-    return { ok: false, error: "Invalid date and time." }
-  }
   const occurredAtIso = occurredAtRaw.length === 16 ? occurredAtRaw + ":00" : occurredAtRaw
 
   const { data: employeeRow, error: empErr } = await supabase
@@ -168,7 +181,7 @@ export async function submitIncidentReport(
 ): Promise<SubmissionFormState> {
   const result = await performSubmit(formData)
   if (!result.ok) {
-    return { error: result.error }
+    return { error: result.error, fieldErrors: result.fieldErrors }
   }
   redirect(result.redirectTo)
 }

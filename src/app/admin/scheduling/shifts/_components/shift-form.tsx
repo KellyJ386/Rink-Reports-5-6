@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -92,7 +93,7 @@ export function ShiftForm(props: Props) {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="department_id">Department *</Label>
+          <Label htmlFor="department_id">Department<RequiredMark /></Label>
           <input type="hidden" name="department_id" value={departmentId} />
           <Select
             value={departmentId || undefined}
@@ -133,7 +134,7 @@ export function ShiftForm(props: Props) {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="starts_at">Starts *</Label>
+          <Label htmlFor="starts_at">Starts<RequiredMark /></Label>
           <Input
             id="starts_at"
             name="starts_at"
@@ -143,7 +144,7 @@ export function ShiftForm(props: Props) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ends_at">Ends *</Label>
+          <Label htmlFor="ends_at">Ends<RequiredMark /></Label>
           <Input
             id="ends_at"
             name="ends_at"

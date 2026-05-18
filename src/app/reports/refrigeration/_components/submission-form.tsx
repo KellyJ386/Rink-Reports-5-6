@@ -9,6 +9,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -34,6 +35,7 @@ type FieldDef = {
   label: string
   field_type: RefrigerationFieldType
   unit: string | null
+  is_required: boolean
   options: RefrigerationFieldOption[]
 }
 
@@ -298,6 +300,7 @@ function FieldInput({
   const labelText = field.unit
     ? `${field.label} (${field.unit})`
     : field.label
+  const reqMark = field.is_required ? <RequiredMark /> : null
 
   if (field.field_type === "boolean") {
     return (
@@ -305,12 +308,15 @@ function FieldInput({
         <input
           id={inputId}
           type="checkbox"
+          required={field.is_required}
+          aria-required={field.is_required ? "true" : undefined}
           checked={value?.bool ?? false}
           onChange={(e) => onBool(e.target.checked)}
           className="h-5 w-5 rounded border-input"
         />
         <Label htmlFor={inputId} className="text-base">
           {labelText}
+          {reqMark}
         </Label>
       </div>
     )
@@ -319,9 +325,19 @@ function FieldInput({
   if (field.field_type === "select") {
     return (
       <div className="flex flex-col gap-2">
-        <Label>{labelText}</Label>
-        <Select value={value?.text ?? ""} onValueChange={onText}>
-          <SelectTrigger>
+        <Label htmlFor={`${inputId}-trigger`}>
+          {labelText}
+          {reqMark}
+        </Label>
+        <Select
+          value={value?.text ?? ""}
+          onValueChange={onText}
+          required={field.is_required}
+        >
+          <SelectTrigger
+            id={`${inputId}-trigger`}
+            aria-required={field.is_required ? "true" : undefined}
+          >
             <SelectValue placeholder="Select…" />
           </SelectTrigger>
           <SelectContent>
@@ -339,13 +355,18 @@ function FieldInput({
   if (field.field_type === "numeric") {
     return (
       <div className="flex flex-col gap-2">
-        <Label htmlFor={inputId}>{labelText}</Label>
+        <Label htmlFor={inputId}>
+          {labelText}
+          {reqMark}
+        </Label>
         <div className="flex items-center gap-2">
           <Input
             id={inputId}
             type="text"
             inputMode="decimal"
             enterKeyHint="next"
+            required={field.is_required}
+            aria-required={field.is_required ? "true" : undefined}
             value={value?.text ?? ""}
             onChange={(e) => onText(e.target.value)}
             className="h-12 flex-1 text-base"
@@ -362,12 +383,17 @@ function FieldInput({
   // text
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor={inputId}>{labelText}</Label>
+      <Label htmlFor={inputId}>
+        {labelText}
+        {reqMark}
+      </Label>
       <Input
         id={inputId}
         type="text"
         inputMode="text"
         enterKeyHint="next"
+        required={field.is_required}
+        aria-required={field.is_required ? "true" : undefined}
         value={value?.text ?? ""}
         onChange={(e) => onText(e.target.value)}
         className="h-12 text-base"

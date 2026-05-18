@@ -2,11 +2,18 @@ import "server-only"
 
 import { Resend } from "resend"
 
+export type EmailAttachment = {
+  filename: string
+  content: Buffer
+  contentType?: string
+}
+
 export type EmailSendInput = {
   to: string
   subject: string
   bodyText: string
   bodyHtml?: string
+  attachments?: EmailAttachment[]
 }
 
 export type EmailSendResult =
@@ -44,6 +51,9 @@ export async function sendEmail(
       subject: input.subject,
       text: input.bodyText,
       ...(input.bodyHtml ? { html: input.bodyHtml } : {}),
+      ...(input.attachments && input.attachments.length > 0
+        ? { attachments: input.attachments }
+        : {}),
     })
     if (result.error) {
       return { ok: false, error: result.error.message ?? "Resend error" }

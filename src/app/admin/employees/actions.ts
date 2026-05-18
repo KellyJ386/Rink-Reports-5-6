@@ -2,12 +2,10 @@
 
 import { revalidatePath } from "next/cache"
 
-import { createClient as createServiceClient } from "@supabase/supabase-js"
-
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
-import type { Database } from "@/types/database"
 
 import type { ActionState, EmployeeFormInput } from "./types"
 
@@ -21,6 +19,18 @@ function dbError(err: SupabaseError, fallback: string): string {
     return "That value conflicts with an existing record (duplicate)."
   }
   return err.message?.trim() || fallback
+}
+
+// Maps GoTrue / Supabase Auth admin error messages to user-friendly copy.
+// In particular, hides the raw "This endpoint requires a valid Bearer token"
+// (signals a misconfigured/rotated SUPABASE_SERVICE_ROLE_KEY) from admins.
+function friendlyInviteError(raw: string | null | undefined): string {
+  const msg = (raw ?? "").trim()
+  if (!msg) return "Failed to send the invitation email."
+  if (/bearer\s+token/i.test(msg) || /not\s*authoriz/i.test(msg)) {
+    return "Email invitations aren't available right now — service-role credentials are missing or invalid. Contact your administrator."
+  }
+  return msg
 }
 
 function nonEmpty(value: FormDataEntryValue | null): string | null {
@@ -522,10 +532,19 @@ export async function inviteEmployee(
   try {
     await requireAdmin()
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!url || !serviceKey) {
-      return { ok: false, error: "Server configuration error: missing service role key." }
+    // Single source of truth for the service-role client. Throws if
+    // SUPABASE_SERVICE_ROLE_KEY isn't configured — caught below and surfaced
+    // as a friendly message rather than the raw GoTrue "valid Bearer token"
+    // error the admin would otherwise see.
+    let adminClient: ReturnType<typeof createAdminClient>
+    try {
+      adminClient = createAdminClient()
+    } catch {
+      return {
+        ok: false,
+        error:
+          "Email invitations aren't available right now — the service-role key isn't configured. Contact your administrator.",
+      }
     }
 
     const supabase = await createClient()
@@ -541,11 +560,6 @@ export async function inviteEmployee(
     if (!emp) return { ok: false, error: "Employee not found." }
     if (!emp.email) return { ok: false, error: "Employee has no email address set." }
     if (emp.user_id) return { ok: false, error: "Employee is already linked to a user account." }
-
-    // Service-role client bypasses RLS for auth admin operations and profile upserts.
-    const adminClient = createServiceClient<Database>(url, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
 
     // Scenario B: check if a public.users profile already exists for this email.
     const { data: existingUsers } = await adminClient
@@ -579,7 +593,7 @@ export async function inviteEmployee(
       },
     )
 
-    if (inviteErr) return { ok: false, error: inviteErr.message }
+    if (inviteErr) return { ok: false, error: friendlyInviteError(inviteErr.message) }
 
     const newUserId = inviteData.user?.id
     if (!newUserId) return { ok: false, error: "Invite succeeded but returned no user id." }

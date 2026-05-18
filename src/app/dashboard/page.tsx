@@ -135,6 +135,20 @@ function ModuleTile({
               dangerouslySetInnerHTML={{ __html: iconPath }}
             />
           </div>
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
+            dangerouslySetInnerHTML={{ __html: iconPath }}
+          />
+        </div>
 
           <div
             style={{

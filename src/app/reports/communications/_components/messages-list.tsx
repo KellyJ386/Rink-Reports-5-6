@@ -102,7 +102,13 @@ export function MessagesList({ items, timezone }: Props) {
                       {subject}
                     </span>
                     {unread ? (
-                      <span className="inline-flex h-2 w-2 rounded-full bg-primary" />
+                      <>
+                        <span
+                          className="inline-flex h-2 w-2 rounded-full bg-primary"
+                          aria-hidden="true"
+                        />
+                        <span className="sr-only">Unread</span>
+                      </>
                     ) : null}
                     {item.requires_acknowledgement &&
                     item.acknowledged_at === null ? (

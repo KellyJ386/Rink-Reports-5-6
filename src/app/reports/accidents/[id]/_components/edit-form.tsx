@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
-import { BodyDiagram } from "@/components/staff/body-diagram/body-diagram"
+import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
@@ -16,8 +16,10 @@ import {
   type BodySide,
 } from "@/components/staff/body-diagram/types"
 import { Button } from "@/components/ui/button"
+import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -191,6 +193,15 @@ export function EditForm({
     if (state.ok) toast.success("Report updated.")
   }, [state.error, state.ok])
 
+  useEffect(() => {
+    const firstErrorField = state.fieldErrors
+      ? Object.keys(state.fieldErrors)[0]
+      : undefined
+    if (!firstErrorField) return
+    const el = document.getElementById(firstErrorField) as HTMLElement | null
+    el?.focus()
+  }, [state.fieldErrors])
+
   const bodyPartIdMap = useMemo(
     () => buildBodyPartIdMap(bodyParts),
     [bodyParts]
@@ -257,37 +268,49 @@ export function EditForm({
       <input type="hidden" name="witnesses_json" value={witnessesJson} />
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="injured_person_name">Injured person&apos;s name</Label>
+        <Label htmlFor="injured_person_name">
+          Injured person&apos;s name<RequiredMark />
+        </Label>
         <Input
           id="injured_person_name"
           name="injured_person_name"
           required
+          aria-invalid={state.fieldErrors?.injured_person_name ? "true" : undefined}
+          aria-describedby={state.fieldErrors?.injured_person_name ? "injured_person_name-error" : undefined}
           autoComplete="name"
           value={injuredName}
           onChange={(e) => setInjuredName(e.target.value)}
           className="h-12 text-base"
         />
+        <FieldError id="injured_person_name-error" message={state.fieldErrors?.injured_person_name} />
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="injured_person_contact">Contact (phone or email)</Label>
+        <Label htmlFor="injured_person_contact">
+          Contact (phone or email)<RequiredMark />
+        </Label>
         <Input
           id="injured_person_contact"
           name="injured_person_contact"
           required
+          aria-invalid={state.fieldErrors?.injured_person_contact ? "true" : undefined}
+          aria-describedby={state.fieldErrors?.injured_person_contact ? "injured_person_contact-error" : undefined}
           inputMode="text"
           value={injuredContact}
           onChange={(e) => setInjuredContact(e.target.value)}
           className="h-12 text-base"
         />
+        <FieldError id="injured_person_contact-error" message={state.fieldErrors?.injured_person_contact} />
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="injured_person_age">Age</Label>
+        <Label htmlFor="injured_person_age">Age<RequiredMark /></Label>
         <Input
           id="injured_person_age"
           name="injured_person_age"
           required
+          aria-invalid={state.fieldErrors?.injured_person_age ? "true" : undefined}
+          aria-describedby={state.fieldErrors?.injured_person_age ? "injured_person_age-error" : undefined}
           type="number"
           min={0}
           max={120}
@@ -298,19 +321,23 @@ export function EditForm({
           onChange={(e) => setInjuredAge(e.target.value)}
           className="h-12 text-base"
         />
+        <FieldError id="injured_person_age-error" message={state.fieldErrors?.injured_person_age} />
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="occurred_at">When did it happen?</Label>
+        <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
         <Input
           id="occurred_at"
           name="occurred_at"
           required
+          aria-invalid={state.fieldErrors?.occurred_at ? "true" : undefined}
+          aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
           type="datetime-local"
           value={occurredAt}
           onChange={(e) => setOccurredAt(e.target.value)}
           className="h-12 text-base"
         />
+        <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />
       </div>
 
       <DropdownField
@@ -380,17 +407,20 @@ export function EditForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="description">What happened?</Label>
+        <Label htmlFor="description">What happened?<RequiredMark /></Label>
         <Textarea
           id="description"
           name="description"
           required
+          aria-invalid={state.fieldErrors?.description ? "true" : undefined}
+          aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
           rows={6}
           minLength={1}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           className="min-h-32 text-base"
         />
+        <FieldError id="description-error" message={state.fieldErrors?.description} />
       </div>
 
       <div className="flex flex-col gap-3">

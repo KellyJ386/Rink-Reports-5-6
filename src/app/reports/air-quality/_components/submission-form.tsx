@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -256,11 +257,7 @@ export function SubmissionForm({
                 <div key={rt.id} className="flex flex-col gap-2">
                   <Label htmlFor={inputId}>
                     {rt.label}
-                    {rt.is_required ? (
-                      <span aria-hidden className="ml-1 text-destructive">
-                        *
-                      </span>
-                    ) : null}
+                    {rt.is_required ? <RequiredMark /> : null}
                   </Label>
                   <div className="flex items-center gap-2">
                     <Input

@@ -5,6 +5,7 @@ import { useActionState, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RequiredMark } from "@/components/ui/required-mark"
 import {
   Select,
   SelectContent,
@@ -160,7 +161,7 @@ function EmployeeFormBody({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="first_name">First name *</Label>
+              <Label htmlFor="first_name">First name<RequiredMark /></Label>
               <Input
                 id="first_name"
                 name="first_name"
@@ -169,7 +170,7 @@ function EmployeeFormBody({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="last_name">Last name *</Label>
+              <Label htmlFor="last_name">Last name<RequiredMark /></Label>
               <Input
                 id="last_name"
                 name="last_name"
@@ -180,7 +181,7 @@ function EmployeeFormBody({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="role_id">Role *</Label>
+            <Label htmlFor="role_id">Role<RequiredMark /></Label>
             <input type="hidden" name="role_id" value={roleId} />
             <Select
               value={roleId || undefined}
@@ -326,7 +327,7 @@ function EmployeeFormBody({
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="emergency_contact_name">
-                Emergency contact name {!isMinor && "*"}
+                Emergency contact name{!isMinor && <RequiredMark />}
               </Label>
               <Input
                 id="emergency_contact_name"
@@ -337,7 +338,7 @@ function EmployeeFormBody({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="emergency_contact_phone">
-                Emergency contact phone {!isMinor && "*"}
+                Emergency contact phone{!isMinor && <RequiredMark />}
               </Label>
               <Input
                 id="emergency_contact_phone"

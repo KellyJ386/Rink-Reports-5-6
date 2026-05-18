@@ -74,3 +74,19 @@ export async function signPdfUrl(
   if (error || !data?.signedUrl) return null
   return data.signedUrl
 }
+
+/**
+ * Download a PDF's bytes using the caller's Supabase client. Intended for
+ * server-side use (the email cron route fetches the buffer to attach to
+ * Resend). Returns null if the object is missing or fetch fails so the
+ * caller can fall through to a text-only send rather than blocking.
+ */
+export async function downloadPdf(
+  sb: SupabaseClient,
+  path: string,
+): Promise<Buffer | null> {
+  const { data, error } = await sb.storage.from(PDF_BUCKET).download(path)
+  if (error || !data) return null
+  const arrayBuf = await data.arrayBuffer()
+  return Buffer.from(arrayBuf)
+}

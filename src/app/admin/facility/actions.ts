@@ -10,8 +10,23 @@ import {
   SLUG_PATTERN,
   TIMEZONE_OPTIONS,
   type ActionResult,
+  type FacilityFieldName,
   type FacilityFormInput,
 } from "./types"
+
+type FieldErrors = Partial<Record<FacilityFieldName, string>>
+
+function validationFail(fieldErrors: FieldErrors): {
+  ok: false
+  error: string
+  fieldErrors: FieldErrors
+} {
+  // First fieldError doubles as the legacy top-level `error` string —
+  // consumers that haven't adopted fieldErrors still see a useful
+  // message in their <FormError> banner.
+  const first = Object.values(fieldErrors)[0] ?? "Validation failed."
+  return { ok: false, error: first, fieldErrors }
+}
 
 type CreateInput = {
   name: string
@@ -86,17 +101,21 @@ async function requireSuperAdmin(): Promise<
   return { ok: true, userId: current.profile.id }
 }
 
-function validateCreate(input: CreateInput): string | null {
+function validateCreate(input: CreateInput): FieldErrors {
+  const errors: FieldErrors = {}
   const name = normalizeName(input.name)
   const slug = normalizeSlug(input.slug)
-  if (name.length < 2) return "Name must be at least 2 characters."
-  if (name.length > 200) return "Name is too long."
-  if (!slug) return "Slug is required."
-  if (!SLUG_PATTERN.test(slug)) {
-    return "Slug must be lowercase letters, numbers, and hyphens (e.g. max-ice-center)."
-  }
-  if (slug.length > 80) return "Slug is too long."
-  return null
+  if (name.length < 2) errors.name = "Name must be at least 2 characters."
+  else if (name.length > 200) errors.name = "Name is too long."
+  if (!slug) errors.slug = "Slug is required."
+  else if (!SLUG_PATTERN.test(slug))
+    errors.slug =
+      "Slug must be lowercase letters, numbers, and hyphens (e.g. max-ice-center)."
+  else if (slug.length > 80) errors.slug = "Slug is too long."
+  const email = normalizeEmail(input.email)
+  if (email && !EMAIL_PATTERN.test(email))
+    errors.email = "Email must be a valid address."
+  return errors
 }
 
 export async function createFacility(
@@ -105,16 +124,13 @@ export async function createFacility(
   const auth = await requireSuperAdmin()
   if (!auth.ok) return { ok: false, error: auth.error }
 
-  const validationError = validateCreate(rawInput)
-  if (validationError) return { ok: false, error: validationError }
+  const fieldErrors = validateCreate(rawInput)
+  if (Object.keys(fieldErrors).length > 0) return validationFail(fieldErrors)
 
   const name = normalizeName(rawInput.name)
   const slug = normalizeSlug(rawInput.slug)
   const timezone = normalizeTimezone(rawInput.timezone)
   const email = normalizeEmail(rawInput.email)
-  if (email && !EMAIL_PATTERN.test(email)) {
-    return { ok: false, error: "Email must be a valid address." }
-  }
 
   const supabase = await createClient()
 
@@ -134,6 +150,14 @@ export async function createFacility(
   )
 
   if (error || !facilityId) {
+    // 23505 on the slug uniqueness constraint is the common operator
+    // error — surface it as a field-level message so the slug input
+    // gets the aria-invalid treatment, not just a banner.
+    if (error?.code === "23505") {
+      return validationFail({
+        slug: "That slug is already taken. Pick a unique slug.",
+      })
+    }
     return {
       ok: false,
       error: describeDbError(error, "Failed to create facility."),
@@ -187,22 +211,27 @@ export async function updateFacility(
     email?: string | null
   } = {}
 
+  const fieldErrors: FieldErrors = {}
   if (typeof input.name === "string") {
     const name = normalizeName(input.name)
-    if (name.length < 2) return { ok: false, error: "Name is too short." }
-    patch.name = name
+    if (name.length < 2) fieldErrors.name = "Name is too short."
+    else patch.name = name
   }
   if (typeof input.slug === "string") {
     const slug = normalizeSlug(input.slug)
-    if (!SLUG_PATTERN.test(slug)) {
-      return {
-        ok: false,
-        error:
-          "Slug must be lowercase letters, numbers, and hyphens (e.g. max-ice-center).",
-      }
-    }
-    patch.slug = slug
+    if (!SLUG_PATTERN.test(slug))
+      fieldErrors.slug =
+        "Slug must be lowercase letters, numbers, and hyphens (e.g. max-ice-center)."
+    else patch.slug = slug
   }
+  if ("email" in input) {
+    const email = normalizeEmail(input.email)
+    if (email && !EMAIL_PATTERN.test(email))
+      fieldErrors.email = "Email must be a valid address."
+    else patch.email = email
+  }
+  if (Object.keys(fieldErrors).length > 0) return validationFail(fieldErrors)
+
   if (typeof input.timezone === "string") {
     patch.timezone = normalizeTimezone(input.timezone)
   }
@@ -224,13 +253,6 @@ export async function updateFacility(
   if ("phone" in input) {
     patch.phone = input.phone ?? null
   }
-  if ("email" in input) {
-    const email = normalizeEmail(input.email)
-    if (email && !EMAIL_PATTERN.test(email)) {
-      return { ok: false, error: "Email must be a valid address." }
-    }
-    patch.email = email
-  }
 
   if (Object.keys(patch).length === 0) {
     return { ok: false, error: "Nothing to update." }
@@ -243,6 +265,11 @@ export async function updateFacility(
     .eq("id", id)
 
   if (error) {
+    if (error.code === "23505") {
+      return validationFail({
+        slug: "That slug is already taken. Pick a unique slug.",
+      })
+    }
     return { ok: false, error: describeDbError(error, "Update failed.") }
   }
 

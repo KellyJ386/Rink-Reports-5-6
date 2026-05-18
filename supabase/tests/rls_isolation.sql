@@ -139,6 +139,40 @@ insert into public.communication_routing_rules (
   ('11111111-1111-1111-1111-111111111111', 'incident_reports', 'immediate', 'staff'),
   ('22222222-2222-2222-2222-222222222222', 'incident_reports', 'immediate', 'staff');
 
+-- Grant alice view+submit on every module she'll be queried against. Many
+-- SELECT policies (communication_groups, communication_routing_rules, etc.)
+-- gate on public.has_module_access(), which checks module_permissions for
+-- can_view=true. Without these rows alice can't see her own facility's
+-- data and the cross-tenant assertions become meaningless (count=0 on both
+-- sides). The legacy can_view/can_submit booleans are kept in sync with
+-- permission_level by the trigger added in migration 39.
+insert into public.module_permissions (
+  facility_id, employee_id, module_key, permission_level
+)
+select
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+  m,
+  'submit'::public.module_permission_level
+from unnest(array[
+  'communications',
+  'incident_reports',
+  'accident_reports',
+  'daily_reports',
+  'ice_depth',
+  'ice_operations',
+  'refrigeration',
+  'air_quality',
+  'scheduling'
+]) as m
+on conflict (employee_id, module_key) do nothing;
+
+-- Grant the test runner (authenticated alice) the ability to record failures.
+-- The temp table _rls_failures is created above as the postgres role; without
+-- this grant, expect_count() / expect_error() lose their ability to log
+-- failures and silently mask everything as "ok".
+grant insert, select on _rls_failures to authenticated;
+
 -- An offline_sync_queue row in each facility so cross-facility checks have
 -- non-empty targets (mig 31 + test for migration 59 follow-up isolation).
 insert into public.offline_sync_queue (
@@ -375,10 +409,21 @@ select pg_temp.expect_error(
 
 -- ---------------------------------------------------------------------------
 -- M5: drain_notification_outbox restricted to super_admin / service role.
+--
+-- This assertion is intentionally NOT executed inside this test harness.
+-- The drain function gates on `session_user IN ('postgres','service_role')
+-- OR is_super_admin()`. Inside the rls-isolation harness we impersonate
+-- alice via `set local role authenticated`, which changes `current_user`
+-- but NOT `session_user` — `session_user` remains the bootstrapping
+-- postgres role with BYPASSRLS, so the gate's first OR-clause matches
+-- and the function runs without raising. Switching `session_user`
+-- requires `SET SESSION AUTHORIZATION`, which itself requires superuser
+-- and can't be safely toggled mid-script.
+--
+-- M5 coverage instead lives at the route layer (the cron route checks
+-- CRON_SECRET before invoking the RPC) and at the migration layer
+-- (revoke execute on function ... from public, anon).
 -- ---------------------------------------------------------------------------
-select pg_temp.expect_error(
-  $$select public.drain_notification_outbox(500)$$,
-  'M5: drain_notification_outbox rejects authenticated callers');
 
 -- ---------------------------------------------------------------------------
 -- H3: communication_group_members cross-facility group_id (RLS only).
@@ -407,6 +452,96 @@ select pg_temp.expect_error(
 -- `SET SESSION AUTHORIZATION` which requires superuser. Coverage of the
 -- new parameter is achieved by the production cron route invocation in
 -- staging; the migration itself verifies the function's signature exists.
+
+-- ---------------------------------------------------------------------------
+-- M6: requires_acknowledgement propagation (migration 63).
+--
+-- The original drain_notification_outbox() hard-coded
+-- requires_acknowledgement=false. Migration 63 adds the column to routing
+-- rules + outbox and recreates both SECURITY DEFINER functions to thread
+-- the value through. Without this assertion a regression of either
+-- function would silently revert ack-required messages to opt-out.
+--
+-- We can run dispatch + drain here because the `postgres` role of the
+-- local stack has both BYPASSRLS and matches the session_user check
+-- inside drain_notification_outbox. Each insert is then visible to the
+-- subsequent expect_count() query.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Two rules in facility A: one ack-required, one not. Both target Alice
+-- via her 'staff' role so resolve_rule_recipients returns her.
+insert into public.communication_routing_rules (
+  id, facility_id, source_module, timing, target_role_key,
+  requires_acknowledgement
+) values
+  ('ccccaaaa-1111-1111-1111-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111',
+   'accident_reports', 'immediate', 'staff', true),
+  ('ccccaaaa-2222-2222-2222-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111',
+   'daily_reports',    'immediate', 'staff', false);
+
+-- Dispatch both, capturing the outbox count so we can verify the column
+-- was set on the outbox row itself (the drain reads from this column).
+select public.dispatch_rules_for_submission(
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'accident_reports',
+  'dddd0001-1111-1111-1111-dddddddddddd'::uuid
+);
+select public.dispatch_rules_for_submission(
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'daily_reports',
+  'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox
+     where source_record_id = 'dddd0001-1111-1111-1111-dddddddddddd'::uuid
+       and requires_acknowledgement = true$$,
+  1,
+  'M6: outbox row from ack-required rule has requires_acknowledgement=true');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox
+     where source_record_id = 'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+       and requires_acknowledgement = false$$,
+  1,
+  'M6: outbox row from opt-out rule has requires_acknowledgement=false');
+
+-- Immediate-timing dispatch marks outbox rows status='sent' without
+-- creating messages — that's drain's job. Reset them to 'pending' so the
+-- drain has work to do, then run drain.
+update public.notification_outbox
+  set status = 'pending'
+  where source_record_id in (
+    'dddd0001-1111-1111-1111-dddddddddddd'::uuid,
+    'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+  );
+
+-- `select *` is the SQL-script equivalent of plpgsql's `perform`.
+select * from public.drain_notification_outbox(
+  p_max_rows    := 100,
+  p_facility_id := '11111111-1111-1111-1111-111111111111'::uuid
+);
+
+-- No prior test in this script inserts into communication_messages, so a
+-- direct count by the flag is unambiguous: exactly one message of each
+-- ack value should exist after drain.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_messages
+     where requires_acknowledgement = true$$,
+  1,
+  'M6: drained message from ack-required rule has requires_acknowledgement=true');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_messages
+     where requires_acknowledgement = false$$,
+  1,
+  'M6: drained message from opt-out rule has requires_acknowledgement=false');
+
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.

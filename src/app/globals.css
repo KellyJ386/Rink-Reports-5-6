@@ -157,9 +157,10 @@
   --secondary:            oklch(0.18 0.065 255);
   --secondary-foreground: oklch(0.97 0.003 247);
 
-  /* Muted */
+  /* Muted — foreground bumped to 0.65 to clear WCAG AA 4.5:1 on the
+     0.09 navy background (was 0.55, which measured ~4.3:1). */
   --muted:                oklch(0.18 0.065 255);
-  --muted-foreground:     oklch(0.55 0.010 247);
+  --muted-foreground:     oklch(0.65 0.010 247);
 
   /* Accent (hover states on main content) */
   --accent:               oklch(0.18 0.065 255);
@@ -204,7 +205,7 @@
   --secondary:            oklch(0.18 0.065 255);
   --secondary-foreground: oklch(0.97 0.003 247);
   --muted:                oklch(0.18 0.065 255);
-  --muted-foreground:     oklch(0.55 0.010 247);
+  --muted-foreground:     oklch(0.65 0.010 247);
   --accent:               oklch(0.18 0.065 255);
   --accent-foreground:    oklch(0.97 0.003 247);
   --destructive:          oklch(0.60 0.22 27);
@@ -265,5 +266,24 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* iOS PWA: viewport-fit=cover lets content sit behind the notch; the
+       env(safe-area-inset-*) padding keeps it visible. On non-notch
+       browsers these env() values are 0 so nothing shifts. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Respect the OS-level Reduce Motion preference. tw-animate-css and
+   Radix-driven transitions are heavy enough that the difference is
+   noticeable for users sensitive to vestibular motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
