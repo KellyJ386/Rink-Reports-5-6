@@ -41,7 +41,7 @@ create unique index if not exists employee_invites_active_uniq
 drop trigger if exists trg_employee_invites_touch on public.employee_invites;
 create trigger trg_employee_invites_touch
   before update on public.employee_invites
-  for each row execute function public.touch_updated_at();
+  for each row execute function public.set_updated_at();
 
 alter table public.employee_invites enable row level security;
 

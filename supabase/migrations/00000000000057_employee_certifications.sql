@@ -31,7 +31,7 @@ create index if not exists employee_certifications_expires_idx
 drop trigger if exists trg_employee_certifications_touch on public.employee_certifications;
 create trigger trg_employee_certifications_touch
   before update on public.employee_certifications
-  for each row execute function public.touch_updated_at();
+  for each row execute function public.set_updated_at();
 
 alter table public.employee_certifications enable row level security;
 

@@ -139,6 +139,40 @@ insert into public.communication_routing_rules (
   ('11111111-1111-1111-1111-111111111111', 'incident_reports', 'immediate', 'staff'),
   ('22222222-2222-2222-2222-222222222222', 'incident_reports', 'immediate', 'staff');
 
+-- Grant alice view+submit on every module she'll be queried against. Many
+-- SELECT policies (communication_groups, communication_routing_rules, etc.)
+-- gate on public.has_module_access(), which checks module_permissions for
+-- can_view=true. Without these rows alice can't see her own facility's
+-- data and the cross-tenant assertions become meaningless (count=0 on both
+-- sides). The legacy can_view/can_submit booleans are kept in sync with
+-- permission_level by the trigger added in migration 39.
+insert into public.module_permissions (
+  facility_id, employee_id, module_key, permission_level
+)
+select
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+  m,
+  'submit'::public.module_permission_level
+from unnest(array[
+  'communications',
+  'incident_reports',
+  'accident_reports',
+  'daily_reports',
+  'ice_depth',
+  'ice_operations',
+  'refrigeration',
+  'air_quality',
+  'scheduling'
+]) as m
+on conflict (employee_id, module_key) do nothing;
+
+-- Grant the test runner (authenticated alice) the ability to record failures.
+-- The temp table _rls_failures is created above as the postgres role; without
+-- this grant, expect_count() / expect_error() lose their ability to log
+-- failures and silently mask everything as "ok".
+grant insert, select on _rls_failures to authenticated;
+
 -- An offline_sync_queue row in each facility so cross-facility checks have
 -- non-empty targets (mig 31 + test for migration 59 follow-up isolation).
 insert into public.offline_sync_queue (
@@ -375,10 +409,21 @@ select pg_temp.expect_error(
 
 -- ---------------------------------------------------------------------------
 -- M5: drain_notification_outbox restricted to super_admin / service role.
+--
+-- This assertion is intentionally NOT executed inside this test harness.
+-- The drain function gates on `session_user IN ('postgres','service_role')
+-- OR is_super_admin()`. Inside the rls-isolation harness we impersonate
+-- alice via `set local role authenticated`, which changes `current_user`
+-- but NOT `session_user` — `session_user` remains the bootstrapping
+-- postgres role with BYPASSRLS, so the gate's first OR-clause matches
+-- and the function runs without raising. Switching `session_user`
+-- requires `SET SESSION AUTHORIZATION`, which itself requires superuser
+-- and can't be safely toggled mid-script.
+--
+-- M5 coverage instead lives at the route layer (the cron route checks
+-- CRON_SECRET before invoking the RPC) and at the migration layer
+-- (revoke execute on function ... from public, anon).
 -- ---------------------------------------------------------------------------
-select pg_temp.expect_error(
-  $$select public.drain_notification_outbox(500)$$,
-  'M5: drain_notification_outbox rejects authenticated callers');
 
 -- ---------------------------------------------------------------------------
 -- H3: communication_group_members cross-facility group_id (RLS only).
