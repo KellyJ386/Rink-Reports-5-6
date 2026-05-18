@@ -71,6 +71,7 @@ function isKnownModuleKey(key: string): key is ModuleKey {
 }
 
 // ── Module tile ──────────────────────────────────────────────────────────
+// ── Module tile ───────────────────────────────────────────────────────────────
 
 function ModuleTile({
   moduleKey,
@@ -148,6 +149,11 @@ function ModuleTile({
             focusable="false"
             dangerouslySetInnerHTML={{ __html: iconPath }}
           />
+              aria-hidden="true"
+              focusable="false"
+              dangerouslySetInnerHTML={{ __html: iconPath }}
+            />
+          </div>
 
           <div
             style={{
