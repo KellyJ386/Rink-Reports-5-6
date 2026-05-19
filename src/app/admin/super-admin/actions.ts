@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { getCurrentUser } from "@/lib/auth"
-import { checkServiceRoleEnv, createAdminClient } from "@/lib/supabase/admin"
+import {
+  checkServiceRoleEnv,
+  createAdminClient,
+  getServiceRoleKeyDebugInfo,
+} from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState, InviteServiceHealth } from "./types"
@@ -121,6 +125,9 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
   await requireSuperAdmin()
 
   const checkedAt = new Date().toISOString()
+  const keyDebug = getServiceRoleKeyDebugInfo(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  )
 
   // Local validation first — catches blank, placeholder, and malformed keys
   // before they hit GoTrue (which would only respond with `no_authorization`
@@ -130,7 +137,7 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
     return {
       ok: false,
       reason: "not_configured",
-      detail: `${envCheck.error.message} Add it to the environment (and redeploy on Vercel) before retrying.`,
+      detail: `${envCheck.error.message} Debug: raw_len=${keyDebug.rawLength}, normalized_len=${keyDebug.normalizedLength}, quoted=${keyDebug.hadWrappingQuotes}, starts_with=${keyDebug.startsWithSbSecret ? "sb_secret_" : keyDebug.startsWithEyJ ? "eyJ" : "other"}, contains_ws=${keyDebug.hasWhitespace}. Add it to the environment (and redeploy on Vercel) before retrying.`,
       checkedAt,
     }
   }
@@ -174,7 +181,7 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
       reason: "unauthorized",
       status: 401,
       detail:
-        "Service-role key invalid (HTTP 401 from GoTrue). The configured SUPABASE_SERVICE_ROLE_KEY was rejected — it's missing, rotated, or padded with whitespace. Copy the current service_role key from the Supabase dashboard (Settings → API) and update the env.",
+        `Service-role key invalid (HTTP 401 from GoTrue). The configured SUPABASE_SERVICE_ROLE_KEY was rejected — it's missing, rotated, or padded with whitespace. Debug: raw_len=${keyDebug.rawLength}, normalized_len=${keyDebug.normalizedLength}, quoted=${keyDebug.hadWrappingQuotes}, starts_with=${keyDebug.startsWithSbSecret ? "sb_secret_" : keyDebug.startsWithEyJ ? "eyJ" : "other"}, contains_ws=${keyDebug.hasWhitespace}. Copy the current service_role key from the Supabase dashboard (Settings → API) and update the env.`,
       checkedAt,
     }
   }
