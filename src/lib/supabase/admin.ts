@@ -29,12 +29,13 @@ export type ServiceRoleEnvCheck =
 //   2. New structured API keys (rolled out 2024+) — prefixed with `sb_secret_`
 //      followed by an opaque random string. See
 //      https://supabase.com/docs/guides/api/api-keys
-const LEGACY_JWT_SHAPE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
-const NEW_SECRET_KEY_SHAPE = /^sb_secret_[A-Za-z0-9_-]{20,}$/
+const LEGACY_JWT_SHAPE =
+  /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+=*$/
+const NEW_SECRET_KEY_SHAPE = /^sb_secret_[^\s]{16,}$/
 
 function looksLikeServiceRoleKey(value: string): boolean {
   if (NEW_SECRET_KEY_SHAPE.test(value)) return true
-  if (LEGACY_JWT_SHAPE.test(value) && value.length >= 100) return true
+  if (LEGACY_JWT_SHAPE.test(value)) return true
   return false
 }
 
