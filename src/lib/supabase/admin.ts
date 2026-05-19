@@ -12,6 +12,8 @@ export type ServiceRoleEnvError = {
     | "missing_key"
     | "placeholder_url"
     | "placeholder_key"
+    | "missing_site_url"
+    | "invalid_site_url"
     | "blank_key"
     | "malformed_key"
   message: string
@@ -21,6 +23,19 @@ export type ServiceRoleEnvCheck =
   | { ok: true; url: string; serviceKey: string }
   | { ok: false; error: ServiceRoleEnvError }
 
+export type SiteUrlCheck =
+  | { ok: true; siteUrl: string }
+  | { ok: false; error: ServiceRoleEnvError }
+
+export type ServiceRoleKeyDebugInfo = {
+  rawLength: number
+  normalizedLength: number
+  hadWrappingQuotes: boolean
+  hasWhitespace: boolean
+  startsWithEyJ: boolean
+  startsWithSbSecret: boolean
+}
+
 // Supabase supports two service-role key formats and supabase-js handles
 // both transparently:
 //   1. Legacy HS256 JWT — three base64url segments joined by dots, header
@@ -29,12 +44,81 @@ export type ServiceRoleEnvCheck =
 //   2. New structured API keys (rolled out 2024+) — prefixed with `sb_secret_`
 //      followed by an opaque random string. See
 //      https://supabase.com/docs/guides/api/api-keys
-const LEGACY_JWT_SHAPE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
-const NEW_SECRET_KEY_SHAPE = /^sb_secret_[A-Za-z0-9_-]{20,}$/
+const LEGACY_JWT_SHAPE =
+  /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+=*$/
+const NEW_SECRET_KEY_SHAPE = /^sb_secret_[^\s]{16,}$/
+
+function normalizeServiceRoleKey(rawValue: string): string {
+  const trimmed = rawValue.trim()
+  // Support quoted env values from .env files / dashboard copy-paste:
+  // SUPABASE_SERVICE_ROLE_KEY="sb_secret_..."
+  // SUPABASE_SERVICE_ROLE_KEY='eyJ...'
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim()
+  }
+  return trimmed
+}
+
+export function getServiceRoleKeyDebugInfo(rawValue: string): ServiceRoleKeyDebugInfo {
+  const trimmed = rawValue.trim()
+  const hadWrappingQuotes =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  const normalized = normalizeServiceRoleKey(rawValue)
+  return {
+    rawLength: rawValue.length,
+    normalizedLength: normalized.length,
+    hadWrappingQuotes,
+    hasWhitespace: /\s/.test(rawValue),
+    startsWithEyJ: normalized.startsWith("eyJ"),
+    startsWithSbSecret: normalized.startsWith("sb_secret_"),
+  }
+}
+
+export function checkSiteUrlEnv(): SiteUrlCheck {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL ?? ""
+  const siteUrl = raw.trim().replace(/\/$/, "")
+  if (!siteUrl) {
+    return {
+      ok: false,
+      error: {
+        kind: "missing_site_url",
+        message:
+          "NEXT_PUBLIC_SITE_URL is not set. Set it to your deployed app URL so invite/reset links do not point to localhost.",
+      },
+    }
+  }
+  try {
+    const parsed = new URL(siteUrl)
+    if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
+      return {
+        ok: false,
+        error: {
+          kind: "invalid_site_url",
+          message:
+            "NEXT_PUBLIC_SITE_URL must be https in non-local environments.",
+        },
+      }
+    }
+    return { ok: true, siteUrl }
+  } catch {
+    return {
+      ok: false,
+      error: {
+        kind: "invalid_site_url",
+        message:
+          "NEXT_PUBLIC_SITE_URL is invalid. Use a full URL like https://app.example.com.",
+      },
+    }
+  }
+}
 
 function looksLikeServiceRoleKey(value: string): boolean {
   if (NEW_SECRET_KEY_SHAPE.test(value)) return true
-  if (LEGACY_JWT_SHAPE.test(value) && value.length >= 100) return true
+  if (LEGACY_JWT_SHAPE.test(value)) return true
   return false
 }
 
@@ -59,7 +143,7 @@ export function checkServiceRoleEnv(): ServiceRoleEnvCheck {
   const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
   const rawKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""
   const url = rawUrl.trim()
-  const serviceKey = rawKey.trim()
+  const serviceKey = normalizeServiceRoleKey(rawKey)
 
   if (!url) {
     return {

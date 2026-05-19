@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { checkSiteUrlEnv } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState, EmployeeFormInput } from "./types"
@@ -583,11 +584,12 @@ export async function inviteEmployee(
     }
 
     // Scenario A: send the invite email and pre-create the profile.
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? ""
+    const site = checkSiteUrlEnv()
+    if (!site.ok) return { ok: false, error: site.error.message }
     const { data: inviteData, error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail(
       emp.email,
       {
-        redirectTo: `${siteUrl}/login`,
+        redirectTo: `${site.siteUrl}/login`,
         data: { full_name: `${emp.first_name} ${emp.last_name}` },
       },
     )
