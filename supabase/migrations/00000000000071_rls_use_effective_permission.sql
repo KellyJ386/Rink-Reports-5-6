@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000043_rls_use_effective_permission.sql
+-- 00000000000071_rls_use_effective_permission.sql
 --
 -- Final piece of the Admin Control Center redesign.
 --
