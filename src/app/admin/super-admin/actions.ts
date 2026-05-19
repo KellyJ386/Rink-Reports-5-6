@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { getCurrentUser } from "@/lib/auth"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { checkServiceRoleEnv, createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
 import type { ActionState, InviteServiceHealth } from "./types"
@@ -121,18 +121,20 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
   await requireSuperAdmin()
 
   const checkedAt = new Date().toISOString()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  if (!url || !serviceKey) {
+  // Local validation first — catches blank, placeholder, and malformed keys
+  // before they hit GoTrue (which would only respond with `no_authorization`
+  // and obscure the real cause).
+  const envCheck = checkServiceRoleEnv()
+  if (!envCheck.ok) {
     return {
       ok: false,
       reason: "not_configured",
-      detail:
-        "SUPABASE_SERVICE_ROLE_KEY is not set on this server. Add it to the environment (and redeploy on Vercel) before retrying.",
+      detail: `${envCheck.error.message} Add it to the environment (and redeploy on Vercel) before retrying.`,
       checkedAt,
     }
   }
+  const { url, serviceKey } = envCheck
 
   // Lightest possible admin call: list one user. Same auth path that
   // inviteUserByEmail uses, so a 200 here proves the Invite flow can authenticate.
