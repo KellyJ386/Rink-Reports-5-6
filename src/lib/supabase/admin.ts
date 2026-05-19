@@ -21,10 +21,23 @@ export type ServiceRoleEnvCheck =
   | { ok: true; url: string; serviceKey: string }
   | { ok: false; error: ServiceRoleEnvError }
 
-// Real Supabase keys are JWTs: three base64url segments joined by dots, header
-// always decodes to `{"alg":"HS256","typ":"JWT"}` so it starts with `eyJ`.
-// Service-role JWTs in practice are 200+ chars.
-const JWT_SHAPE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+// Supabase supports two service-role key formats and supabase-js handles
+// both transparently:
+//   1. Legacy HS256 JWT — three base64url segments joined by dots, header
+//      always decodes to `{"alg":"HS256","typ":"JWT"}` so it starts with `eyJ`.
+//      Real service-role JWTs are 200+ chars.
+//   2. New structured API keys (rolled out 2024+) — prefixed with `sb_secret_`
+//      followed by an opaque random string. See
+//      https://supabase.com/docs/guides/api/api-keys
+const LEGACY_JWT_SHAPE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+const NEW_SECRET_KEY_SHAPE = /^sb_secret_[A-Za-z0-9_-]{20,}$/
+
+function looksLikeServiceRoleKey(value: string): boolean {
+  if (NEW_SECRET_KEY_SHAPE.test(value)) return true
+  if (LEGACY_JWT_SHAPE.test(value) && value.length >= 100) return true
+  return false
+}
+
 const PLACEHOLDER_KEY_HINTS = [
   "your-service-role-key",
   "your-service-role",
@@ -94,13 +107,13 @@ export function checkServiceRoleEnv(): ServiceRoleEnvCheck {
       },
     }
   }
-  if (!JWT_SHAPE.test(serviceKey) || serviceKey.length < 100) {
+  if (!looksLikeServiceRoleKey(serviceKey)) {
     return {
       ok: false,
       error: {
         kind: "malformed_key",
         message:
-          "SUPABASE_SERVICE_ROLE_KEY does not look like a JWT (expected three dot-separated base64 segments starting with `eyJ`). Re-copy the service_role key from the Supabase dashboard.",
+          "SUPABASE_SERVICE_ROLE_KEY doesn't match either supported format: a legacy JWT (`eyJ…` with three dot-separated base64 segments) or a new-format secret key (`sb_secret_…`). Re-copy the service_role key from the Supabase dashboard (Settings → API) — make sure you grabbed the `service_role` secret, not the `anon` / `publishable` key.",
       },
     }
   }
