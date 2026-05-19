@@ -17,7 +17,7 @@ import { hideDashboardModule, showDashboardModule } from "./actions"
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Dashboard | Rink Reports" }
 
-// ── Module registry ────────────────────────────────────────────────────────
+// ── Module registry ───────────────────────────────────────────────────────────
 
 type ModuleKey =
   | "daily_reports"
@@ -45,11 +45,11 @@ const MODULE_COLORS: Record<ModuleKey, string> = {
 const MODULE_ICONS: Record<ModuleKey, string> = {
   daily_reports:    '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect width="6" height="4" x="9" y="3" rx="1" ry="1"/><path d="M9 12h6"/><path d="M9 16h4"/>',
   incident_reports: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><circle cx="12" cy="17" r="1"/>',
-  accident_reports: '<path d="M10 10H6"/><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.28a1 1 0 0 0-.684-.948l-1.923-.641a1 1 0 0 1-.578-1.265l.446-1.338a1 1 0 0 0-.446-1.265l-1.554-.518a1 1 0 0 1-.618-.618"/>',
+  accident_reports: '<path d="M10 10H6"/><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.28a1 1 0 0 0-.684-.948l-1.923-.641a1 1 0 0 1-.578-.502l-1.539-3.076A1 1 0 0 0 16.382 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
   refrigeration:    '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0z"/>',
   air_quality:      '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/>',
   ice_operations:   '<line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/>',
-  ice_depth:        '<path d="M21.3 8.7L15.3 2.7a1 1 0 0 0-1.4 0L2.7 13.9a1 1 0 0 0 0 1.4l6 6a1 1 0 0 0 1.4 0L21.3 10.1a1 1 0 0 0 0-1.4z"/><path d="m8 18-2-2"/><path d="m12 14-2-2"/><path d="m16 10-2-2"/>',
+  ice_depth:        '<path d="M21.3 8.7L15.3 2.7a1 1 0 0 0-1.4 0L2.7 13.9a1 1 0 0 0 0 1.4l6 6a1 1 0 0 0 1.4 0L21.3 10.1a1 1 0 0 0 0-1.4z"/><path d="m8 18-2-2"/><path d="m12 14-2-2"/><path d="m16 10-2-2"/><path d="m10 16-2-2"/><path d="m14 12-2-2"/>',
   communications:   '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   scheduling:       '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>',
 }
@@ -70,7 +70,6 @@ function isKnownModuleKey(key: string): key is ModuleKey {
   return Object.prototype.hasOwnProperty.call(KNOWN_MODULES, key)
 }
 
-// ── Module tile ──────────────────────────────────────────────────────────
 // ── Module tile ───────────────────────────────────────────────────────────────
 
 function ModuleTile({
@@ -133,22 +132,6 @@ function ModuleTile({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              dangerouslySetInnerHTML={{ __html: iconPath }}
-            />
-          </div>
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            focusable="false"
-            dangerouslySetInnerHTML={{ __html: iconPath }}
-          />
               aria-hidden="true"
               focusable="false"
               dangerouslySetInnerHTML={{ __html: iconPath }}
@@ -223,7 +206,7 @@ function ModuleTile({
   )
 }
 
-// ── Page ────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
   const current = await requireUser()
