@@ -532,18 +532,17 @@ export async function inviteEmployee(
   try {
     await requireAdmin()
 
-    // Single source of truth for the service-role client. Throws if
-    // SUPABASE_SERVICE_ROLE_KEY isn't configured — caught below and surfaced
-    // as a friendly message rather than the raw GoTrue "valid Bearer token"
-    // error the admin would otherwise see.
+    // Single source of truth for the service-role client. Throws with a
+    // specific reason if the env is missing/placeholder/malformed — surfaced
+    // to the admin so they can fix it without diving into logs.
     let adminClient: ReturnType<typeof createAdminClient>
     try {
       adminClient = createAdminClient()
-    } catch {
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "unknown configuration error"
       return {
         ok: false,
-        error:
-          "Email invitations aren't available right now — the service-role key isn't configured. Contact your administrator.",
+        error: `Email invitations aren't available: ${detail}`,
       }
     }
 

@@ -45,10 +45,8 @@ export async function inviteEmployeeByEmail(params: {
   try {
     admin = createAdminClient()
   } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Service role not configured.",
-    }
+    const detail = e instanceof Error ? e.message : "unknown configuration error"
+    return { ok: false, error: `Email invitations aren't available: ${detail}` }
   }
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? ""
