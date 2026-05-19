@@ -1,4 +1,4 @@
--- 00000000000054_simplify_permission_resolution.sql
+-- 00000000000073_simplify_permission_resolution.sql
 --
 -- Drops the department and facility permission default tiers introduced in
 -- migration 43. Production audit at migration time showed 0 rows in either

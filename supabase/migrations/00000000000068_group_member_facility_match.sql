@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000051_group_member_facility_match.sql
+-- 00000000000068_group_member_facility_match.sql
 --
 -- Second-pass security review found that communication_group_members' RLS
 -- policy gates only on the row's own facility_id, not on the facility of the

@@ -1,4 +1,4 @@
--- 00000000000053_drop_custom_employee_fields.sql
+-- 00000000000072_drop_custom_employee_fields.sql
 --
 -- Removes the unused Custom Employee Fields feature. Production audit at
 -- migration time showed 0 rows in both tables across all facilities, and
