@@ -21,6 +21,15 @@ export type ServiceRoleEnvCheck =
   | { ok: true; url: string; serviceKey: string }
   | { ok: false; error: ServiceRoleEnvError }
 
+export type ServiceRoleKeyDebugInfo = {
+  rawLength: number
+  normalizedLength: number
+  hadWrappingQuotes: boolean
+  hasWhitespace: boolean
+  startsWithEyJ: boolean
+  startsWithSbSecret: boolean
+}
+
 // Supabase supports two service-role key formats and supabase-js handles
 // both transparently:
 //   1. Legacy HS256 JWT — three base64url segments joined by dots, header
@@ -32,6 +41,36 @@ export type ServiceRoleEnvCheck =
 const LEGACY_JWT_SHAPE =
   /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+=*$/
 const NEW_SECRET_KEY_SHAPE = /^sb_secret_[^\s]{16,}$/
+
+function normalizeServiceRoleKey(rawValue: string): string {
+  const trimmed = rawValue.trim()
+  // Support quoted env values from .env files / dashboard copy-paste:
+  // SUPABASE_SERVICE_ROLE_KEY="sb_secret_..."
+  // SUPABASE_SERVICE_ROLE_KEY='eyJ...'
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim()
+  }
+  return trimmed
+}
+
+export function getServiceRoleKeyDebugInfo(rawValue: string): ServiceRoleKeyDebugInfo {
+  const trimmed = rawValue.trim()
+  const hadWrappingQuotes =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  const normalized = normalizeServiceRoleKey(rawValue)
+  return {
+    rawLength: rawValue.length,
+    normalizedLength: normalized.length,
+    hadWrappingQuotes,
+    hasWhitespace: /\s/.test(rawValue),
+    startsWithEyJ: normalized.startsWith("eyJ"),
+    startsWithSbSecret: normalized.startsWith("sb_secret_"),
+  }
+}
 
 function looksLikeServiceRoleKey(value: string): boolean {
   if (NEW_SECRET_KEY_SHAPE.test(value)) return true
@@ -60,7 +99,7 @@ export function checkServiceRoleEnv(): ServiceRoleEnvCheck {
   const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
   const rawKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""
   const url = rawUrl.trim()
-  const serviceKey = rawKey.trim()
+  const serviceKey = normalizeServiceRoleKey(rawKey)
 
   if (!url) {
     return {
