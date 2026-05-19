@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000052_create_facility_with_roles.sql
+-- 00000000000069_create_facility_with_roles.sql
 --
 -- Atomic helper called by the admin facility-creation UI (super_admin only).
 -- Creates the facility row and seeds the six canonical system roles in a
