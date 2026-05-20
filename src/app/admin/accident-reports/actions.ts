@@ -294,6 +294,7 @@ const SEED_BODY_PARTS: ReadonlyArray<SeedRow> = [
   { category: "body_part", key: "hands", display_name: "Hands", sort_order: 10 },
   { category: "body_part", key: "fingers", display_name: "Fingers", sort_order: 11 },
   { category: "body_part", key: "head_neck", display_name: "Head/Neck", sort_order: 12 },
+  { category: "body_part", key: "wrists", display_name: "Wrists", sort_order: 17 },
 ]
 
 const SEED_SEVERITY: ReadonlyArray<SeedRow> = [
