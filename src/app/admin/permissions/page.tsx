@@ -51,6 +51,12 @@ type ModulePermissionRow = {
   permission_level: PermissionLevel
 }
 
+type RoleDefaultRow = {
+  role_id: string
+  module_key: string
+  permission_level: PermissionLevel
+}
+
 export const dynamic = "force-dynamic"
 
 export const metadata = { title: "Permissions | MFO / Rink Reports" }
@@ -92,35 +98,59 @@ export default async function PermissionsPage() {
   const roleIds = Array.from(new Set(employees.map((e) => e.role_id)))
   const employeeIds = employees.map((e) => e.id)
 
-  const [{ data: rolesRaw }, { data: edRaw }, { data: permsRaw }] =
-    await Promise.all([
-      supabase
-        .from("roles")
-        .select("id, key, display_name")
-        .in("id", roleIds.length ? roleIds : ["00000000-0000-0000-0000-000000000000"]),
-      supabase
-        .from("employee_departments")
-        .select("employee_id, department_id")
-        .in(
-          "employee_id",
-          employeeIds.length
-            ? employeeIds
-            : ["00000000-0000-0000-0000-000000000000"],
-        ),
-      supabase
-        .from("module_permissions")
-        .select("employee_id, module_key, permission_level")
-        .in(
-          "employee_id",
-          employeeIds.length
-            ? employeeIds
-            : ["00000000-0000-0000-0000-000000000000"],
-        ),
-    ])
+  const [
+    { data: rolesRaw },
+    { data: edRaw },
+    { data: permsRaw },
+    { data: roleDefaultsRaw },
+  ] = await Promise.all([
+    supabase
+      .from("roles")
+      .select("id, key, display_name")
+      .in("id", roleIds.length ? roleIds : ["00000000-0000-0000-0000-000000000000"]),
+    supabase
+      .from("employee_departments")
+      .select("employee_id, department_id")
+      .in(
+        "employee_id",
+        employeeIds.length
+          ? employeeIds
+          : ["00000000-0000-0000-0000-000000000000"],
+      ),
+    supabase
+      .from("module_permissions")
+      .select("employee_id, module_key, permission_level")
+      .in(
+        "employee_id",
+        employeeIds.length
+          ? employeeIds
+          : ["00000000-0000-0000-0000-000000000000"],
+      ),
+    supabase
+      .from("role_module_permission_defaults")
+      .select("role_id, module_key, permission_level")
+      .in(
+        "role_id",
+        roleIds.length ? roleIds : ["00000000-0000-0000-0000-000000000000"],
+      ),
+  ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
   const employeeDepartments = (edRaw ?? []) as EmployeeDepartmentRow[]
   const perms = (permsRaw ?? []) as ModulePermissionRow[]
+  const roleDefaults = (roleDefaultsRaw ?? []) as RoleDefaultRow[]
+
+  const roleDefaultsByRole = new Map<
+    string,
+    Partial<Record<ModuleKey, PermissionLevel>>
+  >()
+  for (const r of roleDefaults) {
+    if (!(MODULE_KEYS as readonly string[]).includes(r.module_key)) continue
+    const key = r.module_key as ModuleKey
+    const bag = roleDefaultsByRole.get(r.role_id) ?? {}
+    bag[key] = r.permission_level
+    roleDefaultsByRole.set(r.role_id, bag)
+  }
 
   const departmentIds = Array.from(
     new Set(employeeDepartments.map((r) => r.department_id)),
@@ -167,12 +197,15 @@ export default async function PermissionsPage() {
     permissionMap[p.employee_id] = existing
   }
 
-  // Ensure every employee has at least an empty bag so the client doesn't
-  // have to handle undefined, and every module has a defaulted level.
-  for (const e of employeeList) {
+  // Auto-populate from the employee's role: if there is no per-employee
+  // override for a module, fall back to the role's default (or "none").
+  for (const e of employees) {
     if (!permissionMap[e.id]) permissionMap[e.id] = {}
+    const roleBag = roleDefaultsByRole.get(e.role_id) ?? {}
     for (const k of MODULE_KEYS) {
-      if (!permissionMap[e.id]![k]) permissionMap[e.id]![k] = "none"
+      if (!permissionMap[e.id]![k]) {
+        permissionMap[e.id]![k] = roleBag[k] ?? "none"
+      }
     }
   }
 
@@ -194,8 +227,16 @@ function Header() {
         Module Access Control
       </h1>
       <p className="text-muted-foreground text-sm">
-        Pick a permission level per employee per module. Levels are
-        cumulative: each higher level includes everything below it.
+        Levels are auto-populated from each employee&apos;s role. Change a
+        cell to override that role&apos;s default for one employee. Levels
+        are cumulative: each higher level includes everything below it.{" "}
+        <Link
+          href="/admin/roles"
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          Edit role defaults
+        </Link>
+        .
       </p>
     </div>
   )
