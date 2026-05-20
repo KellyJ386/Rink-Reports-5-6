@@ -12,6 +12,8 @@ export type ServiceRoleEnvError = {
     | "missing_key"
     | "placeholder_url"
     | "placeholder_key"
+    | "missing_site_url"
+    | "invalid_site_url"
     | "blank_key"
     | "malformed_key"
   message: string
@@ -19,6 +21,10 @@ export type ServiceRoleEnvError = {
 
 export type ServiceRoleEnvCheck =
   | { ok: true; url: string; serviceKey: string }
+  | { ok: false; error: ServiceRoleEnvError }
+
+export type SiteUrlCheck =
+  | { ok: true; siteUrl: string }
   | { ok: false; error: ServiceRoleEnvError }
 
 export type ServiceRoleKeyDebugInfo = {
@@ -69,6 +75,44 @@ export function getServiceRoleKeyDebugInfo(rawValue: string): ServiceRoleKeyDebu
     hasWhitespace: /\s/.test(rawValue),
     startsWithEyJ: normalized.startsWith("eyJ"),
     startsWithSbSecret: normalized.startsWith("sb_secret_"),
+  }
+}
+
+export function checkSiteUrlEnv(): SiteUrlCheck {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL ?? ""
+  const siteUrl = raw.trim().replace(/\/$/, "")
+  if (!siteUrl) {
+    return {
+      ok: false,
+      error: {
+        kind: "missing_site_url",
+        message:
+          "NEXT_PUBLIC_SITE_URL is not set. Set it to your deployed app URL so invite/reset links do not point to localhost.",
+      },
+    }
+  }
+  try {
+    const parsed = new URL(siteUrl)
+    if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
+      return {
+        ok: false,
+        error: {
+          kind: "invalid_site_url",
+          message:
+            "NEXT_PUBLIC_SITE_URL must be https in non-local environments.",
+        },
+      }
+    }
+    return { ok: true, siteUrl }
+  } catch {
+    return {
+      ok: false,
+      error: {
+        kind: "invalid_site_url",
+        message:
+          "NEXT_PUBLIC_SITE_URL is invalid. Use a full URL like https://app.example.com.",
+      },
+    }
   }
 }
 

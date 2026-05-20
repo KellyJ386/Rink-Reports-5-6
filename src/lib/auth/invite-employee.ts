@@ -1,6 +1,6 @@
 import "server-only"
 
-import { createAdminClient } from "@/lib/supabase/admin"
+import { checkSiteUrlEnv, createAdminClient } from "@/lib/supabase/admin"
 
 export type InviteEmployeeResult =
   | { ok: true; userId: string; alreadyExisted: boolean }
@@ -49,8 +49,11 @@ export async function inviteEmployeeByEmail(params: {
     return { ok: false, error: `Email invitations aren't available: ${detail}` }
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? ""
-  const redirectTo = `${siteUrl}/update-password`
+  const site = checkSiteUrlEnv()
+  if (!site.ok) {
+    return { ok: false, error: `Email invitations aren't available: ${site.error.message}` }
+  }
+  const redirectTo = `${site.siteUrl}/update-password`
 
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo,

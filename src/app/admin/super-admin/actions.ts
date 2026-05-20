@@ -6,6 +6,7 @@ import { redirect } from "next/navigation"
 import { getCurrentUser } from "@/lib/auth"
 import {
   checkServiceRoleEnv,
+  checkSiteUrlEnv,
   createAdminClient,
   getServiceRoleKeyDebugInfo,
 } from "@/lib/supabase/admin"
@@ -94,11 +95,12 @@ export async function sendPasswordReset(
     }
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? ""
+  const site = checkSiteUrlEnv()
+  if (!site.ok) return { ok: false, error: site.error.message }
   const { data, error } = await admin.auth.admin.generateLink({
     type: "recovery",
     email: email.trim(),
-    options: { redirectTo: `${siteUrl}/update-password` },
+    options: { redirectTo: `${site.siteUrl}/update-password` },
   })
 
   if (error) {
