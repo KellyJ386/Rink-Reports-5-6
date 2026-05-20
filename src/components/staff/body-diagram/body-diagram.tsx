@@ -186,17 +186,18 @@ const REGIONS: RegionDef[] = [
   },
   {
     key: "arms",
-    // Upper arm + forearm on both sides. Elbow occupies the band between.
+    // Upper arm + forearm on both sides. Elbow occupies the band between
+    // upper arm and forearm; wrist occupies the band between forearm and hand.
     front:
       "M52,162 L88,162 L86,236 L54,236 Z " +
-      "M52,266 L82,266 L78,338 L54,338 Z " +
+      "M52,266 L82,266 L80,326 L54,326 Z " +
       "M152,162 L188,162 L186,236 L154,236 Z " +
-      "M158,266 L188,266 L186,338 L162,338 Z",
+      "M158,266 L188,266 L186,326 L160,326 Z",
     back:
       "M52,162 L88,162 L86,236 L54,236 Z " +
-      "M52,266 L82,266 L78,338 L54,338 Z " +
+      "M52,266 L82,266 L80,326 L54,326 Z " +
       "M152,162 L188,162 L186,236 L154,236 Z " +
-      "M158,266 L188,266 L186,338 L162,338 Z",
+      "M158,266 L188,266 L186,326 L160,326 Z",
   },
   {
     key: "elbows",
@@ -206,6 +207,16 @@ const REGIONS: RegionDef[] = [
     back:
       "M52,236 L86,236 L82,266 L54,266 Z " +
       "M154,236 L188,236 L186,266 L158,266 Z",
+  },
+  {
+    key: "wrists",
+    // Thin band between forearm (ends at y=326) and hand (starts at y=338).
+    front:
+      "M54,326 L80,326 L78,338 L52,338 Z " +
+      "M160,326 L186,326 L188,338 L162,338 Z",
+    back:
+      "M54,326 L80,326 L78,338 L52,338 Z " +
+      "M160,326 L186,326 L188,338 L162,338 Z",
   },
   {
     key: "hands",
