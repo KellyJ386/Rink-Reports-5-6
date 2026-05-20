@@ -40,14 +40,18 @@ export function operationLabel(v: string): string {
 }
 
 // 4 fixed equipment types.
-export type EquipmentType = "zamboni" | "edger" | "blade_set" | "other"
+export type EquipmentType =
+  | "ice_resurfacer"
+  | "hand_edger"
+  | "edger"
+  | "other"
 export const EQUIPMENT_TYPES: ReadonlyArray<{
   key: EquipmentType
   label: string
 }> = [
-  { key: "zamboni", label: "Zamboni" },
+  { key: "ice_resurfacer", label: "Ice Resurfacer" },
+  { key: "hand_edger", label: "Hand Edger" },
   { key: "edger", label: "Edger" },
-  { key: "blade_set", label: "Blade Set" },
   { key: "other", label: "Other" },
 ]
 export function isEquipmentType(v: string): v is EquipmentType {
