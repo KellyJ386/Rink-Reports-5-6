@@ -136,7 +136,7 @@ export default async function AdminDashboardPage({
         .select("id, roles!inner(key)")
         .eq("facility_id", facilityIdStr)
         .eq("is_active", true)
-        .eq("roles.key", "staff"),
+        .not("roles.key", "in", "(super_admin,admin)"),
       supabase
         .from("employees")
         .select("id, user_id, email")
