@@ -41,6 +41,270 @@ const SEV_LABEL: Record<SeverityKey, string> = {
   high: "Above target",
 }
 
+type Diagnostic = {
+  stage: string
+  code?: string | null
+  message: string
+  hint?: string | null
+  details?: string | null
+  extra?: Record<string, unknown>
+}
+
+function DiagnosticPanel({ items }: { items: Diagnostic[] }) {
+  return (
+    <div
+      style={{
+        margin: 24,
+        padding: 20,
+        borderRadius: 12,
+        background: "#1a0606",
+        border: "2px solid #F42A2A",
+        color: "#fff",
+        fontFamily: "var(--font-geist-mono), monospace",
+        fontSize: 12,
+        lineHeight: 1.5,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 700,
+          marginBottom: 12,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
+        Diagnostic — ice-depth done page
+      </div>
+      {items.map((d, i) => (
+        <div
+          key={i}
+          style={{
+            marginBottom: 14,
+            paddingBottom: 14,
+            borderBottom:
+              i < items.length - 1 ? "1px dashed rgba(255,255,255,0.2)" : "none",
+          }}
+        >
+          <div style={{ fontWeight: 700, color: "#F42A2A" }}>
+            STAGE: {d.stage}
+          </div>
+          {d.code != null && d.code !== "" && (
+            <div>CODE: {String(d.code)}</div>
+          )}
+          <div>MESSAGE: {d.message}</div>
+          {d.hint != null && d.hint !== "" && <div>HINT: {String(d.hint)}</div>}
+          {d.details != null && d.details !== "" && (
+            <div>DETAILS: {String(d.details)}</div>
+          )}
+          {d.extra && (
+            <div>
+              EXTRA:{" "}
+              {JSON.stringify(d.extra, (_k, v) => {
+                if (v instanceof Error) {
+                  return { name: v.name, message: v.message, stack: v.stack }
+                }
+                return v
+              }, 2)}
+            </div>
+          )}
+        </div>
+      ))}
+      <Link
+        href="/reports/ice-depth"
+        style={{
+          display: "inline-block",
+          marginTop: 8,
+          padding: "8px 14px",
+          borderRadius: 6,
+          background: "#fff",
+          color: "#111",
+          textDecoration: "none",
+          fontWeight: 700,
+        }}
+      >
+        ← Back
+      </Link>
+    </div>
+  )
+}
+
+type LoadResult =
+  | { kind: "ok"; data: DonePageBodyProps }
+  | { kind: "fail"; diagnostics: Diagnostic[] }
+
+async function loadDonePageData(
+  layoutSlug: string,
+  idParam: string,
+): Promise<LoadResult> {
+  const diagnostics: Diagnostic[] = []
+  try {
+    const supabase = await createClient()
+
+    const sessionRes = await supabase
+      .from("ice_depth_sessions")
+      .select(
+        "id, submitted_at, notes, facility_id, layout_id, total_measurements, low_count, high_count, has_low_reading, has_high_reading, measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot"
+      )
+      .eq("id", idParam)
+      .maybeSingle()
+
+    if (sessionRes.error) {
+      diagnostics.push({
+        stage: "select ice_depth_sessions",
+        code: sessionRes.error.code,
+        message: sessionRes.error.message,
+        hint: sessionRes.error.hint ?? null,
+        details: sessionRes.error.details ?? null,
+        extra: { idParam },
+      })
+      return { kind: "fail", diagnostics }
+    }
+    const session = sessionRes.data
+    if (!session) {
+      diagnostics.push({
+        stage: "session lookup",
+        message: "No ice_depth_sessions row found for the supplied id.",
+        extra: { idParam },
+      })
+      return { kind: "fail", diagnostics }
+    }
+
+    const layoutRes = await supabase
+      .from("ice_depth_layouts")
+      .select("id, name, slug, diagram_aspect_ratio, logo_url")
+      .eq("id", session.layout_id)
+      .maybeSingle()
+
+    if (layoutRes.error) {
+      diagnostics.push({
+        stage: "select ice_depth_layouts",
+        code: layoutRes.error.code,
+        message: layoutRes.error.message,
+        hint: layoutRes.error.hint ?? null,
+        details: layoutRes.error.details ?? null,
+        extra: { layout_id: session.layout_id },
+      })
+      return { kind: "fail", diagnostics }
+    }
+    const layout = layoutRes.data
+    if (!layout) {
+      diagnostics.push({
+        stage: "layout lookup",
+        message: "No ice_depth_layouts row matched session.layout_id.",
+        extra: { layout_id: session.layout_id },
+      })
+      return { kind: "fail", diagnostics }
+    }
+    if (layout.slug !== layoutSlug) {
+      diagnostics.push({
+        stage: "layout slug check",
+        message: `URL slug "${layoutSlug}" does not match session's layout slug "${layout.slug}".`,
+        extra: { layoutSlug, sessionLayoutSlug: layout.slug },
+      })
+      return { kind: "fail", diagnostics }
+    }
+
+    const [measurementsResult, facilityResult] = await Promise.all([
+      supabase
+        .from("ice_depth_measurements")
+        .select(
+          "id, depth_value, severity, point_number_snapshot, label_snapshot, x_snapshot, y_snapshot"
+        )
+        .eq("session_id", session.id)
+        .order("point_number_snapshot", { ascending: true }),
+      supabase
+        .from("facilities")
+        .select("timezone")
+        .eq("id", session.facility_id)
+        .maybeSingle(),
+    ])
+
+    if (measurementsResult.error) {
+      diagnostics.push({
+        stage: "select ice_depth_measurements",
+        code: measurementsResult.error.code,
+        message: measurementsResult.error.message,
+        hint: measurementsResult.error.hint ?? null,
+        details: measurementsResult.error.details ?? null,
+        extra: { session_id: session.id },
+      })
+    }
+    if (facilityResult.error) {
+      diagnostics.push({
+        stage: "select facilities",
+        code: facilityResult.error.code,
+        message: facilityResult.error.message,
+        hint: facilityResult.error.hint ?? null,
+        details: facilityResult.error.details ?? null,
+        extra: { facility_id: session.facility_id },
+      })
+    }
+    if (diagnostics.length > 0) return { kind: "fail", diagnostics }
+
+    const measurements = measurementsResult.data ?? []
+    const tz = facilityResult.data?.timezone ?? null
+    const unit = session.measurement_unit_snapshot
+
+    const rinkPoints: RinkPointSpec[] = measurements.map((m) => {
+      const { cx, cy } = rinkCoords(m.x_snapshot ?? 0, m.y_snapshot ?? 0)
+      const sev = (m.severity as SeverityKey) ?? "ok"
+      return {
+        id: m.id,
+        pointNumber: m.point_number_snapshot ?? 0,
+        cx,
+        cy,
+        state: "done",
+        doneColor: DONE_COLORS[sev],
+        depthValue: m.depth_value,
+      }
+    })
+
+    const totalOk = measurements.filter((m) => m.severity === "ok").length
+    const totalLow = session.low_count ?? 0
+    const totalHigh = session.high_count ?? 0
+
+    return {
+      kind: "ok",
+      data: {
+        layout,
+        session,
+        measurements,
+        tz,
+        unit,
+        rinkPoints,
+        totalOk,
+        totalLow,
+        totalHigh,
+      },
+    }
+  } catch (e) {
+    if (
+      e &&
+      typeof e === "object" &&
+      "digest" in e &&
+      typeof (e as { digest?: unknown }).digest === "string" &&
+      (e as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+    ) {
+      throw e
+    }
+    const err = e instanceof Error ? e : new Error(String(e))
+    return {
+      kind: "fail",
+      diagnostics: [
+        {
+          stage: "data prep",
+          message: err.message,
+          details: err.stack ?? null,
+          extra: { name: err.name },
+        },
+      ],
+    }
+  }
+}
+
 export default async function IceDepthDonePage({
   params,
   searchParams,
@@ -56,66 +320,58 @@ export default async function IceDepthDonePage({
     redirect("/reports/ice-depth")
   }
 
-  const supabase = await createClient()
-
-  const { data: session } = await supabase
-    .from("ice_depth_sessions")
-    .select(
-      "id, submitted_at, notes, facility_id, layout_id, total_measurements, low_count, high_count, has_low_reading, has_high_reading, measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot"
-    )
-    .eq("id", idParam)
-    .maybeSingle()
-
-  if (!session) {
-    redirect("/reports/ice-depth")
+  const result = await loadDonePageData(layoutSlug, idParam)
+  if (result.kind === "fail") {
+    return <DiagnosticPanel items={result.diagnostics} />
   }
+  return <DonePageBody {...result.data} />
+}
 
-  const { data: layout } = await supabase
-    .from("ice_depth_layouts")
-    .select("id, name, slug, diagram_aspect_ratio, logo_url")
-    .eq("id", session.layout_id)
-    .maybeSingle()
-
-  if (!layout || layout.slug !== layoutSlug) {
-    redirect("/reports/ice-depth")
+type DonePageBodyProps = {
+  layout: { id: string; name: string; slug: string; diagram_aspect_ratio: number; logo_url: string | null }
+  session: {
+    id: string
+    submitted_at: string
+    notes: string | null
+    facility_id: string
+    layout_id: string
+    total_measurements: number | null
+    low_count: number | null
+    high_count: number | null
+    has_low_reading: boolean | null
+    has_high_reading: boolean | null
+    measurement_unit_snapshot: string | null
+    low_threshold_snapshot: number | null
+    high_threshold_snapshot: number | null
   }
+  measurements: Array<{
+    id: string
+    depth_value: number | null
+    severity: string | null
+    point_number_snapshot: number | null
+    label_snapshot: string | null
+    x_snapshot: number | null
+    y_snapshot: number | null
+  }>
+  tz: string | null
+  unit: string | null
+  rinkPoints: RinkPointSpec[]
+  totalOk: number
+  totalLow: number
+  totalHigh: number
+}
 
-  const [{ data: measurementsRaw }, { data: facility }] = await Promise.all([
-    supabase
-      .from("ice_depth_measurements")
-      .select(
-        "id, depth_value, severity, point_number_snapshot, label_snapshot, x_snapshot, y_snapshot"
-      )
-      .eq("session_id", session.id)
-      .order("point_number_snapshot", { ascending: true }),
-    supabase
-      .from("facilities")
-      .select("timezone")
-      .eq("id", session.facility_id)
-      .maybeSingle(),
-  ])
-
-  const measurements = measurementsRaw ?? []
-  const tz = facility?.timezone ?? null
-  const unit = session.measurement_unit_snapshot
-
-  const rinkPoints: RinkPointSpec[] = measurements.map((m) => {
-    const { cx, cy } = rinkCoords(m.x_snapshot, m.y_snapshot)
-    const sev = (m.severity as SeverityKey) ?? "ok"
-    return {
-      id: m.id,
-      pointNumber: m.point_number_snapshot,
-      cx,
-      cy,
-      state: "done",
-      doneColor: DONE_COLORS[sev],
-      depthValue: m.depth_value,
-    }
-  })
-
-  const totalOk = measurements.filter((m) => m.severity === "ok").length
-  const totalLow = session.low_count ?? 0
-  const totalHigh = session.high_count ?? 0
+function DonePageBody({
+  layout,
+  session,
+  measurements,
+  tz,
+  unit,
+  rinkPoints,
+  totalOk,
+  totalLow,
+  totalHigh,
+}: DonePageBodyProps) {
 
   return (
     <div
@@ -233,7 +489,7 @@ export default async function IceDepthDonePage({
           <StatPill
             color="var(--muted-foreground)"
             label="Total"
-            value={session.total_measurements}
+            value={session.total_measurements ?? 0}
             active={false}
           />
         </div>
