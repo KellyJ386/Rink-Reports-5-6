@@ -15,6 +15,11 @@ import {
   resolveMetaHeader,
   type PdfMetaHeaderData,
 } from "../_components/meta-header"
+import {
+  PdfRinkDiagram,
+  rinkCoords,
+  type DiagramPoint,
+} from "../_components/rink-diagram"
 import type { ModulePdfResult } from "../registry"
 
 // -----------------------------------------------------------------------------
@@ -26,6 +31,8 @@ type Measurement = {
   label: string | null
   depth_value: number
   severity: "low" | "ok" | "high"
+  x: number
+  y: number
 }
 
 type IceDepthRecord = {
@@ -40,6 +47,7 @@ type IceDepthRecord = {
   high_count: number
   total: number
   layout_name: string | null
+  logo_url: string | null
   submitter: { first_name: string; last_name: string } | null
   measurements: Measurement[]
 }
@@ -64,14 +72,18 @@ async function fetchIceDepthRecord(
   // layouts / employees can't leak through even if the parent row were ever
   // malformed.
   let layout_name: string | null = null
+  let logo_url: string | null = null
   if (row.layout_id) {
     const { data } = await sb
       .from("ice_depth_layouts")
-      .select("name")
+      .select("name, logo_url")
       .eq("id", row.layout_id)
       .eq("facility_id", row.facility_id)
       .maybeSingle()
-    if (data) layout_name = data.name
+    if (data) {
+      layout_name = data.name
+      logo_url = data.logo_url
+    }
   }
 
   let submitter: IceDepthRecord["submitter"] = null
@@ -88,7 +100,7 @@ async function fetchIceDepthRecord(
   const { data: mRowsRaw } = await sb
     .from("ice_depth_measurements")
     .select(
-      "point_number_snapshot, label_snapshot, depth_value, severity",
+      "point_number_snapshot, label_snapshot, depth_value, severity, x_snapshot, y_snapshot",
     )
     .eq("session_id", recordId)
     .order("point_number_snapshot", { ascending: true })
@@ -99,6 +111,8 @@ async function fetchIceDepthRecord(
       label_snapshot: string | null
       depth_value: number | string
       severity: Measurement["severity"]
+      x_snapshot: number | string
+      y_snapshot: number | string
     }>
   ).map((m) => ({
     point_number: m.point_number_snapshot,
@@ -108,6 +122,14 @@ async function fetchIceDepthRecord(
         ? Number(m.depth_value)
         : m.depth_value,
     severity: m.severity,
+    x:
+      typeof m.x_snapshot === "string"
+        ? Number(m.x_snapshot)
+        : m.x_snapshot,
+    y:
+      typeof m.y_snapshot === "string"
+        ? Number(m.y_snapshot)
+        : m.y_snapshot,
   }))
 
   return {
@@ -128,6 +150,7 @@ async function fetchIceDepthRecord(
     high_count: row.high_count,
     total: row.total_measurements,
     layout_name,
+    logo_url,
     submitter,
     measurements,
   }
@@ -214,44 +237,25 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   body: { fontSize: 11, lineHeight: 1.45, color: "#0f172a" },
-  table: {
-    borderTopWidth: 1,
-    borderTopColor: "#cbd5e1",
-  },
-  trHead: {
+  legendRow: {
     flexDirection: "row",
-    backgroundColor: "#f1f5f9",
-    paddingVertical: 5,
-    paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#cbd5e1",
+    justifyContent: "center",
+    marginTop: 10,
   },
-  tr: {
+  legendItem: {
     flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-    paddingVertical: 4,
+    alignItems: "center",
+    marginHorizontal: 10,
   },
-  th: {
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 5,
+  },
+  legendLabel: {
     fontSize: 9,
     color: "#475569",
-    fontWeight: 700,
-    textTransform: "uppercase",
-  },
-  td: { fontSize: 10, paddingHorizontal: 4 },
-  colNum: { width: 40, textAlign: "right" },
-  colLabel: { flex: 2 },
-  colDepth: { width: 80, textAlign: "right" },
-  colSeverity: { width: 70 },
-  sevPill: {
-    fontSize: 9,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 3,
-    color: "#ffffff",
-    alignSelf: "flex-start",
   },
   footer: {
     position: "absolute",
@@ -268,9 +272,9 @@ const styles = StyleSheet.create({
 })
 
 const SEVERITY_COLOR: Record<Measurement["severity"], string> = {
-  low: "#1d4ed8", // thin ice — blue
-  ok: "#15803d", // green
-  high: "#b45309", // thick — amber
+  low: "#dc2626", // red
+  ok: "#16a34a", // green
+  high: "#eab308", // yellow
 }
 
 function fmtTs(iso: string): string {
@@ -316,7 +320,7 @@ function IceDepthPdf({
           </View>
           <View style={styles.headerRight}>
             {r.high_count > 0 ? (
-              <Text style={{ ...styles.chip, backgroundColor: SEVERITY_COLOR.high }}>
+              <Text style={{ ...styles.chip, backgroundColor: SEVERITY_COLOR.high, color: "#422006" }}>
                 {r.high_count} HIGH
               </Text>
             ) : null}
@@ -357,48 +361,46 @@ function IceDepthPdf({
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Measurements</Text>
-          <View style={styles.trHead}>
-            <Text style={{ ...styles.th, ...styles.colNum }}>#</Text>
-            <Text style={{ ...styles.th, ...styles.colLabel, paddingLeft: 6 }}>
-              Label
+          <Text style={styles.sectionLabel}>
+            Rink diagram ({r.measurements.length} measurements, depth in{" "}
+            {r.unit === "inches" ? "inches" : "mm"})
+          </Text>
+          {r.measurements.length === 0 ? (
+            <Text style={{ fontSize: 10, color: "#94a3b8", padding: 8 }}>
+              No measurements captured for this session.
             </Text>
-            <Text style={{ ...styles.th, ...styles.colDepth }}>Depth</Text>
-            <Text style={{ ...styles.th, ...styles.colSeverity, paddingLeft: 6 }}>
-              Severity
-            </Text>
-          </View>
-          <View style={styles.table}>
-            {r.measurements.length === 0 ? (
-              <Text style={{ fontSize: 10, color: "#94a3b8", padding: 8 }}>
-                No measurements captured for this session.
-              </Text>
-            ) : (
-              r.measurements.map((m, i) => (
-                <View key={i} style={styles.tr}>
-                  <Text style={{ ...styles.td, ...styles.colNum }}>
-                    {m.point_number}
-                  </Text>
-                  <Text style={{ ...styles.td, ...styles.colLabel, paddingLeft: 6 }}>
-                    {m.label ?? "—"}
-                  </Text>
-                  <Text style={{ ...styles.td, ...styles.colDepth }}>
-                    {fmtDepth(m.depth_value, r.unit)}
-                  </Text>
-                  <View style={{ ...styles.colSeverity, paddingLeft: 6, justifyContent: "center" }}>
-                    <Text
-                      style={{
-                        ...styles.sevPill,
-                        backgroundColor: SEVERITY_COLOR[m.severity],
-                      }}
-                    >
-                      {m.severity}
-                    </Text>
-                  </View>
+          ) : (
+            <View style={{ alignItems: "center", marginTop: 6 }}>
+              <PdfRinkDiagram
+                points={r.measurements.map((m): DiagramPoint => {
+                  const { cx, cy } = rinkCoords(m.x, m.y)
+                  return {
+                    cx,
+                    cy,
+                    depth_value: m.depth_value,
+                    severity: m.severity,
+                  }
+                })}
+                unit={r.unit}
+                logoUrl={r.logo_url}
+                width={320}
+              />
+              <View style={styles.legendRow}>
+                <View style={styles.legendItem}>
+                  <View style={{ ...styles.legendDot, backgroundColor: "#16a34a" }} />
+                  <Text style={styles.legendLabel}>OK</Text>
                 </View>
-              ))
-            )}
-          </View>
+                <View style={styles.legendItem}>
+                  <View style={{ ...styles.legendDot, backgroundColor: "#dc2626" }} />
+                  <Text style={styles.legendLabel}>Low</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={{ ...styles.legendDot, backgroundColor: "#eab308" }} />
+                  <Text style={styles.legendLabel}>High</Text>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
         {r.notes ? (
