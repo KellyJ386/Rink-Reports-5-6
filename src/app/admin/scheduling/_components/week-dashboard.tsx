@@ -24,6 +24,17 @@ const rr = {
   lineSoft: "#f3f4f6",
 } as const
 
+// Theme-aware tokens — read from globals.css. The EmployeePhone preview
+// keeps the raw `rr.*` constants because it depicts a phone screen and
+// is intentionally light in both modes.
+const surface = "var(--card)"
+const pageBg = "var(--background)"
+const subtleBg = "var(--secondary)"
+const line = "var(--border)"
+const textPrimary = "var(--foreground)"
+const textMuted = "var(--muted-foreground)"
+const brandNavy = "var(--brand-navy)"
+
 const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const
 
 type ShiftBlock = {
@@ -279,8 +290,8 @@ function ViewSwitcher({
       style={{
         display: "flex",
         gap: 3,
-        background: "#fff",
-        border: `1px solid ${rr.line}`,
+        background: surface,
+        border: `1px solid ${line}`,
         borderRadius: 9,
         padding: 3,
       }}
@@ -296,8 +307,8 @@ function ViewSwitcher({
             fontWeight: 700,
             border: 0,
             borderRadius: 6,
-            background: view === v ? rr.navy : "transparent",
-            color: view === v ? "#fff" : rr.navy,
+            background: view === v ? brandNavy : "transparent",
+            color: view === v ? "#fff" : textPrimary,
             cursor: "pointer",
             textTransform: "uppercase",
             letterSpacing: ".04em",
@@ -326,8 +337,8 @@ function ColorBySwitcher({
       style={{
         display: "flex",
         gap: 3,
-        background: "#fff",
-        border: `1px solid ${rr.line}`,
+        background: surface,
+        border: `1px solid ${line}`,
         borderRadius: 9,
         padding: 3,
       }}
@@ -343,8 +354,8 @@ function ColorBySwitcher({
             fontWeight: 600,
             border: 0,
             borderRadius: 6,
-            background: value === o.id ? rr.bg2 : "transparent",
-            color: value === o.id ? rr.navy : rr.greyDark,
+            background: value === o.id ? subtleBg : "transparent",
+            color: value === o.id ? textPrimary : textMuted,
             cursor: "pointer",
           }}
         >
@@ -376,10 +387,10 @@ function ToolbarToggle({
         fontSize: 12.5,
         fontWeight: 600,
         cursor: "pointer",
-        border: `1px solid ${on ? rr.navy : rr.line}`,
+        border: `1px solid ${on ? brandNavy : line}`,
         borderRadius: 8,
-        background: on ? rr.navy : "#fff",
-        color: on ? "#fff" : rr.navy,
+        background: on ? brandNavy : surface,
+        color: on ? "#fff" : textPrimary,
         display: "flex",
         alignItems: "center",
         gap: 6,
@@ -407,8 +418,8 @@ function Kpi({
   return (
     <div
       style={{
-        background: "#fff",
-        border: `1px solid ${rr.line}`,
+        background: surface,
+        border: `1px solid ${line}`,
         borderRadius: 12,
         padding: 14,
         flex: 1,
@@ -433,7 +444,7 @@ function Kpi({
           fontSize: 10,
           fontWeight: 700,
           letterSpacing: ".14em",
-          color: rr.greyDark,
+          color: textMuted,
           textTransform: "uppercase",
         }}
       >
@@ -451,7 +462,7 @@ function Kpi({
       >
         {value}
       </div>
-      <div style={{ fontSize: 12, color: rr.greyDark, marginTop: 6 }}>{sub}</div>
+      <div style={{ fontSize: 12, color: textMuted, marginTop: 6 }}>{sub}</div>
     </div>
   )
 }
@@ -468,8 +479,8 @@ function Section({
   return (
     <section
       style={{
-        background: "#fff",
-        border: `1px solid ${rr.line}`,
+        background: surface,
+        border: `1px solid ${line}`,
         borderRadius: 12,
         boxShadow: "0 1px 2px rgba(0,0,0,.04)",
         overflow: "hidden",
@@ -480,7 +491,7 @@ function Section({
           display: "flex",
           alignItems: "center",
           padding: "12px 14px",
-          borderBottom: `1px solid ${rr.lineSoft}`,
+          borderBottom: `1px solid ${line}`,
           gap: 10,
         }}
       >
@@ -490,7 +501,7 @@ function Section({
             fontFamily: "var(--font-anton), 'Anton', Impact",
             fontSize: 15,
             textTransform: "uppercase",
-            color: rr.navy,
+            color: textPrimary,
             letterSpacing: ".02em",
           }}
         >
@@ -506,11 +517,11 @@ function Section({
 
 function Detail({ k, v }: { k: string; v: string }) {
   return (
-    <div style={{ padding: "8px 10px", background: rr.bg2, borderRadius: 8 }}>
+    <div style={{ padding: "8px 10px", background: subtleBg, borderRadius: 8 }}>
       <div
         style={{
           fontSize: 10,
-          color: rr.greyDark,
+          color: textMuted,
           fontWeight: 700,
           letterSpacing: ".1em",
           textTransform: "uppercase",
@@ -521,7 +532,7 @@ function Detail({ k, v }: { k: string; v: string }) {
       <div
         style={{
           fontSize: 13,
-          color: rr.navy,
+          color: textPrimary,
           fontWeight: 600,
           marginTop: 2,
         }}
@@ -579,8 +590,8 @@ function WeekGrid({
   return (
     <div
       style={{
-        background: "#fff",
-        border: `1px solid ${rr.line}`,
+        background: surface,
+        border: `1px solid ${line}`,
         borderRadius: 14,
         overflow: "hidden",
         boxShadow: "0 1px 3px rgba(0,0,0,.05)",
@@ -591,8 +602,8 @@ function WeekGrid({
         style={{
           display: "grid",
           gridTemplateColumns: "64px repeat(7,1fr)",
-          borderBottom: `1px solid ${rr.line}`,
-          background: "#fff",
+          borderBottom: `1px solid ${line}`,
+          background: surface,
           position: "sticky",
           top: 0,
           zIndex: 5,
@@ -607,8 +618,8 @@ function WeekGrid({
               key={d}
               style={{
                 padding: "10px 12px",
-                borderLeft: `1px solid ${rr.line}`,
-                background: isToday ? "rgba(77,255,0,.08)" : "#fff",
+                borderLeft: `1px solid ${line}`,
+                background: isToday ? "rgba(77,255,0,.08)" : surface,
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
@@ -621,7 +632,7 @@ function WeekGrid({
                     fontSize: 10,
                     fontWeight: 700,
                     letterSpacing: ".12em",
-                    color: isToday ? rr.greenInk : rr.greyDark,
+                    color: isToday ? rr.greenInk : textMuted,
                   }}
                 >
                   {d}
@@ -631,7 +642,7 @@ function WeekGrid({
                     fontFamily: "var(--font-anton), 'Anton', Impact",
                     fontSize: 28,
                     lineHeight: 1,
-                    color: rr.navy,
+                    color: textPrimary,
                     marginTop: 2,
                   }}
                 >
@@ -642,7 +653,7 @@ function WeekGrid({
                 <div
                   style={{
                     fontSize: 10,
-                    color: rr.greyDark,
+                    color: textMuted,
                     fontWeight: 600,
                     letterSpacing: ".08em",
                   }}
@@ -654,7 +665,7 @@ function WeekGrid({
                     fontSize: 16,
                     fontFamily: "var(--font-geist-mono), monospace",
                     fontWeight: 600,
-                    color: rr.navy,
+                    color: textPrimary,
                     marginTop: 2,
                   }}
                 >
@@ -673,7 +684,7 @@ function WeekGrid({
           gridTemplateColumns: "64px repeat(7,1fr)",
         }}
       >
-        <div style={{ borderRight: `1px solid ${rr.line}`, background: rr.bg2 }}>
+        <div style={{ borderRight: `1px solid ${line}`, background: subtleBg }}>
           {hours.map((h) => (
             <div
               key={h}
@@ -684,8 +695,8 @@ function WeekGrid({
                 lineHeight: `${HR}px`,
                 fontFamily: "var(--font-geist-mono), monospace",
                 fontSize: 10.5,
-                color: rr.greyDark,
-                borderBottom: `1px solid ${rr.lineSoft}`,
+                color: textMuted,
+                borderBottom: `1px solid ${line}`,
               }}
             >
               {fmtHour(h)}
@@ -698,9 +709,9 @@ function WeekGrid({
             <div
               key={di}
               style={{
-                borderLeft: `1px solid ${rr.line}`,
+                borderLeft: `1px solid ${line}`,
                 position: "relative",
-                background: isToday ? "rgba(77,255,0,.025)" : "#fff",
+                background: isToday ? "rgba(77,255,0,.025)" : surface,
               }}
             >
               {hours.map((h, hi) => {
@@ -717,7 +728,7 @@ function WeekGrid({
                     key={h}
                     style={{
                       height: HR,
-                      borderBottom: `1px solid ${rr.lineSoft}`,
+                      borderBottom: `1px solid ${line}`,
                       background: bg,
                     }}
                   />
@@ -798,7 +809,7 @@ function WeekGrid({
                                 padding: "1px 5px",
                                 borderRadius: 9999,
                                 background: rr.yellow,
-                                color: rr.navyDark,
+                                color: textPrimary,
                                 fontWeight: 800,
                                 letterSpacing: ".04em",
                               }}
@@ -873,7 +884,7 @@ function WeekGrid({
                       fontFamily: "var(--font-geist-mono), monospace",
                       fontWeight: 700,
                       color: rr.red,
-                      background: "#fff",
+                      background: surface,
                       padding: "1px 5px",
                       borderRadius: 4,
                       border: `1px solid ${rr.red}`,
@@ -905,8 +916,8 @@ function ShiftDetail({
   return (
     <div
       style={{
-        background: "#fff",
-        border: `1px solid ${rr.line}`,
+        background: surface,
+        border: `1px solid ${line}`,
         borderRadius: 12,
         boxShadow: "0 8px 30px rgba(0,0,0,.10)",
         padding: 18,
@@ -924,9 +935,9 @@ function ShiftDetail({
           height: 28,
           borderRadius: 9999,
           border: 0,
-          background: rr.bg2,
+          background: subtleBg,
           cursor: "pointer",
-          color: rr.greyDark,
+          color: textMuted,
           display: "grid",
           placeItems: "center",
         }}
@@ -950,7 +961,7 @@ function ShiftDetail({
           fontFamily: "var(--font-anton), 'Anton', Impact",
           fontSize: 26,
           textTransform: "uppercase",
-          color: rr.navy,
+          color: textPrimary,
           letterSpacing: "-.01em",
         }}
       >
@@ -963,7 +974,7 @@ function ShiftDetail({
           alignItems: "center",
           gap: 12,
           padding: 12,
-          background: rr.bg2,
+          background: subtleBg,
           borderRadius: 10,
           marginBottom: 14,
         }}
@@ -980,9 +991,9 @@ function ShiftDetail({
               width: 44,
               height: 44,
               borderRadius: 9999,
-              background: rr.bg,
+              background: pageBg,
               border: `1px dashed ${rr.greyLight}`,
-              color: rr.greyDark,
+              color: textMuted,
               display: "grid",
               placeItems: "center",
               fontWeight: 700,
@@ -993,7 +1004,7 @@ function ShiftDetail({
           </div>
         )}
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: rr.navy }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary }}>
             {shift.employeeName ?? "Unassigned"}
           </div>
           <div style={{ fontSize: 12, color, fontWeight: 600 }}>
@@ -1005,7 +1016,7 @@ function ShiftDetail({
             style={{
               fontFamily: "var(--font-anton), 'Anton', Impact",
               fontSize: 24,
-              color: rr.navy,
+              color: textPrimary,
             }}
           >
             {dur}h
@@ -1013,7 +1024,7 @@ function ShiftDetail({
           <div
             style={{
               fontSize: 10,
-              color: rr.greyDark,
+              color: textMuted,
               letterSpacing: ".1em",
             }}
           >
@@ -1054,7 +1065,7 @@ function ShiftDetail({
           >
             SWAP PENDING
           </div>
-          <div style={{ fontSize: 12, color: rr.navy, marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: textPrimary, marginTop: 2 }}>
             Awaiting manager approval
           </div>
         </div>
@@ -1067,7 +1078,7 @@ function ShiftDetail({
             padding: "10px",
             border: 0,
             borderRadius: 8,
-            background: rr.navy,
+            background: brandNavy,
             color: "#fff",
             fontWeight: 700,
             fontSize: 13,
@@ -1082,10 +1093,10 @@ function ShiftDetail({
           type="button"
           style={{
             padding: "10px 14px",
-            border: `1px solid ${rr.line}`,
+            border: `1px solid ${line}`,
             borderRadius: 8,
-            background: "#fff",
-            color: rr.navy,
+            background: surface,
+            color: textPrimary,
             fontWeight: 600,
             fontSize: 13,
             cursor: "pointer",
@@ -1102,7 +1113,7 @@ function ShiftDetail({
             padding: "10px 14px",
             border: `1px solid ${rr.red}`,
             borderRadius: 8,
-            background: "#fff",
+            background: surface,
             color: rr.red,
             fontWeight: 600,
             fontSize: 13,
@@ -1147,7 +1158,7 @@ function OpenShiftsPanel({
       }
     >
       {openShifts.length === 0 ? (
-        <div style={{ padding: 14, fontSize: 12.5, color: rr.greyDark }}>
+        <div style={{ padding: 14, fontSize: 12.5, color: textMuted }}>
           No open shifts this week.
         </div>
       ) : (
@@ -1163,7 +1174,7 @@ function OpenShiftsPanel({
                 borderBottom:
                   i === openShifts.length - 1
                     ? 0
-                    : `1px solid ${rr.lineSoft}`,
+                    : `1px solid ${line}`,
               }}
             >
               <div
@@ -1199,14 +1210,14 @@ function OpenShiftsPanel({
                 </div>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: rr.navy }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: textPrimary }}>
                   {fmtHour(o.startHour)} – {fmtHour(o.endHour)} ·{" "}
                   <span style={{ color: o.departmentColor }}>
                     {o.departmentName}
                   </span>
                 </div>
                 <div
-                  style={{ fontSize: 11.5, color: rr.greyDark, marginTop: 2 }}
+                  style={{ fontSize: 11.5, color: textMuted, marginTop: 2 }}
                 >
                   {o.note ?? "Open coverage"} · {o.endHour - o.startHour} hr
                 </div>
@@ -1215,10 +1226,10 @@ function OpenShiftsPanel({
                 type="button"
                 style={{
                   padding: "7px 12px",
-                  border: `1px solid ${rr.navy}`,
+                  border: `1px solid ${brandNavy}`,
                   borderRadius: 7,
-                  background: "#fff",
-                  color: rr.navy,
+                  background: surface,
+                  color: textPrimary,
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: "pointer",
@@ -1244,7 +1255,7 @@ function SwapsPanel({
   return (
     <Section title="Swap requests">
       {swaps.length === 0 ? (
-        <div style={{ padding: 14, fontSize: 12.5, color: rr.greyDark }}>
+        <div style={{ padding: 14, fontSize: 12.5, color: textMuted }}>
           No swap requests.
         </div>
       ) : (
@@ -1257,7 +1268,7 @@ function SwapsPanel({
                 style={{
                   padding: "12px 14px",
                   borderBottom:
-                    i === swaps.length - 1 ? 0 : `1px solid ${rr.lineSoft}`,
+                    i === swaps.length - 1 ? 0 : `1px solid ${line}`,
                 }}
               >
                 <div
@@ -1273,7 +1284,7 @@ function SwapsPanel({
                     hue={sw.fromHue}
                     size={28}
                   />
-                  <div style={{ color: rr.greyDark, fontSize: 11 }}>→</div>
+                  <div style={{ color: textMuted, fontSize: 11 }}>→</div>
                   {sw.toInitials ? (
                     <Avatar
                       initials={sw.toInitials}
@@ -1286,13 +1297,13 @@ function SwapsPanel({
                         width: 28,
                         height: 28,
                         borderRadius: 9999,
-                        background: rr.bg2,
+                        background: subtleBg,
                         border: `1px dashed ${rr.greyLight}`,
                       }}
                     />
                   )}
                   <div
-                    style={{ flex: 1, fontSize: 12.5, color: rr.navy }}
+                    style={{ flex: 1, fontSize: 12.5, color: textPrimary }}
                   >
                     <strong>{sw.fromName.split(" ")[0]}</strong> →{" "}
                     <strong>
@@ -1318,7 +1329,7 @@ function SwapsPanel({
                 <div
                   style={{
                     fontSize: 11.5,
-                    color: rr.greyDark,
+                    color: textMuted,
                     marginBottom: isPending ? 10 : 0,
                   }}
                 >
@@ -1336,7 +1347,7 @@ function SwapsPanel({
                         border: 0,
                         borderRadius: 7,
                         background: rr.green,
-                        color: rr.navyDark,
+                        color: textPrimary,
                         fontSize: 12,
                         fontWeight: 700,
                         cursor: "pointer",
@@ -1354,10 +1365,10 @@ function SwapsPanel({
                       style={{
                         flex: 1,
                         padding: "7px 10px",
-                        border: `1px solid ${rr.line}`,
+                        border: `1px solid ${line}`,
                         borderRadius: 7,
-                        background: "#fff",
-                        color: rr.navy,
+                        background: surface,
+                        color: textPrimary,
                         fontSize: 12,
                         fontWeight: 700,
                         cursor: "pointer",
@@ -1380,7 +1391,7 @@ function TimeOffPanel({ timeOff }: { timeOff: TimeOffItem[] }) {
   return (
     <Section title="Time-off requests">
       {timeOff.length === 0 ? (
-        <div style={{ padding: 14, fontSize: 12.5, color: rr.greyDark }}>
+        <div style={{ padding: 14, fontSize: 12.5, color: textMuted }}>
           No time-off requests.
         </div>
       ) : (
@@ -1394,7 +1405,7 @@ function TimeOffPanel({ timeOff }: { timeOff: TimeOffItem[] }) {
                 gap: 10,
                 padding: "12px 14px",
                 borderBottom:
-                  i === timeOff.length - 1 ? 0 : `1px solid ${rr.lineSoft}`,
+                  i === timeOff.length - 1 ? 0 : `1px solid ${line}`,
               }}
             >
               <Avatar
@@ -1403,10 +1414,10 @@ function TimeOffPanel({ timeOff }: { timeOff: TimeOffItem[] }) {
                 size={32}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: rr.navy }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>
                   {t.employeeName}
                 </div>
-                <div style={{ fontSize: 11.5, color: rr.greyDark }}>
+                <div style={{ fontSize: 11.5, color: textMuted }}>
                   {t.fromLabel} – {t.toLabel}
                   {t.reason ? ` · ${t.reason}` : ""}
                 </div>
@@ -1458,12 +1469,12 @@ function CrewRosterPanel({ crew }: { crew: CrewMember[] }) {
                 alignItems: "center",
                 gap: 10,
                 padding: "10px 14px",
-                borderBottom: `1px solid ${rr.lineSoft}`,
+                borderBottom: `1px solid ${line}`,
               }}
             >
               <Avatar initials={c.initials} hue={c.hue} size={32} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: rr.navy }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>
                   {c.name}
                 </div>
                 <div
@@ -1482,7 +1493,7 @@ function CrewRosterPanel({ crew }: { crew: CrewMember[] }) {
                     fontFamily: "var(--font-geist-mono), monospace",
                     fontWeight: 600,
                     fontSize: 13,
-                    color: over ? rr.red : rr.navy,
+                    color: over ? rr.red : textPrimary,
                   }}
                 >
                   {c.hours}h
@@ -1490,7 +1501,7 @@ function CrewRosterPanel({ crew }: { crew: CrewMember[] }) {
                 <div
                   style={{
                     fontSize: 9.5,
-                    color: rr.greyDark,
+                    color: textMuted,
                     letterSpacing: ".08em",
                   }}
                 >
@@ -1530,7 +1541,7 @@ function LegendRoles({
             alignItems: "center",
             gap: 6,
             fontSize: 11.5,
-            color: rr.navy,
+            color: textPrimary,
           }}
         >
           <span
@@ -2126,8 +2137,8 @@ export function WeekDashboard(props: WeekDashboardProps) {
   return (
     <div
       style={{
-        background: rr.bg,
-        color: rr.navyDark,
+        background: pageBg,
+        color: textPrimary,
         fontFamily: "var(--font-geist-sans), Inter, system-ui, sans-serif",
         minHeight: "100%",
       }}
@@ -2160,7 +2171,7 @@ export function WeekDashboard(props: WeekDashboardProps) {
               fontFamily: "var(--font-anton), 'Anton', Impact",
               fontSize: 38,
               lineHeight: 1,
-              color: rr.navy,
+              color: textPrimary,
               textTransform: "uppercase",
               letterSpacing: "-.01em",
             }}
@@ -2175,9 +2186,9 @@ export function WeekDashboard(props: WeekDashboardProps) {
               width: 36,
               height: 36,
               borderRadius: 8,
-              border: `1px solid ${rr.line}`,
-              background: "#fff",
-              color: rr.navy,
+              border: `1px solid ${line}`,
+              background: surface,
+              color: textPrimary,
               cursor: "pointer",
               display: "grid",
               placeItems: "center",
@@ -2190,12 +2201,12 @@ export function WeekDashboard(props: WeekDashboardProps) {
               padding: "0 14px",
               height: 36,
               borderRadius: 8,
-              background: "#fff",
-              border: `1px solid ${rr.line}`,
+              background: surface,
+              border: `1px solid ${line}`,
               display: "flex",
               alignItems: "center",
               gap: 6,
-              color: rr.navy,
+              color: textPrimary,
               fontSize: 13,
               fontWeight: 600,
             }}
@@ -2208,9 +2219,9 @@ export function WeekDashboard(props: WeekDashboardProps) {
               width: 36,
               height: 36,
               borderRadius: 8,
-              border: `1px solid ${rr.line}`,
-              background: "#fff",
-              color: rr.navy,
+              border: `1px solid ${line}`,
+              background: surface,
+              color: textPrimary,
               cursor: "pointer",
               display: "grid",
               placeItems: "center",
@@ -2224,9 +2235,9 @@ export function WeekDashboard(props: WeekDashboardProps) {
               padding: "0 14px",
               height: 36,
               borderRadius: 8,
-              border: `1px solid ${rr.line}`,
-              background: "#fff",
-              color: rr.navy,
+              border: `1px solid ${line}`,
+              background: surface,
+              color: textPrimary,
               fontSize: 12.5,
               fontWeight: 600,
               cursor: "pointer",
@@ -2240,7 +2251,7 @@ export function WeekDashboard(props: WeekDashboardProps) {
             style={{
               width: 1,
               height: 28,
-              background: rr.line,
+              background: line,
               margin: "0 6px",
             }}
           />
@@ -2251,7 +2262,7 @@ export function WeekDashboard(props: WeekDashboardProps) {
             style={{
               width: 1,
               height: 28,
-              background: rr.line,
+              background: line,
               margin: "0 6px",
             }}
           />
@@ -2287,7 +2298,7 @@ export function WeekDashboard(props: WeekDashboardProps) {
               border: 0,
               cursor: "pointer",
               background: "linear-gradient(180deg,#7AFF40,#4DFF00)",
-              color: rr.navyDark,
+              color: textPrimary,
               fontSize: 13,
               fontWeight: 800,
               display: "flex",
@@ -2310,14 +2321,14 @@ export function WeekDashboard(props: WeekDashboardProps) {
             label="Scheduled hrs"
             value={props.totalScheduledHours}
             sub={props.weekLabel}
-            accent={rr.navy}
+            accent={textPrimary}
             icon={<NavIcon path={ICONS.cal} size={18} />}
           />
           <Kpi
             label="Shifts"
             value={props.shifts.length}
             sub={`${props.crew.length} employees`}
-            accent={rr.navy}
+            accent={textPrimary}
             icon={<NavIcon path={ICONS.user} size={18} />}
           />
           <Kpi
@@ -2375,8 +2386,8 @@ export function WeekDashboard(props: WeekDashboardProps) {
             style={{
               display: "flex",
               gap: 3,
-              background: "#fff",
-              border: `1px solid ${rr.line}`,
+              background: surface,
+              border: `1px solid ${line}`,
               borderRadius: 9,
               padding: 3,
             }}
@@ -2394,8 +2405,8 @@ export function WeekDashboard(props: WeekDashboardProps) {
                     border: 0,
                     borderRadius: 6,
                     background:
-                      density === d ? rr.bg2 : "transparent",
-                    color: density === d ? rr.navy : rr.greyDark,
+                      density === d ? subtleBg : "transparent",
+                    color: density === d ? textPrimary : textMuted,
                     cursor: "pointer",
                     textTransform: "capitalize",
                   }}
@@ -2420,9 +2431,9 @@ export function WeekDashboard(props: WeekDashboardProps) {
               height: 36,
               padding: "0 12px",
               borderRadius: 8,
-              border: `1px solid ${rr.line}`,
-              background: "#fff",
-              color: rr.navy,
+              border: `1px solid ${line}`,
+              background: surface,
+              color: textPrimary,
               fontSize: 12.5,
               fontWeight: 600,
               cursor: "pointer",
@@ -2506,7 +2517,7 @@ export function WeekDashboard(props: WeekDashboardProps) {
                   style={{
                     fontFamily: "var(--font-anton), 'Anton', Impact",
                     fontSize: 16,
-                    color: rr.navy,
+                    color: textPrimary,
                     textTransform: "uppercase",
                     marginTop: 2,
                   }}

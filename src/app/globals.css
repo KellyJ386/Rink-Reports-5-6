@@ -68,6 +68,12 @@
   --sidebar-accent-foreground:    oklch(0.99 0 0);
   --sidebar-border:               oklch(1 0 0 / 12%);
   --sidebar-ring:                 oklch(0.87 0.28 131);
+
+  /* Brand navy used as a solid surface (CTAs, badges). In light mode
+     this is the design's #003B6F. In dark mode we lift it to a sky
+     blue so it stays visible against the dark navy card surface. */
+  --brand-navy:                   oklch(0.30 0.10 257);  /* #003B6F     */
+  --brand-navy-foreground:        oklch(0.99 0 0);
 }
 
 /* Explicit .light = the same as :root, in case anything scopes to it */
@@ -103,6 +109,9 @@
   --sidebar-accent-foreground:    oklch(0.99 0 0);
   --sidebar-border:               oklch(1 0 0 / 12%);
   --sidebar-ring:                 oklch(0.87 0.28 131);
+
+  --brand-navy:                   oklch(0.30 0.10 257);
+  --brand-navy-foreground:        oklch(0.99 0 0);
 }
 
 /*
@@ -159,6 +168,11 @@
   --sidebar-accent-foreground:    oklch(0.98 0.002 247);
   --sidebar-border:               oklch(1 0 0 / 14%);
   --sidebar-ring:                 oklch(0.88 0.30 131);
+
+  /* Sky blue in dark mode so solid navy CTAs/badges read against the
+     dark navy card surface. */
+  --brand-navy:                   oklch(0.62 0.13 257);
+  --brand-navy-foreground:        oklch(0.99 0 0);
 }
 
 @theme inline {
