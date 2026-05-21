@@ -3,6 +3,7 @@ import "server-only"
 import React from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { resolveMetaHeader } from "../_components/meta-header"
 import type { ModulePdfResult } from "../registry"
 import {
   READINGS_SEVERITY_COLOR,
@@ -170,8 +171,17 @@ export async function renderAirQualityPdf(
     rows,
   }
 
+  const submitterName = submitter
+    ? `${submitter.first_name} ${submitter.last_name}`
+    : "—"
+  const meta = await resolveMetaHeader(
+    record.facility_id,
+    record.submitted_at,
+    submitterName,
+  )
+
   return {
     facility_id: record.facility_id,
-    document: <ReadingsReportPdf r={record} />,
+    document: <ReadingsReportPdf r={record} meta={meta} />,
   }
 }

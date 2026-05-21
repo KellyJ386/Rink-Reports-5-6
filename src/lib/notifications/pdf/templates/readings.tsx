@@ -9,6 +9,8 @@ import {
 } from "@react-pdf/renderer"
 import React from "react"
 
+import { PdfMetaHeader, type PdfMetaHeaderData } from "../_components/meta-header"
+
 // -----------------------------------------------------------------------------
 // Shared shape — refrigeration and air_quality both reduce to this.
 // -----------------------------------------------------------------------------
@@ -188,7 +190,13 @@ function groupRows(
   return Array.from(map.entries()).map(([group, rs]) => ({ group, rows: rs }))
 }
 
-export function ReadingsReportPdf({ r }: { r: ReadingsRecord }) {
+export function ReadingsReportPdf({
+  r,
+  meta,
+}: {
+  r: ReadingsRecord
+  meta: PdfMetaHeaderData
+}) {
   const submitterName = r.submitter
     ? `${r.submitter.first_name} ${r.submitter.last_name}`
     : "—"
@@ -199,6 +207,7 @@ export function ReadingsReportPdf({ r }: { r: ReadingsRecord }) {
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
+        <PdfMetaHeader data={meta} />
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.title}>{r.module_label}</Text>

@@ -10,6 +10,11 @@ import {
 import React from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  PdfMetaHeader,
+  resolveMetaHeader,
+  type PdfMetaHeaderData,
+} from "../_components/meta-header"
 import type { ModulePdfResult } from "../registry"
 
 // -----------------------------------------------------------------------------
@@ -311,7 +316,13 @@ function safeColor(color: string | null, fallback: string): string {
   return fallback
 }
 
-function DailyReportPdf({ r }: { r: DailyRecord }) {
+function DailyReportPdf({
+  r,
+  meta,
+}: {
+  r: DailyRecord
+  meta: PdfMetaHeaderData
+}) {
   const submitterName = r.submitter
     ? `${r.submitter.first_name} ${r.submitter.last_name}`
     : "—"
@@ -323,6 +334,7 @@ function DailyReportPdf({ r }: { r: DailyRecord }) {
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
+        <PdfMetaHeader data={meta} />
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.title}>Daily Report</Text>
@@ -435,8 +447,16 @@ export async function renderDailyReportPdf(
 ): Promise<ModulePdfResult | null> {
   const record = await fetchDailyRecord(sb, recordId)
   if (!record) return null
+  const submitterName = record.submitter
+    ? `${record.submitter.first_name} ${record.submitter.last_name}`
+    : "—"
+  const meta = await resolveMetaHeader(
+    record.facility_id,
+    record.submitted_at,
+    submitterName,
+  )
   return {
     facility_id: record.facility_id,
-    document: <DailyReportPdf r={record} />,
+    document: <DailyReportPdf r={record} meta={meta} />,
   }
 }

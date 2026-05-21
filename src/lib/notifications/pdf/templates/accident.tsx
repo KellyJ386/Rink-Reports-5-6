@@ -10,6 +10,11 @@ import {
 import React from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  PdfMetaHeader,
+  resolveMetaHeader,
+  type PdfMetaHeaderData,
+} from "../_components/meta-header"
 import type { ModulePdfResult } from "../registry"
 
 // -----------------------------------------------------------------------------
@@ -359,7 +364,13 @@ function sideLabel(side: BodyPart["side"]): string {
   }
 }
 
-function AccidentReportPdf({ r }: { r: AccidentRecord }) {
+function AccidentReportPdf({
+  r,
+  meta,
+}: {
+  r: AccidentRecord
+  meta: PdfMetaHeaderData
+}) {
   const submitterName = r.submitter
     ? `${r.submitter.first_name} ${r.submitter.last_name}`
     : "—"
@@ -367,6 +378,7 @@ function AccidentReportPdf({ r }: { r: AccidentRecord }) {
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
+        <PdfMetaHeader data={meta} />
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.title}>Accident Report</Text>
@@ -528,8 +540,16 @@ export async function renderAccidentReportPdf(
 ): Promise<ModulePdfResult | null> {
   const record = await fetchAccidentRecord(sb, recordId)
   if (!record) return null
+  const submitterName = record.submitter
+    ? `${record.submitter.first_name} ${record.submitter.last_name}`
+    : "—"
+  const meta = await resolveMetaHeader(
+    record.facility_id,
+    record.submitted_at,
+    submitterName,
+  )
   return {
     facility_id: record.facility_id,
-    document: <AccidentReportPdf r={record} />,
+    document: <AccidentReportPdf r={record} meta={meta} />,
   }
 }
