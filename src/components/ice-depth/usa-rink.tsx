@@ -12,32 +12,21 @@ import React from "react"
 
 import { cn } from "@/lib/utils"
 
-export const RINK_W = 380
-export const RINK_H = 740
+import {
+  RINK_H,
+  RINK_W,
+  rinkCoords,
+  type PointChipState,
+  type RinkPointSpec,
+} from "./rink-geometry"
 
-/** Map stored 0..1 fractions to viewBox pixel coordinates. */
-export function rinkCoords(xPosition: number, yPosition: number) {
-  return { cx: xPosition * RINK_W, cy: yPosition * RINK_H }
-}
-
-// ---------------------------------------------------------------------------
-// Point chip descriptor
-// ---------------------------------------------------------------------------
-
-export type PointChipState = "pending" | "current" | "done" | "inactive"
-
-export interface RinkPointSpec {
-  id: string
-  pointNumber: number
-  cx: number
-  cy: number
-  state: PointChipState
-  /** Hex color used when state === 'done'. */
-  doneColor?: string
-  /** Optional depth label shown inside done chips when showValues=true. */
-  depthValue?: number | null
-  onClick?: () => void
-}
+// Re-export so existing `import { ... } from "@/components/ice-depth/usa-rink"`
+// statements in client code keep working. Server code should import the
+// helpers from "@/components/ice-depth/rink-geometry" directly to avoid
+// crossing a client boundary (Next.js wraps client-module exports as
+// client references, which throw when called from server components).
+export { RINK_H, RINK_W, rinkCoords }
+export type { PointChipState, RinkPointSpec }
 
 // ---------------------------------------------------------------------------
 // USA Hockey rink SVG markings
