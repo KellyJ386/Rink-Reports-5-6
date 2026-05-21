@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { MobileSidebar } from "./mobile-sidebar"
 import { findActiveNavItem } from "./nav-config"
+import { ThemeToggle } from "@/components/app/theme-toggle"
 
 interface AdminHeaderProps {
   email: string | null
@@ -76,6 +77,7 @@ export function AdminHeader({ email, fullName }: AdminHeaderProps) {
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Open user menu"
