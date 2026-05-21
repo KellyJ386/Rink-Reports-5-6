@@ -487,13 +487,29 @@ export function SubmissionForm({ layout, points, settings }: Props) {
                 autoComplete="off"
                 value={draftValue}
                 onChange={(e) => {
-                  const next = e.target.value
-                  if (next === "" || /^[0-9]*\.?[0-9]{0,3}$/.test(next)) {
-                    setDraftValue(next)
-                  }
+                  // Bluetooth HID calipers (eg iGaging IP54 100-700-B04) type
+                  // the reading like a keyboard. Strip everything that isn't a
+                  // digit or single decimal point so "+1.50" / "1,50" / etc.
+                  // still land cleanly. Cap to 3 decimal places.
+                  const raw = e.target.value
+                  const digitsOnly = raw.replace(/[^0-9.]/g, "")
+                  const firstDot = digitsOnly.indexOf(".")
+                  const normalized =
+                    firstDot < 0
+                      ? digitsOnly
+                      : digitsOnly.slice(0, firstDot + 1) +
+                        digitsOnly.slice(firstDot + 1).replace(/\./g, "")
+                  const trimmed =
+                    firstDot < 0
+                      ? normalized
+                      : normalized.slice(0, firstDot + 1 + 3)
+                  setDraftValue(trimmed)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  // Treat the gauge's Tab terminator like Enter — both
+                  // commonly available on HID calipers — so the measurement
+                  // saves and advances to the next point either way.
+                  if (e.key === "Enter" || e.key === "Tab") {
                     e.preventDefault()
                     handleEnter()
                   } else if (e.key === "Escape") {
