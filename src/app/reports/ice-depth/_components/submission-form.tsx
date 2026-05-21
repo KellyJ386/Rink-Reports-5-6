@@ -86,31 +86,19 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   }, [points])
 
   const [phase, setPhase] = useState<Phase>("measure")
-  const [currentIdx, setCurrentIdx] = useState(0)
+  const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
-  const [popoverValue, setPopoverValue] = useState("")
-  const [popoverOpen, setPopoverOpen] = useState(true)
+  const [draftValue, setDraftValue] = useState("")
   const [notes, setNotes] = useState("")
   const baseId = useId()
-  const popoverRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const skipBlurSaveRef = useRef(false)
 
-  const currentPoint = sortedPoints[currentIdx]
+  const editingPoint =
+    editingIdx != null ? (sortedPoints[editingIdx] ?? null) : null
 
   useEffect(() => {
     if (state.error) toast.error(state.error)
   }, [state.error])
-
-  useEffect(() => {
-    if (!popoverOpen || phase !== "measure") return
-    const raf = requestAnimationFrame(() => {
-      const el = inputRef.current
-      if (!el) return
-      el.focus()
-      el.select()
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [popoverOpen, currentIdx, phase])
 
   const isValidDepth = (raw: string) => {
     const trimmed = raw.trim()
@@ -119,7 +107,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     return Number.isFinite(n) && n >= 0
   }
 
-  const saveValue = useCallback(
+  const commitDraft = useCallback(
     (pointId: string, raw: string) => {
       const trimmed = raw.trim()
       if (!isValidDepth(trimmed)) return false
@@ -129,78 +117,89 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     [],
   )
 
-  const goToIdx = useCallback(
+  const openPopover = useCallback(
     (idx: number) => {
-      setCurrentIdx(idx)
       const p = sortedPoints[idx]
-      setPopoverValue(p ? (values[p.id] ?? "") : "")
-      setPopoverOpen(true)
+      if (!p) return
+      setEditingIdx(idx)
+      setDraftValue(values[p.id] ?? "")
     },
     [sortedPoints, values],
   )
 
-  const advance = useCallback(() => {
-    if (currentIdx < sortedPoints.length - 1) {
-      goToIdx(currentIdx + 1)
-    } else {
-      setPhase("review")
-    }
-  }, [currentIdx, sortedPoints.length, goToIdx])
-
-  const handleEnter = useCallback(() => {
-    if (!currentPoint) return
-    saveValue(currentPoint.id, popoverValue)
-    advance()
-  }, [advance, currentPoint, popoverValue, saveValue])
-
-  const handleEscape = useCallback(() => {
-    setPopoverOpen(false)
+  const closePopover = useCallback(() => {
+    skipBlurSaveRef.current = true
+    setEditingIdx(null)
   }, [])
 
+  const handleEnter = useCallback(() => {
+    if (!editingPoint || editingIdx == null) return
+    commitDraft(editingPoint.id, draftValue)
+    skipBlurSaveRef.current = true
+    if (editingIdx >= sortedPoints.length - 1) {
+      setEditingIdx(null)
+      setPhase("review")
+    } else {
+      openPopover(editingIdx + 1)
+    }
+  }, [commitDraft, draftValue, editingIdx, editingPoint, openPopover, sortedPoints.length])
+
+  const handleEscape = useCallback(() => {
+    closePopover()
+  }, [closePopover])
+
   const handleSkip = useCallback(() => {
-    advance()
-  }, [advance])
+    if (editingIdx == null) return
+    skipBlurSaveRef.current = true
+    if (editingIdx >= sortedPoints.length - 1) {
+      setEditingIdx(null)
+      setPhase("review")
+    } else {
+      openPopover(editingIdx + 1)
+    }
+  }, [editingIdx, openPopover, sortedPoints.length])
+
+  // Click-outside is handled by the input's onBlur: when focus leaves the
+  // input for any reason (clicking elsewhere on the page, tabbing away, the
+  // chip onClick taking focus), we save and close. handleEnter/handleEscape
+  // set skipBlurSaveRef before triggering state changes so the blur from the
+  // unmounting input doesn't double-process.
+  const handleBlur = useCallback(() => {
+    if (skipBlurSaveRef.current) {
+      skipBlurSaveRef.current = false
+      return
+    }
+    if (!editingPoint) return
+    commitDraft(editingPoint.id, draftValue)
+    setEditingIdx(null)
+  }, [commitDraft, draftValue, editingPoint])
 
   const handlePointClick = useCallback(
     (id: string) => {
-      if (currentPoint && popoverOpen) {
-        saveValue(currentPoint.id, popoverValue)
-      }
       const idx = sortedPoints.findIndex((p) => p.id === id)
-      if (idx >= 0) goToIdx(idx)
+      if (idx < 0) return
+      // If a popover is already open for a different point, the input's blur
+      // fires first and saves it. We just need to set the new editing target.
+      openPopover(idx)
     },
-    [currentPoint, goToIdx, popoverOpen, popoverValue, saveValue, sortedPoints],
+    [openPopover, sortedPoints],
   )
 
   const handleGoToReview = useCallback(() => {
-    if (currentPoint) saveValue(currentPoint.id, popoverValue)
+    if (editingPoint) commitDraft(editingPoint.id, draftValue)
+    skipBlurSaveRef.current = true
+    setEditingIdx(null)
     setPhase("review")
-  }, [currentPoint, popoverValue, saveValue])
-
-  // Click-outside: commit the in-flight value (if valid) and close the popover.
-  // Clicks on a point chip will close us, then the chip's onClick will reopen
-  // the popover on the new point via the currentIdx → useEffect chain.
-  useEffect(() => {
-    if (!popoverOpen || phase !== "measure") return
-    function onMouseDown(e: MouseEvent) {
-      const target = e.target as Node | null
-      if (!target) return
-      if (popoverRef.current && popoverRef.current.contains(target)) return
-      if (currentPoint) saveValue(currentPoint.id, popoverValue)
-      setPopoverOpen(false)
-    }
-    document.addEventListener("mousedown", onMouseDown)
-    return () => document.removeEventListener("mousedown", onMouseDown)
-  }, [popoverOpen, phase, currentPoint, popoverValue, saveValue])
+  }, [commitDraft, draftValue, editingPoint])
 
   const committedValues = useMemo(() => {
-    if (!currentPoint || phase === "review" || !popoverOpen) return values
-    const trimmed = popoverValue.trim()
+    if (!editingPoint || phase === "review") return values
+    const trimmed = draftValue.trim()
     if (isValidDepth(trimmed)) {
-      return { ...values, [currentPoint.id]: trimmed }
+      return { ...values, [editingPoint.id]: trimmed }
     }
     return values
-  }, [values, currentPoint, popoverValue, phase, popoverOpen])
+  }, [values, editingPoint, draftValue, phase])
 
   const measurementsJson = useMemo(() => {
     const list: SubmittedMeasurement[] = []
@@ -245,7 +244,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   }, [sortedPoints, committedValues, settings])
 
   const rinkPoints: RinkPointSpec[] = useMemo(() => {
-    return sortedPoints.map((p, idx) => {
+    return sortedPoints.map((p) => {
       const { cx, cy } = rinkCoords(p.x_position, p.y_position)
       const rawVal = committedValues[p.id]?.trim()
       const num = rawVal ? Number(rawVal) : NaN
@@ -254,7 +253,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         : null
 
       let chipState: RinkPointSpec["state"]
-      if (idx === currentIdx && phase === "measure") chipState = "current"
+      if (p.id === editingPoint?.id && phase === "measure") chipState = "current"
       else if (sev != null) chipState = "done"
       else chipState = "pending"
 
@@ -269,9 +268,9 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         onClick: () => handlePointClick(p.id),
       }
     })
-  }, [sortedPoints, committedValues, currentIdx, phase, settings, handlePointClick])
+  }, [sortedPoints, committedValues, editingPoint, phase, settings, handlePointClick])
 
-  const liveTrimmed = popoverValue.trim()
+  const liveTrimmed = draftValue.trim()
   const liveNum = Number(liveTrimmed)
   const liveSev =
     liveTrimmed !== "" && Number.isFinite(liveNum)
@@ -296,8 +295,8 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         formAction={formAction}
         stateError={state.error}
         onBack={() => {
-          goToIdx(sortedPoints.length - 1)
           setPhase("measure")
+          openPopover(sortedPoints.length - 1)
         }}
         baseId={baseId}
       />
@@ -306,14 +305,15 @@ export function SubmissionForm({ layout, points, settings }: Props) {
 
   // ── Measure phase ─────────────────────────────────────────────────────────
 
-  const isLastPoint = currentIdx === sortedPoints.length - 1
-  const hasInput = isValidDepth(popoverValue)
+  const isLastPoint =
+    editingIdx != null && editingIdx === sortedPoints.length - 1
+  const hasInput = isValidDepth(draftValue)
   const reviewEnabled = filledCount > 0
 
-  const currentChip = currentPoint
-    ? rinkCoords(currentPoint.x_position, currentPoint.y_position)
+  const editingChip = editingPoint
+    ? rinkCoords(editingPoint.x_position, editingPoint.y_position)
     : null
-  const popoverAbove = currentChip ? currentChip.cy > RINK_H / 2 : true
+  const popoverAbove = editingChip ? editingChip.cy > RINK_H / 2 : true
 
   return (
     <div className="flex flex-col gap-0">
@@ -339,7 +339,9 @@ export function SubmissionForm({ layout, points, settings }: Props) {
             color: "#4DFF00",
           }}
         >
-          Point {currentIdx + 1} of {sortedPoints.length}
+          {editingIdx != null
+            ? `Point ${editingIdx + 1} of ${sortedPoints.length}`
+            : `${sortedPoints.length} points — tap to enter`}
         </div>
         <div
           style={{
@@ -402,27 +404,193 @@ export function SubmissionForm({ layout, points, settings }: Props) {
           />
         </div>
 
-        {/* Anchored input popover over the active point */}
-        {popoverOpen && currentPoint && currentChip && (
-          <PointPopover
-            ref={popoverRef}
-            inputRef={inputRef}
-            pointNumber={currentPoint.point_number}
-            label={currentPoint.label}
-            unit={settings.measurement_unit}
-            value={popoverValue}
-            onChange={setPopoverValue}
-            onEnter={handleEnter}
-            onEscape={handleEscape}
-            onSkip={handleSkip}
-            liveColor={liveColor}
-            liveSeverityLabel={liveSev ? SEVERITY_LABEL[liveSev] : null}
-            xPct={(currentChip.cx / RINK_W) * 100}
-            yPct={(currentChip.cy / RINK_H) * 100}
-            above={popoverAbove}
-            canSave={hasInput}
-            isLast={isLastPoint}
-          />
+        {/* Anchored input popover over the active point.
+            key={editingPoint.id} forces a fresh mount per point so autoFocus
+            on the new <input> always fires. */}
+        {editingPoint && editingChip && (
+          <div
+            key={editingPoint.id}
+            role="dialog"
+            aria-label={`Enter depth for point ${editingPoint.point_number}`}
+            style={{
+              position: "absolute",
+              left: `${(editingChip.cx / RINK_W) * 100}%`,
+              top: `${(editingChip.cy / RINK_H) * 100}%`,
+              transform: `translate(-50%, ${
+                popoverAbove ? "calc(-100% - 22px)" : "22px"
+              })`,
+              zIndex: 30,
+              minWidth: 200,
+              maxWidth: 240,
+              background: "var(--card)",
+              border: `1px solid ${liveColor ?? "var(--border)"}`,
+              borderRadius: 10,
+              padding: 10,
+              boxShadow:
+                "0 12px 30px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.25)",
+            }}
+            onMouseDown={(e) => {
+              // Clicks inside the popover (eg the Skip/Save buttons) shouldn't
+              // bubble up and re-trigger the chip click that opened us.
+              e.stopPropagation()
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9999,
+                  background: liveColor ?? NAVY,
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontFamily: DISPLAY_FONT,
+                  fontSize: 14,
+                  fontWeight: 900,
+                  flexShrink: 0,
+                }}
+              >
+                {editingPoint.point_number}
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--muted-foreground)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {editingPoint.label ?? `Point ${editingPoint.point_number}`}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                autoFocus
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={draftValue}
+                onChange={(e) => {
+                  const next = e.target.value
+                  if (next === "" || /^[0-9]*\.?[0-9]{0,3}$/.test(next)) {
+                    setDraftValue(next)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    handleEnter()
+                  } else if (e.key === "Escape") {
+                    e.preventDefault()
+                    handleEscape()
+                  }
+                }}
+                onBlur={handleBlur}
+                placeholder="0.0"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: 40,
+                  padding: "0 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${liveColor ?? "var(--border)"}`,
+                  background: "var(--background)",
+                  color: "var(--foreground)",
+                  fontFamily: DISPLAY_FONT,
+                  fontSize: 22,
+                  fontVariantNumeric: "tabular-nums",
+                  outline: "none",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--muted-foreground)",
+                }}
+              >
+                {settings.measurement_unit}
+              </span>
+            </div>
+
+            {liveSev && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: liveColor,
+                }}
+              >
+                {SEVERITY_LABEL[liveSev]}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <button
+                type="button"
+                // Prevent focus from leaving the input on press; otherwise the
+                // input's onBlur fires first, clears editingIdx, and the onClick
+                // below becomes a no-op.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSkip}
+                style={{
+                  flex: "0 0 auto",
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--muted-foreground)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleEnter}
+                disabled={!hasInput}
+                style={{
+                  flex: 1,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: 0,
+                  background: hasInput
+                    ? `linear-gradient(180deg, #7AFF40 0%, ${GREEN} 100%)`
+                    : "var(--muted)",
+                  color: hasInput ? "#051200" : "var(--muted-foreground)",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  cursor: hasInput ? "pointer" : "not-allowed",
+                }}
+              >
+                {isLastPoint ? "Save & Review" : "Save & Next"}
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -491,8 +659,6 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   )
 }
 
-// ── Anchored point popover ────────────────────────────────────────────────────
-
 const KBD_STYLE: React.CSSProperties = {
   display: "inline-block",
   padding: "1px 5px",
@@ -503,229 +669,6 @@ const KBD_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-geist-mono), monospace",
   fontSize: 11,
   lineHeight: 1.4,
-}
-
-type PointPopoverProps = {
-  ref: React.RefObject<HTMLDivElement | null>
-  inputRef: React.RefObject<HTMLInputElement | null>
-  pointNumber: number
-  label: string | null
-  unit: string
-  value: string
-  onChange: (v: string) => void
-  onEnter: () => void
-  onEscape: () => void
-  onSkip: () => void
-  liveColor?: string
-  liveSeverityLabel: string | null
-  xPct: number
-  yPct: number
-  above: boolean
-  canSave: boolean
-  isLast: boolean
-}
-
-function PointPopover({
-  ref,
-  inputRef,
-  pointNumber,
-  label,
-  unit,
-  value,
-  onChange,
-  onEnter,
-  onEscape,
-  onSkip,
-  liveColor,
-  liveSeverityLabel,
-  xPct,
-  yPct,
-  above,
-  canSave,
-  isLast,
-}: PointPopoverProps) {
-  // Sit above or below the chip with a small gap, centered horizontally on it.
-  const yOffset = above ? "calc(-100% - 22px)" : "22px"
-
-  return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-label={`Enter depth for point ${pointNumber}`}
-      style={{
-        position: "absolute",
-        left: `${xPct}%`,
-        top: `${yPct}%`,
-        transform: `translate(-50%, ${yOffset})`,
-        zIndex: 30,
-        minWidth: 200,
-        maxWidth: 240,
-        background: "var(--card)",
-        border: `1px solid ${liveColor ?? "var(--border)"}`,
-        borderRadius: 10,
-        padding: 10,
-        boxShadow:
-          "0 12px 30px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.25)",
-      }}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 9999,
-            background: liveColor ?? NAVY,
-            color: "#fff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: DISPLAY_FONT,
-            fontSize: 14,
-            fontWeight: 900,
-            flexShrink: 0,
-          }}
-        >
-          {pointNumber}
-        </div>
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--muted-foreground)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {label ?? `Point ${pointNumber}`}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <input
-          ref={inputRef}
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={value}
-          onChange={(e) => {
-            const next = e.target.value
-            if (next === "" || /^[0-9]*\.?[0-9]{0,3}$/.test(next)) {
-              onChange(next)
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault()
-              onEnter()
-            } else if (e.key === "Escape") {
-              e.preventDefault()
-              onEscape()
-            }
-          }}
-          placeholder="0.0"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            height: 40,
-            padding: "0 10px",
-            borderRadius: 8,
-            border: `1px solid ${liveColor ?? "var(--border)"}`,
-            background: "var(--background)",
-            color: "var(--foreground)",
-            fontFamily: DISPLAY_FONT,
-            fontSize: 22,
-            fontVariantNumeric: "tabular-nums",
-            outline: "none",
-          }}
-        />
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: "var(--muted-foreground)",
-          }}
-        >
-          {unit}
-        </span>
-      </div>
-
-      {liveSeverityLabel && (
-        <div
-          style={{
-            marginTop: 6,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: liveColor,
-          }}
-        >
-          {liveSeverityLabel}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-          marginTop: 8,
-        }}
-      >
-        <button
-          type="button"
-          onClick={onSkip}
-          style={{
-            flex: "0 0 auto",
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "transparent",
-            color: "var(--muted-foreground)",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          Skip
-        </button>
-        <button
-          type="button"
-          onClick={onEnter}
-          disabled={!canSave}
-          style={{
-            flex: 1,
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: 0,
-            background: canSave
-              ? `linear-gradient(180deg, #7AFF40 0%, ${GREEN} 100%)`
-              : "var(--muted)",
-            color: canSave ? "#051200" : "var(--muted-foreground)",
-            fontSize: 12,
-            fontWeight: 800,
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-            cursor: canSave ? "pointer" : "not-allowed",
-          }}
-        >
-          {isLast ? "Save & Review" : "Save & Next"}
-        </button>
-      </div>
-    </div>
-  )
 }
 
 // ── Review phase ──────────────────────────────────────────────────────────────
