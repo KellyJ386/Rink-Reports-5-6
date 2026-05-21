@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { SyncStatusBadge } from "@/components/offline/sync-status-badge"
 import { AppMobileSidebar } from "./mobile-sidebar"
+import { ThemeToggle } from "./theme-toggle"
 
 interface AppHeaderProps {
   email: string | null
@@ -46,6 +47,7 @@ export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
 
       <div className="ml-auto flex items-center gap-3">
         <SyncStatusBadge />
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Open user menu"
