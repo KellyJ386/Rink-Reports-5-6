@@ -42,7 +42,7 @@ const SEV_LABEL: Record<SeverityKey, string> = {
   high: "Above target",
 }
 
-type Diagnostic = {
+type LoadFailure = {
   stage: string
   code?: string | null
   message: string
@@ -51,96 +51,14 @@ type Diagnostic = {
   extra?: Record<string, unknown>
 }
 
-function DiagnosticPanel({ items }: { items: Diagnostic[] }) {
-  return (
-    <div
-      style={{
-        margin: 24,
-        padding: 20,
-        borderRadius: 12,
-        background: "#1a0606",
-        border: "2px solid #F42A2A",
-        color: "#fff",
-        fontFamily: "var(--font-geist-mono), monospace",
-        fontSize: 12,
-        lineHeight: 1.5,
-        whiteSpace: "pre-wrap",
-        wordBreak: "break-word",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 14,
-          fontWeight: 700,
-          marginBottom: 12,
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-        }}
-      >
-        Diagnostic — ice-depth done page
-      </div>
-      {items.map((d, i) => (
-        <div
-          key={i}
-          style={{
-            marginBottom: 14,
-            paddingBottom: 14,
-            borderBottom:
-              i < items.length - 1 ? "1px dashed rgba(255,255,255,0.2)" : "none",
-          }}
-        >
-          <div style={{ fontWeight: 700, color: "#F42A2A" }}>
-            STAGE: {d.stage}
-          </div>
-          {d.code != null && d.code !== "" && (
-            <div>CODE: {String(d.code)}</div>
-          )}
-          <div>MESSAGE: {d.message}</div>
-          {d.hint != null && d.hint !== "" && <div>HINT: {String(d.hint)}</div>}
-          {d.details != null && d.details !== "" && (
-            <div>DETAILS: {String(d.details)}</div>
-          )}
-          {d.extra && (
-            <div>
-              EXTRA:{" "}
-              {JSON.stringify(d.extra, (_k, v) => {
-                if (v instanceof Error) {
-                  return { name: v.name, message: v.message, stack: v.stack }
-                }
-                return v
-              }, 2)}
-            </div>
-          )}
-        </div>
-      ))}
-      <Link
-        href="/reports/ice-depth"
-        style={{
-          display: "inline-block",
-          marginTop: 8,
-          padding: "8px 14px",
-          borderRadius: 6,
-          background: "#fff",
-          color: "#111",
-          textDecoration: "none",
-          fontWeight: 700,
-        }}
-      >
-        ← Back
-      </Link>
-    </div>
-  )
-}
-
 type LoadResult =
   | { kind: "ok"; data: DonePageBodyProps }
-  | { kind: "fail"; diagnostics: Diagnostic[] }
+  | { kind: "fail"; failure: LoadFailure }
 
 async function loadDonePageData(
   layoutSlug: string,
   idParam: string,
 ): Promise<LoadResult> {
-  const diagnostics: Diagnostic[] = []
   try {
     const supabase = await createClient()
 
@@ -153,24 +71,28 @@ async function loadDonePageData(
       .maybeSingle()
 
     if (sessionRes.error) {
-      diagnostics.push({
-        stage: "select ice_depth_sessions",
-        code: sessionRes.error.code,
-        message: sessionRes.error.message,
-        hint: sessionRes.error.hint ?? null,
-        details: sessionRes.error.details ?? null,
-        extra: { idParam },
-      })
-      return { kind: "fail", diagnostics }
+      return {
+        kind: "fail",
+        failure: {
+          stage: "select ice_depth_sessions",
+          code: sessionRes.error.code,
+          message: sessionRes.error.message,
+          hint: sessionRes.error.hint ?? null,
+          details: sessionRes.error.details ?? null,
+          extra: { idParam },
+        },
+      }
     }
     const session = sessionRes.data
     if (!session) {
-      diagnostics.push({
-        stage: "session lookup",
-        message: "No ice_depth_sessions row found for the supplied id.",
-        extra: { idParam },
-      })
-      return { kind: "fail", diagnostics }
+      return {
+        kind: "fail",
+        failure: {
+          stage: "session lookup",
+          message: "No ice_depth_sessions row found for the supplied id.",
+          extra: { idParam },
+        },
+      }
     }
 
     const layoutRes = await supabase
@@ -180,32 +102,38 @@ async function loadDonePageData(
       .maybeSingle()
 
     if (layoutRes.error) {
-      diagnostics.push({
-        stage: "select ice_depth_layouts",
-        code: layoutRes.error.code,
-        message: layoutRes.error.message,
-        hint: layoutRes.error.hint ?? null,
-        details: layoutRes.error.details ?? null,
-        extra: { layout_id: session.layout_id },
-      })
-      return { kind: "fail", diagnostics }
+      return {
+        kind: "fail",
+        failure: {
+          stage: "select ice_depth_layouts",
+          code: layoutRes.error.code,
+          message: layoutRes.error.message,
+          hint: layoutRes.error.hint ?? null,
+          details: layoutRes.error.details ?? null,
+          extra: { layout_id: session.layout_id },
+        },
+      }
     }
     const layout = layoutRes.data
     if (!layout) {
-      diagnostics.push({
-        stage: "layout lookup",
-        message: "No ice_depth_layouts row matched session.layout_id.",
-        extra: { layout_id: session.layout_id },
-      })
-      return { kind: "fail", diagnostics }
+      return {
+        kind: "fail",
+        failure: {
+          stage: "layout lookup",
+          message: "No ice_depth_layouts row matched session.layout_id.",
+          extra: { layout_id: session.layout_id },
+        },
+      }
     }
     if (layout.slug !== layoutSlug) {
-      diagnostics.push({
-        stage: "layout slug check",
-        message: `URL slug "${layoutSlug}" does not match session's layout slug "${layout.slug}".`,
-        extra: { layoutSlug, sessionLayoutSlug: layout.slug },
-      })
-      return { kind: "fail", diagnostics }
+      return {
+        kind: "fail",
+        failure: {
+          stage: "layout slug check",
+          message: `URL slug "${layoutSlug}" does not match session's layout slug "${layout.slug}".`,
+          extra: { layoutSlug, sessionLayoutSlug: layout.slug },
+        },
+      }
     }
 
     const [measurementsResult, facilityResult] = await Promise.all([
@@ -224,26 +152,31 @@ async function loadDonePageData(
     ])
 
     if (measurementsResult.error) {
-      diagnostics.push({
-        stage: "select ice_depth_measurements",
-        code: measurementsResult.error.code,
-        message: measurementsResult.error.message,
-        hint: measurementsResult.error.hint ?? null,
-        details: measurementsResult.error.details ?? null,
-        extra: { session_id: session.id },
-      })
+      return {
+        kind: "fail",
+        failure: {
+          stage: "select ice_depth_measurements",
+          code: measurementsResult.error.code,
+          message: measurementsResult.error.message,
+          hint: measurementsResult.error.hint ?? null,
+          details: measurementsResult.error.details ?? null,
+          extra: { session_id: session.id },
+        },
+      }
     }
     if (facilityResult.error) {
-      diagnostics.push({
-        stage: "select facilities",
-        code: facilityResult.error.code,
-        message: facilityResult.error.message,
-        hint: facilityResult.error.hint ?? null,
-        details: facilityResult.error.details ?? null,
-        extra: { facility_id: session.facility_id },
-      })
+      return {
+        kind: "fail",
+        failure: {
+          stage: "select facilities",
+          code: facilityResult.error.code,
+          message: facilityResult.error.message,
+          hint: facilityResult.error.hint ?? null,
+          details: facilityResult.error.details ?? null,
+          extra: { facility_id: session.facility_id },
+        },
+      }
     }
-    if (diagnostics.length > 0) return { kind: "fail", diagnostics }
 
     const measurements = measurementsResult.data ?? []
     const tz = facilityResult.data?.timezone ?? null
@@ -294,14 +227,12 @@ async function loadDonePageData(
     const err = e instanceof Error ? e : new Error(String(e))
     return {
       kind: "fail",
-      diagnostics: [
-        {
-          stage: "data prep",
-          message: err.message,
-          details: err.stack ?? null,
-          extra: { name: err.name },
-        },
-      ],
+      failure: {
+        stage: "data prep",
+        message: err.message,
+        details: err.stack ?? null,
+        extra: { name: err.name },
+      },
     }
   }
 }
@@ -323,7 +254,11 @@ export default async function IceDepthDonePage({
 
   const result = await loadDonePageData(layoutSlug, idParam)
   if (result.kind === "fail") {
-    return <DiagnosticPanel items={result.diagnostics} />
+    console.error(
+      "[ice-depth/done] load failed",
+      JSON.stringify(result.failure),
+    )
+    redirect("/reports/ice-depth")
   }
   return <DonePageBody {...result.data} />
 }
