@@ -182,6 +182,131 @@ async function snapshotIceDepth(sb: Sb, recordId: string): Promise<SubmissionSna
   }
 }
 
+const ICE_OPERATION_LABELS: Record<string, string> = {
+  ice_make: "Ice Make",
+  circle_check: "Circle Check",
+  edging: "Edging",
+  blade_change: "Blade Change",
+}
+
+async function snapshotIceOperations(
+  sb: Sb,
+  recordId: string,
+): Promise<SubmissionSnapshot | null> {
+  const { data: r } = await sb
+    .from("ice_operations_submissions")
+    .select(
+      "id, facility_id, employee_id, equipment_id, rink_id, operation_type, occurred_at, submitted_at, payload, notes, failed_count, has_failed_check",
+    )
+    .eq("id", recordId)
+    .maybeSingle()
+  if (!r) return null
+
+  const submitter = await fetchEmployeeName(sb, r.employee_id, r.facility_id)
+
+  let rinkName: string | null = null
+  if (r.rink_id) {
+    const { data: rink } = await sb
+      .from("ice_operations_rinks")
+      .select("name")
+      .eq("id", r.rink_id)
+      .eq("facility_id", r.facility_id)
+      .maybeSingle()
+    if (rink) rinkName = rink.name
+  }
+
+  let equipmentName: string | null = null
+  if (r.equipment_id) {
+    const { data: eq } = await sb
+      .from("ice_operations_equipment")
+      .select("name")
+      .eq("id", r.equipment_id)
+      .eq("facility_id", r.facility_id)
+      .maybeSingle()
+    if (eq) equipmentName = eq.name
+  }
+
+  const opLabel = ICE_OPERATION_LABELS[r.operation_type] ?? r.operation_type
+  const payload = (r.payload ?? {}) as Record<string, unknown>
+
+  const fields: Array<{ label: string; value: string | null }> = [
+    { label: "Operation", value: opLabel },
+    { label: "Occurred at", value: r.occurred_at },
+    { label: "Submitter", value: submitter },
+    { label: "Rink", value: rinkName },
+    { label: "Equipment", value: equipmentName },
+  ]
+
+  switch (r.operation_type) {
+    case "ice_make": {
+      const waterC = payload.water_temp_c as number | null | undefined
+      const iceC = payload.ice_temp_c as number | null | undefined
+      fields.push(
+        { label: "Water temp", value: waterC == null ? null : `${waterC} °C` },
+        { label: "Ice temp", value: iceC == null ? null : `${iceC} °C` },
+        { label: "Time in", value: (payload.time_in as string | null) ?? null },
+        { label: "Time out", value: (payload.time_out as string | null) ?? null },
+        {
+          label: "Water used (gal)",
+          value:
+            payload.water_used_gal == null
+              ? null
+              : String(payload.water_used_gal),
+        },
+        {
+          label: "Surface passes",
+          value:
+            payload.surface_pass_count == null
+              ? null
+              : String(payload.surface_pass_count),
+        },
+      )
+      break
+    }
+    case "edging": {
+      fields.push({
+        label: "Hours run",
+        value: payload.hours_run == null ? null : String(payload.hours_run),
+      })
+      break
+    }
+    case "blade_change": {
+      fields.push(
+        {
+          label: "Blade serial",
+          value: (payload.blade_serial as string | null) ?? null,
+        },
+        {
+          label: "Hours at change",
+          value:
+            payload.hours_at_change == null
+              ? null
+              : String(payload.hours_at_change),
+        },
+      )
+      break
+    }
+    case "circle_check": {
+      fields.push({
+        label: "Failed checks",
+        value: r.has_failed_check ? String(r.failed_count) : "None",
+      })
+      break
+    }
+  }
+
+  return {
+    facility_id: r.facility_id,
+    source_module: "ice_operations",
+    source_record_id: r.id,
+    title: `Ice Operations — ${opLabel}`,
+    subtitle: rinkName ?? equipmentName ?? null,
+    submitted_at: r.submitted_at,
+    fields,
+    long_form: r.notes ? { label: "Notes", body: r.notes } : null,
+  }
+}
+
 const REGISTRY: Record<
   string,
   ((sb: Sb, recordId: string) => Promise<SubmissionSnapshot | null>) | undefined
@@ -192,6 +317,7 @@ const REGISTRY: Record<
   refrigeration: snapshotRefrigeration,
   air_quality: snapshotAirQuality,
   ice_depth: snapshotIceDepth,
+  ice_operations: snapshotIceOperations,
 }
 
 /**
