@@ -11,6 +11,11 @@ import {
 import React from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  PdfMetaHeader,
+  resolveMetaHeader,
+  type PdfMetaHeaderData,
+} from "./_components/meta-header"
 import { getModulePdfRenderer } from "./registry"
 import { fetchSubmissionSnapshot, type SubmissionSnapshot } from "./snapshot"
 
@@ -60,13 +65,20 @@ const styles = StyleSheet.create({
   },
 })
 
-function SubmissionPdf({ snapshot }: { snapshot: SubmissionSnapshot }) {
+function SubmissionPdf({
+  snapshot,
+  meta,
+}: {
+  snapshot: SubmissionSnapshot
+  meta: PdfMetaHeaderData
+}) {
   const submittedAt = snapshot.submitted_at
     ? new Date(snapshot.submitted_at).toLocaleString()
     : "—"
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
+        <PdfMetaHeader data={meta} />
         <View style={styles.header}>
           <Text style={styles.title}>{snapshot.title}</Text>
           {snapshot.subtitle ? (
@@ -111,7 +123,15 @@ function SubmissionPdf({ snapshot }: { snapshot: SubmissionSnapshot }) {
 export async function renderSubmissionPdf(
   snapshot: SubmissionSnapshot,
 ): Promise<Buffer> {
-  return await renderToBuffer(<SubmissionPdf snapshot={snapshot} />)
+  const submitterField = snapshot.fields.find((f) => f.label === "Submitter")
+  const submitterName =
+    typeof submitterField?.value === "string" ? submitterField.value : "—"
+  const meta = await resolveMetaHeader(
+    snapshot.facility_id,
+    snapshot.submitted_at,
+    submitterName,
+  )
+  return await renderToBuffer(<SubmissionPdf snapshot={snapshot} meta={meta} />)
 }
 
 export type RenderedPdf = {
@@ -145,8 +165,16 @@ export async function renderPdfForModule(
   }
   const snapshot = await fetchSubmissionSnapshot(sb, sourceModule, sourceRecordId)
   if (!snapshot) return null
+  const submitterField = snapshot.fields.find((f) => f.label === "Submitter")
+  const submitterName =
+    typeof submitterField?.value === "string" ? submitterField.value : "—"
+  const meta = await resolveMetaHeader(
+    snapshot.facility_id,
+    snapshot.submitted_at,
+    submitterName,
+  )
   return {
     facility_id: snapshot.facility_id,
-    buffer: await renderToBuffer(<SubmissionPdf snapshot={snapshot} />),
+    buffer: await renderToBuffer(<SubmissionPdf snapshot={snapshot} meta={meta} />),
   }
 }

@@ -10,6 +10,11 @@ import {
 import React from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  PdfMetaHeader,
+  resolveMetaHeader,
+  type PdfMetaHeaderData,
+} from "../_components/meta-header"
 import type { ModulePdfResult } from "../registry"
 
 // -----------------------------------------------------------------------------
@@ -282,7 +287,13 @@ function fmtDepth(v: number, unit: "inches" | "mm"): string {
   return `${v.toFixed(decimals)} ${unit === "inches" ? '"' : "mm"}`
 }
 
-function IceDepthPdf({ r }: { r: IceDepthRecord }) {
+function IceDepthPdf({
+  r,
+  meta,
+}: {
+  r: IceDepthRecord
+  meta: PdfMetaHeaderData
+}) {
   const submitterName = r.submitter
     ? `${r.submitter.first_name} ${r.submitter.last_name}`
     : "—"
@@ -292,6 +303,7 @@ function IceDepthPdf({ r }: { r: IceDepthRecord }) {
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
+        <PdfMetaHeader data={meta} />
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.title}>Ice Depth Session</Text>
@@ -415,8 +427,16 @@ export async function renderIceDepthPdf(
 ): Promise<ModulePdfResult | null> {
   const record = await fetchIceDepthRecord(sb, recordId)
   if (!record) return null
+  const submitterName = record.submitter
+    ? `${record.submitter.first_name} ${record.submitter.last_name}`
+    : "—"
+  const meta = await resolveMetaHeader(
+    record.facility_id,
+    record.submitted_at,
+    submitterName,
+  )
   return {
     facility_id: record.facility_id,
-    document: <IceDepthPdf r={record} />,
+    document: <IceDepthPdf r={record} meta={meta} />,
   }
 }
