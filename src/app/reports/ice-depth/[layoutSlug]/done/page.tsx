@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
-import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
+import { USARink } from "@/components/ice-depth/usa-rink"
+import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geometry"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
