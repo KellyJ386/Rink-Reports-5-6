@@ -18,7 +18,7 @@ function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "border-input bg-background focus:ring-ring/50 focus:border-ring flex h-12 w-full items-center justify-between rounded-md border px-3 text-base shadow-xs outline-none focus:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground [&>span]:truncate",
+        "border border-input bg-card dark:bg-card/60 flex h-10 w-full items-center justify-between rounded-md px-3 text-base md:text-sm shadow-[var(--shadow-elev-1)] outline-none transition-[color,box-shadow,border-color] focus:border-[var(--accent-brand)] focus:ring-[var(--accent-brand)]/40 focus:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground [&>span]:truncate",
         className
       )}
       {...props}
@@ -75,7 +75,7 @@ function SelectContent({
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         className={cn(
-          "bg-popover text-popover-foreground relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
+          "bg-popover text-popover-foreground relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border border-border/60 shadow-[var(--shadow-elev-3)]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 w-[var(--radix-select-trigger-width)]",
