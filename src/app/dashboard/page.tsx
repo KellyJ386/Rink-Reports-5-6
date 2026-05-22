@@ -6,6 +6,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
+import { PageHeader } from "@/components/ui/page-header"
 import { PreviewBanner } from "@/components/preview-banner"
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { requireUser } from "@/lib/auth"
@@ -30,16 +32,18 @@ type ModuleKey =
   | "communications"
   | "scheduling"
 
-const MODULE_COLORS: Record<ModuleKey, string> = {
-  daily_reports:    "#4527A0",
-  incident_reports: "#B71C1C",
-  accident_reports: "#C62828",
-  refrigeration:    "#0277BD",
-  air_quality:      "#E65100",
-  ice_operations:   "#1B5E20",
-  ice_depth:        "#003B6F",
-  communications:   "#5D4037",
-  scheduling:       "#00695C",
+// Each module references a CSS var defined in globals.css (--module-*).
+// The var carries light + dark values so tiles auto-adapt.
+const MODULE_ACCENT: Record<ModuleKey, string> = {
+  daily_reports:    "--module-daily",
+  incident_reports: "--module-incidents",
+  accident_reports: "--module-accidents",
+  refrigeration:    "--module-refrig",
+  air_quality:      "--module-air",
+  ice_operations:   "--module-ice-ops",
+  ice_depth:        "--module-ice-depth",
+  communications:   "--module-comms",
+  scheduling:       "--module-scheduling",
 }
 
 const MODULE_ICONS: Record<ModuleKey, string> = {
@@ -83,44 +87,45 @@ function ModuleTile({
   title: string
   showHideButton: boolean
 }) {
-  const bg = MODULE_COLORS[moduleKey]
+  const accentVar = MODULE_ACCENT[moduleKey]
   const iconPath = MODULE_ICONS[moduleKey]
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
+  // Inline styles drive the dynamic accent color from CSS vars. Card surface
+  // and shadow come from tokens; only the accent rail + icon chip vary.
+  const tileStyle: React.CSSProperties = {
+    // Card surface ties to design tokens; accent shows only in the rail
+    // and the icon chip so the surface system stays intact.
+    ["--module-accent" as string]: `var(${accentVar})`,
+  }
+
   return (
-    <div style={{ position: "relative" }}>
+    <div className="relative">
       <Link
         href={href}
-        style={{ textDecoration: "none", outline: "none" }}
-        className="group focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-2xl block"
+        className="group block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/45"
+        style={tileStyle}
       >
         <div
-          style={{
-            background: bg,
-            borderRadius: 16,
-            minHeight: 200,
-            padding: 22,
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-            overflow: "hidden",
-            boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-            transition:
-              "transform 0.18s cubic-bezier(.4,0,.2,1), box-shadow 0.18s",
-          }}
-          className="group-hover:-translate-y-0.5 group-hover:shadow-2xl"
+          className="relative flex h-full min-h-[180px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-[var(--module-accent)]/50 group-hover:shadow-[var(--shadow-elev-3)]"
         >
+          {/* Tinted halo wash — softer than a full flood, still readable */}
           <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 12,
-              background: "rgba(255,255,255,0.15)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              marginBottom: "auto",
+              background:
+                "radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--module-accent) 18%, transparent), transparent 55%)",
+            }}
+          />
+
+          <div
+            className="relative flex h-11 w-11 items-center justify-center rounded-lg"
+            style={{
+              background:
+                "color-mix(in oklab, var(--module-accent) 18%, transparent)",
+              color: "var(--module-accent)",
             }}
           >
             <svg
@@ -128,7 +133,7 @@ function ModuleTile({
               height="22"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#ffffff"
+              stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -139,29 +144,23 @@ function ModuleTile({
           </div>
 
           <div
+            className="relative mt-auto pt-8 text-card-foreground"
             style={{
               fontFamily: DISPLAY_FONT,
-              fontSize: 28,
+              fontSize: 26,
               lineHeight: 1,
               letterSpacing: "0.01em",
               textTransform: "uppercase",
-              color: "#ffffff",
-              marginTop: 40,
             }}
           >
             {title}
           </div>
 
+          {/* Bottom accent rail — module-tinted, replaces the old green bar */}
           <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 4,
-              background: "#4DFF00",
-              opacity: 0.7,
-            }}
+            aria-hidden
+            className="absolute bottom-0 left-0 right-0 h-1"
+            style={{ background: "var(--module-accent)", opacity: 0.85 }}
           />
         </div>
       </Link>
@@ -169,34 +168,14 @@ function ModuleTile({
       {showHideButton ? (
         <form
           action={hideDashboardModule}
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            margin: 0,
-            zIndex: 1,
-          }}
+          className="absolute right-2.5 top-2.5 z-10 m-0"
         >
           <input type="hidden" name="moduleKey" value={moduleKey} />
           <button
             type="submit"
             aria-label={`Hide ${title} from dashboard`}
             title="Hide from dashboard"
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 999,
-              background: "rgba(0, 0, 0, 0.4)",
-              color: "#ffffff",
-              border: "1px solid rgba(255, 255, 255, 0.25)",
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 16,
-              lineHeight: 1,
-              padding: 0,
-            }}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/90 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-card hover:text-foreground"
           >
             ×
           </button>
@@ -283,44 +262,32 @@ export default async function DashboardPage() {
   return (
     <>
       <PreviewBanner />
-      <div className="mx-auto w-full max-w-5xl px-4 py-8">
-        <div className="mb-8">
-          <h1
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: "clamp(36px, 6vw, 52px)",
-              lineHeight: 1,
-              letterSpacing: "0.01em",
-              textTransform: "uppercase",
-              color: "var(--foreground)",
-              margin: 0,
-            }}
-          >
-            {firstName ? `Hi, ${firstName}` : "Welcome"}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Pick a module to get started.
-          </p>
-        </div>
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <PageHeader
+          eyebrow={firstName ? "Operations" : undefined}
+          title={
+            <span
+              style={{
+                fontFamily: DISPLAY_FONT,
+                fontSize: "clamp(34px, 5.5vw, 48px)",
+                lineHeight: 1.05,
+                letterSpacing: "0.01em",
+                textTransform: "uppercase",
+              }}
+            >
+              {firstName ? `Hi, ${firstName}` : "Welcome"}
+            </span>
+          }
+          description="Pick a module to get started."
+        />
 
         {visibleModules.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>All tiles hidden</CardTitle>
-              <CardDescription>
-                You&apos;ve hidden every module tile. Restore one below to get
-                back to work.
-              </CardDescription>
-            </CardHeader>
-          </Card>
+          <EmptyState
+            title="All tiles hidden"
+            description="You've hidden every module tile. Restore one below to get back to work."
+          />
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-              gap: 16,
-            }}
-          >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {visibleModules.map((key) => (
               <ModuleTile
                 key={key}
@@ -334,8 +301,8 @@ export default async function DashboardPage() {
         )}
 
         {canEditPreferences && hiddenModules.length > 0 ? (
-          <section className="mt-10">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          <section className="mt-12">
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               Hidden tiles
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -348,7 +315,7 @@ export default async function DashboardPage() {
                   <button
                     type="submit"
                     aria-label={`Restore ${KNOWN_MODULES[key].title} to dashboard`}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1.5 text-sm text-foreground shadow-[var(--shadow-elev-1)] transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/45"
                   >
                     <span aria-hidden="true">+</span>
                     <span>{KNOWN_MODULES[key].title}</span>
