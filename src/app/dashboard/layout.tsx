@@ -19,9 +19,9 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen bg-background">
       <AppSidebar isAdmin={isAdmin} email={email} fullName={fullName} />
-      <div className="flex min-h-screen flex-col lg:pl-64">
+      <div className="flex min-h-screen flex-col lg:pl-64 xl:pl-72">
         <AppHeader email={email} fullName={fullName} isAdmin={isAdmin} />
-        <main id="main-content" className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl">{children}</main>
       </div>
       <Toaster />
     </div>

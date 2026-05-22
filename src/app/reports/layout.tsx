@@ -37,7 +37,7 @@ export default async function ReportsLayout({
   return (
     <div className="min-h-screen bg-background">
       <AppSidebar isAdmin={isAdmin} email={email} fullName={fullName} />
-      <div className="flex min-h-screen flex-col lg:pl-64">
+      <div className="flex min-h-screen flex-col lg:pl-64 xl:pl-72">
         <PreviewBanner />
         <OfflineBanner />
         <AppHeader email={email} fullName={fullName} isAdmin={isAdmin} />
@@ -46,7 +46,7 @@ export default async function ReportsLayout({
           tempF={temp?.tempF ?? null}
           tempLocation={temp?.location ?? null}
         />
-        <main id="main-content" className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl">{children}</main>
       </div>
       <Toaster />
     </div>
