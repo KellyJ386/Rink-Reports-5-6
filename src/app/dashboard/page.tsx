@@ -92,40 +92,39 @@ function ModuleTile({
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
-  // Inline styles drive the dynamic accent color from CSS vars. Card surface
-  // and shadow come from tokens; only the accent rail + icon chip vary.
   const tileStyle: React.CSSProperties = {
-    // Card surface ties to design tokens; accent shows only in the rail
-    // and the icon chip so the surface system stays intact.
     ["--module-accent" as string]: `var(${accentVar})`,
   }
 
   return (
-    <div className="relative">
+    <div className="relative" style={tileStyle}>
       <Link
         href={href}
-        className="group block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/45"
-        style={tileStyle}
+        className="group block rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/55"
       >
         <div
-          className="relative flex h-full min-h-[180px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-[var(--module-accent)]/50 group-hover:shadow-[var(--shadow-elev-3)]"
+          className="relative flex h-full min-h-[200px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-2)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[var(--shadow-elev-3)]"
+          style={{
+            background:
+              "linear-gradient(160deg, color-mix(in oklab, var(--module-accent) 100%, white 10%) 0%, var(--module-accent) 55%, color-mix(in oklab, var(--module-accent) 85%, black 15%) 100%)",
+          }}
         >
-          {/* Tinted halo wash — softer than a full flood, still readable */}
+          {/* Subtle highlight sheen at the top for the "premium" feel */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0"
+            className="pointer-events-none absolute inset-x-0 top-0 h-1/2"
             style={{
               background:
-                "radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--module-accent) 18%, transparent), transparent 55%)",
+                "radial-gradient(80% 100% at 20% 0%, rgba(255,255,255,0.18), transparent 70%)",
             }}
           />
 
           <div
-            className="relative flex h-11 w-11 items-center justify-center rounded-lg"
+            className="relative flex h-11 w-11 items-center justify-center rounded-xl"
             style={{
-              background:
-                "color-mix(in oklab, var(--module-accent) 18%, transparent)",
-              color: "var(--module-accent)",
+              background: "rgba(255,255,255,0.18)",
+              backdropFilter: "blur(4px)",
+              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.18)",
             }}
           >
             <svg
@@ -133,7 +132,7 @@ function ModuleTile({
               height="22"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="currentColor"
+              stroke="#ffffff"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -144,23 +143,27 @@ function ModuleTile({
           </div>
 
           <div
-            className="relative mt-auto pt-8 text-card-foreground"
+            className="relative mt-auto pt-8 text-white"
             style={{
               fontFamily: DISPLAY_FONT,
-              fontSize: 26,
+              fontSize: 28,
               lineHeight: 1,
-              letterSpacing: "0.01em",
+              letterSpacing: "0.015em",
               textTransform: "uppercase",
+              textShadow: "0 1px 2px rgba(0,0,0,0.25)",
             }}
           >
             {title}
           </div>
 
-          {/* Bottom accent rail — module-tinted, replaces the old green bar */}
+          {/* Bottom rail — brand green accent, signature Subzero-style stripe */}
           <div
             aria-hidden
             className="absolute bottom-0 left-0 right-0 h-1"
-            style={{ background: "var(--module-accent)", opacity: 0.85 }}
+            style={{
+              background:
+                "linear-gradient(to right, var(--primary) 0%, color-mix(in oklab, var(--primary) 60%, white 40%) 100%)",
+            }}
           />
         </div>
       </Link>
@@ -175,7 +178,7 @@ function ModuleTile({
             type="submit"
             aria-label={`Hide ${title} from dashboard`}
             title="Hide from dashboard"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/90 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-card hover:text-foreground"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-sm transition-colors hover:bg-black/55"
           >
             ×
           </button>
