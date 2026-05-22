@@ -21,11 +21,43 @@ import {
   OPERATION_DESCRIPTIONS,
   OPERATION_EQUIPMENT_TYPE,
   OPERATION_LABELS,
+  OPERATION_TYPES,
   isOperationType,
   type EquipmentType,
   type OperationType,
   type TemperatureUnit,
 } from "../types"
+
+function OperationTabs({ active }: { active: OperationType | null }) {
+  return (
+    <nav
+      aria-label="Ice operation type"
+      className="-mx-4 overflow-x-auto px-4"
+    >
+      <ul className="flex w-max min-w-full gap-1 border-b border-border">
+        {OPERATION_TYPES.map((op) => {
+          const isActive = op === active
+          return (
+            <li key={op}>
+              <Link
+                href={`/reports/ice-operations/${op}`}
+                aria-current={isActive ? "page" : undefined}
+                className={
+                  "inline-flex items-center whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
+                  (isActive
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground")
+                }
+              >
+                {OPERATION_LABELS[op]}
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  )
+}
 
 export const dynamic = "force-dynamic"
 
@@ -61,6 +93,7 @@ function NotAvailable({
           {operationType ? ` / ${breadcrumbLabel}` : ""}
         </p>
       </div>
+      <OperationTabs active={operationType} />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -253,7 +286,12 @@ export default async function OperationTypePage({
           </Link>{" "}
           / {OPERATION_LABELS[operationType]}
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+      </div>
+
+      <OperationTabs active={operationType} />
+
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">
           {OPERATION_LABELS[operationType]}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
