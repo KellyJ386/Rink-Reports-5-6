@@ -217,7 +217,7 @@ export default async function IncidentsHomePage() {
       </div>
 
       <SubmissionForm
-        defaultReporterName={userRow?.full_name ?? ""}
+        defaultReporterName=""
         defaultReporterPhone={userRow?.phone ?? ""}
         incidentTypes={types.map((t) => ({ id: t.id, name: t.name }))}
         severityLevels={severities.map((s) => ({
