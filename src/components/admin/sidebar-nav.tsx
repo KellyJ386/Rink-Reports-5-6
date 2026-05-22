@@ -21,10 +21,10 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
 
   const linkCls = (href: string) =>
     cn(
-      "flex items-center gap-3 px-4 py-2 text-sm transition-colors border-l-[3px]",
+      "flex items-center gap-3 px-4 py-2 text-sm transition-colors duration-150 border-l-[3px]",
       isActive(href)
         ? "border-sidebar-primary bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-        : "border-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        : "border-transparent text-sidebar-foreground-muted hover:bg-sidebar-accent/55 hover:text-sidebar-foreground"
     )
 
   return (
@@ -41,7 +41,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
 
       {adminNavGroups.map((group) => (
         <div key={group.label} className="mt-2">
-          <p className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/35">
+          <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground-muted">
             {group.label}
           </p>
           {group.items.map((item) => {
