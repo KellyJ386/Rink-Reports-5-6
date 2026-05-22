@@ -10,9 +10,9 @@ function Textarea({
     <textarea
       data-slot="textarea"
       className={cn(
-        "border-input placeholder:text-muted-foreground dark:bg-input/30 flex min-h-[72px] w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+        "border border-input placeholder:text-muted-foreground bg-card dark:bg-card/60 flex min-h-[88px] w-full rounded-md px-3 py-2 text-base shadow-[var(--shadow-elev-1)] transition-[color,box-shadow,border-color] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        "focus-visible:border-[var(--accent-brand)] focus-visible:ring-[var(--accent-brand)]/40 focus-visible:ring-[3px]",
+        "aria-invalid:ring-destructive/25 dark:aria-invalid:ring-destructive/45 aria-invalid:border-destructive",
         className
       )}
       {...props}

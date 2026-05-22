@@ -23,7 +23,7 @@ export function AppSidebar({ isAdmin, email, fullName }: AppSidebarProps) {
 
   return (
     <aside
-      className="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+      className="hidden lg:flex fixed inset-y-0 left-0 w-64 xl:w-72 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[var(--shadow-elev-2)]"
       aria-label="App sidebar"
     >
       {/* Logo */}
@@ -57,7 +57,7 @@ export function AppSidebar({ isAdmin, email, fullName }: AppSidebarProps) {
               {displayName}
             </p>
             {fullName && email && (
-              <p className="truncate text-xs text-sidebar-foreground/45 leading-tight">
+              <p className="truncate text-xs text-sidebar-foreground-muted leading-tight">
                 {email}
               </p>
             )}

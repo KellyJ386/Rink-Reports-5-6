@@ -6,16 +6,21 @@ export default function AuthLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-screen flex-1 flex-col items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
+    <div className="relative flex min-h-screen flex-1 flex-col items-center justify-center bg-background px-4 py-12">
+      {/* Subtle sky-accent halo so login feels like a destination, not a flat page. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,var(--accent-brand)/0.12,transparent_70%)] dark:bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,var(--accent-brand)/0.18,transparent_70%)]"
+      />
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center text-center">
           <Link
             href="/"
-            className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+            className="text-xl font-semibold tracking-tight text-foreground"
           >
             MFO / Rink Reports
           </Link>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-muted-foreground">
             Facility operations console
           </p>
         </div>

@@ -53,10 +53,10 @@ export function AppSidebarNav({ isAdmin, onNavigate }: AppSidebarNavProps) {
 
   const linkCls = (href: string, exact = false) =>
     cn(
-      "flex items-center gap-3 px-4 py-2 text-sm transition-colors border-l-[3px]",
+      "flex items-center gap-3 px-4 py-2 text-sm transition-colors duration-150 border-l-[3px]",
       isActive(href, exact)
         ? "border-sidebar-primary bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-        : "border-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        : "border-transparent text-sidebar-foreground-muted hover:bg-sidebar-accent/55 hover:text-sidebar-foreground"
     )
 
   return (

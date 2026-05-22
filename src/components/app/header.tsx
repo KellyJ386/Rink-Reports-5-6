@@ -32,7 +32,7 @@ export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
   }, [fullName, email])
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/60 bg-background/85 px-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 lg:px-6">
       <div className="lg:hidden">
         <AppMobileSidebar isAdmin={isAdmin} email={email} fullName={fullName} />
       </div>

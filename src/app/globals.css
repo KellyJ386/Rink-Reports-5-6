@@ -20,13 +20,19 @@
 :root {
   --radius: 0.625rem;
 
-  /* Surfaces — warmer light bg, pure white cards */
-  --background:           oklch(0.97 0.005 240);   /* #F5F8FB             */
+  /* Surfaces — three-tier elevation: bg → card → elevated */
+  --background:           oklch(0.985 0.005 240);  /* #F8FAFC — softer    */
   --foreground:           oklch(0.18 0.04 260);    /* #0A1628 — 16:1      */
   --card:                 oklch(1 0 0);            /* #FFFFFF             */
   --card-foreground:      oklch(0.18 0.04 260);
+  --surface-elevated:     oklch(0.97 0.008 240);   /* dropdowns/popovers  */
   --popover:              oklch(1 0 0);
   --popover-foreground:   oklch(0.18 0.04 260);
+
+  /* Accent-brand — sky-blue for non-primary focus rings, info glows,
+     hover halos. Keeps brand green for actions; sky for "pop". */
+  --accent-brand:                 oklch(0.66 0.18 250);  /* #4F8FE6     */
+  --accent-brand-foreground:      oklch(1 0 0);
 
   /* Primary — action-green, navy ink on it */
   --primary:              oklch(0.72 0.21 131);    /* #69BE28             */
@@ -53,21 +59,21 @@
   /* Status — fg colors for inline use; -soft for pill backgrounds */
   --success:              oklch(0.55 0.18 131);    /* #4E8F1E             */
   --success-foreground:   oklch(1 0 0);
-  --success-soft:         oklch(0.95 0.06 131);    /* #E8F5D9             */
+  --success-soft:         oklch(0.94 0.11 131);    /* punchier pill bg    */
   --success-soft-foreground: oklch(0.40 0.16 131); /* #3A6B14             */
 
   --warning:              oklch(0.58 0.16 55);     /* #B45309             */
   --warning-foreground:   oklch(1 0 0);
-  --warning-soft:         oklch(0.96 0.07 90);     /* #FEF3C7             */
+  --warning-soft:         oklch(0.95 0.12 90);     /* punchier            */
   --warning-soft-foreground: oklch(0.44 0.13 55);  /* #8A3F07             */
 
   --info:                 oklch(0.55 0.14 240);    /* #0E7AB8             */
   --info-foreground:      oklch(1 0 0);
-  --info-soft:            oklch(0.94 0.04 240);    /* #DBEAFE             */
+  --info-soft:            oklch(0.93 0.08 240);    /* punchier            */
   --info-soft-foreground: oklch(0.40 0.13 240);    /* #0B5C8C             */
 
   --destructive-foreground: oklch(1 0 0);
-  --destructive-soft:     oklch(0.94 0.04 27);     /* #FEE2E2             */
+  --destructive-soft:     oklch(0.93 0.08 27);     /* punchier            */
   --destructive-soft-foreground: oklch(0.45 0.20 27); /* #B91C1C          */
 
   /* Charts — colorblind-safe ordering: green → teal → amber → sky → coral */
@@ -80,6 +86,7 @@
   /* Sidebar — navy in both modes (brand-constant shell) */
   --sidebar:                      oklch(0.22 0.09 258);  /* #002244     */
   --sidebar-foreground:           oklch(0.99 0 0);
+  --sidebar-foreground-muted:     oklch(1 0 0 / 70%);    /* legible muted */
   --sidebar-primary:              oklch(0.72 0.21 131);  /* green       */
   --sidebar-primary-foreground:   oklch(0.22 0.09 258);
   --sidebar-accent:               oklch(0.32 0.10 258);  /* #0A3A6E     */
@@ -105,12 +112,15 @@
 }
 
 .light {
-  --background:           oklch(0.97 0.005 240);
+  --background:           oklch(0.985 0.005 240);
   --foreground:           oklch(0.18 0.04 260);
   --card:                 oklch(1 0 0);
   --card-foreground:      oklch(0.18 0.04 260);
+  --surface-elevated:     oklch(0.97 0.008 240);
   --popover:              oklch(1 0 0);
   --popover-foreground:   oklch(0.18 0.04 260);
+  --accent-brand:                 oklch(0.66 0.18 250);
+  --accent-brand-foreground:      oklch(1 0 0);
   --primary:              oklch(0.72 0.21 131);
   --primary-foreground:   oklch(0.22 0.09 258);
   --secondary:            oklch(0.95 0.015 248);
@@ -125,18 +135,18 @@
   --ring:                 oklch(0.72 0.21 131);
   --success:              oklch(0.55 0.18 131);
   --success-foreground:   oklch(1 0 0);
-  --success-soft:         oklch(0.95 0.06 131);
+  --success-soft:         oklch(0.94 0.11 131);
   --success-soft-foreground: oklch(0.40 0.16 131);
   --warning:              oklch(0.58 0.16 55);
   --warning-foreground:   oklch(1 0 0);
-  --warning-soft:         oklch(0.96 0.07 90);
+  --warning-soft:         oklch(0.95 0.12 90);
   --warning-soft-foreground: oklch(0.44 0.13 55);
   --info:                 oklch(0.55 0.14 240);
   --info-foreground:      oklch(1 0 0);
-  --info-soft:            oklch(0.94 0.04 240);
+  --info-soft:            oklch(0.93 0.08 240);
   --info-soft-foreground: oklch(0.40 0.13 240);
   --destructive-foreground: oklch(1 0 0);
-  --destructive-soft:     oklch(0.94 0.04 27);
+  --destructive-soft:     oklch(0.93 0.08 27);
   --destructive-soft-foreground: oklch(0.45 0.20 27);
   --chart-1: oklch(0.65 0.20 131);
   --chart-2: oklch(0.62 0.12 195);
@@ -145,6 +155,7 @@
   --chart-5: oklch(0.68 0.18 18);
   --sidebar:                      oklch(0.22 0.09 258);
   --sidebar-foreground:           oklch(0.99 0 0);
+  --sidebar-foreground-muted:     oklch(1 0 0 / 70%);
   --sidebar-primary:              oklch(0.72 0.21 131);
   --sidebar-primary-foreground:   oklch(0.22 0.09 258);
   --sidebar-accent:               oklch(0.32 0.10 258);
@@ -173,12 +184,16 @@
     sky    #5BA3E0  stands in for solid navy
 */
 .dark {
-  --background:           oklch(0.18 0.045 257);   /* #0B1A2E             */
+  --background:           oklch(0.16 0.05 257);    /* deeper navy bg      */
   --foreground:           oklch(0.96 0.005 247);   /* #F1F5F9             */
-  --card:                 oklch(0.26 0.055 257);   /* #15283F             */
+  --card:                 oklch(0.235 0.055 257);  /* lifts card → 2.5:1  */
   --card-foreground:      oklch(0.96 0.005 247);
-  --popover:              oklch(0.32 0.060 257);   /* #1E3855             */
+  --surface-elevated:     oklch(0.295 0.06 257);   /* nav active / chips  */
+  --popover:              oklch(0.295 0.06 257);
   --popover-foreground:   oklch(0.96 0.005 247);
+
+  --accent-brand:                 oklch(0.72 0.16 250);  /* sky pop     */
+  --accent-brand-foreground:      oklch(0.22 0.09 258);
 
   --primary:              oklch(0.83 0.22 131);    /* #8BE04A — punchier  */
   --primary-foreground:   oklch(0.22 0.09 258);    /* #002244             */
@@ -225,13 +240,14 @@
   --chart-5: oklch(0.72 0.17 16);   /* coral #FB7185                      */
 
   /* Dark sidebar — deeper than bg, own elevation */
-  --sidebar:                      oklch(0.12 0.04 258);  /* #081728     */
+  --sidebar:                      oklch(0.105 0.045 258); /* deeper navy */
   --sidebar-foreground:           oklch(0.96 0.005 247);
+  --sidebar-foreground-muted:     oklch(1 0 0 / 65%);    /* legible muted */
   --sidebar-primary:              oklch(0.83 0.22 131);
   --sidebar-primary-foreground:   oklch(0.22 0.09 258);
   --sidebar-accent:               oklch(0.26 0.055 257);
   --sidebar-accent-foreground:    oklch(0.96 0.005 247);
-  --sidebar-border:               oklch(1 0 0 / 14%);
+  --sidebar-border:               oklch(1 0 0 / 10%);    /* softer chrome */
   --sidebar-ring:                 oklch(0.83 0.22 131);
 
   --brand-navy:                   oklch(0.70 0.13 250);  /* #5BA3E0 sky */
@@ -291,6 +307,7 @@
   --color-chart-5: var(--chart-5);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-foreground-muted: var(--sidebar-foreground-muted);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -305,6 +322,65 @@
   --color-accent-amber-foreground: var(--accent-amber-foreground);
   --color-accent-coral: var(--accent-coral);
   --color-accent-coral-foreground: var(--accent-coral-foreground);
+  --color-accent-brand: var(--accent-brand);
+  --color-accent-brand-foreground: var(--accent-brand-foreground);
+  --color-surface-elevated: var(--surface-elevated);
+
+  /* Elevation scale — softer than Tailwind defaults; warmer in dark mode
+     via the .dark override below. Use as shadow-[var(--shadow-elev-N)]. */
+  --shadow-elev-1: 0 1px 2px 0 oklch(0.18 0.04 260 / 0.06);
+  --shadow-elev-2: 0 4px 12px -2px oklch(0.18 0.04 260 / 0.10),
+                   0 2px 4px -2px oklch(0.18 0.04 260 / 0.06);
+  --shadow-elev-3: 0 12px 32px -8px oklch(0.18 0.04 260 / 0.18),
+                   0 4px 8px -4px oklch(0.18 0.04 260 / 0.10);
+
+  /* Module accent tokens — used by dashboard module tiles. Light values;
+     .dark below brightens them so icons read on navy. */
+  --color-module-daily:       var(--module-daily);
+  --color-module-ice-depth:   var(--module-ice-depth);
+  --color-module-ice-ops:     var(--module-ice-ops);
+  --color-module-incidents:   var(--module-incidents);
+  --color-module-accidents:   var(--module-accidents);
+  --color-module-refrig:      var(--module-refrig);
+  --color-module-air:         var(--module-air);
+  --color-module-comms:       var(--module-comms);
+  --color-module-scheduling:  var(--module-scheduling);
+}
+
+/* Dark-mode elevation: shadows on navy need more punch and a touch of
+   sky in the alpha channel for the "premium glass" feel. */
+.dark {
+  --shadow-elev-1: 0 1px 2px 0 oklch(0 0 0 / 0.35);
+  --shadow-elev-2: 0 4px 14px -2px oklch(0 0 0 / 0.45),
+                   0 2px 4px -2px oklch(0 0 0 / 0.30);
+  --shadow-elev-3: 0 16px 40px -8px oklch(0 0 0 / 0.55),
+                   0 6px 12px -4px oklch(0 0 0 / 0.35);
+}
+
+/* Module accent tokens — light defaults + dark overrides. Used by
+   dashboard tiles as tinted backgrounds (`bg-module-daily/10`) and icon
+   colors. Hues spread around the wheel for fast scan-recognition. */
+:root {
+  --module-daily:       oklch(0.62 0.13 250);  /* sky      */
+  --module-ice-depth:   oklch(0.62 0.12 195);  /* teal     */
+  --module-ice-ops:     oklch(0.55 0.18 131);  /* green    */
+  --module-incidents:   oklch(0.58 0.22 27);   /* red      */
+  --module-accidents:   oklch(0.68 0.18 18);   /* coral    */
+  --module-refrig:      oklch(0.58 0.16 260);  /* indigo   */
+  --module-air:         oklch(0.62 0.13 200);  /* cyan     */
+  --module-comms:       oklch(0.78 0.17 70);   /* amber    */
+  --module-scheduling:  oklch(0.58 0.20 305);  /* violet   */
+}
+.dark {
+  --module-daily:       oklch(0.72 0.14 250);
+  --module-ice-depth:   oklch(0.78 0.13 180);
+  --module-ice-ops:     oklch(0.83 0.22 131);
+  --module-incidents:   oklch(0.72 0.20 22);
+  --module-accidents:   oklch(0.72 0.17 16);
+  --module-refrig:      oklch(0.72 0.15 260);
+  --module-air:         oklch(0.78 0.13 200);
+  --module-comms:       oklch(0.82 0.16 80);
+  --module-scheduling:  oklch(0.72 0.18 305);
 }
 
 @layer base {
