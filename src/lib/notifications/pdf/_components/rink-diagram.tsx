@@ -64,8 +64,12 @@ const CHIP_R = 16
 export type DiagramPoint = {
   cx: number
   cy: number
-  depth_value: number
-  severity: "ok" | "low" | "high"
+  point_number: number
+  // Recorded measurement, or null when the operator skipped this point.
+  measurement: {
+    depth_value: number
+    severity: "ok" | "low" | "high"
+  } | null
 }
 
 function EndZoneFaceoff({ fx, fy }: { fx: number; fy: number }) {
@@ -213,27 +217,35 @@ export function PdfRinkDiagram({
       >
         <RinkMarkings />
 
-        {points.map((p, i) => (
-          <G key={i}>
-            <Circle
-              cx={p.cx}
-              cy={p.cy}
-              r={CHIP_R}
-              fill={SEVERITY_FILL[p.severity]}
-              stroke="#0f172a"
-              strokeWidth={1}
-            />
-            <SvgText
-              x={p.cx}
-              y={p.cy + 4}
-              fill="#ffffff"
-              textAnchor="middle"
-              style={{ fontSize: 10, fontWeight: 700 }}
-            >
-              {formatDepth(p.depth_value, unit)}
-            </SvgText>
-          </G>
-        ))}
+        {points.map((p, i) => {
+          const m = p.measurement
+          const fill = m ? SEVERITY_FILL[m.severity] : "#e2e8f0"
+          const stroke = m ? "#0f172a" : "#94a3b8"
+          const textFill = m ? "#ffffff" : "#64748b"
+          const label = m ? formatDepth(m.depth_value, unit) : String(p.point_number)
+          return (
+            <G key={i}>
+              <Circle
+                cx={p.cx}
+                cy={p.cy}
+                r={CHIP_R}
+                fill={fill}
+                stroke={stroke}
+                strokeWidth={1}
+                strokeDasharray={m ? undefined : "2 2"}
+              />
+              <SvgText
+                x={p.cx}
+                y={p.cy + 4}
+                fill={textFill}
+                textAnchor="middle"
+                style={{ fontSize: 10, fontWeight: 700 }}
+              >
+                {label}
+              </SvgText>
+            </G>
+          )
+        })}
       </Svg>
       {logoUrl ? (
         // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf Image, not HTML img

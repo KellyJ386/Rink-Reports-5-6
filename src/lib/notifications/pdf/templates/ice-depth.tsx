@@ -26,13 +26,16 @@ import type { ModulePdfResult } from "../registry"
 // Data
 // -----------------------------------------------------------------------------
 
-type Measurement = {
+type LayoutPoint = {
+  point_id: string
   point_number: number
   label: string | null
-  depth_value: number
-  severity: "low" | "ok" | "high"
   x: number
   y: number
+  measurement: {
+    depth_value: number
+    severity: "low" | "ok" | "high"
+  } | null
 }
 
 type IceDepthRecord = {
@@ -46,10 +49,12 @@ type IceDepthRecord = {
   low_count: number
   high_count: number
   total: number
+  // Total points the layout expected (recorded + skipped).
+  expected_total: number
   layout_name: string | null
   logo_url: string | null
   submitter: { first_name: string; last_name: string } | null
-  measurements: Measurement[]
+  points: LayoutPoint[]
 }
 
 async function fetchIceDepthRecord(
@@ -97,40 +102,91 @@ async function fetchIceDepthRecord(
     if (data) submitter = { first_name: data.first_name, last_name: data.last_name }
   }
 
-  const { data: mRowsRaw } = await sb
-    .from("ice_depth_measurements")
-    .select(
-      "point_number_snapshot, label_snapshot, depth_value, severity, x_snapshot, y_snapshot",
-    )
-    .eq("session_id", recordId)
-    .order("point_number_snapshot", { ascending: true })
+  const [{ data: mRowsRaw }, { data: layoutPointsRaw }] = await Promise.all([
+    sb
+      .from("ice_depth_measurements")
+      .select(
+        "point_id, point_number_snapshot, label_snapshot, depth_value, severity, x_snapshot, y_snapshot",
+      )
+      .eq("session_id", recordId)
+      .order("point_number_snapshot", { ascending: true }),
+    row.layout_id
+      ? sb
+          .from("ice_depth_points")
+          .select("id, point_number, label, x_position, y_position, is_active")
+          .eq("layout_id", row.layout_id)
+          .eq("is_active", true)
+          .order("point_number", { ascending: true })
+      : Promise.resolve({ data: [] as Array<never> }),
+  ])
 
-  const measurements: Measurement[] = (
-    (mRowsRaw ?? []) as Array<{
-      point_number_snapshot: number
-      label_snapshot: string | null
-      depth_value: number | string
-      severity: Measurement["severity"]
-      x_snapshot: number | string
-      y_snapshot: number | string
-    }>
-  ).map((m) => ({
-    point_number: m.point_number_snapshot,
-    label: m.label_snapshot,
-    depth_value:
-      typeof m.depth_value === "string"
-        ? Number(m.depth_value)
-        : m.depth_value,
-    severity: m.severity,
-    x:
-      typeof m.x_snapshot === "string"
-        ? Number(m.x_snapshot)
-        : m.x_snapshot,
-    y:
-      typeof m.y_snapshot === "string"
-        ? Number(m.y_snapshot)
-        : m.y_snapshot,
-  }))
+  const measurementByPointId = new Map<
+    string,
+    NonNullable<LayoutPoint["measurement"]>
+  >()
+  type MeasurementRow = {
+    point_id: string | null
+    point_number_snapshot: number
+    label_snapshot: string | null
+    depth_value: number | string
+    severity: "low" | "ok" | "high"
+    x_snapshot: number | string
+    y_snapshot: number | string
+  }
+  const measurementRows = (mRowsRaw ?? []) as MeasurementRow[]
+  // Index measurements by the layout point id (preferred) for fast lookup.
+  for (const m of measurementRows) {
+    if (m.point_id) {
+      measurementByPointId.set(m.point_id, {
+        depth_value:
+          typeof m.depth_value === "string" ? Number(m.depth_value) : m.depth_value,
+        severity: m.severity,
+      })
+    }
+  }
+
+  type LayoutPointRow = {
+    id: string
+    point_number: number
+    label: string | null
+    x_position: number | string
+    y_position: number | string
+    is_active: boolean
+  }
+  const layoutPointRows = (layoutPointsRaw ?? []) as LayoutPointRow[]
+
+  let points: LayoutPoint[]
+  if (layoutPointRows.length > 0) {
+    // Walk the layout's active points so skipped points still appear on the diagram.
+    points = layoutPointRows.map((p) => ({
+      point_id: p.id,
+      point_number: p.point_number,
+      label: p.label,
+      x:
+        typeof p.x_position === "string" ? Number(p.x_position) : p.x_position,
+      y:
+        typeof p.y_position === "string" ? Number(p.y_position) : p.y_position,
+      measurement: measurementByPointId.get(p.id) ?? null,
+    }))
+  } else {
+    // Fallback: layout was deleted. Use the measurement snapshot rows only.
+    points = measurementRows.map((m) => ({
+      point_id: m.point_id ?? `snapshot-${m.point_number_snapshot}`,
+      point_number: m.point_number_snapshot,
+      label: m.label_snapshot,
+      x:
+        typeof m.x_snapshot === "string" ? Number(m.x_snapshot) : m.x_snapshot,
+      y:
+        typeof m.y_snapshot === "string" ? Number(m.y_snapshot) : m.y_snapshot,
+      measurement: {
+        depth_value:
+          typeof m.depth_value === "string"
+            ? Number(m.depth_value)
+            : m.depth_value,
+        severity: m.severity,
+      },
+    }))
+  }
 
   return {
     id: row.id,
@@ -149,10 +205,11 @@ async function fetchIceDepthRecord(
     low_count: row.low_count,
     high_count: row.high_count,
     total: row.total_measurements,
+    expected_total: points.length,
     layout_name,
     logo_url,
     submitter,
-    measurements,
+    points,
   }
 }
 
@@ -271,7 +328,7 @@ const styles = StyleSheet.create({
   },
 })
 
-const SEVERITY_COLOR: Record<Measurement["severity"], string> = {
+const SEVERITY_COLOR: Record<"low" | "ok" | "high", string> = {
   low: "#dc2626", // red
   ok: "#16a34a", // green
   high: "#eab308", // yellow
@@ -329,7 +386,7 @@ function IceDepthPdf({
                 {r.low_count} LOW
               </Text>
             ) : null}
-            {!hasExceedance ? <Text style={styles.okChip}>All OK</Text> : null}
+            {!hasExceedance ? <Text style={styles.okChip}>All Good</Text> : null}
           </View>
         </View>
 
@@ -362,23 +419,23 @@ function IceDepthPdf({
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>
-            Rink diagram ({r.measurements.length} measurements, depth in{" "}
+            Rink diagram ({r.total} of {r.expected_total} recorded, depth in{" "}
             {r.unit === "inches" ? "inches" : "mm"})
           </Text>
-          {r.measurements.length === 0 ? (
+          {r.points.length === 0 ? (
             <Text style={{ fontSize: 10, color: "#94a3b8", padding: 8 }}>
-              No measurements captured for this session.
+              No measurement points configured for this layout.
             </Text>
           ) : (
             <View style={{ alignItems: "center", marginTop: 6 }}>
               <PdfRinkDiagram
-                points={r.measurements.map((m): DiagramPoint => {
-                  const { cx, cy } = rinkCoords(m.x, m.y)
+                points={r.points.map((p): DiagramPoint => {
+                  const { cx, cy } = rinkCoords(p.x, p.y)
                   return {
                     cx,
                     cy,
-                    depth_value: m.depth_value,
-                    severity: m.severity,
+                    point_number: p.point_number,
+                    measurement: p.measurement,
                   }
                 })}
                 unit={r.unit}
@@ -388,7 +445,7 @@ function IceDepthPdf({
               <View style={styles.legendRow}>
                 <View style={styles.legendItem}>
                   <View style={{ ...styles.legendDot, backgroundColor: "#16a34a" }} />
-                  <Text style={styles.legendLabel}>OK</Text>
+                  <Text style={styles.legendLabel}>Good</Text>
                 </View>
                 <View style={styles.legendItem}>
                   <View style={{ ...styles.legendDot, backgroundColor: "#dc2626" }} />
@@ -397,6 +454,10 @@ function IceDepthPdf({
                 <View style={styles.legendItem}>
                   <View style={{ ...styles.legendDot, backgroundColor: "#eab308" }} />
                   <Text style={styles.legendLabel}>High</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={{ ...styles.legendDot, backgroundColor: "#e2e8f0", borderWidth: 1, borderColor: "#94a3b8" }} />
+                  <Text style={styles.legendLabel}>Skipped</Text>
                 </View>
               </View>
             </View>
