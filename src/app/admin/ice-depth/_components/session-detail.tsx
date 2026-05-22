@@ -6,7 +6,6 @@ import { toast } from "sonner"
 
 import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
 import { Badge } from "@/components/ui/badge"
-import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -20,7 +19,6 @@ import { addIceDepthFollowupNote } from "../actions"
 import type {
   ActionState,
   MeasurementRow,
-  ReadingSeverity,
   SessionDetailData,
   SettingsRow,
 } from "../types"
@@ -167,89 +165,19 @@ export function SessionDetail({ detail, backHref }: Props) {
             </section>
           )}
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-full max-w-xs" style={{ aspectRatio: "380/740" }}>
-                <USARink
-                  points={rinkPoints}
-                  showValues
-                  className="rounded-xl border"
-                  logoUrl={detail.layout?.logo_url ?? null}
-                />
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Colors come from session-snapshot severities. Changing the
-                facility settings does not reclassify history.
-              </p>
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-full max-w-xs" style={{ aspectRatio: "380/740" }}>
+              <USARink
+                points={rinkPoints}
+                showValues
+                className="rounded-xl border"
+                logoUrl={detail.layout?.logo_url ?? null}
+              />
             </div>
-
-            <div className="flex flex-col gap-3">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    Measurements ({measurements.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {measurements.length === 0 ? (
-                    <p className="text-muted-foreground p-3 text-sm">
-                      No measurements on this session.
-                    </p>
-                  ) : (
-                    <div className="max-h-[60vh] overflow-auto">
-                      <table className="w-full border-collapse text-sm">
-                        <thead className="bg-muted/60 sticky top-0">
-                          <tr>
-                            <th className="border-b px-3 py-2 text-left font-medium">
-                              #
-                            </th>
-                            <th className="border-b px-3 py-2 text-left font-medium">
-                              Label
-                            </th>
-                            <th className="border-b px-3 py-2 text-right font-medium">
-                              Depth
-                            </th>
-                            <th className="border-b px-3 py-2 text-left font-medium">
-                              Status
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...measurements]
-                            .sort(
-                              (a, b) =>
-                                a.point_number_snapshot -
-                                b.point_number_snapshot,
-                            )
-                            .map((m) => (
-                              <tr key={m.id} className="hover:bg-muted/30">
-                                <td className="border-b px-3 py-1.5 align-middle font-mono text-xs">
-                                  {m.point_number_snapshot}
-                                </td>
-                                <td className="border-b px-3 py-1.5 align-middle">
-                                  {m.label_snapshot ?? (
-                                    <span className="text-muted-foreground">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="border-b px-3 py-1.5 text-right align-middle font-mono">
-                                  {m.depth_value}
-                                </td>
-                                <td className="border-b px-3 py-1.5 align-middle">
-                                  <SeverityBadge
-                                    severity={m.severity as ReadingSeverity}
-                                  />
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+            <p className="text-muted-foreground text-xs">
+              Colors come from session-snapshot severities. Changing the
+              facility settings does not reclassify history.
+            </p>
           </div>
 
           <section className="flex flex-col gap-2">
@@ -323,16 +251,3 @@ export function SessionDetail({ detail, backHref }: Props) {
   )
 }
 
-function severityVariant(severity: ReadingSeverity): BadgeProps["variant"] {
-  if (severity === "high") return "error"
-  if (severity === "low") return "info"
-  return "secondary"
-}
-
-function SeverityBadge({ severity }: { severity: ReadingSeverity }) {
-  return (
-    <Badge variant={severityVariant(severity)} className="uppercase">
-      {severity}
-    </Badge>
-  )
-}
