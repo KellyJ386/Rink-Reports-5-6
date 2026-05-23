@@ -22,295 +22,302 @@ export type BodyDiagramProps = {
 
 type ViewName = "front" | "back"
 
+const VIEW_W = 240
+const VIEW_H = 560
+
+// Cartoon-style figure built from simple primitives (rects/ellipses/circles)
+// per body part. Each region is one shape (or a small group of mirrored
+// shapes) so the entire region shares one fill on selection.
+//
+// Coordinate plan (centered on x=120):
+//   head        ellipse cx=120 cy=52 rx=32 ry=38      (smiley face overlay on front only)
+//   face_jaw    lower half of head ellipse            (front only)
+//   neck        rect 110-130 y 86-108
+//   shoulders   two circles cx=72/168 cy=132 r=20
+//   torso       rounded rect x 85-155 y 116-238
+//   arms        upper arm + forearm rects on both sides
+//   elbows      two circles cx=58/182 cy=232 r=14
+//   wrists      two circles cx=58/182 cy=322 r=11
+//   hands       two rounded rects
+//   fingers     small rounded shapes at hand tips
+//   hips        rounded rect x 84-156 y 244-298
+//   upper_legs  two rects
+//   knees       two circles
+//   lower_legs  two rects
+//   ankles      two circles
+//   feet        two foot ellipses
+
 type RegionDef = {
   key: BodyPartKey
-  /** Optional: omit a side to hide this region in that view (e.g. face_jaw on back). */
-  front?: string
-  back?: string
+  front?: React.ReactNode
+  back?: React.ReactNode
 }
 
-const VIEW_W = 240
-const VIEW_H = 540
+function rect(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r = 0
+): React.ReactNode {
+  return <rect key={`${x}-${y}-${w}-${h}`} x={x} y={y} width={w} height={h} rx={r} ry={r} />
+}
 
-// Outer silhouette per view. Drawn once as a soft backdrop so the regions
-// visually "live inside" a body shape. The path is the same shape for both
-// views so the figure stays aligned.
-const SILHOUETTE_PATH =
-  "M120,10 " +
-  // head + jaw left side
-  "C92,10 84,30 84,52 " +
-  "C84,72 92,88 104,92 " +
-  "L100,108 " +
-  // shoulder up to deltoid left
-  "C82,110 64,118 56,128 " +
-  "L52,168 " +
-  // upper arm left outer
-  "L50,236 " +
-  // elbow
-  "L52,266 " +
-  // forearm left outer
-  "L54,338 " +
-  // wrist/hand left outer
-  "L50,378 " +
-  "L46,418 " +
-  // fingertips
-  "L60,422 L60,410 " +
-  // hand inside
-  "L72,408 " +
-  // forearm inside
-  "L78,338 " +
-  // elbow inside
-  "L82,266 " +
-  // upper arm inside / armpit
-  "L88,180 " +
-  // torso side
-  "L98,220 " +
-  // waist left
-  "L94,258 " +
-  // hip outer
-  "L88,300 " +
-  // outer thigh
-  "L94,400 " +
-  // knee outer
-  "L100,440 " +
-  // calf outer
-  "L96,500 " +
-  // ankle outer
-  "L94,520 " +
-  // heel
-  "L92,536 " +
-  "L132,536 " +
-  // right foot (mirrored)
-  "L128,520 " +
-  "L126,500 " +
-  "L122,440 " +
-  "L128,400 " +
-  "L122,300 " +
-  "L116,258 " +
-  "L116,220 " +
-  // crotch + right side mirrored back up
-  "L120,258 L124,220 " +
-  "L122,220 " +
-  "L132,180 " +
-  "L138,180 " +
-  "L142,180 " +
-  "L142,180 " +
-  "L142,180 " +
-  "L142,180 Z"
+function circle(cx: number, cy: number, r: number): React.ReactNode {
+  return <circle key={`${cx}-${cy}-${r}`} cx={cx} cy={cy} r={r} />
+}
 
-// Right-side mirrored path for the silhouette (we draw the full silhouette
-// as two halves to keep the path readable). The component renders both halves.
-const SILHOUETTE_RIGHT_PATH =
-  "M120,10 " +
-  "C148,10 156,30 156,52 " +
-  "C156,72 148,88 136,92 " +
-  "L140,108 " +
-  "C158,110 176,118 184,128 " +
-  "L188,168 " +
-  "L190,236 " +
-  "L188,266 " +
-  "L186,338 " +
-  "L190,378 " +
-  "L194,418 " +
-  "L180,422 L180,410 " +
-  "L168,408 " +
-  "L162,338 " +
-  "L158,266 " +
-  "L152,180 " +
-  "L142,220 " +
-  "L146,258 " +
-  "L152,300 " +
-  "L146,400 " +
-  "L140,440 " +
-  "L144,500 " +
-  "L146,520 " +
-  "L148,536 " +
-  "L120,536 " +
-  "L120,258 " +
-  "L120,180 Z"
+function ellipse(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number
+): React.ReactNode {
+  return <ellipse key={`e-${cx}-${cy}-${rx}-${ry}`} cx={cx} cy={cy} rx={rx} ry={ry} />
+}
 
-// Regions. Each "front" / "back" string is a path drawn over viewBox 240x540.
-// Multiple sub-shapes (left + right) are concatenated into a single d="" so
-// the entire region shares one fill on selection.
-const REGIONS: RegionDef[] = [
-  {
-    key: "head",
-    // Top half of skull (above face). On the back view it covers the full
-    // back of the head.
-    front:
-      "M120,12 " +
-      "C92,12 84,30 84,50 " +
-      "L84,52 " +
-      "L156,52 " +
-      "L156,50 " +
-      "C156,30 148,12 120,12 Z",
-    back:
-      "M120,12 " +
-      "C92,12 84,30 84,50 " +
-      "C84,72 92,88 120,90 " +
-      "C148,88 156,72 156,50 " +
-      "C156,30 148,12 120,12 Z",
-  },
-  {
-    key: "face_jaw",
-    // Front-only: lower half of head (cheeks + jaw).
-    front:
-      "M84,52 " +
-      "L156,52 " +
-      "C156,72 148,88 120,90 " +
-      "C92,88 84,72 84,52 Z",
-  },
-  {
-    key: "neck",
-    front: "M104,90 L136,90 L140,110 L100,110 Z",
-    back: "M104,90 L136,90 L140,110 L100,110 Z",
-  },
-  {
-    key: "shoulders",
-    // Two trapezoidal deltoid caps.
-    front:
-      "M100,108 C82,110 64,118 56,128 L60,158 L96,158 L96,118 Z " +
-      "M140,108 C158,110 176,118 184,128 L180,158 L144,158 L144,118 Z",
-    back:
-      "M100,108 C82,110 64,118 56,128 L60,158 L96,158 L96,118 Z " +
-      "M140,108 C158,110 176,118 184,128 L180,158 L144,158 L144,118 Z",
-  },
-  {
-    key: "torso",
-    front:
-      // chest + abdomen, narrowing at waist
-      "M96,118 L144,118 L152,160 L150,220 L140,258 L100,258 L90,220 L88,160 Z",
-    back:
-      // upper back + lower back
-      "M96,118 L144,118 L152,160 L150,220 L140,258 L100,258 L90,220 L88,160 Z",
-  },
-  {
-    key: "arms",
-    // Upper arm + forearm on both sides. Elbow occupies the band between
-    // upper arm and forearm; wrist occupies the band between forearm and hand.
-    front:
-      "M52,162 L88,162 L86,236 L54,236 Z " +
-      "M52,266 L82,266 L80,326 L54,326 Z " +
-      "M152,162 L188,162 L186,236 L154,236 Z " +
-      "M158,266 L188,266 L186,326 L160,326 Z",
-    back:
-      "M52,162 L88,162 L86,236 L54,236 Z " +
-      "M52,266 L82,266 L80,326 L54,326 Z " +
-      "M152,162 L188,162 L186,236 L154,236 Z " +
-      "M158,266 L188,266 L186,326 L160,326 Z",
-  },
-  {
-    key: "elbows",
-    front:
-      "M52,236 L86,236 L82,266 L54,266 Z " +
-      "M154,236 L188,236 L186,266 L158,266 Z",
-    back:
-      "M52,236 L86,236 L82,266 L54,266 Z " +
-      "M154,236 L188,236 L186,266 L158,266 Z",
-  },
-  {
-    key: "wrists",
-    // Thin band between forearm (ends at y=326) and hand (starts at y=338).
-    front:
-      "M54,326 L80,326 L78,338 L52,338 Z " +
-      "M160,326 L186,326 L188,338 L162,338 Z",
-    back:
-      "M54,326 L80,326 L78,338 L52,338 Z " +
-      "M160,326 L186,326 L188,338 L162,338 Z",
-  },
-  {
-    key: "hands",
-    front:
-      "M50,338 L78,338 L74,392 L52,392 Z " +
-      "M162,338 L190,338 L188,392 L166,392 Z",
-    back:
-      "M50,338 L78,338 L74,392 L52,392 Z " +
-      "M162,338 L190,338 L188,392 L166,392 Z",
-  },
-  {
-    key: "fingers",
-    // Splayed-finger fans at the hand tips.
-    front:
-      "M48,392 L78,392 L78,422 L72,422 L72,400 L66,400 L66,424 L60,424 L60,400 L54,400 L54,422 L48,422 Z " +
-      "M162,392 L192,392 L192,422 L186,422 L186,400 L180,400 L180,424 L174,424 L174,400 L168,400 L168,422 L162,422 Z",
-    back:
-      "M48,392 L78,392 L78,422 L72,422 L72,400 L66,400 L66,424 L60,424 L60,400 L54,400 L54,422 L48,422 Z " +
-      "M162,392 L192,392 L192,422 L186,422 L186,400 L180,400 L180,424 L174,424 L174,400 L168,400 L168,422 L162,422 Z",
-  },
-  {
-    key: "hips",
-    front: "M88,258 L152,258 L150,302 L90,302 Z",
-    back: "M88,258 L152,258 L150,302 L90,302 Z",
-  },
-  {
-    key: "upper_legs",
-    front:
-      "M90,302 L118,302 L116,402 L94,402 Z " +
-      "M122,302 L150,302 L146,402 L124,402 Z",
-    back:
-      "M90,302 L118,302 L116,402 L94,402 Z " +
-      "M122,302 L150,302 L146,402 L124,402 Z",
-  },
-  {
-    key: "knees",
-    front:
-      "M94,402 L116,402 L116,438 L96,438 Z " +
-      "M124,402 L146,402 L144,438 L124,438 Z",
-    back:
-      "M94,402 L116,402 L116,438 L96,438 Z " +
-      "M124,402 L146,402 L144,438 L124,438 Z",
-  },
-  {
-    key: "lower_legs",
-    front:
-      "M96,438 L116,438 L114,504 L98,504 Z " +
-      "M124,438 L144,438 L142,504 L126,504 Z",
-    back:
-      "M96,438 L116,438 L114,504 L98,504 Z " +
-      "M124,438 L144,438 L142,504 L126,504 Z",
-  },
-  {
-    key: "ankles",
-    front:
-      "M98,504 L114,504 L114,522 L98,522 Z " +
-      "M126,504 L142,504 L142,522 L126,522 Z",
-    back:
-      "M98,504 L114,504 L114,522 L98,522 Z " +
-      "M126,504 L142,504 L142,522 L126,522 Z",
-  },
-  {
-    key: "feet",
-    // Front view: top of foot. Back view: heel.
-    front:
-      "M92,522 L116,522 L118,538 L90,538 Z " +
-      "M124,522 L148,522 L150,538 L122,538 Z",
-    back:
-      "M92,522 L116,522 L118,538 L90,538 Z " +
-      "M124,522 L148,522 L150,538 L122,538 Z",
-  },
-  // head_neck is legacy. The submission form no longer offers it, but if an
-  // older report has selections.head_neck set, we render it over the head and
-  // neck regions so it's still visible in the admin read-only view.
-  {
-    key: "head_neck",
-    front:
-      "M120,12 C92,12 84,30 84,50 C84,72 92,88 120,90 C148,88 156,72 156,50 C156,30 148,12 120,12 Z " +
-      "M104,90 L136,90 L140,110 L100,110 Z",
-    back:
-      "M120,12 C92,12 84,30 84,50 C84,72 92,88 120,90 C148,88 156,72 156,50 C156,30 148,12 120,12 Z " +
-      "M104,90 L136,90 L140,110 L100,110 Z",
-  },
-]
+// Build the per-region shapes. We use the same shapes for front and back so
+// the figure stays anatomically aligned; face_jaw only exists on the front.
+function buildRegions(): RegionDef[] {
+  const headFull = (
+    <g>
+      <ellipse cx={120} cy={52} rx={32} ry={38} />
+    </g>
+  )
+  // Front "head" excludes the lower jaw (claimed by face_jaw).
+  const headTopOnly = (
+    <g>
+      <path d="M120,14 a32,38 0 0 1 32,38 L88,52 a32,38 0 0 1 32,-38 Z" />
+    </g>
+  )
+  const faceJaw = (
+    <g>
+      <path d="M88,52 L152,52 a32,38 0 0 1 -64,0 Z" />
+    </g>
+  )
+
+  return [
+    { key: "head", front: headTopOnly, back: headFull },
+    { key: "face_jaw", front: faceJaw },
+    {
+      key: "neck",
+      front: <g>{rect(108, 88, 24, 20, 4)}</g>,
+      back: <g>{rect(108, 88, 24, 20, 4)}</g>,
+    },
+    {
+      key: "shoulders",
+      front: (
+        <g>
+          {circle(72, 132, 20)}
+          {circle(168, 132, 20)}
+        </g>
+      ),
+      back: (
+        <g>
+          {circle(72, 132, 20)}
+          {circle(168, 132, 20)}
+        </g>
+      ),
+    },
+    {
+      key: "torso",
+      front: <g>{rect(85, 116, 70, 122, 14)}</g>,
+      back: <g>{rect(85, 116, 70, 122, 14)}</g>,
+    },
+    {
+      key: "arms",
+      // Upper arm + forearm (elbow/wrist are separate joints)
+      front: (
+        <g>
+          {rect(54, 138, 36, 86, 12)}
+          {rect(54, 240, 36, 76, 12)}
+          {rect(150, 138, 36, 86, 12)}
+          {rect(150, 240, 36, 76, 12)}
+        </g>
+      ),
+      back: (
+        <g>
+          {rect(54, 138, 36, 86, 12)}
+          {rect(54, 240, 36, 76, 12)}
+          {rect(150, 138, 36, 86, 12)}
+          {rect(150, 240, 36, 76, 12)}
+        </g>
+      ),
+    },
+    {
+      key: "elbows",
+      front: (
+        <g>
+          {circle(72, 230, 16)}
+          {circle(168, 230, 16)}
+        </g>
+      ),
+      back: (
+        <g>
+          {circle(72, 230, 16)}
+          {circle(168, 230, 16)}
+        </g>
+      ),
+    },
+    {
+      key: "wrists",
+      front: (
+        <g>
+          {circle(72, 322, 12)}
+          {circle(168, 322, 12)}
+        </g>
+      ),
+      back: (
+        <g>
+          {circle(72, 322, 12)}
+          {circle(168, 322, 12)}
+        </g>
+      ),
+    },
+    {
+      key: "hands",
+      front: (
+        <g>
+          {rect(56, 330, 32, 36, 10)}
+          {rect(152, 330, 32, 36, 10)}
+        </g>
+      ),
+      back: (
+        <g>
+          {rect(56, 330, 32, 36, 10)}
+          {rect(152, 330, 32, 36, 10)}
+        </g>
+      ),
+    },
+    {
+      key: "fingers",
+      front: (
+        <g>
+          {rect(58, 364, 28, 12, 5)}
+          {rect(154, 364, 28, 12, 5)}
+        </g>
+      ),
+      back: (
+        <g>
+          {rect(58, 364, 28, 12, 5)}
+          {rect(154, 364, 28, 12, 5)}
+        </g>
+      ),
+    },
+    {
+      key: "hips",
+      front: <g>{rect(82, 244, 76, 56, 14)}</g>,
+      back: <g>{rect(82, 244, 76, 56, 14)}</g>,
+    },
+    {
+      key: "upper_legs",
+      front: (
+        <g>
+          {rect(88, 302, 28, 96, 10)}
+          {rect(124, 302, 28, 96, 10)}
+        </g>
+      ),
+      back: (
+        <g>
+          {rect(88, 302, 28, 96, 10)}
+          {rect(124, 302, 28, 96, 10)}
+        </g>
+      ),
+    },
+    {
+      key: "knees",
+      front: (
+        <g>
+          {circle(102, 406, 16)}
+          {circle(138, 406, 16)}
+        </g>
+      ),
+      back: (
+        <g>
+          {circle(102, 406, 16)}
+          {circle(138, 406, 16)}
+        </g>
+      ),
+    },
+    {
+      key: "lower_legs",
+      front: (
+        <g>
+          {rect(90, 416, 24, 78, 10)}
+          {rect(126, 416, 24, 78, 10)}
+        </g>
+      ),
+      back: (
+        <g>
+          {rect(90, 416, 24, 78, 10)}
+          {rect(126, 416, 24, 78, 10)}
+        </g>
+      ),
+    },
+    {
+      key: "ankles",
+      front: (
+        <g>
+          {circle(102, 500, 11)}
+          {circle(138, 500, 11)}
+        </g>
+      ),
+      back: (
+        <g>
+          {circle(102, 500, 11)}
+          {circle(138, 500, 11)}
+        </g>
+      ),
+    },
+    {
+      key: "feet",
+      front: (
+        <g>
+          {ellipse(102, 524, 18, 14)}
+          {ellipse(138, 524, 18, 14)}
+        </g>
+      ),
+      back: (
+        <g>
+          {ellipse(102, 524, 18, 14)}
+          {ellipse(138, 524, 18, 14)}
+        </g>
+      ),
+    },
+    // Legacy: render over head + neck only when present on historical reports.
+    {
+      key: "head_neck",
+      front: (
+        <g>
+          <ellipse cx={120} cy={52} rx={32} ry={38} />
+          {rect(108, 88, 24, 20, 4)}
+        </g>
+      ),
+      back: (
+        <g>
+          <ellipse cx={120} cy={52} rx={32} ry={38} />
+          {rect(108, 88, 24, 20, 4)}
+        </g>
+      ),
+    },
+  ]
+}
+
+const REGIONS = buildRegions()
+
+const BASE_FILL = "#dbeafe" // blue-100
+const BASE_STROKE = "#3b82f6" // blue-500
+const SELECTED_FILL = "#ef4444" // red-500
+const SELECTED_STROKE = "#b91c1c" // red-700
 
 function fillForSide(side: BodySide, view: ViewName): string {
-  if (side === "both") return "rgba(220,38,38,0.55)"
-  if (side === view) return "rgba(220,38,38,0.55)"
-  return "transparent"
+  if (side === "both" || side === view) return SELECTED_FILL
+  return BASE_FILL
 }
 
 function strokeForSide(side: BodySide, view: ViewName): string {
-  if (side === "both" || side === view) return "rgb(185, 28, 28)"
-  return "rgba(0,0,0,0.25)"
+  if (side === "both" || side === view) return SELECTED_STROKE
+  return BASE_STROKE
 }
 
 function ViewSvg({
@@ -334,7 +341,7 @@ function ViewSvg({
   return (
     <figure className="flex flex-col items-center gap-2">
       <figcaption className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {view === "front" ? "Front" : "Back"}
+        {view === "front" ? "Front View" : "Back View"}
       </figcaption>
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -347,59 +354,52 @@ function ViewSvg({
             ? "Front view of body. Tap a region to mark it as injured."
             : "Back view of body. Tap a region to mark it as injured."}
         </title>
-        {/* Silhouette backdrop, drawn as left + right halves. */}
-        <path
-          d={SILHOUETTE_PATH}
-          fill="rgba(0,0,0,0.05)"
-          stroke="rgba(0,0,0,0.25)"
-          strokeWidth={1}
-          strokeLinejoin="round"
-        />
-        <path
-          d={SILHOUETTE_RIGHT_PATH}
-          fill="rgba(0,0,0,0.05)"
-          stroke="rgba(0,0,0,0.25)"
-          strokeWidth={1}
-          strokeLinejoin="round"
-        />
-        {/* Centerline + subtle waist line for visual cue */}
-        <line
-          x1={120}
-          y1={12}
-          x2={120}
-          y2={538}
-          stroke="rgba(0,0,0,0.05)"
-          strokeWidth={1}
-          strokeDasharray="2 3"
-        />
+
         {REGIONS.map((region) => {
-          const d = view === "front" ? region.front : region.back
-          if (!d) return null
+          const node = view === "front" ? region.front : region.back
+          if (!node) return null
           const side = selections[region.key]
           const label = `${BODY_PART_LABELS[region.key]} (${view})`
+          const fill = fillForSide(side, view)
+          const stroke = strokeForSide(side, view)
           return (
             <g
               key={region.key}
               aria-label={region.key}
               data-body-part={region.key}
+              onClick={() => handleClick(region.key)}
+              style={{
+                cursor: readOnly ? "default" : "pointer",
+                pointerEvents: readOnly ? "none" : "auto",
+                fill,
+                stroke,
+                strokeWidth: 2,
+                strokeLinejoin: "round",
+                transition: "fill 120ms ease, stroke 120ms ease",
+              }}
             >
-              <path
-                d={d}
-                fill={fillForSide(side, view)}
-                stroke={strokeForSide(side, view)}
-                strokeWidth={1.25}
-                strokeLinejoin="round"
-                onClick={() => handleClick(region.key)}
-                style={{
-                  cursor: readOnly ? "default" : "pointer",
-                  pointerEvents: readOnly ? "none" : "auto",
-                }}
-              >
-                <title>{label}</title>
-              </path>
+              <title>{label}</title>
+              {node}
             </g>
           )
         })}
+
+        {/* Smiley face overlay - front view only, purely decorative */}
+        {view === "front" ? (
+          <g
+            pointerEvents="none"
+            stroke="#1d4ed8"
+            strokeWidth={2}
+            strokeLinecap="round"
+            fill="#1d4ed8"
+          >
+            {/* eyes */}
+            <circle cx={110} cy={46} r={2.2} />
+            <circle cx={130} cy={46} r={2.2} />
+            {/* smile */}
+            <path d="M108,58 Q120,68 132,58" fill="none" />
+          </g>
+        ) : null}
       </svg>
     </figure>
   )

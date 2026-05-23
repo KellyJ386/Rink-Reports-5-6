@@ -86,7 +86,7 @@ function AreaFormBody({ onOpenChange, editing }: Props) {
             name="name"
             required
             defaultValue={editing?.name ?? ""}
-            placeholder="Zamboni Room"
+            placeholder="Ice Resurfacer Room"
           />
         </div>
 

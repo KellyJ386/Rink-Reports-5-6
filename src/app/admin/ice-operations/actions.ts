@@ -1250,22 +1250,22 @@ const DEFAULT_CIRCLE_CHECK_ITEMS: ReadonlyArray<{
 }> = [
   {
     label: "Tires / wheels in good condition",
-    applies_to_equipment_type: "zamboni",
+    applies_to_equipment_type: "ice_resurfacer",
     sort_order: 1,
   },
   {
     label: "Hydraulic fluid level OK",
-    applies_to_equipment_type: "zamboni",
+    applies_to_equipment_type: "ice_resurfacer",
     sort_order: 2,
   },
   {
     label: "Conditioner blade sharp / undamaged",
-    applies_to_equipment_type: "zamboni",
+    applies_to_equipment_type: "ice_resurfacer",
     sort_order: 3,
   },
   {
     label: "Brushes & towels clean",
-    applies_to_equipment_type: "zamboni",
+    applies_to_equipment_type: "ice_resurfacer",
     sort_order: 4,
   },
   {

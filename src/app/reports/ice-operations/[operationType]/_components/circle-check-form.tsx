@@ -236,8 +236,10 @@ export function CircleCheckForm({
       <div className="flex flex-col gap-2">
         <Label>Zamboni<RequiredMark /></Label>
         <Select value={equipmentId} onValueChange={onEquipmentChange} required>
+        <Label>Ice Resurfacer<RequiredMark /></Label>
+        <Select value={equipmentId} onValueChange={setEquipmentId} required>
           <SelectTrigger>
-            <SelectValue placeholder="Select a zamboni" />
+            <SelectValue placeholder="Select an ice resurfacer" />
           </SelectTrigger>
           <SelectContent>
             {equipment.map((eq) => (
@@ -302,6 +304,9 @@ export function CircleCheckForm({
                 : activeTemplate
                   ? "This template has no fields yet."
                   : "No checklist items apply to this equipment."}
+            {selectedEquipment
+              ? "No checklist items apply to this equipment."
+              : "Select an ice resurfacer to see all applicable items."}
           </p>
         ) : (
           <ul className="flex flex-col gap-3">

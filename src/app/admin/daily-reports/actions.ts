@@ -88,7 +88,7 @@ export async function createArea(
       return {
         ok: false,
         error:
-          "Slug must be lowercase letters, digits, and hyphens (e.g. zamboni-room).",
+          "Slug must be lowercase letters, digits, and hyphens (e.g. ice-resurfacer-room).",
       }
     }
 
@@ -132,7 +132,7 @@ export async function updateArea(
       return {
         ok: false,
         error:
-          "Slug must be lowercase letters, digits, and hyphens (e.g. zamboni-room).",
+          "Slug must be lowercase letters, digits, and hyphens (e.g. ice-resurfacer-room).",
       }
     }
 
