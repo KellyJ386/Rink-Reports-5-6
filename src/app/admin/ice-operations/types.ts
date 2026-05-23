@@ -5,11 +5,53 @@ import type { Tables } from "@/types/database"
 
 export type SettingsRow = Tables<"ice_operations_settings">
 export type RinkRow = Tables<"ice_operations_rinks">
-export type EquipmentRow = Tables<"ice_operations_equipment">
+export type EquipmentRow = Tables<"ice_operations_equipment"> & {
+  // Added in migration 75; not yet in generated types.
+  fuel_type_id?: string | null
+}
 export type CircleCheckItemRow = Tables<"ice_operations_circle_check_items">
 export type SubmissionRow = Tables<"ice_operations_submissions">
 export type CircleCheckResultRow = Tables<"ice_operations_circle_check_results">
 export type FollowupNoteRow = Tables<"ice_operations_followup_notes">
+
+// Tables added in migration 75; not yet in generated database types.
+export type FuelTypeRow = {
+  id: string
+  facility_id: string
+  name: string
+  slug: string
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export type CircleCheckTemplateRow = {
+  id: string
+  facility_id: string
+  fuel_type_id: string
+  name: string
+  description: string | null
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export type CircleCheckTemplateItemRow = {
+  id: string
+  facility_id: string
+  template_id: string
+  label: string
+  description: string | null
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+// App-level cap: at most four circle-check templates per facility.
+export const CIRCLE_CHECK_TEMPLATE_CAP = 4
 
 export type EmployeeLite = {
   id: string
@@ -97,6 +139,9 @@ export type SetupData = {
   rinks: RinkRow[]
   equipment: EquipmentRow[]
   circleCheckItems: CircleCheckItemRow[]
+  fuelTypes: FuelTypeRow[]
+  templates: CircleCheckTemplateRow[]
+  templateItems: CircleCheckTemplateItemRow[]
 }
 
 // ---- History tab composite ----

@@ -18,9 +18,12 @@ import { SetupTab } from "./_components/setup-tab"
 import type {
   CircleCheckItemRow,
   CircleCheckResultRow,
+  CircleCheckTemplateItemRow,
+  CircleCheckTemplateRow,
   EmployeeLite,
   EquipmentRow,
   FollowupNoteRow,
+  FuelTypeRow,
   RinkRow,
   SettingsRow,
   SubmissionDetailData,
@@ -155,36 +158,62 @@ function TabBar({ active }: { active: Tab }) {
 
 async function SetupTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [rinksRes, equipRes, itemsRes] = await Promise.all([
-    supabase
-      .from("ice_operations_rinks")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("ice_operations_equipment")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("equipment_type", { ascending: true })
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("ice_operations_circle_check_items")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true }),
-  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+  const [rinksRes, equipRes, itemsRes, fuelsRes, tmplRes, tmplItemsRes] =
+    await Promise.all([
+      supabase
+        .from("ice_operations_rinks")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      supabase
+        .from("ice_operations_equipment")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("equipment_type", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      supabase
+        .from("ice_operations_circle_check_items")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("sort_order", { ascending: true }),
+      sb
+        .from("ice_operations_fuel_types")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      sb
+        .from("ice_operations_circle_check_templates")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      sb
+        .from("ice_operations_circle_check_template_items")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("sort_order", { ascending: true }),
+    ])
 
   const rinks = (rinksRes.data ?? []) as RinkRow[]
   const equipment = (equipRes.data ?? []) as EquipmentRow[]
   const circleCheckItems = (itemsRes.data ?? []) as CircleCheckItemRow[]
+  const fuelTypes = (fuelsRes.data ?? []) as FuelTypeRow[]
+  const templates = (tmplRes.data ?? []) as CircleCheckTemplateRow[]
+  const templateItems = (tmplItemsRes.data ?? []) as CircleCheckTemplateItemRow[]
 
   return (
     <SetupTab
       rinks={rinks}
       equipment={equipment}
       circleCheckItems={circleCheckItems}
+      fuelTypes={fuelTypes}
+      templates={templates}
+      templateItems={templateItems}
     />
   )
 }

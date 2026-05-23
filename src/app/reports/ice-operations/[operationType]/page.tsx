@@ -174,10 +174,11 @@ export default async function OperationTypePage({
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
-    supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
       .from("ice_operations_equipment")
       .select(
-        "id, name, equipment_type, hours_count, sort_order, is_active"
+        "id, name, equipment_type, hours_count, sort_order, is_active, fuel_type_id"
       )
       .eq("facility_id", facilityId)
       .eq("is_active", true)
@@ -192,11 +193,19 @@ export default async function OperationTypePage({
   ])
 
   const rinks = (rinksRaw ?? []).map((r) => ({ id: r.id, name: r.name }))
-  const equipment = (equipmentRaw ?? []).map((e) => ({
-    id: e.id,
-    name: e.name,
-    equipment_type: e.equipment_type as EquipmentType,
-    hours_count: e.hours_count,
+  type EquipmentDbRow = {
+    id: string
+    name: string
+    equipment_type: string
+    hours_count: number | null
+    fuel_type_id: string | null
+  }
+  const equipment = ((equipmentRaw ?? []) as EquipmentDbRow[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    equipment_type: row.equipment_type as EquipmentType,
+    hours_count: row.hours_count,
+    fuel_type_id: row.fuel_type_id ?? null,
   }))
 
   const tempUnit: TemperatureUnit =
@@ -225,34 +234,87 @@ export default async function OperationTypePage({
 
   // Operation-specific extra data.
   let circleCheckItems: { id: string; label: string; applies_to_equipment_type: string | null }[] = []
+  let fuelTypes: { id: string; name: string }[] = []
+  let templates: { id: string; name: string; fuel_type_id: string }[] = []
+  let templateItems: { id: string; template_id: string; label: string }[] = []
   let employees: { id: string; name: string }[] = []
 
   if (operationType === "circle_check") {
-    const { data: itemsRaw } = await supabase
-      .from("ice_operations_circle_check_items")
-      .select(
-        "id, label, applies_to_equipment_type, sort_order, is_active"
-      )
-      .eq("facility_id", facilityId)
-      .eq("is_active", true)
-      .or(
-        `applies_to_equipment_type.is.null,applies_to_equipment_type.eq.${equipmentType}`
-      )
-      .order("sort_order", { ascending: true })
-      .order("label", { ascending: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any
+    const [itemsRes, fuelsRes, tmplRes, tmplItemsRes] = await Promise.all([
+      supabase
+        .from("ice_operations_circle_check_items")
+        .select("id, label, applies_to_equipment_type, sort_order, is_active")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .or(
+          `applies_to_equipment_type.is.null,applies_to_equipment_type.eq.${equipmentType}`,
+        )
+        .order("sort_order", { ascending: true })
+        .order("label", { ascending: true }),
+      sb
+        .from("ice_operations_fuel_types")
+        .select("id, name")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+      sb
+        .from("ice_operations_circle_check_templates")
+        .select("id, name, fuel_type_id, is_active")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true),
+      sb
+        .from("ice_operations_circle_check_template_items")
+        .select("id, template_id, label, sort_order, is_active")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+    ])
 
-    circleCheckItems = (itemsRaw ?? []).map((i) => ({
-      id: i.id,
-      label: i.label,
-      applies_to_equipment_type: i.applies_to_equipment_type,
+    circleCheckItems = (itemsRes.data ?? []).map(
+      (i: {
+        id: string
+        label: string
+        applies_to_equipment_type: string | null
+      }) => ({
+        id: i.id,
+        label: i.label,
+        applies_to_equipment_type: i.applies_to_equipment_type,
+      }),
+    )
+
+    fuelTypes = (fuelsRes.data ?? []).map((f: { id: string; name: string }) => ({
+      id: f.id,
+      name: f.name,
     }))
 
-    if (circleCheckItems.length === 0) {
+    templates = (tmplRes.data ?? []).map(
+      (t: { id: string; name: string; fuel_type_id: string }) => ({
+        id: t.id,
+        name: t.name,
+        fuel_type_id: t.fuel_type_id,
+      }),
+    )
+
+    templateItems = (tmplItemsRes.data ?? []).map(
+      (i: { id: string; template_id: string; label: string }) => ({
+        id: i.id,
+        template_id: i.template_id,
+        label: i.label,
+      }),
+    )
+
+    // Operator can proceed if either legacy items OR at least one template
+    // with fields exists. Equipment without a fuel-type binding will fall
+    // back to legacy items.
+    const hasAnyTemplateItems = templateItems.length > 0
+    if (circleCheckItems.length === 0 && !hasAnyTemplateItems) {
       return (
         <NotAvailable
           operationType={operationType}
           title="No checklist items"
-          description="An administrator hasn't configured any circle check items yet."
+          description="An administrator hasn't configured any circle check items or templates yet."
         />
       )
     }
@@ -323,6 +385,9 @@ export default async function OperationTypePage({
           rinks={rinks}
           equipment={equipment}
           checklistItems={circleCheckItems}
+          fuelTypes={fuelTypes}
+          templates={templates}
+          templateItems={templateItems}
         />
       ) : null}
     </div>

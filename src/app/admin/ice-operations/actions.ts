@@ -14,10 +14,14 @@ import type {
 } from "./types"
 import {
   CIRCLE_CHECK_BULK_CAP,
+  CIRCLE_CHECK_TEMPLATE_CAP,
   isEquipmentType,
   isSeverity,
   isTemperatureUnit,
 } from "./types"
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -248,19 +252,23 @@ export async function createEquipment(
     const hours_count = asNumber(formData.get("hours_count"))
     const sort_order = asInt(formData.get("sort_order")) ?? 0
     const is_active = formData.get("is_active") !== "off"
+    const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
 
     const supabase = await createClient()
-    const { error } = await supabase.from("ice_operations_equipment").insert({
-      facility_id: facility.facilityId,
-      name,
-      slug,
-      equipment_type,
-      model,
-      serial_number,
-      hours_count,
-      sort_order,
-      is_active,
-    })
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_equipment")
+      .insert({
+        facility_id: facility.facilityId,
+        name,
+        slug,
+        equipment_type,
+        model,
+        serial_number,
+        hours_count,
+        sort_order,
+        is_active,
+        fuel_type_id,
+      })
     if (error) {
       return { ok: false, error: dbError(error, "Failed to create equipment.") }
     }
@@ -302,9 +310,10 @@ export async function updateEquipment(
     const serial_number = nonEmpty(formData.get("serial_number"))
     const hours_count = asNumber(formData.get("hours_count"))
     const sort_order = asInt(formData.get("sort_order"))
+    const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { error } = await (supabase as AnySupabase)
       .from("ice_operations_equipment")
       .update({
         name,
@@ -313,6 +322,7 @@ export async function updateEquipment(
         model,
         serial_number,
         hours_count,
+        fuel_type_id,
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
@@ -786,6 +796,441 @@ export async function deleteIceOperationsSubmission(
     if (error) {
       // RLS will block non-super-admin (42501) — surface friendly message.
       return { ok: false, error: dbError(error, "Failed to delete submission.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Fuel types (admin-configurable)
+// ============================================================================
+
+export async function createFuelType(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const rawSlug = nonEmpty(formData.get("slug"))
+    const slug = rawSlug ?? slugify(name)
+    if (!SLUG_RE.test(slug)) {
+      return {
+        ok: false,
+        error: "Slug must be lowercase letters, digits, and hyphens.",
+      }
+    }
+    const sort_order = asInt(formData.get("sort_order")) ?? 0
+
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_fuel_types")
+      .insert({
+        facility_id: facility.facilityId,
+        name,
+        slug,
+        sort_order,
+      })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to create fuel type.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true, message: "Fuel type created." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateFuelType(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing fuel type id." }
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const rawSlug = nonEmpty(formData.get("slug"))
+    const slug = rawSlug ?? slugify(name)
+    if (!SLUG_RE.test(slug)) {
+      return {
+        ok: false,
+        error: "Slug must be lowercase letters, digits, and hyphens.",
+      }
+    }
+    const sort_order = asInt(formData.get("sort_order"))
+
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_fuel_types")
+      .update({
+        name,
+        slug,
+        ...(sort_order !== null ? { sort_order } : {}),
+      })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update fuel type.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true, message: "Fuel type updated." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setFuelTypeActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing fuel type id." }
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_fuel_types")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update fuel type.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteFuelType(id: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing fuel type id." }
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_fuel_types")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      if (error.code === "23503") {
+        return {
+          ok: false,
+          error:
+            "Fuel type is referenced by equipment; clear those assignments or deactivate it instead.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to delete fuel type.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Circle check templates + template items
+// ============================================================================
+
+export async function createCircleCheckTemplate(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Template name is required." }
+    const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
+    if (!fuel_type_id) {
+      return { ok: false, error: "Pick the fuel type this template covers." }
+    }
+    const description = nonEmpty(formData.get("description"))
+    const sort_order = asInt(formData.get("sort_order")) ?? 0
+
+    const supabase = await createClient()
+
+    // App-level cap: at most CIRCLE_CHECK_TEMPLATE_CAP templates per facility.
+    const { count, error: cntErr } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .select("id", { count: "exact", head: true })
+      .eq("facility_id", facility.facilityId)
+    if (cntErr) {
+      return { ok: false, error: dbError(cntErr, "Failed to count templates.") }
+    }
+    if ((count ?? 0) >= CIRCLE_CHECK_TEMPLATE_CAP) {
+      return {
+        ok: false,
+        error: `At most ${CIRCLE_CHECK_TEMPLATE_CAP} circle-check templates per facility.`,
+      }
+    }
+
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .insert({
+        facility_id: facility.facilityId,
+        fuel_type_id,
+        name,
+        description,
+        sort_order,
+      })
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "A template already exists for that fuel type.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to create template.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true, message: "Template created." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateCircleCheckTemplate(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing template id." }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Template name is required." }
+    const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
+    if (!fuel_type_id) {
+      return { ok: false, error: "Pick the fuel type this template covers." }
+    }
+    const description = nonEmpty(formData.get("description"))
+    const sort_order = asInt(formData.get("sort_order"))
+
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .update({
+        name,
+        fuel_type_id,
+        description,
+        ...(sort_order !== null ? { sort_order } : {}),
+      })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "Another template already covers that fuel type.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to update template.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true, message: "Template updated." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setCircleCheckTemplateActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing template id." }
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update template.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteCircleCheckTemplate(
+  id: string,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing template id." }
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to delete template.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function createCircleCheckTemplateItem(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const template_id = nonEmpty(formData.get("template_id"))
+    if (!template_id) return { ok: false, error: "Missing template id." }
+    const label = nonEmpty(formData.get("label"))
+    if (!label) return { ok: false, error: "Label is required." }
+    const description = nonEmpty(formData.get("description"))
+
+    const supabase = await createClient()
+
+    // Verify the template belongs to this facility before nesting items.
+    const { data: tmpl, error: tmplErr } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .select("id, facility_id")
+      .eq("id", template_id)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (tmplErr || !tmpl) {
+      return { ok: false, error: "Template not found." }
+    }
+
+    const { data: maxRow } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .select("sort_order")
+      .eq("template_id", template_id)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const nextSort = ((maxRow?.sort_order as number | undefined) ?? 0) + 1
+
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .insert({
+        facility_id: facility.facilityId,
+        template_id,
+        label,
+        description,
+        sort_order: nextSort,
+      })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to create field.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true, message: "Field added." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateCircleCheckTemplateItem(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing field id." }
+    const label = nonEmpty(formData.get("label"))
+    if (!label) return { ok: false, error: "Label is required." }
+    const description = nonEmpty(formData.get("description"))
+
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .update({ label, description })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update field.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true, message: "Field updated." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setCircleCheckTemplateItemActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing field id." }
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update field.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteCircleCheckTemplateItem(
+  id: string,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing field id." }
+    const supabase = await createClient()
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to delete field.") }
     }
     revalidatePath("/admin/ice-operations")
     return { ok: true }

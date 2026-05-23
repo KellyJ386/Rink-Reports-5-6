@@ -36,10 +36,30 @@ type ChecklistItem = {
   applies_to_equipment_type: string | null
 }
 
+type FuelTypeOption = {
+  id: string
+  name: string
+}
+
+type TemplateOption = {
+  id: string
+  name: string
+  fuel_type_id: string
+}
+
+type TemplateItemOption = {
+  id: string
+  template_id: string
+  label: string
+}
+
 type Props = {
   rinks: RinkOption[]
   equipment: EquipmentOption[]
   checklistItems: ChecklistItem[]
+  fuelTypes: FuelTypeOption[]
+  templates: TemplateOption[]
+  templateItems: TemplateItemOption[]
 }
 
 const initialState: SubmissionFormState = {}
@@ -49,7 +69,14 @@ type ItemState = {
   notes: string
 }
 
-export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
+export function CircleCheckForm({
+  rinks,
+  equipment,
+  checklistItems,
+  fuelTypes,
+  templates,
+  templateItems,
+}: Props) {
   const action = submitIceOperationsReport.bind(null, "circle_check")
   const [state, formAction] = useActionState(action, initialState)
 
@@ -59,6 +86,8 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
   const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
   const [notes, setNotes] = useState("")
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>({})
+  // Operator-side override when equipment has no fuel type assigned.
+  const [fuelTypeOverride, setFuelTypeOverride] = useState<string>("")
 
   useEffect(() => {
     if (state.error) toast.error(state.error)
@@ -69,21 +98,66 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
     [equipment, equipmentId]
   )
 
+  const onEquipmentChange = (id: string) => {
+    setEquipmentId(id)
+    setFuelTypeOverride("")
+  }
+
+  // Resolve the effective fuel type: equipment-assigned wins, else operator's
+  // pick from the dropdown. Then resolve the template that targets it.
+  const effectiveFuelTypeId: string | null =
+    selectedEquipment?.fuel_type_id || fuelTypeOverride || null
+
+  const activeTemplate = useMemo(() => {
+    if (!effectiveFuelTypeId) return null
+    return templates.find((t) => t.fuel_type_id === effectiveFuelTypeId) ?? null
+  }, [templates, effectiveFuelTypeId])
+
+  const templateItemsForActive = useMemo(() => {
+    if (!activeTemplate) return []
+    return templateItems
+      .filter((i) => i.template_id === activeTemplate.id)
+      .map((i) => ({
+        id: i.id,
+        label: i.label,
+        // Template items aren't bound to legacy FK; flag for downstream code.
+        applies_to_equipment_type: null as string | null,
+        isTemplateItem: true as const,
+      }))
+  }, [activeTemplate, templateItems])
+
+  const showFuelTypeOverride =
+    !!selectedEquipment &&
+    !selectedEquipment.fuel_type_id &&
+    fuelTypes.length > 0 &&
+    templates.length > 0
+
   // Filter items: applies to all (null) OR matches selected equipment type.
   // Until equipment is selected, show only items that apply to all so the
-  // user can preview without locking in.
+  // user can preview without locking in. When a template applies, the
+  // template's fields replace the legacy list entirely.
   const visibleItems = useMemo(() => {
-    if (!selectedEquipment) {
-      return checklistItems.filter(
-        (i) => i.applies_to_equipment_type === null
-      )
+    if (activeTemplate) {
+      return templateItemsForActive
     }
-    return checklistItems.filter(
-      (i) =>
-        i.applies_to_equipment_type === null ||
-        i.applies_to_equipment_type === selectedEquipment.equipment_type
-    )
-  }, [checklistItems, selectedEquipment])
+    if (!selectedEquipment) {
+      return checklistItems
+        .filter((i) => i.applies_to_equipment_type === null)
+        .map((i) => ({ ...i, isTemplateItem: false as const }))
+    }
+    return checklistItems
+      .filter(
+        (i) =>
+          i.applies_to_equipment_type === null ||
+          i.applies_to_equipment_type === selectedEquipment.equipment_type
+      )
+      .map((i) => ({ ...i, isTemplateItem: false as const }))
+  }, [
+    activeTemplate,
+    templateItemsForActive,
+    checklistItems,
+    selectedEquipment,
+  ])
 
   const setPassed = (id: string, passed: boolean) => {
     setItemStates((prev) => ({
@@ -118,7 +192,10 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
         const failed_notes =
           s && !passed ? s.notes.trim() : null
         return {
-          checklist_item_id: item.id,
+          // Template items use a separate table than ice_operations_circle_check_items,
+          // so we can't satisfy the results-table FK with their id. Persist null
+          // and rely on label_snapshot for historical context.
+          checklist_item_id: item.isTemplateItem ? null : item.id,
           label_snapshot: item.label,
           passed,
           failed_notes,
@@ -158,7 +235,7 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
 
       <div className="flex flex-col gap-2">
         <Label>Ice Resurfacer<RequiredMark /></Label>
-        <Select value={equipmentId} onValueChange={setEquipmentId} required>
+        <Select value={equipmentId} onValueChange={onEquipmentChange} required>
           <SelectTrigger>
             <SelectValue placeholder="Select an ice resurfacer" />
           </SelectTrigger>
@@ -185,13 +262,46 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
         />
       </div>
 
+      {showFuelTypeOverride ? (
+        <div className="flex flex-col gap-2">
+          <Label>Fuel type</Label>
+          <Select value={fuelTypeOverride} onValueChange={setFuelTypeOverride}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a fuel type for this check" />
+            </SelectTrigger>
+            <SelectContent>
+              {fuelTypes.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            This resurfacer has no fuel type configured; pick one to load the
+            matching template.
+          </p>
+        </div>
+      ) : null}
+
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Checklist</h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold tracking-tight">Checklist</h2>
+          {activeTemplate ? (
+            <span className="text-xs text-muted-foreground">
+              Using template: <strong>{activeTemplate.name}</strong>
+            </span>
+          ) : null}
+        </div>
         {visibleItems.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {selectedEquipment
-              ? "No checklist items apply to this equipment."
-              : "Select an ice resurfacer to see all applicable items."}
+            {!selectedEquipment
+              ? "Select an ice resurfacer to see all applicable items."
+              : effectiveFuelTypeId && !activeTemplate
+                ? "No template is configured for this fuel type yet."
+                : activeTemplate
+                  ? "This template has no fields yet."
+                  : "No checklist items apply to this equipment."}
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
