@@ -198,6 +198,38 @@ insert into public.communication_groups (
   ('22222222-2222-2222-2222-222222222222', 'Managers B', 'managers-b', true, true)
 on conflict (facility_id, slug) do nothing;
 
+-- Ice Operations: fuel types + a circle-check template in each facility, so
+-- the migration-75 isolation checks below have non-empty targets.
+insert into public.ice_operations_fuel_types
+  (id, facility_id, name, slug, sort_order, is_active)
+values
+  ('aaaa1111-fffa-aaaa-aaaa-aaaa11110001',
+   '11111111-1111-1111-1111-111111111111', 'Electric', 'electric', 1, true),
+  ('bbbb2222-fffb-bbbb-bbbb-bbbb22220001',
+   '22222222-2222-2222-2222-222222222222', 'Gas', 'gas', 1, true)
+on conflict (facility_id, slug) do nothing;
+
+insert into public.ice_operations_circle_check_templates
+  (id, facility_id, fuel_type_id, name, sort_order, is_active)
+values
+  ('aaaa1111-ccca-aaaa-aaaa-aaaa11110002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-fffa-aaaa-aaaa-aaaa11110001',
+   'Electric Daily', 0, true),
+  ('bbbb2222-cccb-bbbb-bbbb-bbbb22220002',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-fffb-bbbb-bbbb-bbbb22220001',
+   'Gas Daily', 0, true)
+on conflict (facility_id, fuel_type_id) do nothing;
+
+insert into public.ice_operations_circle_check_template_items
+  (facility_id, template_id, label, sort_order, is_active)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-ccca-aaaa-aaaa-aaaa11110002', 'Battery charge OK', 1, true),
+  ('22222222-2222-2222-2222-222222222222',
+   'bbbb2222-cccb-bbbb-bbbb-bbbb22220002', 'Fuel level OK', 1, true);
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -250,6 +282,37 @@ select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT outbox rows in facility B');
+
+-- Ice Operations (migration 75): fuel types and circle-check templates +
+-- template items must scope by facility.
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_operations_fuel_types
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'ice_ops: alice can SELECT her own facility''s fuel types');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_operations_fuel_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ice_ops: alice CANNOT SELECT fuel types in facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_operations_circle_check_templates
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ice_ops: alice CANNOT SELECT circle-check templates in facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_operations_circle_check_template_items
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ice_ops: alice CANNOT SELECT template items in facility B');
+
+-- Cross-tenant write attempt: insert a fuel type tagged for facility B must
+-- be denied even though Alice can write to her own facility's config.
+select pg_temp.expect_error(
+  $$insert into public.ice_operations_fuel_types
+      (facility_id, name, slug)
+    values
+      ('22222222-2222-2222-2222-222222222222', 'Propane', 'propane')$$,
+  'ice_ops: alice CANNOT INSERT a fuel type into facility B');
 
 -- ---------------------------------------------------------------------------
 -- M-offline: offline_sync_queue cross-facility isolation (mig 31).
