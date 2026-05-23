@@ -234,10 +234,10 @@ export function CircleCheckForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Zamboni<RequiredMark /></Label>
+        <Label>Ice Resurfacer<RequiredMark /></Label>
         <Select value={equipmentId} onValueChange={onEquipmentChange} required>
           <SelectTrigger>
-            <SelectValue placeholder="Select a zamboni" />
+            <SelectValue placeholder="Select an ice resurfacer" />
           </SelectTrigger>
           <SelectContent>
             {equipment.map((eq) => (
@@ -296,7 +296,7 @@ export function CircleCheckForm({
         {visibleItems.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {!selectedEquipment
-              ? "Select a zamboni to see all applicable items."
+              ? "Select an ice resurfacer to see all applicable items."
               : effectiveFuelTypeId && !activeTemplate
                 ? "No template is configured for this fuel type yet."
                 : activeTemplate

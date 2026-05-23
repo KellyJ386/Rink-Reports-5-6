@@ -526,7 +526,7 @@ function EquipmentRowItem({
 
 function EquipmentCreateForm({ fuelTypes }: { fuelTypes: FuelTypeRow[] }) {
   const [state, action, pending] = useActionState(createEquipment, NULL_STATE)
-  const [newEqType, setNewEqType] = useState<EquipmentType>("zamboni")
+  const [newEqType, setNewEqType] = useState<EquipmentType>("ice_resurfacer")
   const [newFuelTypeId, setNewFuelTypeId] = useState<string>("")
 
   useEffect(() => {
@@ -543,7 +543,7 @@ function EquipmentCreateForm({ fuelTypes }: { fuelTypes: FuelTypeRow[] }) {
       <input type="hidden" name="fuel_type_id" value={newFuelTypeId} />
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-name">Add equipment — Name</Label>
-        <Input id="new-eq-name" name="name" required placeholder="e.g. Zamboni 1" />
+        <Input id="new-eq-name" name="name" required placeholder="e.g. Ice Resurfacer 1" />
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-type">Type</Label>

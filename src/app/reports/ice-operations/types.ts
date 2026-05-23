@@ -15,7 +15,12 @@ export type OperationType =
   | "edging"
   | "blade_change"
 
-export type EquipmentType = "zamboni" | "edger" | "blade_set" | "other"
+export type EquipmentType =
+  | "ice_resurfacer"
+  | "edger"
+  | "blade_set"
+  | "hand_edger"
+  | "other"
 
 export type TemperatureUnit = "F" | "C"
 
@@ -35,7 +40,7 @@ export const OPERATION_LABELS: Record<OperationType, string> = {
 
 export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
   ice_make: "Log a fresh ice resurface (water temps, pass count, time).",
-  circle_check: "Walk the zamboni checklist and flag any issues.",
+  circle_check: "Walk the ice resurfacer checklist and flag any issues.",
   edging: "Record edging hours run on the edger.",
   blade_change: "Log a blade change with serial and hours.",
 }
@@ -45,8 +50,8 @@ export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
  * this to filter the equipment dropdown.
  */
 export const OPERATION_EQUIPMENT_TYPE: Record<OperationType, EquipmentType> = {
-  ice_make: "zamboni",
-  circle_check: "zamboni",
+  ice_make: "ice_resurfacer",
+  circle_check: "ice_resurfacer",
   edging: "edger",
   blade_change: "blade_set",
 }
