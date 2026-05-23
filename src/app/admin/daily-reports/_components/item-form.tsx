@@ -100,7 +100,7 @@ function ItemFormBody({ onOpenChange, templateId, editing, bulk }: Props) {
               name="labels"
               required
               rows={10}
-              placeholder={"Inspect ice surface\nCheck zamboni levels\nLog temperature"}
+              placeholder={"Inspect ice surface\nCheck ice resurfacer levels\nLog temperature"}
             />
           </div>
           {errorMsg && (

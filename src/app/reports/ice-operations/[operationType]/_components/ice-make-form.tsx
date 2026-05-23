@@ -87,10 +87,10 @@ export function IceMakeForm({ rinks, equipment, temperatureUnit }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Zamboni<RequiredMark /></Label>
+        <Label>Ice Resurfacer<RequiredMark /></Label>
         <Select value={equipmentId} onValueChange={setEquipmentId} required>
           <SelectTrigger>
-            <SelectValue placeholder="Select a zamboni" />
+            <SelectValue placeholder="Select an ice resurfacer" />
           </SelectTrigger>
           <SelectContent>
             {equipment.map((eq) => (

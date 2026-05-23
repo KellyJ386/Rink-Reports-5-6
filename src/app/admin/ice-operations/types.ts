@@ -39,15 +39,21 @@ export function operationLabel(v: string): string {
   return OPERATION_TYPES.find((o) => o.key === v)?.label ?? v
 }
 
-// 4 fixed equipment types.
-export type EquipmentType = "zamboni" | "edger" | "blade_set" | "other"
+// Fixed equipment types.
+export type EquipmentType =
+  | "ice_resurfacer"
+  | "edger"
+  | "blade_set"
+  | "hand_edger"
+  | "other"
 export const EQUIPMENT_TYPES: ReadonlyArray<{
   key: EquipmentType
   label: string
 }> = [
-  { key: "zamboni", label: "Zamboni" },
+  { key: "ice_resurfacer", label: "Ice Resurfacer" },
   { key: "edger", label: "Edger" },
   { key: "blade_set", label: "Blade Set" },
+  { key: "hand_edger", label: "Hand Edger" },
   { key: "other", label: "Other" },
 ]
 export function isEquipmentType(v: string): v is EquipmentType {

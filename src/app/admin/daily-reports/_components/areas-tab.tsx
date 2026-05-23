@@ -63,7 +63,7 @@ export function AreasTab({ areas }: Props) {
             <CardTitle>Create your first daily report area</CardTitle>
             <CardDescription>
               Areas are the tabs that staff see on the Daily Reports page (e.g.
-              &ldquo;Zamboni Room&rdquo;, &ldquo;Locker Rooms&rdquo;,
+              &ldquo;Ice Resurfacer Room&rdquo;, &ldquo;Locker Rooms&rdquo;,
               &ldquo;Concessions&rdquo;). You can create up to 30 active areas.
             </CardDescription>
           </CardHeader>

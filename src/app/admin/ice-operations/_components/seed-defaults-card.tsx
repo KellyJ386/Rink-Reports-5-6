@@ -34,7 +34,7 @@ export function SeedDefaultsCard() {
         <CardTitle>No rinks or circle-check items yet</CardTitle>
         <CardDescription>
           Seed a default settings row plus 5 starter circle-check items
-          (4 zamboni, 1 edger). You can edit or add more after seeding.
+          (4 ice resurfacer, 1 edger). You can edit or add more after seeding.
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -157,10 +157,10 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Zamboni<RequiredMark /></Label>
+        <Label>Ice Resurfacer<RequiredMark /></Label>
         <Select value={equipmentId} onValueChange={setEquipmentId} required>
           <SelectTrigger>
-            <SelectValue placeholder="Select a zamboni" />
+            <SelectValue placeholder="Select an ice resurfacer" />
           </SelectTrigger>
           <SelectContent>
             {equipment.map((eq) => (
@@ -191,7 +191,7 @@ export function CircleCheckForm({ rinks, equipment, checklistItems }: Props) {
           <p className="text-sm text-muted-foreground">
             {selectedEquipment
               ? "No checklist items apply to this equipment."
-              : "Select a zamboni to see all applicable items."}
+              : "Select an ice resurfacer to see all applicable items."}
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
