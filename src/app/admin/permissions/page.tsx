@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { Badge } from "@/components/ui/badge"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -32,10 +33,10 @@ export default async function PermissionsPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Module Access Control
         </h1>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Per-user permissions for each module. Pick a user to edit their
           matrix of (module &times; action) toggles. Users with no row default
           to zero access.
@@ -45,7 +46,7 @@ export default async function PermissionsPage() {
       {users.length === 0 ? (
         <p className="text-sm text-muted-foreground">No active users.</p>
       ) : (
-        <ul className="divide-y divide-slate-800 rounded-md border border-slate-700">
+        <ul className="divide-y divide-border rounded-md border border-border bg-card">
           {users.map((u) => {
             const label = u.full_name || u.email || u.id
             const subtitle = u.email && u.full_name ? u.email : null
@@ -53,7 +54,7 @@ export default async function PermissionsPage() {
               <li key={u.id}>
                 <Link
                   href={`/admin/permissions/${u.id}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-slate-900"
+                  className="flex items-center justify-between px-4 py-3 text-card-foreground hover:bg-muted"
                 >
                   <span className="flex flex-col">
                     <span className="font-medium">{label}</span>
@@ -63,11 +64,14 @@ export default async function PermissionsPage() {
                       </span>
                     )}
                   </span>
-                  {u.is_super_admin && (
-                    <span className="rounded bg-emerald-900 px-2 py-0.5 text-xs text-emerald-200">
-                      super_admin
-                    </span>
-                  )}
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {u.is_super_admin && (
+                      <Badge variant="success">super admin</Badge>
+                    )}
+                    {!u.facility_id && (
+                      <Badge variant="warning">no facility</Badge>
+                    )}
+                  </span>
                 </Link>
               </li>
             )

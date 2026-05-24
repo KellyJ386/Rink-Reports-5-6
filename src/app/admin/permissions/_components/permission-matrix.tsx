@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState, useTransition, type ReactNode } from "react"
 
+import { Button } from "@/components/ui/button"
 import {
   MODULE_LABELS,
   MODULE_NAMES,
@@ -24,6 +25,7 @@ type Props = {
   facilityId: string
   userLabel: string
   initialMatrix: Matrix
+  notice?: ReactNode
 }
 
 const PRESETS: { value: Preset; label: string }[] = [
@@ -33,7 +35,13 @@ const PRESETS: { value: Preset; label: string }[] = [
   { value: "no_access", label: "No Access" },
 ]
 
-export function PermissionMatrix({ userId, facilityId, userLabel, initialMatrix }: Props) {
+export function PermissionMatrix({
+  userId,
+  facilityId,
+  userLabel,
+  initialMatrix,
+  notice,
+}: Props) {
   const [matrix, setMatrix] = useState<Matrix>(initialMatrix)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
@@ -93,49 +101,54 @@ export function PermissionMatrix({ userId, facilityId, userLabel, initialMatrix 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Permissions for {userLabel}</h2>
+      {notice}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-foreground">
+          Permissions for {userLabel}
+        </h2>
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((p) => (
-            <button
+            <Button
               key={p.value}
               type="button"
+              variant="secondary"
+              size="sm"
               disabled={pending}
               onClick={() => applyPreset(p.value)}
-              className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700 disabled:opacity-50"
             >
               {p.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-700 bg-red-950 px-3 py-2 text-sm text-red-200">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </div>
       )}
       {info && (
-        <div className="rounded-md border border-emerald-700 bg-emerald-950 px-3 py-2 text-sm text-emerald-200">
+        <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
           {info}
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-md border border-slate-700">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-900 text-left">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
+        <table className="w-full text-sm text-card-foreground">
+          <thead className="bg-muted text-left">
             <tr>
               <th className="px-3 py-2 font-medium">Module</th>
               {USER_ACTIONS.map((a) => (
-                <th key={a} className="px-3 py-2 font-medium text-center">
+                <th key={a} className="px-3 py-2 text-center font-medium">
                   {USER_ACTION_LABELS[a]}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-border">
             {MODULE_NAMES.map((m) => (
-              <tr key={m} className="border-t border-slate-800">
+              <tr key={m}>
                 <td className="px-3 py-2">{MODULE_LABELS[m]}</td>
                 {USER_ACTIONS.map((a) => (
                   <td key={a} className="px-3 py-2 text-center">
@@ -145,7 +158,7 @@ export function PermissionMatrix({ userId, facilityId, userLabel, initialMatrix 
                       disabled={pending}
                       onChange={(e) => toggle(m, a, e.target.checked)}
                       aria-label={`${MODULE_LABELS[m]} – ${USER_ACTION_LABELS[a]}`}
-                      className="size-4 cursor-pointer accent-emerald-500"
+                      className="size-4 cursor-pointer accent-[var(--green-500)]"
                     />
                   </td>
                 ))}
@@ -181,36 +194,37 @@ function CsvImporter() {
   }
 
   return (
-    <details className="rounded-md border border-slate-700 bg-slate-900 p-3">
+    <details className="rounded-md border border-border bg-card p-3 text-card-foreground">
       <summary className="cursor-pointer text-sm font-medium">
         Bulk CSV import
       </summary>
       <div className="mt-3 space-y-2">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted-foreground">
           Header: <code>user_id,facility_id,module,action,enabled</code>. One row per cell.
         </p>
         <textarea
           value={csv}
           onChange={(e) => setCsv(e.target.value)}
           rows={6}
-          className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs"
+          className="w-full rounded-md border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground"
           placeholder="user_id,facility_id,module,action,enabled&#10;uuid,uuid,daily_reports,view,true"
         />
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={onImport}
           disabled={pending || csv.trim().length === 0}
-          className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700 disabled:opacity-50"
         >
           Import
-        </button>
+        </Button>
         {error && (
-          <div className="rounded-md border border-red-700 bg-red-950 px-3 py-2 text-sm text-red-200">
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
         )}
         {result && (
-          <pre className="whitespace-pre-wrap rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs">
+          <pre className="whitespace-pre-wrap rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground">
             {result}
           </pre>
         )}
