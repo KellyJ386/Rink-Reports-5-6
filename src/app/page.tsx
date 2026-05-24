@@ -567,8 +567,8 @@ export default async function Home() {
                   margin: "0 0 28px",
                 }}
               >
-                Interested in Rink Reports for your facility? Get in touch
-                and we&apos;ll walk you through the platform.
+                Tell us about your facility and we&apos;ll be in touch to
+                show you how Rink Reports fits your operation.
               </p>
               <div
                 style={{
@@ -582,6 +582,26 @@ export default async function Home() {
                 </Link>
                 <RequestInformationButton />
               </div>
+              <RequestInformationButton
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "100%",
+                  padding: "17px 0",
+                  background:
+                    "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
+                  color: "#051200",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  border: "none",
+                  boxShadow:
+                    "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.28)",
+                  minHeight: 0,
+                }}
+              >
+                Request Information
+              </RequestInformationButton>
             </div>
           </div>
         </div>
