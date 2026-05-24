@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { usePathname } from "next/navigation"
-import { ChevronRight, LogOut, User as UserIcon } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { ArrowLeft, ChevronRight, LogOut, User as UserIcon } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +24,7 @@ interface AdminHeaderProps {
 
 export function AdminHeader({ email, fullName }: AdminHeaderProps) {
   const pathname = usePathname() ?? "/admin"
+  const router = useRouter()
   const active = findActiveNavItem(pathname)
   const isDashboard = pathname === "/admin"
   const sectionLabel = isDashboard ? "Dashboard" : (active?.label ?? "Admin")
@@ -77,6 +79,17 @@ export function AdminHeader({ email, fullName }: AdminHeaderProps) {
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => router.push("/dashboard")}
+          aria-label="Back to Dashboard"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          <span className="hidden sm:inline">Back to Dashboard</span>
+          <span className="sm:hidden">Dashboard</span>
+        </Button>
         <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger
