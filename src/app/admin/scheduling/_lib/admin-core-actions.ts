@@ -372,6 +372,67 @@ export async function deleteShift(id: string): Promise<ActionState> {
   }
 }
 
+export async function assignOpenShift(
+  openShiftId: string,
+  employeeId: string
+): Promise<ActionState> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+    if (!openShiftId) return { ok: false, error: "Missing open shift id." }
+    if (!employeeId) return { ok: false, error: "Pick an employee." }
+
+    const supabase = await createClient()
+    const { data: openRow, error: openErr } = await supabase
+      .from("schedule_open_shifts")
+      .select("id, shift_id, claim_status")
+      .eq("id", openShiftId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle<{ id: string; shift_id: string; claim_status: string }>()
+    if (openErr) {
+      return { ok: false, error: dbError(openErr, "Failed to load open shift.") }
+    }
+    if (!openRow) return { ok: false, error: "Open shift not found." }
+    if (openRow.claim_status !== "open" && openRow.claim_status !== "claimed") {
+      return { ok: false, error: "Open shift is no longer available." }
+    }
+
+    const nowIso = new Date().toISOString()
+    const { error: shiftErr } = await supabase
+      .from("schedule_shifts")
+      .update({ employee_id: employeeId })
+      .eq("id", openRow.shift_id)
+      .eq("facility_id", ctx.facilityId)
+    if (shiftErr) {
+      return { ok: false, error: dbError(shiftErr, "Failed to assign shift.") }
+    }
+
+    const { error: claimErr } = await supabase
+      .from("schedule_open_shifts")
+      .update({
+        claim_status: "filled",
+        claimed_by_employee_id: employeeId,
+        claimed_at: nowIso,
+        approved_by_employee_id: ctx.employeeId,
+        approved_at: nowIso,
+      })
+      .eq("id", openShiftId)
+      .eq("facility_id", ctx.facilityId)
+    if (claimErr) {
+      return { ok: false, error: dbError(claimErr, "Failed to close out open shift.") }
+    }
+
+    revalidatePath("/admin/scheduling/shifts")
+    revalidatePath("/admin/scheduling")
+    return { ok: true, message: "Open shift assigned." }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
 export async function cancelShift(id: string): Promise<ActionState> {
   try {
     const ctx = await resolveAdminContext()

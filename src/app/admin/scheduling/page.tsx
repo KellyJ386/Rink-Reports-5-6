@@ -8,24 +8,23 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { StatCard } from "@/components/ui/stat-card"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
-import { WeekDashboard, type WeekDashboardProps } from "./_components/week-dashboard"
+import {
+  ModuleCard,
+  OpenShiftsPanel,
+  PendingSwapsPanel,
+  PendingTimeOffPanel,
+  type EmployeeOption,
+  type OpenShiftItem,
+  type PendingSwap,
+  type PendingTimeOff,
+} from "./_components/hub-panels"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Scheduling | MFO / Rink Reports" }
-
-const DEFAULT_DEPT_PALETTE = [
-  "#003B6F",
-  "#7C3AED",
-  "#3DB800",
-  "#0EA5E9",
-  "#F97316",
-  "#DB2777",
-  "#0D9488",
-  "#EAB308",
-] as const
 
 function startOfWeek(weekStartDay: number) {
   const now = new Date()
@@ -41,34 +40,14 @@ function startOfWeek(weekStartDay: number) {
   return { start, end }
 }
 
-function weekDayIndex(d: Date, weekStart: Date) {
-  const ms = d.getTime() - weekStart.getTime()
-  return Math.floor(ms / (24 * 60 * 60 * 1000))
-}
-
-function fractionalHour(d: Date) {
-  return d.getUTCHours() + d.getUTCMinutes() / 60
-}
-
-function initialsOf(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((p) => p[0]!)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-}
-
-function hueFor(id: string) {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
-  return h
-}
-
 function fmtMonthDay(d: Date) {
   const m = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" })
   return `${m} ${d.getUTCDate()}`
+}
+
+function shiftHours(starts_at: string, ends_at: string): number {
+  const ms = new Date(ends_at).getTime() - new Date(starts_at).getTime()
+  return Math.max(0, ms / 3_600_000)
 }
 
 export default async function SchedulingOverviewPage() {
@@ -79,12 +58,7 @@ export default async function SchedulingOverviewPage() {
   if (!facilityId) {
     return (
       <div className="flex flex-col gap-6 p-4 md:p-6">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Scheduling</h1>
-          <p className="text-muted-foreground text-sm">
-            Manage shifts, templates, and publishing for this facility.
-          </p>
-        </div>
+        <Header weekLabel={null} facilityName={null} />
         <Card>
           <CardHeader>
             <CardTitle>No facility yet</CardTitle>
@@ -117,7 +91,7 @@ export default async function SchedulingOverviewPage() {
       .maybeSingle<{ name: string }>(),
   ])
 
-  const weekStartDay = settings?.week_start_day ?? 1 // Monday default
+  const weekStartDay = settings?.week_start_day ?? 1
   const { start: weekStart, end: weekEnd } = startOfWeek(weekStartDay)
 
   const [
@@ -125,51 +99,62 @@ export default async function SchedulingOverviewPage() {
     deptsRes,
     employeesRes,
     openShiftsRes,
-    swapsRes,
-    timeOffRes,
+    pendingSwapsRes,
+    pendingTimeOffRes,
+    templatesRes,
+    publishRes,
   ] = await Promise.all([
     supabase
       .from("schedule_shifts")
-      .select(
-        "id, department_id, employee_id, starts_at, ends_at, status, role_label"
-      )
+      .select("id, department_id, employee_id, starts_at, ends_at, status, role_label, compliance_warnings")
       .eq("facility_id", facilityId)
       .gte("starts_at", weekStart.toISOString())
-      .lt("starts_at", weekEnd.toISOString())
-      .order("starts_at", { ascending: true }),
+      .lt("starts_at", weekEnd.toISOString()),
     supabase
       .from("departments")
-      .select("id, name, color, sort_order")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true }),
+      .select("id, name")
+      .eq("facility_id", facilityId),
     supabase
       .from("employees")
-      .select("id, first_name, last_name, is_active")
+      .select("id, first_name, last_name, employee_code")
       .eq("facility_id", facilityId)
       .eq("is_active", true)
-      .order("last_name", { ascending: true }),
+      .order("last_name", { ascending: true })
+      .limit(500),
     supabase
       .from("schedule_open_shifts")
       .select("id, shift_id, claim_status")
       .eq("facility_id", facilityId)
-      .eq("claim_status", "open"),
+      .in("claim_status", ["open", "claimed"]),
     supabase
       .from("schedule_swap_requests")
       .select(
-        "id, requester_employee_id, requester_shift_id, target_employee_id, target_shift_id, status, decision_note, created_at"
+        "id, requester_employee_id, requester_shift_id, target_employee_id, status, created_at"
       )
       .eq("facility_id", facilityId)
+      .eq("status", "pending")
       .order("created_at", { ascending: false })
-      .limit(10),
+      .limit(20),
     supabase
       .from("schedule_time_off_requests")
-      .select("id, employee_id, starts_at, ends_at, status, reason")
+      .select("id, employee_id, starts_at, ends_at, status, reason, created_at")
       .eq("facility_id", facilityId)
-      .order("starts_at", { ascending: true })
-      .limit(10),
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("schedule_templates")
+      .select("id, is_active")
+      .eq("facility_id", facilityId),
+    supabase
+      .from("schedule_publish_events")
+      .select("id, created_at")
+      .eq("facility_id", facilityId)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ])
 
-  type ShiftRowMini = {
+  type ShiftRow = {
     id: string
     department_id: string
     employee_id: string | null
@@ -177,214 +162,366 @@ export default async function SchedulingOverviewPage() {
     ends_at: string
     status: string
     role_label: string | null
+    compliance_warnings: unknown
   }
-  type DeptRow = { id: string; name: string; color: string | null; sort_order: number | null }
+  type DeptRow = { id: string; name: string }
   type EmpRow = {
     id: string
     first_name: string
     last_name: string
-    is_active: boolean
+    employee_code: string | null
   }
-
-  const shifts = (shiftsRes.data ?? []) as ShiftRowMini[]
-  const departments = (deptsRes.data ?? []) as DeptRow[]
-  const employees = (employeesRes.data ?? []) as EmpRow[]
-  const openShifts = (openShiftsRes.data ?? []) as {
+  type OpenShiftRowMini = {
     id: string
     shift_id: string
     claim_status: string
-  }[]
-  const swapsRaw = (swapsRes.data ?? []) as {
+  }
+
+  const shifts = (shiftsRes.data ?? []) as ShiftRow[]
+  const departments = (deptsRes.data ?? []) as DeptRow[]
+  const employees = (employeesRes.data ?? []) as EmpRow[]
+  const openShiftRows = (openShiftsRes.data ?? []) as OpenShiftRowMini[]
+  const pendingSwapsRaw = (pendingSwapsRes.data ?? []) as {
     id: string
     requester_employee_id: string
     requester_shift_id: string
     target_employee_id: string | null
-    target_shift_id: string | null
     status: string
-    decision_note: string | null
+    created_at: string
   }[]
-  const timeOffRaw = (timeOffRes.data ?? []) as {
+  const pendingTimeOffRaw = (pendingTimeOffRes.data ?? []) as {
     id: string
     employee_id: string
     starts_at: string
     ends_at: string
     status: string
     reason: string | null
+    created_at: string
   }[]
+  const templates = (templatesRes.data ?? []) as {
+    id: string
+    is_active: boolean
+  }[]
+  const lastPublish = (publishRes.data ?? [])[0] as
+    | { id: string; created_at: string | null }
+    | undefined
 
-  const deptById = new Map<string, DeptRow & { displayColor: string }>(
-    departments.map((d, i) => [
-      d.id,
-      { ...d, displayColor: d.color ?? DEFAULT_DEPT_PALETTE[i % DEFAULT_DEPT_PALETTE.length]! },
-    ])
-  )
   const empById = new Map(employees.map((e) => [e.id, e]))
+  const deptById = new Map(departments.map((d) => [d.id, d]))
+  const shiftById = new Map(shifts.map((s) => [s.id, s]))
 
-  const weekDates = Array.from({ length: 7 }, (_, i) => {
+  // KPI computations (real data only).
+  const totalShifts = shifts.length
+  const publishedShifts = shifts.filter((s) => s.status === "published").length
+  const draftShifts = shifts.filter((s) => s.status === "draft").length
+  const totalScheduledHours = Math.round(
+    shifts.reduce((a, s) => a + shiftHours(s.starts_at, s.ends_at), 0)
+  )
+  const complianceWarningCount = shifts.reduce((a, s) => {
+    const w = Array.isArray(s.compliance_warnings) ? s.compliance_warnings : []
+    return a + w.length
+  }, 0)
+  const openShiftCount = openShiftRows.length
+  const unassignedNoListingCount = shifts.filter(
+    (s) =>
+      s.employee_id === null &&
+      !openShiftRows.some((o) => o.shift_id === s.id)
+  ).length
+
+  // Per-day shift counts (for the at-a-glance row).
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart)
     d.setUTCDate(weekStart.getUTCDate() + i)
-    return d.getUTCDate()
-  })
-
-  const now = new Date()
-  const nowUtc = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      now.getUTCHours(),
-      now.getUTCMinutes()
-    )
-  )
-  const todayMidnight = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  )
-  const todayIdxRaw = weekDayIndex(todayMidnight, weekStart)
-  const todayIndex =
-    todayIdxRaw >= 0 && todayIdxRaw < 7 ? todayIdxRaw : null
-  const nowFractionalHour = todayIndex != null ? fractionalHour(nowUtc) : null
-
-  const shiftBlocks = shifts.map((s) => {
-    const sd = new Date(s.starts_at)
-    const ed = new Date(s.ends_at)
-    const dayIdx = Math.max(0, Math.min(6, weekDayIndex(sd, weekStart)))
-    const dept = deptById.get(s.department_id)
-    const emp = s.employee_id ? empById.get(s.employee_id) : null
-    const employeeName = emp ? `${emp.first_name} ${emp.last_name}` : null
+    const startMs = d.getTime()
+    const endMs = startMs + 24 * 3_600_000
+    const dayShifts = shifts.filter((s) => {
+      const t = new Date(s.starts_at).getTime()
+      return t >= startMs && t < endMs
+    })
     return {
-      id: s.id,
-      day: dayIdx,
-      startHour: fractionalHour(sd),
-      endHour: fractionalHour(ed),
-      employeeId: s.employee_id,
-      employeeName,
-      employeeInitials: emp ? initialsOf(employeeName!) : null,
-      employeeHue: emp ? hueFor(emp.id) : 200,
-      departmentId: s.department_id,
-      departmentName: dept?.name ?? "Department",
-      departmentColor: dept?.displayColor ?? DEFAULT_DEPT_PALETTE[0]!,
-      status: s.status,
-      swapPending: swapsRaw.some(
-        (sw) => sw.requester_shift_id === s.id && sw.status === "pending"
+      label: d.toLocaleString("en-US", { weekday: "short", timeZone: "UTC" }),
+      date: d.getUTCDate(),
+      count: dayShifts.length,
+      hours: Math.round(
+        dayShifts.reduce((a, s) => a + shiftHours(s.starts_at, s.ends_at), 0)
       ),
-      roleLabel: s.role_label,
     }
   })
 
-  const shiftById = new Map(shiftBlocks.map((s) => [s.id, s]))
+  // Pending swap rows for inline panel.
+  const pendingSwaps: PendingSwap[] = pendingSwapsRaw.map((sw) => {
+    const fromEmp = empById.get(sw.requester_employee_id)
+    const toEmp = sw.target_employee_id
+      ? empById.get(sw.target_employee_id)
+      : null
+    const shift = shiftById.get(sw.requester_shift_id)
+    return {
+      id: sw.id,
+      requesterName: fromEmp
+        ? `${fromEmp.first_name} ${fromEmp.last_name}`
+        : "Unknown",
+      targetName: toEmp ? `${toEmp.first_name} ${toEmp.last_name}` : null,
+      requesterShift: shift
+        ? { starts_at: shift.starts_at, ends_at: shift.ends_at }
+        : null,
+      createdAt: sw.created_at,
+    }
+  })
 
-  const totalScheduledHours = Math.round(
-    shiftBlocks.reduce((a, s) => a + (s.endHour - s.startHour), 0)
-  )
-  const laborCostEstimate = totalScheduledHours * 26
+  const pendingTimeOff: PendingTimeOff[] = pendingTimeOffRaw.map((t) => {
+    const emp = empById.get(t.employee_id)
+    return {
+      id: t.id,
+      employeeName: emp ? `${emp.first_name} ${emp.last_name}` : "Unknown",
+      starts_at: t.starts_at,
+      ends_at: t.ends_at,
+      reason: t.reason,
+      createdAt: t.created_at,
+    }
+  })
 
-  const crew = employees
-    .map((e) => {
-      const totalH = shiftBlocks
-        .filter((s) => s.employeeId === e.id)
-        .reduce((a, s) => a + (s.endHour - s.startHour), 0)
-      const dept = shiftBlocks.find((s) => s.employeeId === e.id)
-      return {
-        id: e.id,
-        name: `${e.first_name} ${e.last_name}`,
-        initials: initialsOf(`${e.first_name} ${e.last_name}`),
-        hue: hueFor(e.id),
-        departmentName: dept?.departmentName ?? "—",
-        departmentColor: dept?.departmentColor ?? "#8A9194",
-        hours: Math.round(totalH),
-      }
-    })
-    .sort((a, b) => b.hours - a.hours)
-
-  const openShiftBlocks = openShifts
+  const openShiftsList: OpenShiftItem[] = openShiftRows
     .map((o) => {
       const s = shiftById.get(o.shift_id)
       if (!s) return null
+      const dept = deptById.get(s.department_id)
       return {
         id: o.id,
-        day: s.day,
-        startHour: s.startHour,
-        endHour: s.endHour,
-        departmentName: s.departmentName,
-        departmentColor: s.departmentColor,
-        note: s.roleLabel ?? "Needs coverage",
+        starts_at: s.starts_at,
+        ends_at: s.ends_at,
+        departmentName: dept?.name ?? "Department",
+        roleLabel: s.role_label,
       }
     })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .filter((x): x is OpenShiftItem => x !== null)
 
-  const swaps = swapsRaw
-    .map((sw) => {
-      const fromEmp = empById.get(sw.requester_employee_id)
-      const toEmp = sw.target_employee_id
-        ? empById.get(sw.target_employee_id)
-        : null
-      const shift = shiftById.get(sw.requester_shift_id)
-      if (!fromEmp || !shift) return null
-      const fromName = `${fromEmp.first_name} ${fromEmp.last_name}`
-      const toName = toEmp ? `${toEmp.first_name} ${toEmp.last_name}` : null
-      return {
-        id: sw.id,
-        fromName,
-        fromInitials: initialsOf(fromName),
-        fromHue: hueFor(fromEmp.id),
-        toName,
-        toInitials: toName ? initialsOf(toName) : null,
-        toHue: toEmp ? hueFor(toEmp.id) : 200,
-        day: shift.day,
-        startHour: shift.startHour,
-        endHour: shift.endHour,
-        status: sw.status,
-        reason: sw.decision_note,
-      }
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
-
-  const timeOff = timeOffRaw
-    .map((t) => {
-      const emp = empById.get(t.employee_id)
-      if (!emp) return null
-      const name = `${emp.first_name} ${emp.last_name}`
-      return {
-        id: t.id,
-        employeeName: name,
-        employeeInitials: initialsOf(name),
-        employeeHue: hueFor(emp.id),
-        fromLabel: fmtMonthDay(new Date(t.starts_at)),
-        toLabel: fmtMonthDay(new Date(t.ends_at)),
-        reason: t.reason,
-        status: t.status,
-      }
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
-
-  // Pick first crew member with shifts for employee phone preview
-  const previewEmp = crew.find((c) => c.hours > 0) ?? crew[0] ?? null
-  const previewShifts = previewEmp
-    ? shiftBlocks.filter((s) => s.employeeId === previewEmp.id)
-    : []
+  const employeeOptions: EmployeeOption[] = employees.map((e) => ({
+    id: e.id,
+    label: `${e.last_name}, ${e.first_name}${
+      e.employee_code ? ` (${e.employee_code})` : ""
+    }`,
+  }))
 
   const weekLabel = `Week of ${fmtMonthDay(weekStart)} – ${fmtMonthDay(
     new Date(weekEnd.getTime() - 24 * 60 * 60 * 1000)
   )} · ${weekStart.getUTCFullYear()}`
 
-  const dashboardProps: WeekDashboardProps = {
-    weekLabel,
-    weekDates,
-    facilityName: facility?.name ?? "Facility",
-    todayIndex,
-    nowFractionalHour,
-    shifts: shiftBlocks,
-    openShifts: openShiftBlocks,
-    swaps,
-    timeOff,
-    crew,
-    totalScheduledHours,
-    laborCostEstimate,
-    employeeViewName: previewEmp?.name ?? null,
-    employeeViewHue: previewEmp?.hue ?? 200,
-    employeeViewRoleLabel: previewEmp?.departmentName ?? null,
-    employeeViewShifts: previewShifts,
-  }
+  const activeTemplateCount = templates.filter((t) => t.is_active).length
+  const lastPublishedLabel = lastPublish?.created_at
+    ? new Date(lastPublish.created_at).toLocaleString("en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "Never"
 
-  return <WeekDashboard {...dashboardProps} />
+  return (
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      <Header weekLabel={weekLabel} facilityName={facility?.name ?? null} />
+
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard
+          label="Scheduled hours"
+          value={`${totalScheduledHours}h`}
+          delta={`${publishedShifts} published · ${draftShifts} draft`}
+        />
+        <StatCard
+          label="Shifts this week"
+          value={totalShifts}
+          delta={`${employees.length} active employees`}
+        />
+        <StatCard
+          label="Open shifts"
+          value={openShiftCount}
+          delta={
+            unassignedNoListingCount > 0
+              ? `${unassignedNoListingCount} unassigned (no listing)`
+              : "—"
+          }
+          deltaTone={unassignedNoListingCount > 0 ? "negative" : "neutral"}
+        />
+        <StatCard
+          label="Pending requests"
+          value={pendingSwaps.length + pendingTimeOff.length}
+          delta={`${pendingSwaps.length} swap · ${pendingTimeOff.length} time-off`}
+          deltaTone={
+            pendingSwaps.length + pendingTimeOff.length > 0
+              ? "negative"
+              : "neutral"
+          }
+        />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-base">Pending swaps</CardTitle>
+              <Link
+                href="/admin/scheduling/swaps"
+                className="text-primary text-xs font-medium hover:underline"
+              >
+                View all →
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <PendingSwapsPanel rows={pendingSwaps.slice(0, 5)} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-base">Pending time-off</CardTitle>
+              <Link
+                href="/admin/scheduling/time-off"
+                className="text-primary text-xs font-medium hover:underline"
+              >
+                View all →
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <PendingTimeOffPanel rows={pendingTimeOff.slice(0, 5)} />
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base">Open shifts this week</CardTitle>
+            <Link
+              href="/admin/scheduling/shifts"
+              className="text-primary text-xs font-medium hover:underline"
+            >
+              Manage shifts →
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <OpenShiftsPanel
+            rows={openShiftsList.slice(0, 8)}
+            employeeOptions={employeeOptions}
+          />
+        </CardContent>
+      </Card>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+          This week at a glance
+        </h2>
+        <div className="bg-card border-border/60 grid grid-cols-7 gap-px overflow-hidden rounded-lg border shadow-[var(--shadow-elev-1)]">
+          {weekDays.map((d) => (
+            <div
+              key={`${d.label}-${d.date}`}
+              className="bg-card flex flex-col items-center gap-1 px-2 py-3 text-center"
+            >
+              <div className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                {d.label}
+              </div>
+              <div className="text-xl font-semibold tabular-nums">{d.date}</div>
+              <div className="text-muted-foreground text-[11px]">
+                {d.count} shift{d.count === 1 ? "" : "s"}
+              </div>
+              <div className="text-muted-foreground/80 text-[10px] tabular-nums">
+                {d.hours}h
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+          Modules
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ModuleCard
+            title="Shifts"
+            description="Create, edit, and assign individual shifts. Filter by department, status, and date."
+            href="/admin/scheduling/shifts"
+            count={totalShifts}
+            cta="Manage shifts"
+          />
+          <ModuleCard
+            title="Templates"
+            description="Recurring weekly patterns you can apply to any week."
+            href="/admin/scheduling/templates"
+            count={`${activeTemplateCount} active`}
+            cta="View templates"
+          />
+          <ModuleCard
+            title="Publish history"
+            description={`Last published: ${lastPublishedLabel}`}
+            href="/admin/scheduling/publish"
+            cta="View history"
+          />
+          <ModuleCard
+            title="Publish requests"
+            description="Approve or reject staff-initiated publish requests."
+            href="/admin/scheduling/publish/requests"
+            cta="Review requests"
+          />
+          <ModuleCard
+            title="Time-off"
+            description="Approve, deny, or cancel employee time-off requests."
+            href="/admin/scheduling/time-off"
+            count={pendingTimeOff.length}
+            cta="Open queue"
+          />
+          <ModuleCard
+            title="Swaps"
+            description="Review shift swap requests and assign targets."
+            href="/admin/scheduling/swaps"
+            count={pendingSwaps.length}
+            cta="Open queue"
+          />
+          <ModuleCard
+            title="Compliance"
+            description={
+              complianceWarningCount > 0
+                ? `${complianceWarningCount} warning${complianceWarningCount === 1 ? "" : "s"} on this week's shifts`
+                : "No warnings on this week's shifts."
+            }
+            href="/admin/scheduling/compliance"
+            cta="View rules"
+          />
+          <ModuleCard
+            title="Settings"
+            description="Week start, publish horizon, swap & open-shift policy."
+            href="/admin/scheduling/settings"
+            cta="Configure"
+          />
+          <ModuleCard
+            title="Notifications"
+            description="Audit log of schedule notifications sent to employees."
+            href="/admin/scheduling/notifications"
+            cta="View log"
+          />
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Header({
+  weekLabel,
+  facilityName,
+}: {
+  weekLabel: string | null
+  facilityName: string | null
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Scheduling overview
+      </h1>
+      <p className="text-muted-foreground text-sm">
+        {weekLabel
+          ? `${weekLabel}${facilityName ? ` · ${facilityName}` : ""}`
+          : "Manage shifts, templates, and publishing for this facility."}
+      </p>
+    </div>
+  )
 }
