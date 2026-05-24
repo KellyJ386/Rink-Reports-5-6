@@ -320,7 +320,7 @@ export default async function AccidentsHomePage() {
       </div>
 
       <SubmissionForm
-        defaultInjuredName=""
+        defaultInjuredName={userRow?.full_name ?? ""}
         defaultInjuredContact={userRow?.phone ?? ""}
         locations={locations}
         activities={activities}
