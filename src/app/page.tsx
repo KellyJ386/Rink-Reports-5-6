@@ -272,7 +272,6 @@ export default async function Home() {
                 <path d="m12 5 7 7-7 7" />
               </svg>
             </a>
-            <RequestInformationButton />
           </div>
         </div>
 
