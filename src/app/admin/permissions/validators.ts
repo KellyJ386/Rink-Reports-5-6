@@ -1,5 +1,4 @@
 import { PERMISSION_LEVELS, type PermissionLevel } from "@/lib/permissions"
-
 import { MODULE_KEYS, type ModuleKey } from "./types"
 
 export function assertValidLevel(level: string): asserts level is PermissionLevel {

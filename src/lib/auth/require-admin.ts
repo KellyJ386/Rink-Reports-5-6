@@ -7,19 +7,16 @@ import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "./get-current-user"
 import type { AuthedUser } from "./types"
 
-const ADMIN_ROLE_KEYS = ["admin", "super_admin"] as const
-
 /**
  * Server-side guard: requires that the current user is either a global super
- * admin (users.is_super_admin) or has an active employee row whose role.key is
- * one of admin/super_admin for the user's current facility.
+ * admin (users.is_super_admin) or has a `user_permissions` row granting the
+ * `admin` action on the `admin` module within their facility.
  *
  * Redirects to /login when unauthenticated, or to /forbidden when
- * authenticated but lacking admin privileges. Splitting the two cases lets
- * users see a useful message instead of a confusing login bounce.
+ * authenticated but lacking admin privileges.
  *
- * Wrapped in React `cache()` so that layout + page calling this in the same
- * server render tree share a single DB round-trip for the role check.
+ * Wrapped in React `cache()` so layout + page calling this in the same
+ * server render tree share a single DB round-trip.
  */
 export const requireAdmin = cache(async (): Promise<AuthedUser> => {
   const current = await getCurrentUser()
@@ -33,30 +30,26 @@ export const requireAdmin = cache(async (): Promise<AuthedUser> => {
     return current
   }
 
-  if (!profile || !profile.is_active) {
+  if (!profile || !profile.is_active || !profile.facility_id) {
     redirect("/forbidden")
   }
 
   const supabase = await createClient()
 
-  // Look up an active employee row for this user with an admin-level role.
-  // If the user has a facility_id set on their profile, scope to it; otherwise
-  // accept any facility (matches the case where assignment hasn't happened).
-  let query = supabase
-    .from("employees")
-    .select("id, is_active, roles!inner(key)")
+  const { data, error } = await supabase
+    // user_permissions isn't in generated types yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .from("user_permissions" as any)
+    .select("id")
     .eq("user_id", profile.id)
-    .eq("is_active", true)
-    .in("roles.key", ADMIN_ROLE_KEYS as unknown as string[])
+    .eq("facility_id", profile.facility_id)
+    .eq("module_name", "admin")
+    .eq("action", "admin")
+    .eq("enabled", true)
     .limit(1)
+    .maybeSingle()
 
-  if (profile.facility_id) {
-    query = query.eq("facility_id", profile.facility_id)
-  }
-
-  const { data: employee, error } = await query.maybeSingle()
-
-  if (error || !employee) {
+  if (error || !data) {
     redirect("/forbidden")
   }
 
