@@ -119,6 +119,7 @@
 
   /* Strong heading ink */
   --foreground-strong:    var(--navy-700);   /* #002244 — headings         */
+  --foreground-subtle:    var(--ice-500);    /* #7A8694 — placeholders     */
 
   /* Primary — action-green; on it sits navy ink */
   --primary:              var(--green-500);
@@ -137,6 +138,9 @@
   /* Accent (hover surface) */
   --accent:               var(--ice-200);
   --accent-foreground:    var(--navy-700);
+
+  /* Input surface — white in light (= card), sunken in dark (per spec) */
+  --input-bg:             #FFFFFF;
 
   /* Accent-brand = secondary action (sky). Also drives non-primary focus. */
   --accent-brand:                 var(--sky-400);
@@ -229,6 +233,8 @@
   --popover-foreground:   #E2EAF3;
 
   --foreground-strong:    #F1F6FB;
+  --foreground-subtle:    #6F87A3;            /* placeholders, hints       */
+  --input-bg:             #0C1D35;            /* sunken below card surface */
 
   --primary:              var(--green-300);   /* #9DDA50 — punchier on dark */
   --primary-foreground:   var(--navy-800);    /* #00182F                    */
@@ -325,6 +331,8 @@
   --popover:              #FFFFFF;
   --popover-foreground:   #1B2733;
   --foreground-strong:    var(--navy-700);
+  --foreground-subtle:    var(--ice-500);
+  --input-bg:             #FFFFFF;
   --primary:              var(--green-500);
   --primary-foreground:   var(--navy-700);
   --primary-hover:        var(--green-600);
@@ -402,6 +410,8 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-foreground-strong: var(--foreground-strong);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-input-bg: var(--input-bg);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
