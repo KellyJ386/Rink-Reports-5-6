@@ -1,7 +1,33 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { getCurrentUser } from "@/lib/auth"
 import { RequestInformationButton } from "@/components/splash/request-information"
+
+// Shared button styles for the splash page CTAs.
+const SIGN_IN_BUTTON_STYLE = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+  padding: "17px 36px",
+  borderRadius: 10,
+  background: "linear-gradient(180deg, #3FA0FF 0%, #0066CC 100%)",
+  color: "#ffffff",
+  fontWeight: 700,
+  fontSize: 17,
+  textDecoration: "none",
+  boxShadow: "0 2px 0 0 #004A99, 0 4px 16px rgba(0,102,204,0.32)",
+  letterSpacing: "0.01em",
+  minHeight: 56,
+} as const
+
+const SIGN_IN_BUTTON_NAV_STYLE = {
+  ...SIGN_IN_BUTTON_STYLE,
+  padding: "11px 22px",
+  fontSize: 15,
+  minHeight: 0,
+}
 
 // ── Module definitions ────────────────────────────────────────────────────────
 
@@ -105,6 +131,57 @@ export default async function Home() {
         overflowX: "hidden",
       }}
     >
+      {/* ── TOP NAV ───────────────────────────────────────────────────────── */}
+      <nav
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "20px clamp(16px, 4vw, 40px)",
+          background:
+            "linear-gradient(180deg, rgba(0,12,28,0.55) 0%, transparent 100%)",
+        }}
+      >
+        <Link
+          href="/"
+          style={{
+            color: "#ffffff",
+            fontWeight: 800,
+            fontSize: 18,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            textDecoration: "none",
+          }}
+        >
+          Rink Reports
+        </Link>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Link href="/login" style={SIGN_IN_BUTTON_NAV_STYLE}>
+            Sign In
+          </Link>
+          <RequestInformationButton
+            style={{
+              padding: "11px 22px",
+              fontSize: 15,
+              minHeight: 0,
+            }}
+          />
+        </div>
+      </nav>
+
       {/* ── HERO ──────────────────────────────────────────────────────────── */}
       <section
         style={{
@@ -228,51 +305,6 @@ export default async function Home() {
             staff, and reporting in one place.
           </p>
 
-          {/* CTA buttons */}
-          <div
-            style={{
-              display: "flex",
-              gap: 14,
-              flexWrap: "wrap",
-              justifyContent: "center",
-            }}
-          >
-            <a
-              href="/login"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "17px 40px",
-                borderRadius: 10,
-                background:
-                  "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
-                color: "#051200",
-                fontWeight: 700,
-                fontSize: 17,
-                textDecoration: "none",
-                boxShadow:
-                  "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.30)",
-                letterSpacing: "0.01em",
-                minHeight: 56,
-              }}
-            >
-              Sign in
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M5 12h14" />
-                <path d="m12 5 7 7-7 7" />
-              </svg>
-            </a>
-          </div>
         </div>
 
         {/* Scroll nudge */}
@@ -538,57 +570,17 @@ export default async function Home() {
                 Interested in Rink Reports for your facility? Get in touch
                 and we&apos;ll walk you through the platform.
               </p>
-              <a
-                href="mailto:kelly@maxfacility.com?subject=Rink%20Reports%20information%20request"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10,
-                  width: "100%",
-                  padding: "17px 0",
-                  borderRadius: 10,
-                  background:
-                    "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
-                  color: "#051200",
-                  fontWeight: 700,
-                  fontSize: 16,
-                  textDecoration: "none",
-                  boxShadow:
-                    "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.28)",
-                }}
-              >
-                Request Information
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </a>
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  marginTop: 16,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 12,
                 }}
               >
-                <RequestInformationButton
-                  style={{
-                    padding: "13px 24px",
-                    fontSize: 14,
-                    minHeight: 0,
-                  }}
-                >
-                  Request Information
-                </RequestInformationButton>
+                <Link href="/login" style={SIGN_IN_BUTTON_STYLE}>
+                  Sign In
+                </Link>
+                <RequestInformationButton />
               </div>
             </div>
           </div>

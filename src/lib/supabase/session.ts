@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import type { Database } from "@/types/database"
 
-const AUTH_PAGES = ["/login", "/signup"]
+const AUTH_PAGES = ["/login"]
 
 // All routes that require an authenticated session
 const PROTECTED_PREFIXES = ["/admin", "/reports", "/dashboard"]
@@ -54,7 +54,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Authenticated users on /login or /signup -> redirect to /dashboard
+  // Authenticated users on /login -> redirect to /dashboard
   if (user && AUTH_PAGES.includes(pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = "/dashboard"

@@ -26,17 +26,20 @@ type FormState = typeof initialForm
 const PRIMARY_BUTTON_STYLE: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
+  justifyContent: "center",
   gap: 10,
   padding: "17px 36px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.07)",
-  border: "1px solid rgba(255,255,255,0.20)",
-  color: "#ffffff",
-  fontWeight: 600,
+  background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
+  border: "none",
+  color: "#051200",
+  fontWeight: 700,
   fontSize: 17,
   textDecoration: "none",
   minHeight: 56,
   cursor: "pointer",
+  boxShadow: "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.30)",
+  letterSpacing: "0.01em",
 }
 
 export function RequestInformationButton({
