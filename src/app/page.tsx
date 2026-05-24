@@ -539,11 +539,6 @@ export default async function Home() {
                 show you how Rink Reports fits your operation.
               </p>
               <RequestInformationButton
-                Interested in Rink Reports for your facility? Get in touch
-                and we&apos;ll walk you through the platform.
-              </p>
-              <a
-                href="mailto:kelly@maxfacility.com?subject=Rink%20Reports%20information%20request"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -563,37 +558,6 @@ export default async function Home() {
               >
                 Request Information
               </RequestInformationButton>
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </a>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  marginTop: 16,
-                }}
-              >
-                <RequestInformationButton
-                  style={{
-                    padding: "13px 24px",
-                    fontSize: 14,
-                    minHeight: 0,
-                  }}
-                >
-                  Request Information
-                </RequestInformationButton>
-              </div>
             </div>
           </div>
         </div>
