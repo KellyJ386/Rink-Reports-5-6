@@ -572,36 +572,12 @@ export default async function Home() {
               </p>
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                <Link href="/login" style={SIGN_IN_BUTTON_STYLE}>
-                  Sign In
-                </Link>
-                <RequestInformationButton />
-              </div>
-              <RequestInformationButton
-                style={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "center",
-                  width: "100%",
-                  padding: "17px 0",
-                  background:
-                    "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
-                  color: "#051200",
-                  fontWeight: 700,
-                  fontSize: 16,
-                  border: "none",
-                  boxShadow:
-                    "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.28)",
-                  minHeight: 0,
                 }}
               >
-                Request Information
-              </RequestInformationButton>
+                <RequestInformationButton style={{ width: "100%" }} />
+              </div>
             </div>
           </div>
         </div>
