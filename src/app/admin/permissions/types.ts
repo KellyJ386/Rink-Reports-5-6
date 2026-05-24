@@ -1,36 +1,20 @@
-// Local route-scoped types. Generated Supabase types are not available yet,
-// so these are hand-rolled to match the backbone schema (see
-// supabase/migrations/00000000000002_backbone_schema.sql).
+// Compatibility shim. The legacy types lived here before migration 77 swapped
+// the source of truth to `public.user_permissions`. The canonical module list
+// now lives in @/lib/permissions; this file re-exports the same identifiers
+// under their old names so the existing admin/employees and admin/roles pages
+// continue to compile until they're migrated to the new system.
 
 import type { PermissionLevel } from "@/lib/permissions"
+import {
+  MODULE_NAMES,
+  MODULE_LABELS as USER_MODULE_LABELS,
+  type ModuleName,
+} from "@/lib/permissions"
 
-export const MODULE_KEYS = [
-  "daily_reports",
-  "ice_depth",
-  "ice_operations",
-  "incident_reports",
-  "accident_reports",
-  "refrigeration",
-  "air_quality",
-  "scheduling",
-  "communications",
-  "admin",
-] as const
+export const MODULE_KEYS = MODULE_NAMES
+export type ModuleKey = ModuleName
 
-export type ModuleKey = (typeof MODULE_KEYS)[number]
-
-export const MODULE_LABELS: Record<ModuleKey, string> = {
-  daily_reports: "Daily Reports",
-  ice_depth: "Ice Depth",
-  ice_operations: "Ice Ops",
-  incident_reports: "Incidents",
-  accident_reports: "Accidents",
-  refrigeration: "Refrigeration",
-  air_quality: "Air Quality",
-  scheduling: "Scheduling",
-  communications: "Comms",
-  admin: "Admin",
-}
+export const MODULE_LABELS: Record<ModuleKey, string> = USER_MODULE_LABELS
 
 export type Employee = {
   id: string

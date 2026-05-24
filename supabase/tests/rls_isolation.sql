@@ -139,21 +139,20 @@ insert into public.communication_routing_rules (
   ('11111111-1111-1111-1111-111111111111', 'incident_reports', 'immediate', 'staff'),
   ('22222222-2222-2222-2222-222222222222', 'incident_reports', 'immediate', 'staff');
 
--- Grant alice view+submit on every module she'll be queried against. Many
--- SELECT policies (communication_groups, communication_routing_rules, etc.)
--- gate on public.has_module_access(), which checks module_permissions for
--- can_view=true. Without these rows alice can't see her own facility's
--- data and the cross-tenant assertions become meaningless (count=0 on both
--- sides). The legacy can_view/can_submit booleans are kept in sync with
--- permission_level by the trigger added in migration 39.
-insert into public.module_permissions (
-  facility_id, employee_id, module_key, permission_level
+-- Grant alice view+submit on every module she'll be queried against. The
+-- RLS resolvers (effective_module_permission, current_user_has_permission)
+-- read from public.user_permissions as of migration 77. Seed both `view`
+-- and `submit` actions per module so policies that gate on level >= submit
+-- pass, and policies that gate on level >= view also pass.
+insert into public.user_permissions (
+  user_id, facility_id, module_name, action, enabled
 )
 select
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   '11111111-1111-1111-1111-111111111111'::uuid,
-  'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   m,
-  'submit'::public.module_permission_level
+  a::public.user_action,
+  true
 from unnest(array[
   'communications',
   'incident_reports',
@@ -165,7 +164,8 @@ from unnest(array[
   'air_quality',
   'scheduling'
 ]) as m
-on conflict (employee_id, module_key) do nothing;
+cross join unnest(array['view', 'submit']) as a
+on conflict (user_id, facility_id, module_name, action) do nothing;
 
 -- Grant the test runner (authenticated alice) the ability to record failures.
 -- The temp table _rls_failures is created above as the postgres role; without
@@ -382,17 +382,19 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT audit_logs from facility B');
 
--- INSERT into facility B should fail.
+-- INSERT into facility B should fail. The user_permissions write policy
+-- (migration 77) restricts to super_admin or facility admin; alice is neither.
 select pg_temp.expect_error(
-  $$insert into public.module_permissions (
-      facility_id, employee_id, module_key, permission_level
+  $$insert into public.user_permissions (
+      user_id, facility_id, module_name, action, enabled
     ) values (
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
       '22222222-2222-2222-2222-222222222222',
-      'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
       'daily_reports',
-      'view'
+      'view',
+      true
     )$$,
-  'alice CANNOT INSERT module_permissions into facility B');
+  'alice CANNOT INSERT user_permissions into facility B');
 
 -- ---------------------------------------------------------------------------
 -- M2: effective_module_permission resolvers are tenant-scoped.
