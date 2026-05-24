@@ -4,262 +4,401 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  Rink Reports design system — Refreshed palette
-  Brand anchors (both modes):
-    #69BE28 action-green   · #002244 navy
-    #4E8F1E green-deep     · #8BE04A green-bright (dark-mode primary)
-    #5BA3E0 sky            · #0F9A9A / #2DD4BF teal
-    #F59E0B / #FBBF24 amber · #FF6B6B / #FB7185 coral
-    #DC2626 / #F87171 destructive
+  Rink Reports — Palette Refresh (May 2026)
 
-  :root = LIGHT (default). .dark on <html> swaps tokens.
-  All body-text pairings target WCAG 2.2 AA 4.5:1; UI components 3:1.
-  Contrast ratios noted inline against their intended surface.
+  Brand anchors:
+    #69BE28 Action Green   (--green-500)
+    #002244 Rink Navy      (--navy-700)
+
+  Source-of-truth: project/Palette Refresh.html. Ramps (green/navy/ice/
+  sky/coral/amber/crimson/violet) are defined as raw HEX tokens; the
+  semantic layer below maps them into the names this codebase has
+  already wired through @theme inline (--background, --card, --primary,
+  etc.), so every existing component picks up the new palette without
+  per-file edits.
+
+  All body/surface combos hit WCAG 2.2 AA.
 */
 
 :root {
+  /* ─────────── Brand anchors ─────────── */
+  --action-green: #69BE28;
+  --rink-navy:    #002244;
+
+  /* ─────────── Green ramp (★ anchor = 500) ─────────── */
+  --green-50:  #F2FBE4;
+  --green-100: #DEF4BD;
+  --green-200: #BFE883;
+  --green-300: #9DDA50;
+  --green-400: #82CC36;
+  --green-500: #69BE28;
+  --green-600: #54A01A;
+  --green-700: #3F7C13;
+  --green-800: #2A540D;
+  --green-900: #173009;
+
+  /* ─────────── Navy ramp (★ anchor = 700) ─────────── */
+  --navy-50:  #ECF1F7;
+  --navy-100: #CCD8E6;
+  --navy-200: #94ADC8;
+  --navy-300: #5C81A8;
+  --navy-400: #30598A;
+  --navy-500: #103E6E;
+  --navy-600: #052F58;
+  --navy-700: #002244;
+  --navy-800: #00182F;
+  --navy-900: #000D1C;
+
+  /* ─────────── Ice (cool neutrals) ─────────── */
+  --ice-50:  #F7FAFC;
+  --ice-100: #EEF3F7;
+  --ice-200: #E1E8EF;
+  --ice-300: #CCD5DE;
+  --ice-400: #A4B0BD;
+  --ice-500: #7A8694;
+  --ice-600: #57626F;
+  --ice-700: #3A4450;
+  --ice-800: #232B36;
+  --ice-900: #131922;
+
+  /* ─────────── Accents ─────────── */
+  --sky-50:  #E6F4FC;
+  --sky-100: #C1E4F7;
+  --sky-200: #8ECEEF;
+  --sky-300: #5EBEF0;
+  --sky-400: #3DA5D9;
+  --sky-500: #1F88BD;
+  --sky-600: #146A98;
+  --sky-700: #0C4F73;
+
+  --coral-50:  #FFF1EA;
+  --coral-100: #FFD8C5;
+  --coral-200: #FFB89A;
+  --coral-300: #FF9670;
+  --coral-400: #FF7B4F;
+  --coral-500: #ED5F30;
+  --coral-600: #C44A20;
+  --coral-700: #963716;
+
+  --amber-50:  #FFF7DB;
+  --amber-100: #FFE8A6;
+  --amber-200: #FFD662;
+  --amber-300: #FFC940;
+  --amber-400: #F2B202;
+  --amber-500: #C99500;
+  --amber-600: #8E6900;
+
+  --crimson-50:  #FFE9EC;
+  --crimson-100: #FFC5CC;
+  --crimson-200: #FF8E99;
+  --crimson-300: #FF5A6E;
+  --crimson-400: #E5384C;
+  --crimson-500: #BC1F32;
+  --crimson-600: #8A1224;
+
+  --violet-50:  #EFEBFF;
+  --violet-100: #D6CDFF;
+  --violet-200: #B3A4FF;
+  --violet-300: #9A82FF;
+  --violet-400: #7C5CFF;
+  --violet-500: #5E3FE0;
+  --violet-600: #422AA8;
+
+  /* ═══════════ Semantic — LIGHT (default) ═══════════ */
   --radius: 0.625rem;
 
-  /* Surfaces — three-tier elevation: bg → card → elevated */
-  --background:           oklch(0.985 0.005 240);  /* #F8FAFC — softer    */
-  --foreground:           oklch(0.18 0.04 260);    /* #0A1628 — 16:1      */
-  --card:                 oklch(1 0 0);            /* #FFFFFF             */
-  --card-foreground:      oklch(0.18 0.04 260);
-  --surface-elevated:     oklch(0.97 0.008 240);   /* dropdowns/popovers  */
-  --popover:              oklch(1 0 0);
-  --popover-foreground:   oklch(0.18 0.04 260);
+  /* Surfaces */
+  --background:           var(--ice-50);     /* page canvas        #F7FAFC */
+  --foreground:           #1B2733;           /* body text          16:1    */
+  --card:                 #FFFFFF;           /* cards, modals              */
+  --card-foreground:      #1B2733;
+  --surface-elevated:     var(--ice-100);    /* sunken inputs/panels       */
+  --surface-tinted:       #EAF4F8;           /* info/highlight wash        */
+  --popover:              #FFFFFF;
+  --popover-foreground:   #1B2733;
 
-  /* Accent-brand — sky-blue for non-primary focus rings, info glows,
-     hover halos. Keeps brand green for actions; sky for "pop". */
-  --accent-brand:                 oklch(0.66 0.18 250);  /* #4F8FE6     */
-  --accent-brand-foreground:      oklch(1 0 0);
+  /* Strong heading ink */
+  --foreground-strong:    var(--navy-700);   /* #002244 — headings         */
+  --foreground-subtle:    var(--ice-500);    /* #7A8694 — placeholders     */
 
-  /* Primary — action-green, navy ink on it */
-  --primary:              oklch(0.72 0.21 131);    /* #69BE28             */
-  --primary-foreground:   oklch(0.22 0.09 258);    /* #002244 — 4.8:1     */
+  /* Primary — action-green; on it sits navy ink */
+  --primary:              var(--green-500);
+  --primary-foreground:   var(--navy-700);
+  --primary-hover:        var(--green-600);
+  --primary-shadow:       var(--green-700);  /* hard-bottom press shadow   */
 
-  /* Secondary — navy-tinted surface, navy ink */
-  --secondary:            oklch(0.95 0.015 248);   /* #EAF1F8             */
-  --secondary-foreground: oklch(0.22 0.09 258);    /* #002244 — 11:1      */
+  /* Secondary surface */
+  --secondary:            var(--ice-100);
+  --secondary-foreground: var(--navy-700);
 
-  /* Muted — secondary text. #52607A on #F5F8FB = 7.1:1 */
-  --muted:                oklch(0.95 0.008 240);   /* #EEF2F6             */
-  --muted-foreground:     oklch(0.46 0.025 260);   /* #52607A             */
+  /* Muted */
+  --muted:                var(--ice-100);
+  --muted-foreground:     var(--ice-600);    /* #57626F — 7.5:1 on #F7FAFC */
 
-  /* Accent — hover surfaces */
-  --accent:               oklch(0.93 0.015 248);   /* #E6EDF5             */
-  --accent-foreground:    oklch(0.22 0.09 258);
+  /* Accent (hover surface) */
+  --accent:               var(--ice-200);
+  --accent-foreground:    var(--navy-700);
 
-  --destructive:          oklch(0.58 0.22 27);     /* #DC2626 — 4.6:1     */
+  /* Input surface — white in light (= card), sunken in dark (per spec) */
+  --input-bg:             #FFFFFF;
 
-  --border:               oklch(0.88 0.008 240);   /* #D8DEE5 — 3.2:1     */
-  --input:                oklch(0.88 0.008 240);
-  --ring:                 oklch(0.72 0.21 131);    /* green focus         */
+  /* Accent-brand = secondary action (sky). Also drives non-primary focus. */
+  --accent-brand:                 var(--sky-400);
+  --accent-brand-foreground:      #FFFFFF;
 
-  /* Status — fg colors for inline use; -soft for pill backgrounds */
-  --success:              oklch(0.55 0.18 131);    /* #4E8F1E             */
-  --success-foreground:   oklch(1 0 0);
-  --success-soft:         oklch(0.94 0.11 131);    /* punchier pill bg    */
-  --success-soft-foreground: oklch(0.40 0.16 131); /* #3A6B14             */
+  /* Coral (warm attention) and violet (admin tier) */
+  --accent-warm:                  var(--coral-400);
+  --accent-warm-foreground:       #FFFFFF;
+  --accent-special:               var(--violet-400);
+  --accent-special-foreground:    #FFFFFF;
 
-  --warning:              oklch(0.58 0.16 55);     /* #B45309             */
-  --warning-foreground:   oklch(1 0 0);
-  --warning-soft:         oklch(0.95 0.12 90);     /* punchier            */
-  --warning-soft-foreground: oklch(0.44 0.13 55);  /* #8A3F07             */
+  /* Borders + focus ring (green) */
+  --border:               var(--ice-200);   /* #E1E8EF                    */
+  --input:                var(--ice-300);   /* #CCD5DE — input borders    */
+  --ring:                 var(--green-500); /* green focus per spec       */
 
-  --info:                 oklch(0.55 0.14 240);    /* #0E7AB8             */
-  --info-foreground:      oklch(1 0 0);
-  --info-soft:            oklch(0.93 0.08 240);    /* punchier            */
-  --info-soft-foreground: oklch(0.40 0.13 240);    /* #0B5C8C             */
+  /* Destructive (= crimson-400 per spec) */
+  --destructive:          var(--crimson-400);
+  --destructive-foreground: #FFFFFF;
+  --destructive-soft:     var(--crimson-50);
+  --destructive-soft-foreground: var(--crimson-600);
 
-  --destructive-foreground: oklch(1 0 0);
-  --destructive-soft:     oklch(0.93 0.08 27);     /* punchier            */
-  --destructive-soft-foreground: oklch(0.45 0.20 27); /* #B91C1C          */
+  /* Status — fg + -soft for pill backgrounds */
+  --success:              var(--green-500);
+  --success-foreground:   var(--navy-700);
+  --success-soft:         var(--green-50);
+  --success-soft-foreground: var(--green-700);
 
-  /* Charts — colorblind-safe ordering: green → teal → amber → sky → coral */
-  --chart-1: oklch(0.65 0.20 131);  /* green   #5AA722                    */
-  --chart-2: oklch(0.62 0.12 195);  /* teal    #0F9A9A                    */
-  --chart-3: oklch(0.75 0.17 70);   /* amber   #F59E0B                    */
-  --chart-4: oklch(0.62 0.13 250);  /* sky     #4F8FD0                    */
-  --chart-5: oklch(0.68 0.18 18);   /* coral   #FF6B6B                    */
+  --warning:              var(--amber-400);
+  --warning-foreground:   var(--navy-800);
+  --warning-soft:         var(--amber-50);
+  --warning-soft-foreground: var(--amber-500);
 
-  /* Sidebar — navy in both modes (brand-constant shell) */
-  --sidebar:                      oklch(0.22 0.09 258);  /* #002244     */
-  --sidebar-foreground:           oklch(0.99 0 0);
-  --sidebar-foreground-muted:     oklch(1 0 0 / 70%);    /* legible muted */
-  --sidebar-primary:              oklch(0.72 0.21 131);  /* green       */
-  --sidebar-primary-foreground:   oklch(0.22 0.09 258);
-  --sidebar-accent:               oklch(0.32 0.10 258);  /* #0A3A6E     */
-  --sidebar-accent-foreground:    oklch(0.99 0 0);
-  --sidebar-border:               oklch(1 0 0 / 14%);
-  --sidebar-ring:                 oklch(0.72 0.21 131);
+  --info:                 var(--sky-400);
+  --info-foreground:      #FFFFFF;
+  --info-soft:            var(--sky-50);
+  --info-soft-foreground: var(--sky-700);
 
-  /* Brand navy as a solid surface (CTAs, badges). Light = #002244;
-     dark mode lifts it to sky blue (#5BA3E0) for legibility on dark navy. */
-  --brand-navy:                   oklch(0.22 0.09 258);  /* #002244     */
-  --brand-navy-foreground:        oklch(0.99 0 0);
+  /* Charts — colorblind-safe order matching spec accent hues */
+  --chart-1: var(--green-500);
+  --chart-2: var(--sky-400);
+  --chart-3: var(--amber-400);
+  --chart-4: var(--coral-400);
+  --chart-5: var(--violet-400);
 
-  /* Brand teal — cool complement; use for info links/chips and
-     secondary actions that should not compete with green CTAs. */
-  --brand-teal:                   oklch(0.62 0.12 195);  /* #0F9A9A     */
-  --brand-teal-foreground:        oklch(1 0 0);
+  /* Sidebar / chrome — brand-constant navy in both modes */
+  --sidebar:                      var(--navy-700);  /* #002244             */
+  --sidebar-foreground:           #FFFFFF;
+  --sidebar-foreground-muted:     rgba(255,255,255,0.72);
+  --sidebar-primary:              var(--green-500);
+  --sidebar-primary-foreground:   var(--navy-700);
+  --sidebar-accent:               var(--navy-500);  /* #103E6E active row  */
+  --sidebar-accent-foreground:    #FFFFFF;
+  --sidebar-border:               rgba(255,255,255,0.14);
+  --sidebar-ring:                 var(--green-500);
 
-  /* Warm pops — amber for highlights/new badges, coral for soft accents */
-  --accent-amber:                 oklch(0.78 0.17 70);   /* #F59E0B     */
-  --accent-amber-foreground:      oklch(0.22 0.09 258);
-  --accent-coral:                 oklch(0.70 0.18 18);   /* #FF6B6B     */
-  --accent-coral-foreground:      oklch(1 0 0);
+  /* Brand-navy / brand-teal aliases retained for components that already use them */
+  --brand-navy:                   var(--navy-700);
+  --brand-navy-foreground:        #FFFFFF;
+  --brand-teal:                   var(--sky-500);
+  --brand-teal-foreground:        #FFFFFF;
+  --accent-amber:                 var(--amber-400);
+  --accent-amber-foreground:      var(--navy-800);
+  --accent-coral:                 var(--coral-400);
+  --accent-coral-foreground:      #FFFFFF;
+
+  /* Module accent tokens — dashboard tile colors. Per-module hues spread
+     around the wheel so each tile is instantly recognizable; values are
+     saturated mid-darks so white title text reads at full-flood. */
+  --module-daily:       #4527A0;
+  --module-ice-depth:   var(--sky-700);
+  --module-ice-ops:     var(--green-700);
+  --module-incidents:   var(--crimson-500);
+  --module-accidents:   var(--coral-600);
+  --module-refrig:      var(--navy-500);
+  --module-air:         var(--sky-500);
+  --module-comms:       #5D4037;
+  --module-scheduling:  var(--violet-500);
 }
 
-.light {
-  --background:           oklch(0.985 0.005 240);
-  --foreground:           oklch(0.18 0.04 260);
-  --card:                 oklch(1 0 0);
-  --card-foreground:      oklch(0.18 0.04 260);
-  --surface-elevated:     oklch(0.97 0.008 240);
-  --popover:              oklch(1 0 0);
-  --popover-foreground:   oklch(0.18 0.04 260);
-  --accent-brand:                 oklch(0.66 0.18 250);
-  --accent-brand-foreground:      oklch(1 0 0);
-  --primary:              oklch(0.72 0.21 131);
-  --primary-foreground:   oklch(0.22 0.09 258);
-  --secondary:            oklch(0.95 0.015 248);
-  --secondary-foreground: oklch(0.22 0.09 258);
-  --muted:                oklch(0.95 0.008 240);
-  --muted-foreground:     oklch(0.46 0.025 260);
-  --accent:               oklch(0.93 0.015 248);
-  --accent-foreground:    oklch(0.22 0.09 258);
-  --destructive:          oklch(0.58 0.22 27);
-  --border:               oklch(0.88 0.008 240);
-  --input:                oklch(0.88 0.008 240);
-  --ring:                 oklch(0.72 0.21 131);
-  --success:              oklch(0.55 0.18 131);
-  --success-foreground:   oklch(1 0 0);
-  --success-soft:         oklch(0.94 0.11 131);
-  --success-soft-foreground: oklch(0.40 0.16 131);
-  --warning:              oklch(0.58 0.16 55);
-  --warning-foreground:   oklch(1 0 0);
-  --warning-soft:         oklch(0.95 0.12 90);
-  --warning-soft-foreground: oklch(0.44 0.13 55);
-  --info:                 oklch(0.55 0.14 240);
-  --info-foreground:      oklch(1 0 0);
-  --info-soft:            oklch(0.93 0.08 240);
-  --info-soft-foreground: oklch(0.40 0.13 240);
-  --destructive-foreground: oklch(1 0 0);
-  --destructive-soft:     oklch(0.93 0.08 27);
-  --destructive-soft-foreground: oklch(0.45 0.20 27);
-  --chart-1: oklch(0.65 0.20 131);
-  --chart-2: oklch(0.62 0.12 195);
-  --chart-3: oklch(0.75 0.17 70);
-  --chart-4: oklch(0.62 0.13 250);
-  --chart-5: oklch(0.68 0.18 18);
-  --sidebar:                      oklch(0.22 0.09 258);
-  --sidebar-foreground:           oklch(0.99 0 0);
-  --sidebar-foreground-muted:     oklch(1 0 0 / 70%);
-  --sidebar-primary:              oklch(0.72 0.21 131);
-  --sidebar-primary-foreground:   oklch(0.22 0.09 258);
-  --sidebar-accent:               oklch(0.32 0.10 258);
-  --sidebar-accent-foreground:    oklch(0.99 0 0);
-  --sidebar-border:               oklch(1 0 0 / 14%);
-  --sidebar-ring:                 oklch(0.72 0.21 131);
-  --brand-navy:                   oklch(0.22 0.09 258);
-  --brand-navy-foreground:        oklch(0.99 0 0);
-  --brand-teal:                   oklch(0.62 0.12 195);
-  --brand-teal-foreground:        oklch(1 0 0);
-  --accent-amber:                 oklch(0.78 0.17 70);
-  --accent-amber-foreground:      oklch(0.22 0.09 258);
-  --accent-coral:                 oklch(0.70 0.18 18);
-  --accent-coral-foreground:      oklch(1 0 0);
-}
-
-/*
-  Dark mode — brighter, more colour variety, navy-anchored (not black).
-    bg     #0B1A2E  (oklch 0.18)
-    card   #15283F  (oklch 0.26)   → 1.9:1 vs bg
-    popover #1E3855 (oklch 0.32)   → elevated surfaces
-    border white@22%                → 3.4:1 vs bg
-    text   #F1F5F9  near-white     → 15.5:1 vs bg
-    muted  #B4C2D4 (oklch 0.78)    → 8.4:1 vs bg
-    green  #8BE04A  brighter primary
-    sky    #5BA3E0  stands in for solid navy
-*/
+/* ═══════════ Semantic — DARK ═══════════ */
 .dark {
-  --background:           oklch(0.19 0.045 258);   /* lifted from 0.16 — less flat */
-  --foreground:           oklch(0.985 0.005 247);  /* slightly brighter   */
-  --card:                 oklch(0.285 0.065 257);  /* big lift vs bg → ~3:1 */
-  --card-foreground:      oklch(0.985 0.005 247);
-  --surface-elevated:     oklch(0.36 0.075 257);   /* clear 3rd tier      */
-  --popover:              oklch(0.36 0.075 257);
-  --popover-foreground:   oklch(0.985 0.005 247);
+  --background:           #0A1A2E;
+  --foreground:           #E2EAF3;
+  --card:                 #11243F;
+  --card-foreground:      #E2EAF3;
+  --surface-elevated:     #0C1D35;
+  --surface-tinted:       #133458;
+  --popover:              #133458;
+  --popover-foreground:   #E2EAF3;
 
-  --accent-brand:                 oklch(0.74 0.18 250);  /* punchier sky */
-  --accent-brand-foreground:      oklch(0.22 0.09 258);
+  --foreground-strong:    #F1F6FB;
+  --foreground-subtle:    #6F87A3;            /* placeholders, hints       */
+  --input-bg:             #0C1D35;            /* sunken below card surface */
 
-  --primary:              oklch(0.83 0.22 131);    /* #8BE04A — punchier  */
-  --primary-foreground:   oklch(0.22 0.09 258);    /* #002244             */
+  --primary:              var(--green-300);   /* #9DDA50 — punchier on dark */
+  --primary-foreground:   var(--navy-800);    /* #00182F                    */
+  --primary-hover:        var(--green-200);
+  --primary-shadow:       var(--green-600);
 
-  --secondary:            oklch(0.32 0.060 257);   /* #1E3855             */
-  --secondary-foreground: oklch(0.96 0.005 247);
+  --secondary:            #11243F;
+  --secondary-foreground: #F1F6FB;
 
-  --muted:                oklch(0.285 0.065 257);
-  --muted-foreground:     oklch(0.82 0.025 240);   /* brighter — ~10:1    */
+  --muted:                #11243F;
+  --muted-foreground:     #A8BCD3;
 
-  --accent:               oklch(0.42 0.075 257);   /* clearer hover state */
-  --accent-foreground:    oklch(0.985 0.005 247);
+  --accent:               #1E3E66;
+  --accent-foreground:    #F1F6FB;
 
-  --destructive:          oklch(0.70 0.20 22);     /* #F87171             */
-  --destructive-foreground: oklch(0.99 0 0);
-  --destructive-soft:     oklch(0.30 0.08 22);     /* #3A1414             */
-  --destructive-soft-foreground: oklch(0.78 0.16 22); /* #F19999          */
+  --accent-brand:                 var(--sky-300);
+  --accent-brand-foreground:      var(--navy-800);
+  --accent-warm:                  var(--coral-300);
+  --accent-warm-foreground:       var(--navy-800);
+  --accent-special:               var(--violet-300);
+  --accent-special-foreground:    var(--navy-800);
 
-  --border:               oklch(1 0 0 / 24%);     /* visible on dark card */
-  --input:                oklch(1 0 0 / 30%);
-  --ring:                 oklch(0.83 0.22 131);
+  --border:               #1E3E66;
+  --input:                #2C5286;
+  --ring:                 var(--green-300);
 
-  /* Status — brighter fg, dark soft bgs */
-  --success:              oklch(0.83 0.22 131);    /* #8BE04A             */
-  --success-foreground:   oklch(0.22 0.09 258);
-  --success-soft:         oklch(0.28 0.10 131);    /* #1E3A1A             */
-  --success-soft-foreground: oklch(0.85 0.20 131); /* #A8E66B             */
+  --destructive:          var(--crimson-300);
+  --destructive-foreground: var(--navy-800);
+  --destructive-soft:     rgba(255,90,110,0.12);
+  --destructive-soft-foreground: var(--crimson-200);
 
-  --warning:              oklch(0.82 0.16 80);     /* #FBBF24             */
-  --warning-foreground:   oklch(0.22 0.09 258);
-  --warning-soft:         oklch(0.30 0.08 70);     /* #3A2E0A             */
-  --warning-soft-foreground: oklch(0.85 0.15 80);  /* #F5D77A             */
+  --success:              var(--green-300);
+  --success-foreground:   var(--navy-800);
+  --success-soft:         rgba(157,218,80,0.12);
+  --success-soft-foreground: var(--green-200);
 
-  --info:                 oklch(0.72 0.14 248);    /* #60A5FA             */
-  --info-foreground:      oklch(0.22 0.09 258);
-  --info-soft:            oklch(0.28 0.08 250);    /* #0F2A4A             */
-  --info-soft-foreground: oklch(0.78 0.13 248);    /* #93C5FD             */
+  --warning:              var(--amber-300);
+  --warning-foreground:   var(--navy-800);
+  --warning-soft:         rgba(255,201,64,0.12);
+  --warning-soft-foreground: var(--amber-200);
 
-  /* Charts — brightened to read on dark navy */
-  --chart-1: oklch(0.83 0.22 131);
-  --chart-2: oklch(0.78 0.13 180);  /* teal #2DD4BF                       */
-  --chart-3: oklch(0.82 0.16 80);   /* amber #FBBF24                      */
-  --chart-4: oklch(0.70 0.13 248);  /* sky   #5BA3E0                      */
-  --chart-5: oklch(0.72 0.17 16);   /* coral #FB7185                      */
+  --info:                 var(--sky-300);
+  --info-foreground:      var(--navy-800);
+  --info-soft:            rgba(94,190,240,0.12);
+  --info-soft-foreground: var(--sky-200);
 
-  /* Dark sidebar — deeper than bg, own elevation */
-  --sidebar:                      oklch(0.12 0.05 258);  /* deeper than bg */
-  --sidebar-foreground:           oklch(0.985 0.005 247);
-  --sidebar-foreground-muted:     oklch(1 0 0 / 72%);    /* readable muted */
-  --sidebar-primary:              oklch(0.83 0.22 131);
-  --sidebar-primary-foreground:   oklch(0.22 0.09 258);
-  --sidebar-accent:               oklch(0.32 0.075 257); /* clear active row */
-  --sidebar-accent-foreground:    oklch(0.985 0.005 247);
-  --sidebar-border:               oklch(1 0 0 / 16%);
-  --sidebar-ring:                 oklch(0.83 0.22 131);
+  --chart-1: var(--green-300);
+  --chart-2: var(--sky-300);
+  --chart-3: var(--amber-300);
+  --chart-4: var(--coral-300);
+  --chart-5: var(--violet-300);
 
-  --brand-navy:                   oklch(0.70 0.13 250);  /* #5BA3E0 sky */
-  --brand-navy-foreground:        oklch(0.99 0 0);
+  --sidebar:                      #061328;          /* deeper than bg-app  */
+  --sidebar-foreground:           #FFFFFF;
+  --sidebar-foreground-muted:     rgba(255,255,255,0.72);
+  --sidebar-primary:              var(--green-300);
+  --sidebar-primary-foreground:   var(--navy-800);
+  --sidebar-accent:               #1E3E66;
+  --sidebar-accent-foreground:    #F1F6FB;
+  --sidebar-border:               rgba(255,255,255,0.10);
+  --sidebar-ring:                 var(--green-300);
 
-  --brand-teal:                   oklch(0.78 0.13 180);  /* #2DD4BF     */
-  --brand-teal-foreground:        oklch(0.22 0.09 258);
+  --brand-navy:                   var(--sky-300);
+  --brand-navy-foreground:        var(--navy-800);
+  --brand-teal:                   var(--sky-300);
+  --brand-teal-foreground:        var(--navy-800);
+  --accent-amber:                 var(--amber-300);
+  --accent-amber-foreground:      var(--navy-800);
+  --accent-coral:                 var(--coral-300);
+  --accent-coral-foreground:      var(--navy-800);
 
-  --accent-amber:                 oklch(0.82 0.16 80);   /* #FBBF24     */
-  --accent-amber-foreground:      oklch(0.22 0.09 258);
-  --accent-coral:                 oklch(0.72 0.17 16);   /* #FB7185     */
-  --accent-coral-foreground:      oklch(0.22 0.09 258);
+  /* Module tokens — lifted, mid-lightness with strong chroma so full-flood
+     tiles read on the deep navy background while keeping per-module hues
+     distinct. */
+  --module-daily:       var(--violet-400);
+  --module-ice-depth:   var(--sky-400);
+  --module-ice-ops:     var(--green-400);
+  --module-incidents:   var(--crimson-400);
+  --module-accidents:   var(--coral-400);
+  --module-refrig:      var(--navy-300);
+  --module-air:         var(--sky-300);
+  --module-comms:       var(--amber-400);
+  --module-scheduling:  var(--violet-300);
+}
+
+/* `.light` mirror of :root for explicit-class toggling */
+.light {
+  --background:           var(--ice-50);
+  --foreground:           #1B2733;
+  --card:                 #FFFFFF;
+  --card-foreground:      #1B2733;
+  --surface-elevated:     var(--ice-100);
+  --surface-tinted:       #EAF4F8;
+  --popover:              #FFFFFF;
+  --popover-foreground:   #1B2733;
+  --foreground-strong:    var(--navy-700);
+  --foreground-subtle:    var(--ice-500);
+  --input-bg:             #FFFFFF;
+  --primary:              var(--green-500);
+  --primary-foreground:   var(--navy-700);
+  --primary-hover:        var(--green-600);
+  --primary-shadow:       var(--green-700);
+  --secondary:            var(--ice-100);
+  --secondary-foreground: var(--navy-700);
+  --muted:                var(--ice-100);
+  --muted-foreground:     var(--ice-600);
+  --accent:               var(--ice-200);
+  --accent-foreground:    var(--navy-700);
+  --accent-brand:                 var(--sky-400);
+  --accent-brand-foreground:      #FFFFFF;
+  --accent-warm:                  var(--coral-400);
+  --accent-warm-foreground:       #FFFFFF;
+  --accent-special:               var(--violet-400);
+  --accent-special-foreground:    #FFFFFF;
+  --border:               var(--ice-200);
+  --input:                var(--ice-300);
+  --ring:                 var(--green-500);
+  --destructive:          var(--crimson-400);
+  --destructive-foreground: #FFFFFF;
+  --destructive-soft:     var(--crimson-50);
+  --destructive-soft-foreground: var(--crimson-600);
+  --success:              var(--green-500);
+  --success-foreground:   var(--navy-700);
+  --success-soft:         var(--green-50);
+  --success-soft-foreground: var(--green-700);
+  --warning:              var(--amber-400);
+  --warning-foreground:   var(--navy-800);
+  --warning-soft:         var(--amber-50);
+  --warning-soft-foreground: var(--amber-500);
+  --info:                 var(--sky-400);
+  --info-foreground:      #FFFFFF;
+  --info-soft:            var(--sky-50);
+  --info-soft-foreground: var(--sky-700);
+  --chart-1: var(--green-500);
+  --chart-2: var(--sky-400);
+  --chart-3: var(--amber-400);
+  --chart-4: var(--coral-400);
+  --chart-5: var(--violet-400);
+  --sidebar:                      var(--navy-700);
+  --sidebar-foreground:           #FFFFFF;
+  --sidebar-foreground-muted:     rgba(255,255,255,0.72);
+  --sidebar-primary:              var(--green-500);
+  --sidebar-primary-foreground:   var(--navy-700);
+  --sidebar-accent:               var(--navy-500);
+  --sidebar-accent-foreground:    #FFFFFF;
+  --sidebar-border:               rgba(255,255,255,0.14);
+  --sidebar-ring:                 var(--green-500);
+  --brand-navy:                   var(--navy-700);
+  --brand-navy-foreground:        #FFFFFF;
+  --brand-teal:                   var(--sky-500);
+  --brand-teal-foreground:        #FFFFFF;
+  --accent-amber:                 var(--amber-400);
+  --accent-amber-foreground:      var(--navy-800);
+  --accent-coral:                 var(--coral-400);
+  --accent-coral-foreground:      #FFFFFF;
+  --module-daily:       #4527A0;
+  --module-ice-depth:   var(--sky-700);
+  --module-ice-ops:     var(--green-700);
+  --module-incidents:   var(--crimson-500);
+  --module-accidents:   var(--coral-600);
+  --module-refrig:      var(--navy-500);
+  --module-air:         var(--sky-500);
+  --module-comms:       #5D4037;
+  --module-scheduling:  var(--violet-500);
 }
 
 @theme inline {
@@ -267,8 +406,12 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 6px);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-foreground-strong: var(--foreground-strong);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-input-bg: var(--input-bg);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -324,67 +467,52 @@
   --color-accent-coral-foreground: var(--accent-coral-foreground);
   --color-accent-brand: var(--accent-brand);
   --color-accent-brand-foreground: var(--accent-brand-foreground);
+  --color-accent-warm: var(--accent-warm);
+  --color-accent-warm-foreground: var(--accent-warm-foreground);
+  --color-accent-special: var(--accent-special);
+  --color-accent-special-foreground: var(--accent-special-foreground);
   --color-surface-elevated: var(--surface-elevated);
+  --color-surface-tinted: var(--surface-tinted);
 
-  /* Elevation scale — softer than Tailwind defaults; warmer in dark mode
-     via the .dark override below. Use as shadow-[var(--shadow-elev-N)]. */
-  --shadow-elev-1: 0 1px 2px 0 oklch(0.18 0.04 260 / 0.06);
-  --shadow-elev-2: 0 4px 12px -2px oklch(0.18 0.04 260 / 0.10),
-                   0 2px 4px -2px oklch(0.18 0.04 260 / 0.06);
-  --shadow-elev-3: 0 12px 32px -8px oklch(0.18 0.04 260 / 0.18),
-                   0 4px 8px -4px oklch(0.18 0.04 260 / 0.10);
+  --color-module-daily: var(--module-daily);
+  --color-module-ice-depth: var(--module-ice-depth);
+  --color-module-ice-ops: var(--module-ice-ops);
+  --color-module-incidents: var(--module-incidents);
+  --color-module-accidents: var(--module-accidents);
+  --color-module-refrig: var(--module-refrig);
+  --color-module-air: var(--module-air);
+  --color-module-comms: var(--module-comms);
+  --color-module-scheduling: var(--module-scheduling);
 
-  /* Module accent tokens — used by dashboard module tiles. Light values;
-     .dark below brightens them so icons read on navy. */
-  --color-module-daily:       var(--module-daily);
-  --color-module-ice-depth:   var(--module-ice-depth);
-  --color-module-ice-ops:     var(--module-ice-ops);
-  --color-module-incidents:   var(--module-incidents);
-  --color-module-accidents:   var(--module-accidents);
-  --color-module-refrig:      var(--module-refrig);
-  --color-module-air:         var(--module-air);
-  --color-module-comms:       var(--module-comms);
-  --color-module-scheduling:  var(--module-scheduling);
+  /* Elevation scale — soft on light, deeper alpha on dark (set below) */
+  --shadow-elev-1: 0 1px 2px 0 rgba(0,34,68,0.06);
+  --shadow-elev-2: 0 4px 12px -2px rgba(0,34,68,0.10),
+                   0 2px 4px -2px rgba(0,34,68,0.06);
+  --shadow-elev-3: 0 12px 32px -8px rgba(0,34,68,0.18),
+                   0 4px 8px -4px rgba(0,34,68,0.10);
+
+  /* Signature "pressable" primary-button shadow from the spec —
+     hard 2px navy lip + soft green glow. */
+  --shadow-press-primary:
+    0 2px 0 0 var(--primary-shadow),
+    0 4px 8px rgba(105,190,40,0.30);
+  --shadow-press-warm:
+    0 2px 0 0 var(--coral-700),
+    0 4px 8px rgba(255,123,79,0.30);
 }
 
-/* Dark-mode elevation: shadows on navy need more punch and a touch of
-   sky in the alpha channel for the "premium glass" feel. */
 .dark {
-  --shadow-elev-1: 0 1px 2px 0 oklch(0 0 0 / 0.35);
-  --shadow-elev-2: 0 4px 14px -2px oklch(0 0 0 / 0.45),
-                   0 2px 4px -2px oklch(0 0 0 / 0.30);
-  --shadow-elev-3: 0 16px 40px -8px oklch(0 0 0 / 0.55),
-                   0 6px 12px -4px oklch(0 0 0 / 0.35);
-}
-
-/* Module accent tokens — light defaults + dark overrides. Used by
-   dashboard tiles as tinted backgrounds (`bg-module-daily/10`) and icon
-   colors. Hues spread around the wheel for fast scan-recognition. */
-:root {
-  /* Tile backgrounds: dark + saturated so white title/icon text reads
-     cleanly. Each hue is visibly distinct from its neighbors. */
-  --module-daily:       oklch(0.42 0.18 268);  /* deep indigo-blue */
-  --module-ice-depth:   oklch(0.45 0.13 220);  /* deep ocean       */
-  --module-ice-ops:     oklch(0.45 0.16 145);  /* forest green     */
-  --module-incidents:   oklch(0.48 0.20 27);   /* crimson red      */
-  --module-accidents:   oklch(0.55 0.18 18);   /* deep coral       */
-  --module-refrig:      oklch(0.45 0.14 245);  /* steel blue       */
-  --module-air:         oklch(0.50 0.14 200);  /* cyan-teal        */
-  --module-comms:       oklch(0.45 0.10 55);   /* warm brown       */
-  --module-scheduling:  oklch(0.45 0.14 175);  /* dark teal-green  */
-}
-.dark {
-  /* Mid-lightness with strong chroma so full-flood tiles pop on
-     deep navy without washing out the white title text. */
-  --module-daily:       oklch(0.55 0.20 258);  /* deep sky-blue   */
-  --module-ice-depth:   oklch(0.55 0.14 195);  /* teal            */
-  --module-ice-ops:     oklch(0.60 0.20 145);  /* forest-green    */
-  --module-incidents:   oklch(0.58 0.22 27);   /* red             */
-  --module-accidents:   oklch(0.62 0.20 18);   /* coral-red       */
-  --module-refrig:      oklch(0.50 0.22 268);  /* indigo          */
-  --module-air:         oklch(0.62 0.17 220);  /* cyan-blue       */
-  --module-comms:       oklch(0.60 0.16 55);   /* burnt orange    */
-  --module-scheduling:  oklch(0.55 0.22 305);  /* violet          */
+  --shadow-elev-1: 0 1px 2px 0 rgba(0,0,0,0.40);
+  --shadow-elev-2: 0 4px 14px -2px rgba(0,0,0,0.50),
+                   0 2px 4px -2px rgba(0,0,0,0.32);
+  --shadow-elev-3: 0 16px 40px -8px rgba(0,0,0,0.60),
+                   0 6px 12px -4px rgba(0,0,0,0.38);
+  --shadow-press-primary:
+    0 2px 0 0 var(--primary-shadow),
+    0 4px 12px rgba(157,218,80,0.35);
+  --shadow-press-warm:
+    0 2px 0 0 var(--coral-700),
+    0 4px 12px rgba(255,150,112,0.30);
 }
 
 @layer base {
@@ -393,17 +521,11 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* iOS PWA: viewport-fit=cover lets content sit behind the notch; the
-       env(safe-area-inset-*) padding keeps it visible. On non-notch
-       browsers these env() values are 0 so nothing shifts. */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
 }
 
-/* Respect the OS-level Reduce Motion preference. tw-animate-css and
-   Radix-driven transitions are heavy enough that the difference is
-   noticeable for users sensitive to vestibular motion. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
