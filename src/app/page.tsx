@@ -536,44 +536,29 @@ export default async function Home() {
                   margin: "0 0 28px",
                 }}
               >
-                Your administrator has set up your account. Sign in to access
-                your assigned modules.
+                Tell us about your facility and we&apos;ll be in touch to
+                show you how Rink Reports fits your operation.
               </p>
-              <a
-                href="/login"
+              <RequestInformationButton
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 10,
                   width: "100%",
                   padding: "17px 0",
-                  borderRadius: 10,
                   background:
                     "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
                   color: "#051200",
                   fontWeight: 700,
                   fontSize: 16,
-                  textDecoration: "none",
+                  border: "none",
                   boxShadow:
                     "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.28)",
+                  minHeight: 0,
                 }}
               >
-                Sign in to Rink Reports
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </a>
+                Request Information
+              </RequestInformationButton>
             </div>
           </div>
         </div>
