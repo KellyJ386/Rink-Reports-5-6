@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 
 import { getCurrentUser } from "@/lib/auth"
+import { RequestInformationButton } from "@/components/splash/request-information"
 
 // ── Module definitions ────────────────────────────────────────────────────────
 
@@ -271,24 +272,7 @@ export default async function Home() {
                 <path d="m12 5 7 7-7 7" />
               </svg>
             </a>
-            <a
-              href="/signup"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "17px 36px",
-                borderRadius: 10,
-                background: "rgba(255,255,255,0.07)",
-                border: "1px solid rgba(255,255,255,0.20)",
-                color: "#ffffff",
-                fontWeight: 600,
-                fontSize: 17,
-                textDecoration: "none",
-                minHeight: 56,
-              }}
-            >
-              Create account
-            </a>
+            <RequestInformationButton />
           </div>
         </div>
 
@@ -590,6 +574,23 @@ export default async function Home() {
                   <path d="m12 5 7 7-7 7" />
                 </svg>
               </a>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 16,
+                }}
+              >
+                <RequestInformationButton
+                  style={{
+                    padding: "13px 24px",
+                    fontSize: 14,
+                    minHeight: 0,
+                  }}
+                >
+                  Request Information
+                </RequestInformationButton>
+              </div>
             </div>
           </div>
         </div>
