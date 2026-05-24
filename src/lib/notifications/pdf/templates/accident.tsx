@@ -28,6 +28,7 @@ type DropdownLite = {
 type BodyPart = {
   display_name: string
   side: "front" | "back" | "both" | "none"
+  laterality: "left" | "right" | "center"
   notes: string | null
 }
 
@@ -106,7 +107,7 @@ async function fetchAccidentRecord(
   // Body parts: join to dropdowns for display_name.
   const { data: bodyRows } = await sb
     .from("accident_body_part_selections")
-    .select("body_part_dropdown_id, side, notes")
+    .select("body_part_dropdown_id, side, laterality, notes")
     .eq("accident_id", recordId)
 
   const bodyDropdownIds = ((bodyRows ?? []) as Array<{
@@ -131,11 +132,13 @@ async function fetchAccidentRecord(
   const body_parts: BodyPart[] = ((bodyRows ?? []) as Array<{
     body_part_dropdown_id: string
     side: BodyPart["side"]
+    laterality: BodyPart["laterality"]
     notes: string | null
   }>).map((b) => ({
     display_name:
       bodyDropdownById.get(b.body_part_dropdown_id) ?? "(unknown body part)",
     side: b.side,
+    laterality: b.laterality ?? "center",
     notes: b.notes,
   }))
 
@@ -359,6 +362,12 @@ function sideLabel(side: BodyPart["side"]): string {
   }
 }
 
+function bodyPartName(b: BodyPart): string {
+  if (b.laterality === "left") return `Left ${b.display_name}`
+  if (b.laterality === "right") return `Right ${b.display_name}`
+  return b.display_name
+}
+
 function AccidentReportPdf({ r }: { r: AccidentRecord }) {
   const submitterName = r.submitter
     ? `${r.submitter.first_name} ${r.submitter.last_name}`
@@ -457,7 +466,7 @@ function AccidentReportPdf({ r }: { r: AccidentRecord }) {
               {r.body_parts.map((b, i) => (
                 <View key={i} style={styles.tr}>
                   <Text style={{ ...styles.td, ...styles.thBody }}>
-                    {b.display_name}
+                    {bodyPartName(b)}
                   </Text>
                   <Text style={{ ...styles.td, ...styles.thSide }}>
                     {sideLabel(b.side)}

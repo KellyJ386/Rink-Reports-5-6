@@ -56,6 +56,7 @@ type BodyPartRow = {
   id: string
   body_part_dropdown_id: string
   side: string
+  laterality: string
 }
 
 type WitnessRow = {
@@ -187,7 +188,7 @@ export default async function AccidentReportPage({
   ] = await Promise.all([
     supabase
       .from("accident_body_part_selections")
-      .select("id, body_part_dropdown_id, side")
+      .select("id, body_part_dropdown_id, side, laterality")
       .eq("accident_id", report.id),
     // accident_witnesses isn't in the generated Database types yet.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -291,6 +292,7 @@ export default async function AccidentReportPage({
             initialBodyParts={bodyPartRows.map((r) => ({
               body_part_dropdown_id: r.body_part_dropdown_id,
               side: r.side,
+              laterality: r.laterality,
             }))}
             initialWitnesses={witnessRows.map((w) => ({
               name: w.name,

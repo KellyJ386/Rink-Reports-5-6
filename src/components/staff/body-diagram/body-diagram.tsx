@@ -7,6 +7,13 @@ import { cn } from "@/lib/utils"
 import {
   BODY_PART_KEYS,
   BODY_PART_LABELS,
+  bodyPartLabel,
+  getSelectionSide,
+  isBilateral,
+  lateralitiesFor,
+  listSelections,
+  selectionKey,
+  type BodyLaterality,
   type BodyPartKey,
   type BodySelections,
   type BodySide,
@@ -15,7 +22,7 @@ import {
 
 export type BodyDiagramProps = {
   selections: BodySelections
-  onChange?: (key: BodyPartKey, side: BodySide) => void
+  onChange?: (key: BodyPartKey, laterality: BodyLaterality, side: BodySide) => void
   readOnly?: boolean
   className?: string
 }
@@ -24,9 +31,19 @@ type ViewName = "front" | "back"
 
 type RegionDef = {
   key: BodyPartKey
-  /** Optional: omit a side to hide this region in that view (e.g. face_jaw on back). */
-  front?: string
-  back?: string
+  /**
+   * Midline (center) parts: a single shape per view. Omit a view to hide it
+   * there (e.g. face_jaw only on the front).
+   */
+  center?: { front?: string; back?: string }
+  /**
+   * Bilateral parts: two mirror-image shapes. `lowX` is drawn on the viewer's
+   * left, `highX` on the viewer's right. The anatomical side is resolved per
+   * view: on the front the viewer's left is the patient's right; on the back
+   * it's the patient's left. Geometry is identical across views.
+   */
+  lowX?: string
+  highX?: string
 }
 
 const VIEW_W = 240
@@ -129,178 +146,160 @@ const SILHOUETTE_RIGHT_PATH =
   "L120,258 " +
   "L120,180 Z"
 
-// Regions. Each "front" / "back" string is a path drawn over viewBox 240x540.
-// Multiple sub-shapes (left + right) are concatenated into a single d="" so
-// the entire region shares one fill on selection.
+// Regions over viewBox 240x540. Midline parts carry `center` paths; bilateral
+// parts carry mirror-image `lowX` / `highX` shapes (see RegionDef).
 const REGIONS: RegionDef[] = [
   {
     key: "head",
-    // Top half of skull (above face). On the back view it covers the full
-    // back of the head.
-    front:
-      "M120,12 " +
-      "C92,12 84,30 84,50 " +
-      "L84,52 " +
-      "L156,52 " +
-      "L156,50 " +
-      "C156,30 148,12 120,12 Z",
-    back:
-      "M120,12 " +
-      "C92,12 84,30 84,50 " +
-      "C84,72 92,88 120,90 " +
-      "C148,88 156,72 156,50 " +
-      "C156,30 148,12 120,12 Z",
+    center: {
+      front:
+        "M120,12 " +
+        "C92,12 84,30 84,50 " +
+        "L84,52 " +
+        "L156,52 " +
+        "L156,50 " +
+        "C156,30 148,12 120,12 Z",
+      back:
+        "M120,12 " +
+        "C92,12 84,30 84,50 " +
+        "C84,72 92,88 120,90 " +
+        "C148,88 156,72 156,50 " +
+        "C156,30 148,12 120,12 Z",
+    },
   },
   {
     key: "face_jaw",
-    // Front-only: lower half of head (cheeks + jaw).
-    front:
-      "M84,52 " +
-      "L156,52 " +
-      "C156,72 148,88 120,90 " +
-      "C92,88 84,72 84,52 Z",
+    center: {
+      // Front-only: lower half of head (cheeks + jaw).
+      front:
+        "M84,52 " +
+        "L156,52 " +
+        "C156,72 148,88 120,90 " +
+        "C92,88 84,72 84,52 Z",
+    },
   },
   {
     key: "neck",
-    front: "M104,90 L136,90 L140,110 L100,110 Z",
-    back: "M104,90 L136,90 L140,110 L100,110 Z",
+    center: {
+      front: "M104,90 L136,90 L140,110 L100,110 Z",
+      back: "M104,90 L136,90 L140,110 L100,110 Z",
+    },
   },
   {
     key: "shoulders",
-    // Two trapezoidal deltoid caps.
-    front:
-      "M100,108 C82,110 64,118 56,128 L60,158 L96,158 L96,118 Z " +
-      "M140,108 C158,110 176,118 184,128 L180,158 L144,158 L144,118 Z",
-    back:
-      "M100,108 C82,110 64,118 56,128 L60,158 L96,158 L96,118 Z " +
-      "M140,108 C158,110 176,118 184,128 L180,158 L144,158 L144,118 Z",
+    lowX: "M100,108 C82,110 64,118 56,128 L60,158 L96,158 L96,118 Z",
+    highX: "M140,108 C158,110 176,118 184,128 L180,158 L144,158 L144,118 Z",
   },
   {
     key: "torso",
-    front:
-      // chest + abdomen, narrowing at waist
-      "M96,118 L144,118 L152,160 L150,220 L140,258 L100,258 L90,220 L88,160 Z",
-    back:
-      // upper back + lower back
-      "M96,118 L144,118 L152,160 L150,220 L140,258 L100,258 L90,220 L88,160 Z",
+    center: {
+      front:
+        "M96,118 L144,118 L152,160 L150,220 L140,258 L100,258 L90,220 L88,160 Z",
+      back:
+        "M96,118 L144,118 L152,160 L150,220 L140,258 L100,258 L90,220 L88,160 Z",
+    },
   },
   {
     key: "arms",
-    // Upper arm + forearm on both sides. Elbow occupies the band between
-    // upper arm and forearm; wrist occupies the band between forearm and hand.
-    front:
-      "M52,162 L88,162 L86,236 L54,236 Z " +
-      "M52,266 L82,266 L80,326 L54,326 Z " +
-      "M152,162 L188,162 L186,236 L154,236 Z " +
-      "M158,266 L188,266 L186,326 L160,326 Z",
-    back:
-      "M52,162 L88,162 L86,236 L54,236 Z " +
-      "M52,266 L82,266 L80,326 L54,326 Z " +
-      "M152,162 L188,162 L186,236 L154,236 Z " +
-      "M158,266 L188,266 L186,326 L160,326 Z",
+    // Upper arm + forearm per side.
+    lowX: "M52,162 L88,162 L86,236 L54,236 Z M52,266 L82,266 L80,326 L54,326 Z",
+    highX:
+      "M152,162 L188,162 L186,236 L154,236 Z M158,266 L188,266 L186,326 L160,326 Z",
   },
   {
     key: "elbows",
-    front:
-      "M52,236 L86,236 L82,266 L54,266 Z " +
-      "M154,236 L188,236 L186,266 L158,266 Z",
-    back:
-      "M52,236 L86,236 L82,266 L54,266 Z " +
-      "M154,236 L188,236 L186,266 L158,266 Z",
+    lowX: "M52,236 L86,236 L82,266 L54,266 Z",
+    highX: "M154,236 L188,236 L186,266 L158,266 Z",
   },
   {
     key: "wrists",
     // Thin band between forearm (ends at y=326) and hand (starts at y=338).
-    front:
-      "M54,326 L80,326 L78,338 L52,338 Z " +
-      "M160,326 L186,326 L188,338 L162,338 Z",
-    back:
-      "M54,326 L80,326 L78,338 L52,338 Z " +
-      "M160,326 L186,326 L188,338 L162,338 Z",
+    lowX: "M54,326 L80,326 L78,338 L52,338 Z",
+    highX: "M160,326 L186,326 L188,338 L162,338 Z",
   },
   {
     key: "hands",
-    front:
-      "M50,338 L78,338 L74,392 L52,392 Z " +
-      "M162,338 L190,338 L188,392 L166,392 Z",
-    back:
-      "M50,338 L78,338 L74,392 L52,392 Z " +
-      "M162,338 L190,338 L188,392 L166,392 Z",
+    lowX: "M50,338 L78,338 L74,392 L52,392 Z",
+    highX: "M162,338 L190,338 L188,392 L166,392 Z",
   },
   {
     key: "fingers",
     // Splayed-finger fans at the hand tips.
-    front:
-      "M48,392 L78,392 L78,422 L72,422 L72,400 L66,400 L66,424 L60,424 L60,400 L54,400 L54,422 L48,422 Z " +
-      "M162,392 L192,392 L192,422 L186,422 L186,400 L180,400 L180,424 L174,424 L174,400 L168,400 L168,422 L162,422 Z",
-    back:
-      "M48,392 L78,392 L78,422 L72,422 L72,400 L66,400 L66,424 L60,424 L60,400 L54,400 L54,422 L48,422 Z " +
+    lowX:
+      "M48,392 L78,392 L78,422 L72,422 L72,400 L66,400 L66,424 L60,424 L60,400 L54,400 L54,422 L48,422 Z",
+    highX:
       "M162,392 L192,392 L192,422 L186,422 L186,400 L180,400 L180,424 L174,424 L174,400 L168,400 L168,422 L162,422 Z",
   },
   {
     key: "hips",
-    front: "M88,258 L152,258 L150,302 L90,302 Z",
-    back: "M88,258 L152,258 L150,302 L90,302 Z",
+    center: {
+      front: "M88,258 L152,258 L150,302 L90,302 Z",
+      back: "M88,258 L152,258 L150,302 L90,302 Z",
+    },
   },
   {
     key: "upper_legs",
-    front:
-      "M90,302 L118,302 L116,402 L94,402 Z " +
-      "M122,302 L150,302 L146,402 L124,402 Z",
-    back:
-      "M90,302 L118,302 L116,402 L94,402 Z " +
-      "M122,302 L150,302 L146,402 L124,402 Z",
+    lowX: "M90,302 L118,302 L116,402 L94,402 Z",
+    highX: "M122,302 L150,302 L146,402 L124,402 Z",
   },
   {
     key: "knees",
-    front:
-      "M94,402 L116,402 L116,438 L96,438 Z " +
-      "M124,402 L146,402 L144,438 L124,438 Z",
-    back:
-      "M94,402 L116,402 L116,438 L96,438 Z " +
-      "M124,402 L146,402 L144,438 L124,438 Z",
+    lowX: "M94,402 L116,402 L116,438 L96,438 Z",
+    highX: "M124,402 L146,402 L144,438 L124,438 Z",
   },
   {
     key: "lower_legs",
-    front:
-      "M96,438 L116,438 L114,504 L98,504 Z " +
-      "M124,438 L144,438 L142,504 L126,504 Z",
-    back:
-      "M96,438 L116,438 L114,504 L98,504 Z " +
-      "M124,438 L144,438 L142,504 L126,504 Z",
+    lowX: "M96,438 L116,438 L114,504 L98,504 Z",
+    highX: "M124,438 L144,438 L142,504 L126,504 Z",
   },
   {
     key: "ankles",
-    front:
-      "M98,504 L114,504 L114,522 L98,522 Z " +
-      "M126,504 L142,504 L142,522 L126,522 Z",
-    back:
-      "M98,504 L114,504 L114,522 L98,522 Z " +
-      "M126,504 L142,504 L142,522 L126,522 Z",
+    lowX: "M98,504 L114,504 L114,522 L98,522 Z",
+    highX: "M126,504 L142,504 L142,522 L126,522 Z",
   },
   {
     key: "feet",
-    // Front view: top of foot. Back view: heel.
-    front:
-      "M92,522 L116,522 L118,538 L90,538 Z " +
-      "M124,522 L148,522 L150,538 L122,538 Z",
-    back:
-      "M92,522 L116,522 L118,538 L90,538 Z " +
-      "M124,522 L148,522 L150,538 L122,538 Z",
+    lowX: "M92,522 L116,522 L118,538 L90,538 Z",
+    highX: "M124,522 L148,522 L150,538 L122,538 Z",
   },
   // head_neck is legacy. The submission form no longer offers it, but if an
   // older report has selections.head_neck set, we render it over the head and
   // neck regions so it's still visible in the admin read-only view.
   {
     key: "head_neck",
-    front:
-      "M120,12 C92,12 84,30 84,50 C84,72 92,88 120,90 C148,88 156,72 156,50 C156,30 148,12 120,12 Z " +
-      "M104,90 L136,90 L140,110 L100,110 Z",
-    back:
-      "M120,12 C92,12 84,30 84,50 C84,72 92,88 120,90 C148,88 156,72 156,50 C156,30 148,12 120,12 Z " +
-      "M104,90 L136,90 L140,110 L100,110 Z",
+    center: {
+      front:
+        "M120,12 C92,12 84,30 84,50 C84,72 92,88 120,90 C148,88 156,72 156,50 C156,30 148,12 120,12 Z " +
+        "M104,90 L136,90 L140,110 L100,110 Z",
+      back:
+        "M120,12 C92,12 84,30 84,50 C84,72 92,88 120,90 C148,88 156,72 156,50 C156,30 148,12 120,12 Z " +
+        "M104,90 L136,90 L140,110 L100,110 Z",
+    },
   },
 ]
+
+type ResolvedShape = {
+  laterality: BodyLaterality
+  d: string
+}
+
+/**
+ * Shapes to draw for a region in a given view, each tagged with the anatomical
+ * laterality. Mirrors bilateral parts: on the front the viewer's left (lowX)
+ * is the patient's right; on the back it's the patient's left.
+ */
+function shapesForView(region: RegionDef, view: ViewName): ResolvedShape[] {
+  if (region.center) {
+    const d = view === "front" ? region.center.front : region.center.back
+    return d ? [{ laterality: "center", d }] : []
+  }
+  const out: ResolvedShape[] = []
+  const rightD = view === "front" ? region.lowX : region.highX
+  const leftD = view === "front" ? region.highX : region.lowX
+  if (rightD) out.push({ laterality: "right", d: rightD })
+  if (leftD) out.push({ laterality: "left", d: leftD })
+  return out
+}
 
 function fillForSide(side: BodySide, view: ViewName): string {
   if (side === "both") return "rgba(220,38,38,0.55)"
@@ -322,13 +321,13 @@ function ViewSvg({
 }: {
   view: ViewName
   selections: BodySelections
-  onChange?: (key: BodyPartKey, side: BodySide) => void
+  onChange?: (key: BodyPartKey, laterality: BodyLaterality, side: BodySide) => void
   readOnly?: boolean
   titleId: string
 }) {
-  const handleClick = (key: BodyPartKey) => {
+  const handleClick = (key: BodyPartKey, laterality: BodyLaterality) => {
     if (readOnly || !onChange) return
-    onChange(key, nextSide(selections[key], view))
+    onChange(key, laterality, nextSide(getSelectionSide(selections, key, laterality), view))
   }
 
   return (
@@ -372,35 +371,40 @@ function ViewSvg({
           strokeWidth={1}
           strokeDasharray="2 3"
         />
-        {REGIONS.map((region) => {
-          const d = view === "front" ? region.front : region.back
-          if (!d) return null
-          const side = selections[region.key]
-          const label = `${BODY_PART_LABELS[region.key]} (${view})`
-          return (
-            <g
-              key={region.key}
-              aria-label={region.key}
-              data-body-part={region.key}
-            >
-              <path
-                d={d}
-                fill={fillForSide(side, view)}
-                stroke={strokeForSide(side, view)}
-                strokeWidth={1.25}
-                strokeLinejoin="round"
-                onClick={() => handleClick(region.key)}
-                style={{
-                  cursor: readOnly ? "default" : "pointer",
-                  pointerEvents: readOnly ? "none" : "auto",
-                }}
+        {REGIONS.flatMap((region) =>
+          shapesForView(region, view).map((shape) => {
+            const side = getSelectionSide(selections, region.key, shape.laterality)
+            const label = `${bodyPartLabel(region.key, shape.laterality)} (${view})`
+            return (
+              <g
+                key={`${region.key}-${shape.laterality}`}
+                aria-label={`${region.key}-${shape.laterality}`}
+                data-body-part={region.key}
+                data-laterality={shape.laterality}
               >
-                <title>{label}</title>
-              </path>
-            </g>
-          )
-        })}
+                <path
+                  d={shape.d}
+                  fill={fillForSide(side, view)}
+                  stroke={strokeForSide(side, view)}
+                  strokeWidth={1.25}
+                  strokeLinejoin="round"
+                  onClick={() => handleClick(region.key, shape.laterality)}
+                  style={{
+                    cursor: readOnly ? "default" : "pointer",
+                    pointerEvents: readOnly ? "none" : "auto",
+                  }}
+                >
+                  <title>{label}</title>
+                </path>
+              </g>
+            )
+          })
+        )}
       </svg>
+      <p className="flex w-full max-w-[240px] justify-between px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>{view === "front" ? "Patient's R" : "Patient's L"}</span>
+        <span>{view === "front" ? "Patient's L" : "Patient's R"}</span>
+      </p>
     </figure>
   )
 }
@@ -416,19 +420,17 @@ export function BodyDiagram({
   // Hide the legacy head_neck row from the live selectors; it's still
   // rendered in the SVG if present (e.g. on historical reports in admin view).
   const visibleKeys = BODY_PART_KEYS.filter((k) => k !== "head_neck")
-  const selectedEntries = BODY_PART_KEYS.filter(
-    (key) => selections[key] !== "none"
-  )
+  const selectedEntries = listSelections(selections)
 
-  const removeRow = (key: BodyPartKey) => {
+  const removeEntry = (key: BodyPartKey, laterality: BodyLaterality) => {
     if (readOnly || !onChange) return
-    onChange(key, "none")
+    onChange(key, laterality, "none")
   }
 
   const clearAll = () => {
     if (readOnly || !onChange) return
-    for (const key of BODY_PART_KEYS) {
-      if (selections[key] !== "none") onChange(key, "none")
+    for (const entry of selectedEntries) {
+      onChange(entry.key, entry.laterality, "none")
     }
   }
 
@@ -476,21 +478,23 @@ export function BodyDiagram({
           </p>
         ) : (
           <ul className="divide-y divide-border">
-            {selectedEntries.map((key) => (
+            {selectedEntries.map((entry) => (
               <li
-                key={key}
+                key={selectionKey(entry.key, entry.laterality)}
                 className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
               >
                 <span className="flex items-center gap-2">
-                  <span className="font-medium">{BODY_PART_LABELS[key]}</span>
-                  <SideBadge side={selections[key]} />
+                  <span className="font-medium">
+                    {bodyPartLabel(entry.key, entry.laterality)}
+                  </span>
+                  <SideBadge side={entry.side} />
                 </span>
                 {!readOnly ? (
                   <button
                     type="button"
-                    onClick={() => removeRow(key)}
+                    onClick={() => removeEntry(entry.key, entry.laterality)}
                     className="rounded-md border border-input bg-background px-2 py-1 text-xs hover:bg-accent"
-                    aria-label={`Remove ${BODY_PART_LABELS[key]}`}
+                    aria-label={`Remove ${bodyPartLabel(entry.key, entry.laterality)}`}
                   >
                     Remove
                   </button>
@@ -507,44 +511,51 @@ export function BodyDiagram({
             Add by list (accessible alternative)
           </summary>
           <div className="grid grid-cols-1 gap-2 px-3 pb-3 sm:grid-cols-2">
-            {visibleKeys.map((key) => {
-              const side = selections[key]
-              return (
-                <div
-                  key={key}
-                  className="flex items-center justify-between gap-2 rounded-md border px-2 py-2"
-                >
-                  <span className="text-sm font-medium">
-                    {BODY_PART_LABELS[key]}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {(["front", "back", "both", "none"] as const).map((s) => {
-                      // face_jaw only meaningful on the front; disable back/both for it.
-                      const disabled =
-                        key === "face_jaw" && (s === "back" || s === "both")
-                      return (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => !disabled && onChange?.(key, s)}
-                          aria-pressed={side === s}
-                          disabled={disabled}
-                          className={cn(
-                            "min-h-[36px] rounded-md border px-2 py-1 text-xs",
-                            side === s
-                              ? "border-red-600 bg-red-600/10 text-red-700"
-                              : "border-input bg-background hover:bg-accent",
-                            disabled && "cursor-not-allowed opacity-40 hover:bg-background"
-                          )}
-                        >
-                          {s}
-                        </button>
-                      )
-                    })}
+            {visibleKeys.flatMap((key) =>
+              lateralitiesFor(key).map((laterality) => {
+                const side = getSelectionSide(selections, key, laterality)
+                return (
+                  <div
+                    key={selectionKey(key, laterality)}
+                    className="flex items-center justify-between gap-2 rounded-md border px-2 py-2"
+                  >
+                    <span className="text-sm font-medium">
+                      {isBilateral(key)
+                        ? bodyPartLabel(key, laterality)
+                        : BODY_PART_LABELS[key]}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {(["front", "back", "both", "none"] as const).map((s) => {
+                        // face_jaw only meaningful on the front; disable back/both.
+                        const disabled =
+                          key === "face_jaw" && (s === "back" || s === "both")
+                        return (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() =>
+                              !disabled && onChange?.(key, laterality, s)
+                            }
+                            aria-pressed={side === s}
+                            disabled={disabled}
+                            className={cn(
+                              "min-h-[36px] rounded-md border px-2 py-1 text-xs",
+                              side === s
+                                ? "border-red-600 bg-red-600/10 text-red-700"
+                                : "border-input bg-background hover:bg-accent",
+                              disabled &&
+                                "cursor-not-allowed opacity-40 hover:bg-background"
+                            )}
+                          >
+                            {s}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </div>
         </details>
       ) : null}

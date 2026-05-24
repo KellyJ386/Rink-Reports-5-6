@@ -1,8 +1,10 @@
 import { BodyDiagram } from "@/components/staff/body-diagram/body-diagram"
 import {
   EMPTY_BODY_SELECTIONS,
+  isBodyLaterality,
   isBodyPartKey,
   isBodySide,
+  selectionKey,
   type BodyPartKey,
   type BodySelections,
 } from "@/components/staff/body-diagram/types"
@@ -30,6 +32,7 @@ type BodyPartRow = {
   id: string
   body_part_dropdown_id: string
   side: string
+  laterality: string
 }
 
 type WitnessRow = {
@@ -79,8 +82,9 @@ function buildSelections(
     if (!dd) continue
     const key: string = dd.key
     if (!isBodyPartKey(key)) continue
+    const laterality = isBodyLaterality(r.laterality) ? r.laterality : "center"
     if (isBodySide(r.side) && r.side !== "none") {
-      out[key as BodyPartKey] = r.side
+      out[selectionKey(key as BodyPartKey, laterality)] = r.side
     }
   }
   return out

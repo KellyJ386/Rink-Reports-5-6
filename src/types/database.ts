@@ -21,6 +21,7 @@ export type Database = {
           created_at: string
           facility_id: string
           id: string
+          laterality: string
           notes: string | null
           side: string
           updated_at: string | null
@@ -31,6 +32,7 @@ export type Database = {
           created_at?: string
           facility_id: string
           id?: string
+          laterality?: string
           notes?: string | null
           side?: string
           updated_at?: string | null
@@ -41,6 +43,7 @@ export type Database = {
           created_at?: string
           facility_id?: string
           id?: string
+          laterality?: string
           notes?: string | null
           side?: string
           updated_at?: string | null

@@ -41,6 +41,7 @@ export type BodyPartOption = {
 export type BodyPartsPayloadEntry = {
   body_part_dropdown_id: string
   side: "front" | "back" | "both" | "none"
+  laterality: "left" | "right" | "center"
 }
 
 /**

@@ -40,26 +40,80 @@ export function isLegacyBodyPartKey(key: BodyPartKey): key is LegacyBodyPartKey 
 
 export type BodySide = "front" | "back" | "both" | "none"
 
-export type BodySelections = Record<BodyPartKey, BodySide>
+export type BodyLaterality = "left" | "right" | "center"
 
-export const EMPTY_BODY_SELECTIONS: BodySelections = {
-  feet: "none",
-  ankles: "none",
-  lower_legs: "none",
-  knees: "none",
-  upper_legs: "none",
-  hips: "none",
-  torso: "none",
-  shoulders: "none",
-  arms: "none",
-  elbows: "none",
-  wrists: "none",
-  hands: "none",
-  fingers: "none",
-  neck: "none",
-  face_jaw: "none",
-  head: "none",
-  head_neck: "none",
+/**
+ * Body parts that exist as a left/right pair. Everything else is a single
+ * midline ("center") region (head, face, neck, torso, hips, ...).
+ */
+export const BILATERAL_BODY_PART_KEYS: ReadonlySet<BodyPartKey> = new Set<BodyPartKey>([
+  "shoulders",
+  "arms",
+  "elbows",
+  "wrists",
+  "hands",
+  "fingers",
+  "upper_legs",
+  "knees",
+  "lower_legs",
+  "ankles",
+  "feet",
+])
+
+export function isBilateral(key: BodyPartKey): boolean {
+  return BILATERAL_BODY_PART_KEYS.has(key)
+}
+
+export function lateralitiesFor(key: BodyPartKey): BodyLaterality[] {
+  return isBilateral(key) ? ["left", "right"] : ["center"]
+}
+
+export function isBodyLaterality(value: string): value is BodyLaterality {
+  return value === "left" || value === "right" || value === "center"
+}
+
+/**
+ * Selections are a sparse map keyed by `${BodyPartKey}|${BodyLaterality}`,
+ * with the view side as the value. A missing key means "none".
+ */
+export type BodySelections = Record<string, BodySide>
+
+export const EMPTY_BODY_SELECTIONS: BodySelections = {}
+
+export function selectionKey(
+  key: BodyPartKey,
+  laterality: BodyLaterality
+): string {
+  return `${key}|${laterality}`
+}
+
+export function getSelectionSide(
+  selections: BodySelections,
+  key: BodyPartKey,
+  laterality: BodyLaterality
+): BodySide {
+  return selections[selectionKey(key, laterality)] ?? "none"
+}
+
+export type ResolvedSelection = {
+  key: BodyPartKey
+  laterality: BodyLaterality
+  side: BodySide
+}
+
+/** All non-"none" selections, in insertion order. */
+export function listSelections(selections: BodySelections): ResolvedSelection[] {
+  const out: ResolvedSelection[] = []
+  for (const [composite, side] of Object.entries(selections)) {
+    if (side === "none") continue
+    const sep = composite.indexOf("|")
+    if (sep < 0) continue
+    const partKey = composite.slice(0, sep)
+    const lat = composite.slice(sep + 1)
+    if (!isBodyPartKey(partKey) || !isBodyLaterality(lat)) continue
+    out.push({ key: partKey, laterality: lat, side })
+  }
+  return out
 }
 
 export const BODY_PART_LABELS: Record<BodyPartKey, string> = {
@@ -80,6 +134,30 @@ export const BODY_PART_LABELS: Record<BodyPartKey, string> = {
   face_jaw: "Face / Jaw",
   head: "Head",
   head_neck: "Head/Neck",
+}
+
+/** Singular forms used when a bilateral part is qualified with Left/Right. */
+const BODY_PART_SINGULAR: Partial<Record<BodyPartKey, string>> = {
+  shoulders: "Shoulder",
+  arms: "Arm",
+  elbows: "Elbow",
+  wrists: "Wrist",
+  hands: "Hand",
+  upper_legs: "Upper Leg",
+  knees: "Knee",
+  lower_legs: "Lower Leg",
+  ankles: "Ankle",
+  feet: "Foot",
+}
+
+/** Human label for a (part, laterality) pair, e.g. "Left Arm" or "Torso". */
+export function bodyPartLabel(
+  key: BodyPartKey,
+  laterality: BodyLaterality
+): string {
+  if (laterality === "center") return BODY_PART_LABELS[key]
+  const base = BODY_PART_SINGULAR[key] ?? BODY_PART_LABELS[key]
+  return `${laterality === "left" ? "Left" : "Right"} ${base}`
 }
 
 export function isBodyPartKey(value: string): value is BodyPartKey {

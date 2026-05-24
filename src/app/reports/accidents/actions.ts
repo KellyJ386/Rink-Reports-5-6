@@ -41,8 +41,9 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
-const MAX_BODY_PARTS = 24
+const MAX_BODY_PARTS = 48
 const ALLOWED_SIDES = new Set(["front", "back", "both", "none"])
+const ALLOWED_LATERALITIES = new Set(["left", "right", "center"])
 const MAX_WITNESSES = 5
 
 function parseBodyParts(raw: string): BodyPartsPayloadEntry[] {
@@ -64,15 +65,20 @@ function parseBodyParts(raw: string): BodyPartsPayloadEntry[] {
       ? obj.body_part_dropdown_id
       : ""
     const side = typeof obj.side === "string" ? obj.side : ""
+    const laterality =
+      typeof obj.laterality === "string" ? obj.laterality : "center"
     if (!id || !ALLOWED_SIDES.has(side)) continue
     if (side === "none") continue
-    // Coalesce duplicates by id (DB has unique on accident_id+id+side; we keep
-    // first occurrence).
-    if (seen.has(id)) continue
-    seen.add(id)
+    if (!ALLOWED_LATERALITIES.has(laterality)) continue
+    // Coalesce duplicates by (id, laterality) — distinct left/right of the
+    // same part are kept separately (DB unique includes laterality).
+    const dedupeKey = `${id}|${laterality}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
     out.push({
       body_part_dropdown_id: id,
       side: side as BodyPartsPayloadEntry["side"],
+      laterality: laterality as BodyPartsPayloadEntry["laterality"],
     })
   }
   return out
@@ -292,6 +298,7 @@ export async function submitAccidentReport(
       facility_id: employeeRow.facility_id,
       body_part_dropdown_id: bp.body_part_dropdown_id,
       side: bp.side,
+      laterality: bp.laterality,
     }))
     const { error: bpErr } = await supabase
       .from("accident_body_part_selections")
@@ -467,7 +474,7 @@ export async function updateAccidentReport(
   // Existing body parts (for diff + snapshot.before).
   const { data: existingBpRaw } = await supabase
     .from("accident_body_part_selections")
-    .select("id, body_part_dropdown_id, side")
+    .select("id, body_part_dropdown_id, side, laterality")
     .eq("accident_id", reportId)
 
   const existingBp = existingBpRaw ?? []
@@ -517,17 +524,20 @@ export async function updateAccidentReport(
     return { ok: false, error: dbError(updErr, "Failed to update report.") }
   }
 
-  // Reconcile body parts.
+  // Reconcile body parts, keyed by (dropdown id, laterality) so the left and
+  // right of the same part are tracked independently.
+  const reconcileKey = (id: string, laterality: string): string =>
+    `${id}|${laterality}`
   const desired = new Map<string, BodyPartsPayloadEntry>()
   for (const bp of fields.body_parts) {
-    desired.set(bp.body_part_dropdown_id, bp)
+    desired.set(reconcileKey(bp.body_part_dropdown_id, bp.laterality), bp)
   }
   const existingMap = new Map<
     string,
     { id: string; side: string }
   >()
   for (const row of existingBp) {
-    existingMap.set(row.body_part_dropdown_id, {
+    existingMap.set(reconcileKey(row.body_part_dropdown_id, row.laterality), {
       id: row.id,
       side: row.side,
     })
@@ -539,22 +549,24 @@ export async function updateAccidentReport(
     facility_id: string
     body_part_dropdown_id: string
     side: string
+    laterality: string
   }> = []
   const toUpdate: Array<{ id: string; side: string }> = []
 
-  for (const [bpId, ex] of existingMap) {
-    if (!desired.has(bpId)) {
+  for (const [key, ex] of existingMap) {
+    if (!desired.has(key)) {
       toDelete.push(ex.id)
     }
   }
-  for (const [bpId, want] of desired) {
-    const ex = existingMap.get(bpId)
+  for (const [key, want] of desired) {
+    const ex = existingMap.get(key)
     if (!ex) {
       toInsert.push({
         accident_id: reportId,
         facility_id: existing.facility_id,
-        body_part_dropdown_id: bpId,
+        body_part_dropdown_id: want.body_part_dropdown_id,
         side: want.side,
+        laterality: want.laterality,
       })
     } else if (ex.side !== want.side) {
       toUpdate.push({ id: ex.id, side: want.side })
@@ -652,6 +664,9 @@ export async function updateAccidentReport(
       side: (ALLOWED_SIDES.has(r.side)
         ? r.side
         : "none") as BodyPartsPayloadEntry["side"],
+      laterality: (ALLOWED_LATERALITIES.has(r.laterality)
+        ? r.laterality
+        : "center") as BodyPartsPayloadEntry["laterality"],
     })),
     witnesses: existingWitnesses.map((w) => ({
       name: w.name,

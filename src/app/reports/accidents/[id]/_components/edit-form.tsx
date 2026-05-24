@@ -9,8 +9,12 @@ import { FormError } from "@/components/auth/form-error"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   EMPTY_BODY_SELECTIONS,
+  isBodyLaterality,
   isBodyPartKey,
   isBodySide,
+  listSelections,
+  selectionKey,
+  type BodyLaterality,
   type BodyPartKey,
   type BodySelections,
   type BodySide,
@@ -54,6 +58,7 @@ type InitialReport = {
 type InitialBodyPart = {
   body_part_dropdown_id: string
   side: string
+  laterality: string
 }
 
 type InitialWitness = {
@@ -108,8 +113,11 @@ function buildInitialSelections(
   for (const row of initial) {
     const key = idToKey.get(row.body_part_dropdown_id)
     if (!key) continue
+    const laterality = isBodyLaterality(row.laterality)
+      ? row.laterality
+      : "center"
     if (isBodySide(row.side) && row.side !== "none") {
-      out[key] = row.side
+      out[selectionKey(key, laterality)] = row.side
     }
   }
   return out
@@ -211,14 +219,16 @@ export function EditForm({
     const entries: Array<{
       body_part_dropdown_id: string
       side: BodySide
+      laterality: BodyLaterality
     }> = []
-    for (const [key, side] of Object.entries(selections) as Array<
-      [BodyPartKey, BodySide]
-    >) {
-      if (side === "none") continue
-      const id = bodyPartIdMap[key]
+    for (const entry of listSelections(selections)) {
+      const id = bodyPartIdMap[entry.key]
       if (!id) continue
-      entries.push({ body_part_dropdown_id: id, side })
+      entries.push({
+        body_part_dropdown_id: id,
+        side: entry.side,
+        laterality: entry.laterality,
+      })
     }
     return JSON.stringify(entries)
   }, [selections, bodyPartIdMap])
@@ -234,8 +244,15 @@ export function EditForm({
     return JSON.stringify(cleaned)
   }, [witnesses])
 
-  const handleSelectionChange = (key: BodyPartKey, side: BodySide) => {
-    setSelections((prev) => ({ ...prev, [key]: side }))
+  const handleSelectionChange = (
+    key: BodyPartKey,
+    laterality: BodyLaterality,
+    side: BodySide
+  ) => {
+    setSelections((prev) => ({
+      ...prev,
+      [selectionKey(key, laterality)]: side,
+    }))
   }
 
   const addWitness = () =>
@@ -398,7 +415,8 @@ export function EditForm({
       <div className="flex flex-col gap-2">
         <Label>Body parts affected</Label>
         <p className="text-xs text-muted-foreground">
-          Tap regions on the diagram to mark front, back, or both.
+          Tap the left or right region on the front or back view. Left and right
+          are recorded separately.
         </p>
         <BodyDiagram
           selections={selections}

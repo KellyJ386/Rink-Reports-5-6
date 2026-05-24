@@ -16,8 +16,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   EMPTY_BODY_SELECTIONS,
+  bodyPartLabel,
+  getSelectionSide,
+  isBodyLaterality,
   isBodyPartKey,
   isBodySide,
+  selectionKey,
+  type BodyLaterality,
   type BodyPartKey,
   type BodySelections,
   type BodySide,
@@ -55,12 +60,15 @@ function buildBodySelections(
     const key = b.body_part?.key
     if (!key || !isBodyPartKey(key)) continue
     const side: BodySide = isBodySide(b.side) ? (b.side as BodySide) : "none"
-    // If multiple selections collide, prefer "both".
-    const prev = out[key as BodyPartKey]
+    const laterality: BodyLaterality = isBodyLaterality(b.laterality)
+      ? b.laterality
+      : "center"
+    // If multiple selections collide on the same part+side, prefer "both".
+    const prev = getSelectionSide(out, key as BodyPartKey, laterality)
     if (prev !== "none" && prev !== side) {
-      out[key as BodyPartKey] = "both"
+      out[selectionKey(key as BodyPartKey, laterality)] = "both"
     } else {
-      out[key as BodyPartKey] = side
+      out[selectionKey(key as BodyPartKey, laterality)] = side
     }
   }
   return out
@@ -195,7 +203,14 @@ export function ReportDetail({ detail, backHref }: Props) {
                     className="bg-muted/30 rounded-md border p-2 text-xs"
                   >
                     <span className="font-medium">
-                      {b.body_part?.display_name ?? "—"}
+                      {b.body_part?.key && isBodyPartKey(b.body_part.key)
+                        ? bodyPartLabel(
+                            b.body_part.key,
+                            isBodyLaterality(b.laterality)
+                              ? b.laterality
+                              : "center"
+                          )
+                        : b.body_part?.display_name ?? "—"}
                     </span>{" "}
                     <span className="text-muted-foreground">({b.side})</span>:{" "}
                     {b.notes}
