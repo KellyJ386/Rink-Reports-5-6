@@ -334,10 +334,20 @@ select pg_temp.expect_error(
 -- A regression dropping the facility_id check would leak — or let a tenant
 -- rewrite — another facility's role-to-permission configuration.
 -- ---------------------------------------------------------------------------
--- Alice sees her own facility's role defaults.
+-- Alice sees her own facility's role defaults. (These are auto-seeded by the
+-- migration-82 trigger when roles are created, plus the explicit fixture row
+-- above.) Assert a specific cell so the count is stable regardless of how many
+-- canonical rows the trigger seeds.
 select pg_temp.expect_count(
   $$select count(*) from public.role_permission_defaults
-    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and module_name = 'daily_reports'
+      and action = 'view'
+      and role_id = (
+        select id from public.roles
+        where facility_id = '11111111-1111-1111-1111-111111111111'
+          and key = 'staff'
+      )$$,
   1, 'role_defaults: alice can SELECT her own facility''s role defaults');
 
 -- Alice cannot see facility B's role defaults.
@@ -359,6 +369,13 @@ select pg_temp.expect_error(
     where r.facility_id = '11111111-1111-1111-1111-111111111111'
       and r.key = 'staff'$$,
   'role_defaults: alice CANNOT INSERT role defaults into facility B');
+
+-- The admin-guarded seeder (migration 82) must reject a non-admin caller. Alice
+-- is staff, so it must raise rather than seed any facility's defaults.
+select pg_temp.expect_error(
+  $$select public.seed_role_permission_defaults_for_facility(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'role_defaults: staff alice CANNOT invoke seed_role_permission_defaults_for_facility');
 
 -- ---------------------------------------------------------------------------
 -- M-offline: offline_sync_queue cross-facility isolation (mig 31).
