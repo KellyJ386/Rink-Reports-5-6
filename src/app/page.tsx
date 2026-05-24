@@ -574,23 +574,6 @@ export default async function Home() {
                   <path d="m12 5 7 7-7 7" />
                 </svg>
               </a>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  marginTop: 16,
-                }}
-              >
-                <RequestInformationButton
-                  style={{
-                    padding: "13px 24px",
-                    fontSize: 14,
-                    minHeight: 0,
-                  }}
-                >
-                  Request Information
-                </RequestInformationButton>
-              </div>
             </div>
           </div>
         </div>
