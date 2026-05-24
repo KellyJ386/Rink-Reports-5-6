@@ -1,9 +1,14 @@
 // Local types for the Employee/User Setup admin module.
 // 1:1 row types are re-exported from the generated Supabase types.
 
+import type { PermissionMatrix } from "@/lib/permissions"
 import type { Tables } from "@/types/database"
 
 export type RoleRow = Tables<"roles">
+
+// roleId -> the role's default permission matrix (from role_permission_defaults).
+// Used to preview "what this role can do" in the add/edit employee form.
+export type RoleDefaultsMap = Record<string, PermissionMatrix>
 
 export type DepartmentRow = Tables<"departments">
 
@@ -30,6 +35,9 @@ export type EmployeeFormInput = {
   emergency_contact_name: string | null
   emergency_contact_phone: string | null
   hire_date: string | null
+  // When true (create flow only), provision a login + seed role-default
+  // permissions. Unchecked = schedule-only employee (role, no user_permissions).
+  needs_login: boolean
 }
 
 export type ActionState =

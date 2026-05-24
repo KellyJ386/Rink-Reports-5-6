@@ -21,6 +21,9 @@ type CellRow = {
   module_name: ModuleName
   action: UserAction
   enabled: boolean
+  // Admin grid edits are deliberate exceptions to the role defaults, so they
+  // are marked manual_override and never re-seeded by apply_role_permission_defaults.
+  source: "manual_override"
 }
 
 function isModuleName(value: string): value is ModuleName {
@@ -64,6 +67,7 @@ export async function upsertUserPermission(input: {
           module_name: input.moduleName,
           action: input.action,
           enabled: input.enabled,
+          source: "manual_override",
         },
         { onConflict: "user_id,facility_id,module_name,action" },
       )
@@ -101,6 +105,7 @@ export async function applyPresetToUser(input: {
           module_name: m,
           action: a,
           enabled: matrix[m][a],
+          source: "manual_override",
         })
       }
     }
@@ -184,6 +189,7 @@ export async function bulkImportUserPermissionsCsv(
         module_name: moduleName,
         action,
         enabled,
+        source: "manual_override",
       })
     })
 

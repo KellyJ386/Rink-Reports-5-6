@@ -10,6 +10,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { requireAdmin } from "@/lib/auth"
+import {
+  emptyMatrix,
+  type ModuleName,
+  type UserAction,
+} from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
 import { EmployeesClient } from "./_components/employees-client"
@@ -18,6 +23,7 @@ import type {
   DepartmentRow,
   EmployeeListItem,
   EmployeeRow,
+  RoleDefaultsMap,
   RoleRow,
 } from "./types"
 
@@ -148,6 +154,7 @@ export default async function EmployeesPage({
     { data: deptsRaw },
     { data: employeesRaw },
     { data: edRaw },
+    { data: roleDefaultsRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -171,11 +178,33 @@ export default async function EmployeesPage({
       .from("employee_departments")
       .select("employee_id, department_id, is_primary")
       .eq("facility_id", facilityId),
+    // role_permission_defaults isn't in generated types yet; cast follows the
+    // project pattern (see src/app/api/offline-sync/route.ts).
+    supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .from("role_permission_defaults" as any)
+      .select("role_id, module_name, action, enabled")
+      .eq("facility_id", facilityId),
   ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
   const departments = (deptsRaw ?? []) as DepartmentRow[]
   const employees = (employeesRaw ?? []) as EmployeeRow[]
+
+  // Build roleId -> default permission matrix for the form preview.
+  const roleDefaultRows = (roleDefaultsRaw ?? []) as unknown as Array<{
+    role_id: string
+    module_name: ModuleName
+    action: UserAction
+    enabled: boolean
+  }>
+  const roleDefaults: RoleDefaultsMap = {}
+  for (const row of roleDefaultRows) {
+    const matrix = (roleDefaults[row.role_id] ??= emptyMatrix())
+    if (matrix[row.module_name]) {
+      matrix[row.module_name][row.action] = row.enabled
+    }
+  }
 
   // No roles? Show seed prompt.
   if (roles.length === 0) {
@@ -246,6 +275,7 @@ export default async function EmployeesPage({
         employees={list}
         roles={roles}
         departments={departments}
+        roleDefaults={roleDefaults}
         canDelete={profile?.is_super_admin === true}
       />
     </div>

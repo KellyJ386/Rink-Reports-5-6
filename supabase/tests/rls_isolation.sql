@@ -167,6 +167,21 @@ from unnest(array[
 cross join unnest(array['view', 'submit']) as a
 on conflict (user_id, facility_id, module_name, action) do nothing;
 
+-- role_permission_defaults (migration 79): one row per facility so the
+-- cross-facility isolation assertions below have non-empty targets. Seeded as
+-- the postgres (BYPASSRLS) role.
+insert into public.role_permission_defaults (
+  facility_id, role_id, module_name, action, enabled
+)
+select r.facility_id, r.id, 'daily_reports', 'view'::public.user_action, true
+from public.roles r
+where r.facility_id in (
+    '11111111-1111-1111-1111-111111111111',
+    '22222222-2222-2222-2222-222222222222'
+  )
+  and r.key = 'staff'
+on conflict (facility_id, role_id, module_name, action) do nothing;
+
 -- Grant the test runner (authenticated alice) the ability to record failures.
 -- The temp table _rls_failures is created above as the postgres role; without
 -- this grant, expect_count() / expect_error() lose their ability to log
@@ -313,6 +328,37 @@ select pg_temp.expect_error(
     values
       ('22222222-2222-2222-2222-222222222222', 'Propane', 'propane')$$,
   'ice_ops: alice CANNOT INSERT a fuel type into facility B');
+
+-- ---------------------------------------------------------------------------
+-- role_permission_defaults (migration 79): editable per-role default matrix.
+-- A regression dropping the facility_id check would leak — or let a tenant
+-- rewrite — another facility's role-to-permission configuration.
+-- ---------------------------------------------------------------------------
+-- Alice sees her own facility's role defaults.
+select pg_temp.expect_count(
+  $$select count(*) from public.role_permission_defaults
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'role_defaults: alice can SELECT her own facility''s role defaults');
+
+-- Alice cannot see facility B's role defaults.
+select pg_temp.expect_count(
+  $$select count(*) from public.role_permission_defaults
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'role_defaults: alice CANNOT SELECT role defaults in facility B');
+
+-- Cross-tenant write attempt: tagging a row for facility B must be denied by
+-- the with-check (facility_id = current_facility_id()). role_id is taken from
+-- Alice's own (visible) facility so the subquery is non-empty and the failure
+-- is unambiguously the facility-isolation policy, not an empty insert.
+select pg_temp.expect_error(
+  $$insert into public.role_permission_defaults
+      (facility_id, role_id, module_name, action, enabled)
+    select '22222222-2222-2222-2222-222222222222', r.id,
+           'daily_reports', 'admin'::public.user_action, true
+    from public.roles r
+    where r.facility_id = '11111111-1111-1111-1111-111111111111'
+      and r.key = 'staff'$$,
+  'role_defaults: alice CANNOT INSERT role defaults into facility B');
 
 -- ---------------------------------------------------------------------------
 -- M-offline: offline_sync_queue cross-facility isolation (mig 31).
