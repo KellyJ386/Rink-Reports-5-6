@@ -461,7 +461,7 @@ export function SubmissionForm({
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="injured_person_name">
-                Your name<RequiredMark />
+                Injured person&apos;s name<RequiredMark />
               </Label>
               <Input
                 id="injured_person_name"
