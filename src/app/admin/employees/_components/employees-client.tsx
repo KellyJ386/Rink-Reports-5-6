@@ -28,6 +28,7 @@ import { inviteEmployee } from "../actions"
 import type {
   DepartmentRow,
   EmployeeListItem,
+  RoleDefaultsMap,
   RoleRow,
 } from "../types"
 import { EmployeeForm } from "./employee-form"
@@ -37,6 +38,7 @@ type Props = {
   employees: EmployeeListItem[]
   roles: RoleRow[]
   departments: DepartmentRow[]
+  roleDefaults: RoleDefaultsMap
   canDelete: boolean
 }
 
@@ -59,6 +61,7 @@ export function EmployeesClient({
   employees,
   roles,
   departments,
+  roleDefaults,
   canDelete,
 }: Props) {
   const [query, setQuery] = useState("")
@@ -374,6 +377,7 @@ export function EmployeesClient({
         facilityId={facilityId}
         roles={roles}
         departments={departments}
+        roleDefaults={roleDefaults}
         editing={editing}
       />
 

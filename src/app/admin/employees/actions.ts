@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
+import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { checkSiteUrlEnv } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
@@ -69,6 +70,12 @@ function parseFormInput(
   if (phoneRaw && phoneRaw.length > 30) return { ok: false, error: "Phone number is too long." }
 
   const isMinor = formData.get("is_minor") === "on"
+  const needsLogin = formData.get("needs_login") === "on"
+
+  // A login can only be provisioned against an email address.
+  if (needsLogin && !emailRaw) {
+    return { ok: false, error: "An email is required to create a login for this employee." }
+  }
 
   // Departments: multi-value field "department_ids"
   const department_ids = formData
@@ -112,6 +119,7 @@ function parseFormInput(
       emergency_contact_name: emergency_name,
       emergency_contact_phone: emergency_phone,
       hire_date: nonEmpty(formData.get("hire_date")),
+      needs_login: needsLogin,
     },
   }
 }
@@ -198,10 +206,13 @@ export async function createEmployee(
       }
     }
 
-    // Send the welcome / set-password invite. Failure here does NOT roll back
-    // the employee record — the admin can re-send later via the row action.
+    // Provision a login only when the admin opted in ("Needs system login").
+    // On success we link employees.user_id and seed this role's default
+    // permissions. Failures here do NOT roll back the employee record — the
+    // admin can retry later via the row "Invite" action, which also seeds.
     let inviteWarning: string | null = null
-    if (input.email) {
+    let provisioned = false
+    if (input.needs_login && input.email) {
       const invite = await inviteEmployeeByEmail({
         employeeId: employeeId as string,
         facilityId: facility.facilityId,
@@ -210,6 +221,16 @@ export async function createEmployee(
       })
       if (!invite.ok) {
         inviteWarning = invite.error
+      } else {
+        provisioned = true
+        const seed = await seedRolePermissionDefaults({
+          userId: invite.userId,
+          facilityId: facility.facilityId,
+          roleId: input.role_id,
+        })
+        if (!seed.ok) {
+          inviteWarning = `Login created, but permissions weren't applied: ${seed.error}`
+        }
       }
     }
 
@@ -217,10 +238,10 @@ export async function createEmployee(
     return {
       ok: true,
       message: inviteWarning
-        ? `Employee created. Invite email failed: ${inviteWarning}`
-        : input.email
-          ? "Employee created. Invite email sent — they'll set their password from the link."
-          : "Employee created. Add an email to send them an access invite.",
+        ? `Employee created. ${inviteWarning}`
+        : provisioned
+          ? "Employee created. Invite sent and role permissions applied — they'll set their password from the link."
+          : "Employee created (schedule-only — no login). Use “Invite” later to grant access.",
     }
   } catch (e) {
     return {
@@ -247,6 +268,15 @@ export async function updateEmployee(
     const input = parsed.value
 
     const supabase = await createClient()
+
+    // Capture the pre-update role + login link so we can re-seed permissions
+    // when (and only when) the role actually changes for a provisioned user.
+    const { data: before } = await supabase
+      .from("employees")
+      .select("user_id, role_id")
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
 
     const { error: updErr } = await supabase
       .from("employees")
@@ -367,8 +397,26 @@ export async function updateEmployee(
       }
     }
 
+    // Role change → re-seed role-default permissions for the linked login.
+    // Manual overrides are preserved; rows the new role drops are disabled.
+    let roleWarning: string | null = null
+    const beforeRow = before as { user_id: string | null; role_id: string } | null
+    if (beforeRow?.user_id && beforeRow.role_id !== input.role_id) {
+      const seed = await seedRolePermissionDefaults({
+        userId: beforeRow.user_id,
+        facilityId: facility.facilityId,
+        roleId: input.role_id,
+      })
+      if (!seed.ok) {
+        roleWarning = `Role updated, but permissions weren't re-applied: ${seed.error}`
+      }
+    }
+
     revalidatePath("/admin/employees")
-    return { ok: true, message: "Employee updated." }
+    return {
+      ok: true,
+      message: roleWarning ?? "Employee updated.",
+    }
   } catch (e) {
     return {
       ok: false,
@@ -552,7 +600,7 @@ export async function inviteEmployee(
     // Load the employee — scoped by RLS to the caller's facility.
     const { data: emp, error: empErr } = await supabase
       .from("employees")
-      .select("id, facility_id, first_name, last_name, email, user_id")
+      .select("id, facility_id, role_id, first_name, last_name, email, user_id")
       .eq("id", employeeId)
       .maybeSingle()
 
@@ -577,6 +625,13 @@ export async function inviteEmployee(
         .update({ user_id: existingUser.id })
         .eq("id", employeeId)
       if (linkErr) return { ok: false, error: linkErr.message }
+
+      // Seed this role's default permissions now that a login is linked.
+      await seedRolePermissionDefaults({
+        userId: existingUser.id,
+        facilityId: emp.facility_id,
+        roleId: emp.role_id,
+      })
 
       revalidatePath("/admin/employees")
       revalidatePath(`/admin/employees/${employeeId}`)
@@ -617,6 +672,13 @@ export async function inviteEmployee(
       .update({ user_id: newUserId })
       .eq("id", employeeId)
     if (linkErr) return { ok: false, error: linkErr.message }
+
+    // Seed this role's default permissions now that a login is linked.
+    await seedRolePermissionDefaults({
+      userId: newUserId,
+      facilityId: emp.facility_id,
+      roleId: emp.role_id,
+    })
 
     revalidatePath("/admin/employees")
     revalidatePath(`/admin/employees/${employeeId}`)

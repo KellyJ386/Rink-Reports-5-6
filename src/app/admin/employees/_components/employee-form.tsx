@@ -28,8 +28,10 @@ import type {
   ActionState,
   DepartmentRow,
   EmployeeListItem,
+  RoleDefaultsMap,
   RoleRow,
 } from "../types"
+import { RolePermissionPreview } from "./role-permission-preview"
 
 type Props = {
   open: boolean
@@ -37,6 +39,7 @@ type Props = {
   facilityId: string
   roles: RoleRow[]
   departments: DepartmentRow[]
+  roleDefaults: RoleDefaultsMap
   editing: EmployeeListItem | null
 }
 
@@ -64,6 +67,7 @@ function EmployeeFormBody({
   facilityId,
   roles,
   departments,
+  roleDefaults,
   editing,
 }: Props) {
   const isEdit = editing !== null
@@ -94,6 +98,11 @@ function EmployeeFormBody({
   )
   const [roleId, setRoleId] = useState(editing?.role?.id ?? "")
   const [roleError, setRoleError] = useState<string | null>(null)
+  // Create flow only: provision a login + seed role permissions. Default on so
+  // the common "new staff member who logs in" path is one click.
+  const [needsLogin, setNeedsLogin] = useState<boolean>(!isEdit)
+
+  const previewMatrix = roleId ? (roleDefaults[roleId] ?? null) : null
 
   // Close on success.
   useEffect(() => {
@@ -207,6 +216,42 @@ function EmployeeFormBody({
               </SelectContent>
             </Select>
             <FieldError id="role_id-error" message={roleError ?? undefined} />
+          </div>
+
+          {/* Permissions are a function of role. Preview what the chosen role
+              grants; per-user fine-tuning happens on the permissions page. */}
+          <div className="flex flex-col gap-2 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Role permissions</span>
+              <span className="text-muted-foreground text-xs">
+                Defaults for this role
+              </span>
+            </div>
+            <RolePermissionPreview matrix={previewMatrix} />
+            {!isEdit && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="needs_login"
+                  checked={needsLogin}
+                  onChange={(e) => setNeedsLogin(e.target.checked)}
+                  className="border-input mt-0.5 size-4 rounded border"
+                />
+                <span>
+                  Create a login &amp; apply these permissions
+                  <span className="text-muted-foreground block text-xs font-normal">
+                    Requires an email. Sends an invite and seeds the role&apos;s
+                    permissions. Uncheck for schedule-only staff (e.g. minors).
+                  </span>
+                </span>
+              </label>
+            )}
+            {isEdit && (
+              <p className="text-muted-foreground text-xs">
+                Changing the role re-applies these defaults to the employee&apos;s
+                login (manual overrides are kept).
+              </p>
+            )}
           </div>
 
           {departments.length > 0 && (
