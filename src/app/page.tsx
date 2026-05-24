@@ -556,7 +556,7 @@ export default async function Home() {
                 and we&apos;ll walk you through the platform.
               </p>
               <a
-                href="mailto:info@rinkreports.com?subject=Rink%20Reports%20information%20request"
+                href="mailto:kelly@maxfacility.com?subject=Rink%20Reports%20information%20request"
                 style={{
                   display: "flex",
                   alignItems: "center",
