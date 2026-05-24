@@ -1,10 +1,7 @@
-import Link from "next/link"
-
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -27,17 +24,6 @@ export default function LoginPage() {
       <CardContent>
         <LoginForm />
       </CardContent>
-      <CardFooter className="justify-center text-sm text-muted-foreground">
-        <span>
-          Need an account?{" "}
-          <Link
-            href="/signup"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            Create one
-          </Link>
-        </span>
-      </CardFooter>
     </Card>
   )
 }
