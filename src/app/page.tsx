@@ -536,11 +536,11 @@ export default async function Home() {
                   margin: "0 0 28px",
                 }}
               >
-                Your administrator has set up your account. Sign in to access
-                your assigned modules.
+                Interested in Rink Reports for your facility? Get in touch
+                and we&apos;ll walk you through the platform.
               </p>
               <a
-                href="/login"
+                href="mailto:kelly@maxfacility.com?subject=Rink%20Reports%20information%20request"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -559,7 +559,7 @@ export default async function Home() {
                     "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.28)",
                 }}
               >
-                Sign in to Rink Reports
+                Request Information
                 <svg
                   width="17"
                   height="17"
