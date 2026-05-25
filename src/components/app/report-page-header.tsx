@@ -1,6 +1,7 @@
 "use client"
 
 import { Clock, Thermometer, User } from "lucide-react"
+import { usePathname } from "next/navigation"
 import { useSyncExternalStore } from "react"
 
 type Props = {
@@ -32,12 +33,17 @@ function subscribeClock(cb: () => void) {
 }
 
 export function ReportPageHeader({ userName, tempF, tempLocation }: Props) {
+  const pathname = usePathname()
   const nowMs = useSyncExternalStore(
     subscribeClock,
     () => Date.now(),
     () => null,
   )
   const now = nowMs == null ? null : new Date(nowMs)
+
+  // Ice Operations renders its own richer context bar (incl. facility), so the
+  // shared header would just duplicate user/date/time/temp there.
+  if (pathname?.startsWith("/reports/ice-operations")) return null
 
   const tempLabel =
     typeof tempF === "number"
