@@ -17,7 +17,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useSelectedRink } from "@/lib/ice-operations/rink-selection"
 import { cn } from "@/lib/utils"
 
 import {
@@ -28,7 +27,6 @@ import {
   equipmentLabel,
   nowForDateTimeLocal,
   type EquipmentOption,
-  type RinkOption,
 } from "./shared"
 
 type ChecklistItem = {
@@ -55,8 +53,6 @@ type TemplateItemOption = {
 }
 
 type Props = {
-  facilityId: string
-  rinks: RinkOption[]
   equipment: EquipmentOption[]
   checklistItems: ChecklistItem[]
   fuelTypes: FuelTypeOption[]
@@ -72,8 +68,6 @@ type ItemState = {
 }
 
 export function CircleCheckForm({
-  facilityId,
-  rinks,
   equipment,
   checklistItems,
   fuelTypes,
@@ -83,11 +77,8 @@ export function CircleCheckForm({
   const action = submitIceOperationsReport.bind(null, "circle_check")
   const [state, formAction] = useActionState(action, initialState)
 
-  const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [storedRinkId, setRinkId] = useSelectedRink(facilityId)
-  const rinkId = rinks.some((r) => r.id === storedRinkId) ? storedRinkId : ""
+  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [equipmentId, setEquipmentId] = useState("")
-  const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
   const [notes, setNotes] = useState("")
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>({})
   // Operator-side override when equipment has no fuel type assigned.
@@ -137,17 +128,11 @@ export function CircleCheckForm({
     templates.length > 0
 
   // Filter items: applies to all (null) OR matches selected equipment type.
-  // Until equipment is selected, show only items that apply to all so the
-  // user can preview without locking in. When a template applies, the
-  // template's fields replace the legacy list entirely.
+  // When a template applies, the template's fields replace the legacy list.
   const visibleItems = useMemo(() => {
+    if (!selectedEquipment) return []
     if (activeTemplate) {
       return templateItemsForActive
-    }
-    if (!selectedEquipment) {
-      return checklistItems
-        .filter((i) => i.applies_to_equipment_type === null)
-        .map((i) => ({ ...i, isTemplateItem: false as const }))
     }
     return checklistItems
       .filter(
@@ -156,12 +141,7 @@ export function CircleCheckForm({
           i.applies_to_equipment_type === selectedEquipment.equipment_type
       )
       .map((i) => ({ ...i, isTemplateItem: false as const }))
-  }, [
-    activeTemplate,
-    templateItemsForActive,
-    checklistItems,
-    selectedEquipment,
-  ])
+  }, [activeTemplate, templateItemsForActive, checklistItems, selectedEquipment])
 
   const setPassed = (id: string, passed: boolean) => {
     setItemStates((prev) => ({
@@ -193,8 +173,7 @@ export function CircleCheckForm({
       visibleItems.map((item) => {
         const s = itemStates[item.id]
         const passed = s ? s.passed : true
-        const failed_notes =
-          s && !passed ? s.notes.trim() : null
+        const failed_notes = s && !passed ? s.notes.trim() : null
         return {
           // Template items use a separate table than ice_operations_circle_check_items,
           // so we can't satisfy the results-table FK with their id. Persist null
@@ -212,36 +191,18 @@ export function CircleCheckForm({
     <form action={formAction} className="flex flex-col gap-5">
       <FormError message={state.error} />
 
-      <input
-        type="hidden"
-        name="circle_check_results"
-        value={resultsJson}
-      />
-
-      <input type="hidden" name="rink_id" value={rinkId} />
+      <input type="hidden" name="occurred_at" value={occurredAt} />
+      <input type="hidden" name="circle_check_results" value={resultsJson} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
 
       <div className="flex flex-col gap-2">
-        <Label>Rink<RequiredMark /></Label>
-        <Select value={rinkId} onValueChange={setRinkId} required>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a rink" />
-          </SelectTrigger>
-          <SelectContent>
-            {rinks.map((r) => (
-              <SelectItem key={r.id} value={r.id}>
-                {r.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Ice Resurfacer<RequiredMark /></Label>
+        <Label>
+          Machine
+          <RequiredMark />
+        </Label>
         <Select value={equipmentId} onValueChange={onEquipmentChange} required>
           <SelectTrigger>
-            <SelectValue placeholder="Select an ice resurfacer" />
+            <SelectValue placeholder="Select machine" />
           </SelectTrigger>
           <SelectContent>
             {equipment.map((eq) => (
@@ -251,19 +212,6 @@ export function CircleCheckForm({
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="occurred_at">When did the check happen?<RequiredMark /></Label>
-        <Input
-          id="occurred_at"
-          name="occurred_at"
-          required
-          type="datetime-local"
-          value={occurredAt}
-          onChange={(e) => setOccurredAt(e.target.value)}
-          className="h-12 text-base"
-        />
       </div>
 
       {showFuelTypeOverride ? (
@@ -282,122 +230,124 @@ export function CircleCheckForm({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            This resurfacer has no fuel type configured; pick one to load the
+            This machine has no fuel type configured; pick one to load the
             matching template.
           </p>
         </div>
       ) : null}
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold tracking-tight">Checklist</h2>
-          {activeTemplate ? (
-            <span className="text-xs text-muted-foreground">
-              Using template: <strong>{activeTemplate.name}</strong>
-            </span>
-          ) : null}
-        </div>
-        {visibleItems.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {!selectedEquipment
-              ? "Select an ice resurfacer to see all applicable items."
-              : effectiveFuelTypeId && !activeTemplate
+      {!selectedEquipment ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Select a machine to view the checklist
+        </p>
+      ) : (
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">Checklist</h2>
+            {activeTemplate ? (
+              <span className="text-xs text-muted-foreground">
+                Using template: <strong>{activeTemplate.name}</strong>
+              </span>
+            ) : null}
+          </div>
+          {visibleItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {effectiveFuelTypeId && !activeTemplate
                 ? "No template is configured for this fuel type yet."
                 : activeTemplate
                   ? "This template has no fields yet."
-                  : "No checklist items apply to this equipment."}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {visibleItems.map((item) => {
-              const s = itemStates[item.id]
-              const passed = s ? s.passed : true
-              const failedNotes = s?.notes ?? ""
-              const showNotesError =
-                s &&
-                s.passed === false &&
-                s.notes.trim().length === 0
-              return (
-                <li
-                  key={item.id}
-                  className="flex flex-col gap-3 rounded-xl border bg-card p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className="text-base font-medium">
-                      {item.label}
-                    </span>
-                    <div
-                      role="group"
-                      aria-label={`Pass or fail: ${item.label}`}
-                      className="flex shrink-0 gap-2"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setPassed(item.id, true)}
-                        aria-pressed={passed === true}
-                        className={cn(
-                          "h-11 min-w-20 rounded-full px-4 text-sm font-medium transition-colors",
-                          passed === true
-                            ? "bg-emerald-600 text-white"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80"
-                        )}
+                  : "No checklist items apply to this machine."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {visibleItems.map((item) => {
+                const s = itemStates[item.id]
+                const passed = s ? s.passed : true
+                const failedNotes = s?.notes ?? ""
+                const showNotesError =
+                  s && s.passed === false && s.notes.trim().length === 0
+                return (
+                  <li
+                    key={item.id}
+                    className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-base font-medium">
+                        {item.label}
+                      </span>
+                      <div
+                        role="group"
+                        aria-label={`Pass or fail: ${item.label}`}
+                        className="flex shrink-0 gap-2"
                       >
-                        Pass
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPassed(item.id, false)}
-                        aria-pressed={passed === false}
-                        className={cn(
-                          "h-11 min-w-20 rounded-full px-4 text-sm font-medium transition-colors",
-                          passed === false
-                            ? "bg-red-600 text-white"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80"
-                        )}
-                      >
-                        Fail
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setPassed(item.id, true)}
+                          aria-pressed={passed === true}
+                          className={cn(
+                            "h-11 min-w-20 rounded-full px-4 text-sm font-medium transition-colors",
+                            passed === true
+                              ? "bg-emerald-600 text-white"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          )}
+                        >
+                          Pass
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPassed(item.id, false)}
+                          aria-pressed={passed === false}
+                          className={cn(
+                            "h-11 min-w-20 rounded-full px-4 text-sm font-medium transition-colors",
+                            passed === false
+                              ? "bg-red-600 text-white"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          )}
+                        >
+                          Fail
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  {passed === false ? (
-                    <div className="flex flex-col gap-1">
-                      <Label
-                        htmlFor={`notes-${item.id}`}
-                        className="text-xs uppercase tracking-wide text-muted-foreground"
-                      >
-                        What&apos;s wrong?<RequiredMark />
-                      </Label>
-                      <Input
-                        id={`notes-${item.id}`}
-                        type="text"
-                        value={failedNotes}
-                        onChange={(e) =>
-                          setNotesFor(item.id, e.target.value)
-                        }
-                        required
-                        aria-invalid={showNotesError ? "true" : undefined}
-                        className={cn(
-                          "h-12 text-base",
-                          showNotesError &&
-                            "border-red-500 focus-visible:ring-red-500/40"
-                        )}
-                        placeholder="Describe the issue"
-                      />
-                    </div>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </section>
+                    {passed === false ? (
+                      <div className="flex flex-col gap-1">
+                        <Label
+                          htmlFor={`notes-${item.id}`}
+                          className="text-xs uppercase tracking-wide text-muted-foreground"
+                        >
+                          What&apos;s wrong?
+                          <RequiredMark />
+                        </Label>
+                        <Input
+                          id={`notes-${item.id}`}
+                          type="text"
+                          value={failedNotes}
+                          onChange={(e) => setNotesFor(item.id, e.target.value)}
+                          required
+                          aria-invalid={showNotesError ? "true" : undefined}
+                          className={cn(
+                            "h-12 text-base",
+                            showNotesError &&
+                              "border-red-500 focus-visible:ring-red-500/40"
+                          )}
+                          placeholder="Describe the issue"
+                        />
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="notes">Notes (optional)</Label>
+        <Label htmlFor="notes">General Notes</Label>
         <Textarea
           id="notes"
           name="notes"
           rows={4}
+          placeholder="Add any additional notes about the inspection..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           className="min-h-24 text-base"
