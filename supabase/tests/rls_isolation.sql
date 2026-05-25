@@ -256,6 +256,19 @@ values
    '22222222-2222-2222-2222-222222222222', 'Main Rink B', 'main-rink', 0, true, true)
 on conflict (facility_id, slug) do nothing;
 
+-- The ice_depth config-table SELECT policies (settings/rinks/layouts/points)
+-- gate on the legacy public.has_module_access('ice_depth') helper, which reads
+-- module_permissions.can_view -- NOT the user_permissions grid seeded above.
+-- (has_module_access was not migrated to the new resolver in migration 77.)
+-- Seed Alice a module_permissions row so the positive own-facility SELECT below
+-- exercises real facility scoping rather than a blanket module-access denial.
+-- can_admin stays false, so admin-only writes (insert into facility B) remain denied.
+insert into public.module_permissions (facility_id, employee_id, module_key, can_view)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true)
+on conflict (employee_id, module_key) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
