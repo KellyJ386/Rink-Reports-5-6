@@ -94,6 +94,27 @@ When adding a new submission flow, route writes through the SW queue + this endp
 - Shared shell components live in `src/components/app` (staff shell), `src/components/admin` (admin shell), `src/components/auth`, `src/components/staff`, `src/components/offline`.
 - Root layout (`src/app/layout.tsx`) forces `dark` class on `<html>` and loads Geist + Anton fonts; don't add a theme toggle without checking what depends on permanent dark mode.
 
+### Report form design pattern
+
+Report submission forms (refrigeration, daily, incidents, etc.) follow a metadata-driven, token-themed convention. There are two reference points: **the baseline that ships today**, and **the richer "Logbook" target design** we're moving toward. Build new report forms with the baseline mechanics and the target styling — never introduce a parallel styling system or hardcode colors (the app is permanent dark mode; always use the semantic tokens in `src/app/globals.css`).
+
+**Baseline (what ships today)** — see `src/app/reports/refrigeration/page.tsx` + `_components/submission-form.tsx`:
+
+- Page shell: `mx-auto w-full max-w-2xl flex flex-col gap-6 px-4 py-8`, a `Reports / <Module>` breadcrumb, an `h1` (`text-2xl font-semibold tracking-tight`), and a muted subtitle.
+- Sections render as native `<details open>` cards (`group rounded-xl border bg-card`); the `<summary>` is the clickable header with a `group-open:rotate-180` chevron, and content sits under a `border-t border-border px-4 py-4` body. Equipment subcards are `rounded-lg border bg-background p-3`.
+- Fields are **metadata-driven, not hardcoded**: a `FieldInput` component branches on `field.field_type` (`numeric | text | boolean | select`). Numeric inputs are `type="text" inputMode="decimal"`, `h-12 text-base`, with the unit shown both appended to the label (`"Label (unit)"`) and as an inline trailing `text-muted-foreground` span.
+- Submit uses `useActionState` + `useFormStatus`; the payload is serialized into a hidden `values_json` input (see `buildRow` / `SubmittedFieldValue` in the form). Field config is loaded server-side from `refrigeration_sections / _equipment / _fields / _thresholds` and assembled into `formSections`. **Reuse this DB-driven model for new modules** rather than hardcoding fields.
+
+**Target ("Logbook") design** — the richer layout we're building toward, expressed with existing primitives (`@/components/ui/{card,button,input,label,select}`) and `globals.css` tokens:
+
+- **Header card** (`Card`): title + subtitle on the left; `View Dashboard` / `Back` / `Dashboard` action buttons on the right; a meta row of employee / facility / date / time / temperature, each with a Lucide icon in a small rounded chip. Meta text uses `text-muted-foreground`.
+- **Log Information card** (`Card`): header carries a right-aligned **°F/°C unit toggle**; body is a responsive grid (`grid gap-4 sm:grid-cols-2`, up to 4 cols) of Reading Number, Facility, Employee, Date & Time.
+- **Section cards** (Compressor, Condenser, …): one `Card` per section with a bold title and a 2-column field grid (`grid gap-4 sm:grid-cols-2`).
+- **Normal-range hint**: a `text-sm text-muted-foreground` line under each numeric field rendered from that field's threshold min/max + unit (the data already lives in `refrigeration_thresholds`).
+- **Tokens**: surfaces `bg-card` / `bg-background`, borders `border-border`, hints/labels `text-muted-foreground`, radius `rounded-xl` (cards) / `rounded-lg` (subcards), inputs `h-12 text-base`, primary submit = the default green-gradient `Button` variant (carries `--shadow-press-primary`).
+
+**The gap (read this before building):** the Logbook design is **aspirational — not yet implemented**. Today's form is the simpler `<details>`-based "Refrigeration readings" page; the °F/°C toggle and per-field normal-range hints **do not exist yet** and are net-new work. When moving toward the target, extend the existing metadata-driven field model and the tokens above — do not fork the styling.
+
 ### Security headers
 
 `next.config.ts` sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a restrictive `Permissions-Policy` for every route. Preserve these when adding `headers()` entries.
