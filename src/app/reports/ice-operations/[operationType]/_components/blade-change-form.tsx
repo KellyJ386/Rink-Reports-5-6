@@ -17,7 +17,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useSelectedRink } from "@/lib/ice-operations/rink-selection"
 
 import {
   submitIceOperationsReport,
@@ -26,39 +25,24 @@ import {
 import {
   equipmentLabel,
   nowForDateTimeLocal,
-  type EmployeeOption,
   type EquipmentOption,
-  type RinkOption,
 } from "./shared"
 
 type Props = {
-  facilityId: string
-  rinks: RinkOption[]
   equipment: EquipmentOption[]
-  employees: EmployeeOption[]
   currentEmployeeId: string
 }
 
 const initialState: SubmissionFormState = {}
 
-export function BladeChangeForm({
-  facilityId,
-  rinks,
-  equipment,
-  employees,
-  currentEmployeeId,
-}: Props) {
+export function BladeChangeForm({ equipment, currentEmployeeId }: Props) {
   const action = submitIceOperationsReport.bind(null, "blade_change")
   const [state, formAction] = useActionState(action, initialState)
 
-  const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [storedRinkId, setRinkId] = useSelectedRink(facilityId)
-  const rinkId = rinks.some((r) => r.id === storedRinkId) ? storedRinkId : ""
+  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [equipmentId, setEquipmentId] = useState("")
-  const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
-  const [bladeSerial, setBladeSerial] = useState("")
-  const [hoursAtChange, setHoursAtChange] = useState("")
-  const [replacedBy, setReplacedBy] = useState(currentEmployeeId)
+  const [oldBladeHours, setOldBladeHours] = useState("")
+  const [newBladeId, setNewBladeId] = useState("")
   const [notes, setNotes] = useState("")
 
   useEffect(() => {
@@ -69,105 +53,72 @@ export function BladeChangeForm({
     <form action={formAction} className="flex flex-col gap-5">
       <FormError message={state.error} />
 
-      <input type="hidden" name="rink_id" value={rinkId} />
+      <input type="hidden" name="occurred_at" value={occurredAt} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
-      <input type="hidden" name="replaced_by_employee_id" value={replacedBy} />
+      <input
+        type="hidden"
+        name="replaced_by_employee_id"
+        value={currentEmployeeId}
+      />
 
-      <div className="flex flex-col gap-2">
-        <Label>Rink (optional)</Label>
-        <Select value={rinkId || undefined} onValueChange={setRinkId}>
-          <SelectTrigger>
-            <SelectValue placeholder="— None —" />
-          </SelectTrigger>
-          <SelectContent>
-            {rinks.map((r) => (
-              <SelectItem key={r.id} value={r.id}>
-                {r.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <Label>
+            Machine
+            <RequiredMark />
+          </Label>
+          <Select value={equipmentId} onValueChange={setEquipmentId} required>
+            <SelectTrigger>
+              <SelectValue placeholder="Select machine" />
+            </SelectTrigger>
+            <SelectContent>
+              {equipment.map((eq) => (
+                <SelectItem key={eq.id} value={eq.id}>
+                  {equipmentLabel(eq)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="hours_at_change">Old Blade Hours</Label>
+          <Input
+            id="hours_at_change"
+            name="hours_at_change"
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min="0"
+            placeholder="0.00"
+            value={oldBladeHours}
+            onChange={(e) => setOldBladeHours(e.target.value)}
+            className="h-12 text-base"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Blade set<RequiredMark /></Label>
-        <Select value={equipmentId} onValueChange={setEquipmentId} required>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a blade set" />
-          </SelectTrigger>
-          <SelectContent>
-            {equipment.map((eq) => (
-              <SelectItem key={eq.id} value={eq.id}>
-                {equipmentLabel(eq)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
-        <Input
-          id="occurred_at"
-          name="occurred_at"
-          required
-          type="datetime-local"
-          value={occurredAt}
-          onChange={(e) => setOccurredAt(e.target.value)}
-          className="h-12 text-base"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="blade_serial">Blade serial</Label>
+        <Label htmlFor="blade_serial">New Blade ID</Label>
         <Input
           id="blade_serial"
           name="blade_serial"
           type="text"
           inputMode="text"
-          value={bladeSerial}
-          onChange={(e) => setBladeSerial(e.target.value)}
+          placeholder="Blade serial number or ID"
+          value={newBladeId}
+          onChange={(e) => setNewBladeId(e.target.value)}
           className="h-12 text-base"
         />
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="hours_at_change">Hours at change</Label>
-        <Input
-          id="hours_at_change"
-          name="hours_at_change"
-          type="number"
-          inputMode="decimal"
-          step="any"
-          min="0"
-          value={hoursAtChange}
-          onChange={(e) => setHoursAtChange(e.target.value)}
-          className="h-12 text-base"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Replaced by</Label>
-        <Select value={replacedBy || undefined} onValueChange={setReplacedBy}>
-          <SelectTrigger>
-            <SelectValue placeholder="— Unknown —" />
-          </SelectTrigger>
-          <SelectContent>
-            {employees.map((emp) => (
-              <SelectItem key={emp.id} value={emp.id}>
-                {emp.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="notes">Notes (optional)</Label>
+        <Label htmlFor="notes">Notes</Label>
         <Textarea
           id="notes"
           name="notes"
           rows={4}
+          placeholder="Add any additional notes..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           className="min-h-24 text-base"

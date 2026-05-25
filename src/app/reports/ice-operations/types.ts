@@ -31,21 +31,33 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   "blade_change",
 ] as const
 
+/**
+ * Tab order shown in the Ice Maintenance Log module nav. Differs from
+ * OPERATION_TYPES so the most-used flows lead.
+ */
+export const OPERATION_TAB_ORDER: readonly OperationType[] = [
+  "ice_make",
+  "blade_change",
+  "edging",
+  "circle_check",
+] as const
+
 /** Module shown when the user lands on Ice Operations without picking a tab. */
-export const DEFAULT_OPERATION_TYPE: OperationType = OPERATION_TYPES[0]
+export const DEFAULT_OPERATION_TYPE: OperationType = OPERATION_TAB_ORDER[0]
 
 export const OPERATION_LABELS: Record<OperationType, string> = {
-  ice_make: "Ice Make",
+  ice_make: "Resurface",
   circle_check: "Circle Check",
   edging: "Edging",
   blade_change: "Blade Change",
 }
 
 export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
-  ice_make: "Log a fresh ice resurface (water temps, pass count, time).",
-  circle_check: "Walk the ice resurfacer checklist and flag any issues.",
+  ice_make:
+    "Log a resurfacing run — rink, machine, water used, machine hours, and snow taken.",
+  circle_check: "Run the digital circle check and flag any issues.",
   edging: "Record edging hours run on the edger.",
-  blade_change: "Log a blade change with serial and hours.",
+  blade_change: "Log a blade change with the machine, hours, and new blade ID.",
 }
 
 /**
@@ -61,7 +73,15 @@ export const OPERATION_EQUIPMENT_TYPE: Record<OperationType, EquipmentType> = {
 
 export const OPERATION_REQUIRES_RINK: Record<OperationType, boolean> = {
   ice_make: true,
-  circle_check: true,
+  circle_check: false,
+  edging: false,
+  blade_change: false,
+}
+
+/** Operations that surface a rink picker in their form. */
+export const OPERATION_SHOWS_RINK: Record<OperationType, boolean> = {
+  ice_make: true,
+  circle_check: false,
   edging: false,
   blade_change: false,
 }
@@ -75,12 +95,15 @@ export function isOperationType(value: string): value is OperationType {
  * `ice_operations_submissions.payload`.
  */
 export type IceMakePayload = {
-  water_temp_c: number | null
-  ice_temp_c: number | null
+  water_used_gal: number | null
+  machine_hours: number | null
+  snow_taken_pct: number | null
   time_in: string | null
   time_out: string | null
-  water_used_gal: number | null
-  surface_pass_count: number | null
+  // Retained so historical submissions still read; no longer collected.
+  water_temp_c?: number | null
+  ice_temp_c?: number | null
+  surface_pass_count?: number | null
 }
 
 export type EdgingPayload = {

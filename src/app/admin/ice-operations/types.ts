@@ -176,11 +176,14 @@ export type SimpleResult = { ok: true } | { ok: false; error: string }
 // Stored in submissions.payload jsonb. Temperatures stored in Celsius.
 
 export type IceMakePayload = {
-  water_temp_c: number | null
-  ice_temp_c: number | null
+  water_used_gal: number | null
+  machine_hours: number | null
+  snow_taken_pct: number | null
   time_in: string | null
   time_out: string | null
-  water_used_gal: number | null
+  // Legacy fields kept so historical submissions still display.
+  water_temp_c: number | null
+  ice_temp_c: number | null
   surface_pass_count: number | null
 }
 
@@ -197,12 +200,16 @@ export type BladeChangePayload = {
 export function readIceMakePayload(p: unknown): IceMakePayload {
   const o = (p ?? {}) as Record<string, unknown>
   return {
-    water_temp_c: typeof o.water_temp_c === "number" ? o.water_temp_c : null,
-    ice_temp_c: typeof o.ice_temp_c === "number" ? o.ice_temp_c : null,
-    time_in: typeof o.time_in === "string" ? o.time_in : null,
-    time_out: typeof o.time_out === "string" ? o.time_out : null,
     water_used_gal:
       typeof o.water_used_gal === "number" ? o.water_used_gal : null,
+    machine_hours:
+      typeof o.machine_hours === "number" ? o.machine_hours : null,
+    snow_taken_pct:
+      typeof o.snow_taken_pct === "number" ? o.snow_taken_pct : null,
+    time_in: typeof o.time_in === "string" ? o.time_in : null,
+    time_out: typeof o.time_out === "string" ? o.time_out : null,
+    water_temp_c: typeof o.water_temp_c === "number" ? o.water_temp_c : null,
+    ice_temp_c: typeof o.ice_temp_c === "number" ? o.ice_temp_c : null,
     surface_pass_count:
       typeof o.surface_pass_count === "number" ? o.surface_pass_count : null,
   }
