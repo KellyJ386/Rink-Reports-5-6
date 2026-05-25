@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 
 import { HistoryTab } from "./_components/history-tab"
 import { LayoutsTab } from "./_components/layouts-tab"
+import { RinksTab } from "./_components/rinks-tab"
 import { SeedDefaultsCard } from "./_components/seed-defaults-card"
 import { SettingsTab } from "./_components/settings-tab"
 import type {
@@ -25,6 +26,9 @@ import type {
   LayoutWithPointCount,
   MeasurementRow,
   PointRow,
+  RinkOption,
+  RinkRow,
+  RinkWithLayoutCount,
   SessionDetailData,
   SessionListItem,
   SessionRow,
@@ -97,6 +101,7 @@ export default async function IceDepthAdminPage({
       <Header />
       <TabBar active={tab} />
 
+      {tab === "rinks" && <RinksTabLoader facilityId={facilityId} />}
       {tab === "layouts" && (
         <LayoutsTabLoader facilityId={facilityId} params={params} />
       )}
@@ -113,8 +118,9 @@ function Header() {
     <div className="flex flex-col gap-1">
       <h1 className="text-2xl font-semibold tracking-tight">Ice Depth</h1>
       <p className="text-muted-foreground text-sm">
-        Build rink-diagram point layouts, review submitted depth sessions, and
-        configure thresholds, colors, and alerting. Sessions are immutable.
+        Manage rinks (sheets of ice), build their diagrams and measurement
+        points, review submitted depth sessions, and configure thresholds,
+        colors, and alerting. Sessions are immutable.
       </p>
     </div>
   )
@@ -153,7 +159,7 @@ async function LayoutsTabLoader({
   params: { layout?: string }
 }) {
   const supabase = await createClient()
-  const [layoutsRes, pointCountsRes, settingsRes] = await Promise.all([
+  const [layoutsRes, pointCountsRes, settingsRes, rinksRes] = await Promise.all([
     supabase
       .from("ice_depth_layouts")
       .select("*")
@@ -169,8 +175,15 @@ async function LayoutsTabLoader({
       .select("id")
       .eq("facility_id", facilityId)
       .maybeSingle(),
+    supabase
+      .from("ice_depth_rinks")
+      .select("id, name, is_active")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
   ])
 
+  const rinks = (rinksRes.data ?? []) as RinkOption[]
   const rawLayouts = (layoutsRes.data ?? []) as LayoutRow[]
   const counts = new Map<string, { active: number; total: number }>()
   for (const row of (pointCountsRes.data ?? []) as Array<{
@@ -189,7 +202,7 @@ async function LayoutsTabLoader({
   }))
 
   // Settings row presence drives the "Seed defaults" card.
-  if (!settingsRes.data && layouts.length === 0) {
+  if (!settingsRes.data && layouts.length === 0 && rinks.length === 0) {
     return (
       <div className="flex flex-col gap-4">
         <SeedDefaultsCard />
@@ -219,11 +232,52 @@ async function LayoutsTabLoader({
   return (
     <LayoutsTab
       layouts={layouts}
+      rinks={rinks}
       activeLayout={activeLayout}
       activeLayoutId={params.layout ?? null}
       backHref={backHref}
     />
   )
+}
+
+// ---------------------------------------------------------------------------
+// Rinks tab
+// ---------------------------------------------------------------------------
+
+async function RinksTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const [rinksRes, layoutsRes] = await Promise.all([
+    supabase
+      .from("ice_depth_rinks")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("ice_depth_layouts")
+      .select("rink_id, is_active")
+      .eq("facility_id", facilityId),
+  ])
+
+  const rawRinks = (rinksRes.data ?? []) as RinkRow[]
+  const counts = new Map<string, { active: number; total: number }>()
+  for (const row of (layoutsRes.data ?? []) as Array<{
+    rink_id: string | null
+    is_active: boolean
+  }>) {
+    if (!row.rink_id) continue
+    const cur = counts.get(row.rink_id) ?? { active: 0, total: 0 }
+    cur.total += 1
+    if (row.is_active) cur.active += 1
+    counts.set(row.rink_id, cur)
+  }
+  const rinks: RinkWithLayoutCount[] = rawRinks.map((r) => ({
+    ...r,
+    layout_count: counts.get(r.id)?.total ?? 0,
+    active_layout_count: counts.get(r.id)?.active ?? 0,
+  }))
+
+  return <RinksTab rinks={rinks} />
 }
 
 // ---------------------------------------------------------------------------

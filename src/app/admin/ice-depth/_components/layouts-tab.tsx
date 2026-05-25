@@ -17,7 +17,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 import { createLayout, setLayoutActive } from "../actions"
-import type { ActionState, LayoutDetail, LayoutWithPointCount } from "../types"
+import type {
+  ActionState,
+  LayoutDetail,
+  LayoutWithPointCount,
+  RinkOption,
+} from "../types"
 
 import { LayoutEditor } from "./layout-editor"
 
@@ -26,6 +31,7 @@ const LAYOUT_CAP = 8
 
 type Props = {
   layouts: LayoutWithPointCount[]
+  rinks: RinkOption[]
   activeLayout: LayoutDetail | null
   activeLayoutId: string | null
   backHref: string
@@ -33,6 +39,7 @@ type Props = {
 
 export function LayoutsTab({
   layouts,
+  rinks,
   activeLayout,
   activeLayoutId,
   backHref,
@@ -40,24 +47,24 @@ export function LayoutsTab({
   const activeCount = layouts.filter((l) => l.is_active).length
 
   if (activeLayout) {
-    return <LayoutEditor detail={activeLayout} backHref={backHref} />
+    return <LayoutEditor detail={activeLayout} rinks={rinks} backHref={backHref} />
   }
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[20rem_1fr]">
       <div className="flex flex-col gap-3">
-        <LayoutsList layouts={layouts} activeLayoutId={activeLayoutId} />
-        <CreateLayoutCard activeCount={activeCount} />
+        <LayoutsList layouts={layouts} rinks={rinks} activeLayoutId={activeLayoutId} />
+        <CreateLayoutCard activeCount={activeCount} rinks={rinks} />
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Pick a layout</CardTitle>
+          <CardTitle>Pick a diagram</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-sm">
             {layouts.length === 0
-              ? "No layouts yet. Create one on the left, then place points on the rink diagram."
-              : "Select a layout from the list to open the point-placement editor."}
+              ? "No diagrams yet. Create one on the left, then place points on the rink diagram."
+              : "Select a diagram from the list to open the point-placement editor."}
           </p>
         </CardContent>
       </Card>
@@ -67,17 +74,20 @@ export function LayoutsTab({
 
 function LayoutsList({
   layouts,
+  rinks,
   activeLayoutId,
 }: {
   layouts: LayoutWithPointCount[]
+  rinks: RinkOption[]
   activeLayoutId: string | null
 }) {
   const activeCount = layouts.filter((l) => l.is_active).length
+  const rinkName = new Map(rinks.map((r) => [r.id, r.name]))
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle>Layouts</CardTitle>
+          <CardTitle>Diagrams</CardTitle>
           <span
             className={cn(
               "text-muted-foreground text-xs font-medium",
@@ -90,12 +100,13 @@ function LayoutsList({
       </CardHeader>
       <CardContent className="flex flex-col gap-1 p-2">
         {layouts.length === 0 ? (
-          <p className="text-muted-foreground p-2 text-sm">No layouts yet.</p>
+          <p className="text-muted-foreground p-2 text-sm">No diagrams yet.</p>
         ) : (
           layouts.map((l) => (
             <LayoutListRow
               key={l.id}
               layout={l}
+              rinkLabel={l.rink_id ? (rinkName.get(l.rink_id) ?? "Unassigned") : "Unassigned"}
               active={activeLayoutId === l.id}
             />
           ))
@@ -107,9 +118,11 @@ function LayoutsList({
 
 function LayoutListRow({
   layout,
+  rinkLabel,
   active,
 }: {
   layout: LayoutWithPointCount
+  rinkLabel: string
   active: boolean
 }) {
   const [activePending, startActive] = useTransition()
@@ -135,7 +148,21 @@ function LayoutListRow({
         className="flex min-w-0 flex-1 flex-col gap-1 px-3 py-2"
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="font-medium">{layout.name}</span>
+          <span className="flex min-w-0 items-center gap-1.5 font-medium">
+            <span className="truncate">{layout.name}</span>
+            {layout.is_default && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                  active
+                    ? "bg-primary-foreground/20"
+                    : "bg-primary/15 text-primary",
+                )}
+              >
+                default
+              </span>
+            )}
+          </span>
           <span
             className={cn(
               "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
@@ -153,7 +180,7 @@ function LayoutListRow({
             active ? "text-primary-foreground/80" : "text-muted-foreground",
           )}
         >
-          {layout.slug}
+          {rinkLabel} · {layout.slug}
         </span>
       </Link>
       <button
@@ -175,13 +202,21 @@ function LayoutListRow({
   )
 }
 
-function CreateLayoutCard({ activeCount }: { activeCount: number }) {
+function CreateLayoutCard({
+  activeCount,
+  rinks,
+}: {
+  activeCount: number
+  rinks: RinkOption[]
+}) {
   const [state, action, pending] = useActionState(createLayout, NULL_STATE)
   const [open, setOpen] = useState(false)
   const capReached = activeCount >= LAYOUT_CAP
+  const activeRinks = rinks.filter((r) => r.is_active)
+  const noRinks = activeRinks.length === 0
 
   useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Layout created.")
+    if (state.ok === true) toast.success(state.message ?? "Diagram created.")
     if (state.ok === false) toast.error(state.error)
   }, [state])
 
@@ -189,7 +224,7 @@ function CreateLayoutCard({ activeCount }: { activeCount: number }) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle>New layout</CardTitle>
+          <CardTitle>New diagram</CardTitle>
           <Button
             size="sm"
             variant={open ? "outline" : "default"}
@@ -202,14 +237,45 @@ function CreateLayoutCard({ activeCount }: { activeCount: number }) {
       </CardHeader>
       {open && (
         <CardContent>
+          {noRinks ? (
+            <p className="text-muted-foreground text-sm">
+              Create a rink first on the{" "}
+              <Link
+                href="/admin/ice-depth?tab=rinks"
+                className="text-primary underline"
+              >
+                Rinks tab
+              </Link>
+              , then add diagrams to it.
+            </p>
+          ) : (
           <form action={action} className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="nl-rink">Rink</Label>
+              <select
+                id="nl-rink"
+                name="rink_id"
+                required
+                defaultValue=""
+                className="border-input bg-background h-9 rounded-md border px-3 py-1 text-sm"
+              >
+                <option value="" disabled>
+                  Select a rink…
+                </option>
+                {activeRinks.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="nl-name">Name</Label>
               <Input
                 id="nl-name"
                 name="name"
                 required
-                placeholder="e.g. Main Rink"
+                placeholder="e.g. Full Sheet"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -252,16 +318,17 @@ function CreateLayoutCard({ activeCount }: { activeCount: number }) {
             </div>
             {capReached && (
               <p className="text-destructive text-xs">
-                Maximum {LAYOUT_CAP} active layouts reached. Deactivate one to
+                Maximum {LAYOUT_CAP} active diagrams reached. Deactivate one to
                 create another.
               </p>
             )}
             <div>
               <Button type="submit" size="sm" disabled={pending}>
-                {pending ? "Creating…" : "Create layout"}
+                {pending ? "Creating…" : "Create diagram"}
               </Button>
             </div>
           </form>
+          )}
         </CardContent>
       )}
     </Card>

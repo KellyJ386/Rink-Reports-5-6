@@ -2698,8 +2698,10 @@ export type Database = {
           facility_id: string
           id: string
           is_active: boolean
+          is_default: boolean
           logo_url: string | null
           name: string
+          rink_id: string | null
           slug: string
           sort_order: number
           updated_at: string | null
@@ -2711,8 +2713,10 @@ export type Database = {
           facility_id: string
           id?: string
           is_active?: boolean
+          is_default?: boolean
           logo_url?: string | null
           name: string
+          rink_id?: string | null
           slug: string
           sort_order?: number
           updated_at?: string | null
@@ -2724,8 +2728,10 @@ export type Database = {
           facility_id?: string
           id?: string
           is_active?: boolean
+          is_default?: boolean
           logo_url?: string | null
           name?: string
+          rink_id?: string | null
           slug?: string
           sort_order?: number
           updated_at?: string | null
@@ -2736,6 +2742,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ice_depth_layouts_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_rinks"
             referencedColumns: ["id"]
           },
         ]
@@ -2857,6 +2870,50 @@ export type Database = {
             columns: ["layout_id"]
             isOneToOne: false
             referencedRelation: "ice_depth_layouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ice_depth_rinks: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          is_default: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ice_depth_rinks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]

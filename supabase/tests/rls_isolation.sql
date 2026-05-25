@@ -245,6 +245,17 @@ values
   ('22222222-2222-2222-2222-222222222222',
    'bbbb2222-cccb-bbbb-bbbb-bbbb22220002', 'Fuel level OK', 1, true);
 
+-- Ice Depth: a rink (sheet of ice) in each facility, so the migration-83
+-- isolation checks below have non-empty targets.
+insert into public.ice_depth_rinks
+  (id, facility_id, name, slug, sort_order, is_active, is_default)
+values
+  ('aaaa1111-dddd-aaaa-aaaa-aaaa11110003',
+   '11111111-1111-1111-1111-111111111111', 'Main Rink A', 'main-rink', 0, true, true),
+  ('bbbb2222-dddd-bbbb-bbbb-bbbb22220003',
+   '22222222-2222-2222-2222-222222222222', 'Main Rink B', 'main-rink', 0, true, true)
+on conflict (facility_id, slug) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -328,6 +339,26 @@ select pg_temp.expect_error(
     values
       ('22222222-2222-2222-2222-222222222222', 'Propane', 'propane')$$,
   'ice_ops: alice CANNOT INSERT a fuel type into facility B');
+
+-- Ice Depth rinks (migration 83): physical sheets of ice must scope by
+-- facility. A regression dropping the facility_id check would expose — or let
+-- a tenant rewrite — another facility's rink list and default.
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_depth_rinks
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'ice_depth: alice can SELECT her own facility''s rinks');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_depth_rinks
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ice_depth: alice CANNOT SELECT rinks in facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_rinks
+      (facility_id, name, slug)
+    values
+      ('22222222-2222-2222-2222-222222222222', 'Sneaky Rink', 'sneaky')$$,
+  'ice_depth: alice CANNOT INSERT a rink into facility B');
 
 -- ---------------------------------------------------------------------------
 -- role_permission_defaults (migration 79): editable per-role default matrix.

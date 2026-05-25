@@ -4,7 +4,9 @@ import { notFound } from "next/navigation"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { DiagramNav } from "../_components/diagram-nav"
 import { SubmissionForm } from "../_components/submission-form"
+import { SyncChip } from "../_components/sync-chip"
 import type { LayoutForForm, PointForForm, SettingsForForm } from "../types"
 
 export const dynamic = "force-dynamic"
@@ -96,7 +98,7 @@ export default async function IceDepthLayoutSubmissionPage({
 
   const { data: layout } = await supabase
     .from("ice_depth_layouts")
-    .select("id, name, slug, diagram_aspect_ratio, is_active, logo_url")
+    .select("id, name, slug, diagram_aspect_ratio, is_active, logo_url, rink_id")
     .eq("facility_id", employeeRow.facility_id)
     .eq("slug", layoutSlug)
     .maybeSingle()
@@ -105,22 +107,37 @@ export default async function IceDepthLayoutSubmissionPage({
     notFound()
   }
 
-  const [{ data: pointsRaw }, { data: settingsRaw }] = await Promise.all([
-    supabase
-      .from("ice_depth_points")
-      .select(
-        "id, point_number, label, x_position, y_position, sort_order, is_active"
-      )
-      .eq("layout_id", layout.id)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .order("point_number", { ascending: true }),
-    supabase
-      .from("ice_depth_settings")
-      .select("measurement_unit, low_threshold, high_threshold")
-      .eq("facility_id", employeeRow.facility_id)
-      .maybeSingle(),
-  ])
+  const [{ data: pointsRaw }, { data: settingsRaw }, { data: rinksRaw }, { data: siblingsRaw }] =
+    await Promise.all([
+      supabase
+        .from("ice_depth_points")
+        .select(
+          "id, point_number, label, x_position, y_position, sort_order, is_active"
+        )
+        .eq("layout_id", layout.id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("point_number", { ascending: true }),
+      supabase
+        .from("ice_depth_settings")
+        .select("measurement_unit, low_threshold, high_threshold")
+        .eq("facility_id", employeeRow.facility_id)
+        .maybeSingle(),
+      supabase
+        .from("ice_depth_rinks")
+        .select("id, name")
+        .eq("facility_id", employeeRow.facility_id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      supabase
+        .from("ice_depth_layouts")
+        .select("name, slug, rink_id, is_default, sort_order")
+        .eq("facility_id", employeeRow.facility_id)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+    ])
 
   const points: PointForForm[] = (pointsRaw ?? []).map((p) => ({
     id: p.id,
@@ -159,6 +176,27 @@ export default async function IceDepthLayoutSubmissionPage({
     diagram_aspect_ratio: layout.diagram_aspect_ratio,
     logo_url: layout.logo_url ?? null,
   }
+
+  // Cascading nav data: each rink resolves to its default-or-first diagram, and
+  // the diagram dropdown lists the active diagrams on the current rink.
+  type Sibling = {
+    name: string
+    slug: string
+    rink_id: string | null
+    is_default: boolean
+  }
+  const siblings = (siblingsRaw ?? []) as Sibling[]
+  const rinkOptions = ((rinksRaw ?? []) as Array<{ id: string; name: string }>).map(
+    (r) => {
+      const diagrams = siblings.filter((s) => s.rink_id === r.id)
+      const target = diagrams.find((d) => d.is_default) ?? diagrams[0] ?? null
+      return { id: r.id, name: r.name, targetSlug: target?.slug ?? null }
+    },
+  )
+  const diagramOptions = siblings
+    .filter((s) => s.rink_id === layout.rink_id)
+    .map((s) => ({ slug: s.slug, name: s.name }))
+  const showNav = rinkOptions.length > 1 || diagramOptions.length > 1
 
   const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
@@ -234,7 +272,20 @@ export default async function IceDepthLayoutSubmissionPage({
             {layout.name}
           </div>
         </div>
+        <div style={{ marginLeft: "auto", flexShrink: 0 }}>
+          <SyncChip />
+        </div>
       </div>
+
+      {/* Rink + diagram pickers */}
+      {showNav && (
+        <DiagramNav
+          rinks={rinkOptions}
+          currentRinkId={layout.rink_id}
+          diagrams={diagramOptions}
+          currentSlug={layout.slug}
+        />
+      )}
 
       {/* Form */}
       <div style={{ padding: "12px 12px 24px" }}>

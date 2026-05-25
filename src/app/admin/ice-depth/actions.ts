@@ -116,9 +116,24 @@ export async function createLayout(
     const aspect = asNumber(formData.get("diagram_aspect_ratio"))
     const sort_order = asInt(formData.get("sort_order")) ?? 0
 
+    const rink_id = nonEmpty(formData.get("rink_id"))
+    if (!rink_id) {
+      return { ok: false, error: "Pick a rink for this diagram." }
+    }
+
     const supabase = await createClient()
+    // Confirm the rink belongs to this facility (RLS already scopes SELECT).
+    const { data: rink } = await supabase
+      .from("ice_depth_rinks")
+      .select("id")
+      .eq("id", rink_id)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (!rink) return { ok: false, error: "Rink not found." }
+
     const { error } = await supabase.from("ice_depth_layouts").insert({
       facility_id: facility.facilityId,
+      rink_id,
       name,
       slug,
       description,
@@ -129,7 +144,7 @@ export async function createLayout(
       return { ok: false, error: dbError(error, "Failed to create layout.") }
     }
     revalidatePath("/admin/ice-depth")
-    return { ok: true, message: "Layout created." }
+    return { ok: true, message: "Diagram created." }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
@@ -232,6 +247,276 @@ export async function deleteLayout(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete layout.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setLayoutRink(
+  layoutId: string,
+  rinkId: string,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!layoutId || !rinkId) {
+      return { ok: false, error: "Missing diagram or rink id." }
+    }
+    const supabase = await createClient()
+    const { data: rink } = await supabase
+      .from("ice_depth_rinks")
+      .select("id")
+      .eq("id", rinkId)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (!rink) return { ok: false, error: "Rink not found." }
+
+    // Moving to a different rink clears the default flag so we never collide
+    // with the destination rink's existing default diagram.
+    const { error } = await supabase
+      .from("ice_depth_layouts")
+      .update({ rink_id: rinkId, is_default: false })
+      .eq("id", layoutId)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to move diagram.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Flag a diagram as its rink's default. Clears any sibling default first so the
+ * partial unique index (rink_id) WHERE is_default never collides.
+ */
+export async function setLayoutDefault(layoutId: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!layoutId) return { ok: false, error: "Missing diagram id." }
+    const supabase = await createClient()
+
+    const { data: layout, error: lErr } = await supabase
+      .from("ice_depth_layouts")
+      .select("id, rink_id")
+      .eq("id", layoutId)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (lErr || !layout) {
+      return { ok: false, error: dbError(lErr, "Diagram not found.") }
+    }
+    if (!layout.rink_id) {
+      return { ok: false, error: "Assign this diagram to a rink first." }
+    }
+
+    const { error: clearErr } = await supabase
+      .from("ice_depth_layouts")
+      .update({ is_default: false })
+      .eq("facility_id", facility.facilityId)
+      .eq("rink_id", layout.rink_id)
+      .eq("is_default", true)
+    if (clearErr) {
+      return { ok: false, error: dbError(clearErr, "Failed to set default.") }
+    }
+
+    const { error } = await supabase
+      .from("ice_depth_layouts")
+      .update({ is_default: true })
+      .eq("id", layoutId)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to set default.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Rinks
+// ============================================================================
+
+export async function createRink(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const rawSlug = nonEmpty(formData.get("slug"))
+    const slug = rawSlug ?? slugify(name)
+    if (!SLUG_RE.test(slug)) {
+      return {
+        ok: false,
+        error:
+          "Slug must be lowercase letters, digits, and hyphens (e.g. main-rink).",
+      }
+    }
+    const sort_order = asInt(formData.get("sort_order")) ?? 0
+
+    const supabase = await createClient()
+    // First rink for a facility becomes the default automatically.
+    const { count } = await supabase
+      .from("ice_depth_rinks")
+      .select("id", { count: "exact", head: true })
+      .eq("facility_id", facility.facilityId)
+    const isFirst = (count ?? 0) === 0
+
+    const { error } = await supabase.from("ice_depth_rinks").insert({
+      facility_id: facility.facilityId,
+      name,
+      slug,
+      sort_order,
+      is_default: isFirst,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to create rink.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true, message: "Rink created." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateRink(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing rink id." }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const rawSlug = nonEmpty(formData.get("slug"))
+    const slug = rawSlug ?? slugify(name)
+    if (!SLUG_RE.test(slug)) {
+      return {
+        ok: false,
+        error: "Slug must be lowercase letters, digits, and hyphens.",
+      }
+    }
+    const sort_order = asInt(formData.get("sort_order"))
+
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("ice_depth_rinks")
+      .update({
+        name,
+        slug,
+        ...(sort_order !== null ? { sort_order } : {}),
+      })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update rink.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true, message: "Rink updated." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setRinkActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing rink id." }
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("ice_depth_rinks")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update rink.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Flag a rink as the facility default. Clears any sibling default first so the
+ * partial unique index (facility_id) WHERE is_default never collides.
+ */
+export async function setRinkDefault(id: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing rink id." }
+    const supabase = await createClient()
+
+    const { error: clearErr } = await supabase
+      .from("ice_depth_rinks")
+      .update({ is_default: false })
+      .eq("facility_id", facility.facilityId)
+      .eq("is_default", true)
+    if (clearErr) {
+      return { ok: false, error: dbError(clearErr, "Failed to set default.") }
+    }
+
+    const { error } = await supabase
+      .from("ice_depth_rinks")
+      .update({ is_default: true })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to set default.") }
+    }
+    revalidatePath("/admin/ice-depth")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteRink(id: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing rink id." }
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("ice_depth_rinks")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      if (error.code === "23503") {
+        return {
+          ok: false,
+          error: "Rink still has diagrams; move or delete them first.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to delete rink.") }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
