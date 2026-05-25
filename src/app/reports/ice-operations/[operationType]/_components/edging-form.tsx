@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useSelectedRink } from "@/lib/ice-operations/rink-selection"
 
 import {
   submitIceOperationsReport,
@@ -30,18 +31,20 @@ import {
 } from "./shared"
 
 type Props = {
+  facilityId: string
   rinks: RinkOption[]
   equipment: EquipmentOption[]
 }
 
 const initialState: SubmissionFormState = {}
 
-export function EdgingForm({ rinks, equipment }: Props) {
+export function EdgingForm({ facilityId, rinks, equipment }: Props) {
   const action = submitIceOperationsReport.bind(null, "edging")
   const [state, formAction] = useActionState(action, initialState)
 
   const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [rinkId, setRinkId] = useState("")
+  const [storedRinkId, setRinkId] = useSelectedRink(facilityId)
+  const rinkId = rinks.some((r) => r.id === storedRinkId) ? storedRinkId : ""
   const [equipmentId, setEquipmentId] = useState("")
   const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
   const [hoursRun, setHoursRun] = useState("")

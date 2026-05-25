@@ -31,6 +31,9 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   "blade_change",
 ] as const
 
+/** Module shown when the user lands on Ice Operations without picking a tab. */
+export const DEFAULT_OPERATION_TYPE: OperationType = OPERATION_TYPES[0]
+
 export const OPERATION_LABELS: Record<OperationType, string> = {
   ice_make: "Ice Make",
   circle_check: "Circle Check",

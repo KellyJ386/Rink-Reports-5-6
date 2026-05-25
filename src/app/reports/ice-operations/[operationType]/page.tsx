@@ -15,49 +15,18 @@ import { createClient } from "@/lib/supabase/server"
 import { BladeChangeForm } from "./_components/blade-change-form"
 import { CircleCheckForm } from "./_components/circle-check-form"
 import { EdgingForm } from "./_components/edging-form"
+import { IceOperationsControls } from "./_components/ice-operations-controls"
 import { IceMakeForm } from "./_components/ice-make-form"
 import {
 
   OPERATION_DESCRIPTIONS,
   OPERATION_EQUIPMENT_TYPE,
   OPERATION_LABELS,
-  OPERATION_TYPES,
   isOperationType,
   type EquipmentType,
   type OperationType,
   type TemperatureUnit,
 } from "../types"
-
-function OperationTabs({ active }: { active: OperationType | null }) {
-  return (
-    <nav
-      aria-label="Ice operation type"
-      className="-mx-4 overflow-x-auto px-4"
-    >
-      <ul className="flex w-max min-w-full gap-1 border-b border-border">
-        {OPERATION_TYPES.map((op) => {
-          const isActive = op === active
-          return (
-            <li key={op}>
-              <Link
-                href={`/reports/ice-operations/${op}`}
-                aria-current={isActive ? "page" : undefined}
-                className={
-                  "inline-flex items-center whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
-                  (isActive
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground")
-                }
-              >
-                {OPERATION_LABELS[op]}
-              </Link>
-            </li>
-          )
-        })}
-      </ul>
-    </nav>
-  )
-}
 
 export const dynamic = "force-dynamic"
 
@@ -93,7 +62,7 @@ function NotAvailable({
           {operationType ? ` / ${breadcrumbLabel}` : ""}
         </p>
       </div>
-      <OperationTabs active={operationType} />
+      <IceOperationsControls activeOperation={operationType} />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -350,7 +319,11 @@ export default async function OperationTypePage({
         </p>
       </div>
 
-      <OperationTabs active={operationType} />
+      <IceOperationsControls
+        activeOperation={operationType}
+        facilityId={facilityId}
+        rinks={rinks}
+      />
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
@@ -364,16 +337,22 @@ export default async function OperationTypePage({
 
       {operationType === "ice_make" ? (
         <IceMakeForm
+          facilityId={facilityId}
           rinks={rinks}
           equipment={equipment}
           temperatureUnit={tempUnit}
         />
       ) : null}
       {operationType === "edging" ? (
-        <EdgingForm rinks={rinks} equipment={equipment} />
+        <EdgingForm
+          facilityId={facilityId}
+          rinks={rinks}
+          equipment={equipment}
+        />
       ) : null}
       {operationType === "blade_change" ? (
         <BladeChangeForm
+          facilityId={facilityId}
           rinks={rinks}
           equipment={equipment}
           employees={employees}
@@ -382,6 +361,7 @@ export default async function OperationTypePage({
       ) : null}
       {operationType === "circle_check" ? (
         <CircleCheckForm
+          facilityId={facilityId}
           rinks={rinks}
           equipment={equipment}
           checklistItems={circleCheckItems}

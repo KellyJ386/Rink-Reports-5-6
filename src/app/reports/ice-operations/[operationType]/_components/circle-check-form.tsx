@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useSelectedRink } from "@/lib/ice-operations/rink-selection"
 import { cn } from "@/lib/utils"
 
 import {
@@ -54,6 +55,7 @@ type TemplateItemOption = {
 }
 
 type Props = {
+  facilityId: string
   rinks: RinkOption[]
   equipment: EquipmentOption[]
   checklistItems: ChecklistItem[]
@@ -70,6 +72,7 @@ type ItemState = {
 }
 
 export function CircleCheckForm({
+  facilityId,
   rinks,
   equipment,
   checklistItems,
@@ -81,7 +84,8 @@ export function CircleCheckForm({
   const [state, formAction] = useActionState(action, initialState)
 
   const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [rinkId, setRinkId] = useState("")
+  const [storedRinkId, setRinkId] = useSelectedRink(facilityId)
+  const rinkId = rinks.some((r) => r.id === storedRinkId) ? storedRinkId : ""
   const [equipmentId, setEquipmentId] = useState("")
   const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
   const [notes, setNotes] = useState("")
