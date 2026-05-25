@@ -5,6 +5,7 @@
 import type { Tables } from "@/types/database"
 
 export type SettingsRow = Tables<"ice_depth_settings">
+export type RinkRow = Tables<"ice_depth_rinks">
 export type LayoutRow = Tables<"ice_depth_layouts">
 export type PointRow = Tables<"ice_depth_points">
 export type SessionRow = Tables<"ice_depth_sessions">
@@ -37,9 +38,10 @@ export function isAlertOn(v: string): v is AlertOn {
 
 export type ReadingSeverity = "low" | "ok" | "high"
 
-export type Tab = "layouts" | "history" | "settings"
+export type Tab = "rinks" | "layouts" | "history" | "settings"
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
-  { key: "layouts", label: "Layouts" },
+  { key: "rinks", label: "Rinks" },
+  { key: "layouts", label: "Diagrams" },
   { key: "history", label: "History" },
   { key: "settings", label: "Settings" },
 ]
@@ -51,7 +53,20 @@ export function asTab(value: string | undefined): Tab {
     : "layouts"
 }
 
+// ---- Rinks tab composite ----
+
+export type RinkWithLayoutCount = RinkRow & {
+  layout_count: number
+  active_layout_count: number
+}
+
 // ---- Layouts tab composite ----
+
+export type RinkOption = {
+  id: string
+  name: string
+  is_active: boolean
+}
 
 export type LayoutWithPointCount = LayoutRow & {
   active_point_count: number

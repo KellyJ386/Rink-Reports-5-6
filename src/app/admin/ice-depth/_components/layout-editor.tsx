@@ -38,10 +38,17 @@ import {
   movePoint,
   renumberPointsForLayout,
   setLayoutActive,
+  setLayoutDefault,
+  setLayoutRink,
   updateLayout,
   updatePoint,
 } from "../actions"
-import type { ActionState, LayoutDetail, PointRow } from "../types"
+import type {
+  ActionState,
+  LayoutDetail,
+  PointRow,
+  RinkOption,
+} from "../types"
 
 const NULL_STATE: ActionState = { ok: null }
 const POINT_CAP = 60
@@ -50,10 +57,11 @@ type EditorMode = "place" | "select" | "drag"
 
 type Props = {
   detail: LayoutDetail
+  rinks: RinkOption[]
   backHref: string
 }
 
-export function LayoutEditor({ detail, backHref }: Props) {
+export function LayoutEditor({ detail, rinks, backHref }: Props) {
   const { layout, points } = detail
 
   const [modeRaw, setMode] = useState<EditorMode>("place")
@@ -81,7 +89,7 @@ export function LayoutEditor({ detail, backHref }: Props) {
         </Button>
       </div>
 
-      <LayoutHeaderCard layout={layout} />
+      <LayoutHeaderCard layout={layout} rinks={rinks} />
 
       <Card>
         <CardHeader>
@@ -137,16 +145,41 @@ export function LayoutEditor({ detail, backHref }: Props) {
 // Header (rename, slug, aspect, is_active, delete)
 // ---------------------------------------------------------------------------
 
-function LayoutHeaderCard({ layout }: { layout: LayoutDetail["layout"] }) {
+function LayoutHeaderCard({
+  layout,
+  rinks,
+}: {
+  layout: LayoutDetail["layout"]
+  rinks: RinkOption[]
+}) {
   const [editing, setEditing] = useState(false)
   const [state, action, pending] = useActionState(updateLayout, NULL_STATE)
   const [activePending, startActive] = useTransition()
   const [delPending, startDel] = useTransition()
+  const [rinkPending, startRink] = useTransition()
+  const [defaultPending, startDefault] = useTransition()
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Layout updated.")
     if (state.ok === false) toast.error(state.error)
   }, [state])
+
+  function onChangeRink(rinkId: string) {
+    if (!rinkId || rinkId === layout.rink_id) return
+    startRink(async () => {
+      const r = await setLayoutRink(layout.id, rinkId)
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Diagram moved to a new rink.")
+    })
+  }
+
+  function onMakeDefault() {
+    startDefault(async () => {
+      const r = await setLayoutDefault(layout.id)
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Set as this rink's default diagram.")
+    })
+  }
 
   function onToggleActive() {
     startActive(async () => {
@@ -174,10 +207,15 @@ function LayoutHeaderCard({ layout }: { layout: LayoutDetail["layout"] }) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2">
             {layout.name}
+            {layout.is_default && (
+              <Badge variant="default" className="uppercase">
+                default
+              </Badge>
+            )}
             {!layout.is_active && (
               <Badge variant="secondary" className="uppercase">
                 inactive
@@ -209,6 +247,40 @@ function LayoutHeaderCard({ layout }: { layout: LayoutDetail["layout"] }) {
               Delete layout
             </Button>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="le-rink" className="text-muted-foreground text-xs">
+              Rink
+            </Label>
+            <select
+              id="le-rink"
+              value={layout.rink_id ?? ""}
+              disabled={rinkPending}
+              onChange={(e) => onChangeRink(e.target.value)}
+              className="border-input bg-background h-8 rounded-md border px-2 py-1 text-sm"
+            >
+              {!layout.rink_id && (
+                <option value="" disabled>
+                  Unassigned…
+                </option>
+              )}
+              {rinks.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                  {r.is_active ? "" : " (inactive)"}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onMakeDefault}
+            disabled={defaultPending || layout.is_default || !layout.rink_id}
+          >
+            {layout.is_default ? "Default diagram" : "Make default"}
+          </Button>
         </div>
       </CardHeader>
       {editing && (
