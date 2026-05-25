@@ -816,6 +816,7 @@ export type Database = {
           employee_id: string | null
           equipment_id: string | null
           facility_id: string
+          form_data: Json | null
           has_exceedance: boolean
           id: string
           location_id: string
@@ -829,6 +830,7 @@ export type Database = {
           employee_id?: string | null
           equipment_id?: string | null
           facility_id: string
+          form_data?: Json | null
           has_exceedance?: boolean
           id?: string
           location_id: string
@@ -842,6 +844,7 @@ export type Database = {
           employee_id?: string | null
           equipment_id?: string | null
           facility_id?: string
+          form_data?: Json | null
           has_exceedance?: boolean
           id?: string
           location_id?: string

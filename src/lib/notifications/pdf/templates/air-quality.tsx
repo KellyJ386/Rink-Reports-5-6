@@ -3,6 +3,15 @@ import "server-only"
 import React from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  ARENA_STATUS_OPTIONS,
+  ELECTRIC_EQUIPMENT_OPTIONS,
+  FUEL_TYPE_OPTIONS,
+  VENTILATION_STATUS_OPTIONS,
+  type AirQualityFormData,
+  type AirQualityMeasurement,
+} from "@/app/reports/air-quality/types"
+
 import { resolveMetaHeader } from "../_components/meta-header"
 import type { ModulePdfResult } from "../registry"
 import {
@@ -36,6 +45,118 @@ function formatReading(r: ReadingDb): string {
   return r.unit_snapshot ? `${n} ${r.unit_snapshot}` : String(n)
 }
 
+function labelFor(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  value: string | null,
+): string {
+  if (!value) return value ?? ""
+  return options.find((o) => o.value === value)?.label ?? value
+}
+
+function measurementValue(m: AirQualityMeasurement): string {
+  const parts: string[] = []
+  if (m.co != null) parts.push(`CO ${m.co} ppm`)
+  if (m.no2 != null) parts.push(`NO2 ${m.no2} ppm`)
+  if (m.temperature != null) parts.push(`${m.temperature}°F`)
+  if (m.note) parts.push(m.note)
+  return parts.join(" · ") || "—"
+}
+
+function measurementLabel(m: AirQualityMeasurement): string {
+  return [m.location, m.time].filter(Boolean).join(" @ ") || "Measurement"
+}
+
+function formDataRows(value: unknown): ReadingRow[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return []
+  const fd = value as AirQualityFormData
+  const out: ReadingRow[] = []
+  const push = (group: string, label: string, v: string | null) => {
+    if (v && v.trim() !== "") out.push({ group, label, value: v, flag: null })
+  }
+
+  const eqGroup = "Tester & Equipment"
+  push(eqGroup, "Date of test", fd.date_of_test)
+  push(eqGroup, "Tester certification", fd.tester_certification)
+  const co = fd.equipment?.co_monitor
+  if (co)
+    push(
+      eqGroup,
+      "CO monitor",
+      [co.type, co.model, co.calibration_date && `cal ${co.calibration_date}`]
+        .filter(Boolean)
+        .join(" · ") || null,
+    )
+  const no2 = fd.equipment?.no2_monitor
+  if (no2)
+    push(
+      eqGroup,
+      "NO2 monitor",
+      [no2.type, no2.model, no2.calibration_date && `cal ${no2.calibration_date}`]
+        .filter(Boolean)
+        .join(" · ") || null,
+    )
+  push(
+    eqGroup,
+    "Ventilation last inspection",
+    fd.equipment?.ventilation_last_inspection ?? null,
+  )
+
+  const s1 = fd.section1
+  if (s1) {
+    const g = "Section 1 — General"
+    push(g, "Arena status", labelFor(ARENA_STATUS_OPTIONS, s1.arena_status) || null)
+    push(
+      g,
+      "Ventilation status",
+      labelFor(VENTILATION_STATUS_OPTIONS, s1.ventilation_status) || null,
+    )
+    ;(s1.resurfacers ?? []).forEach((r, i) => {
+      push(
+        g,
+        `Resurfacer ${i + 1}`,
+        [r.make_model, labelFor(FUEL_TYPE_OPTIONS, r.fuel_type)]
+          .filter(Boolean)
+          .join(" · ") || null,
+      )
+    })
+    ;(s1.other_equipment ?? []).forEach((r, i) => {
+      push(
+        g,
+        `Other equipment ${i + 1}`,
+        [r.name, labelFor(FUEL_TYPE_OPTIONS, r.fuel_type)]
+          .filter(Boolean)
+          .join(" · ") || null,
+      )
+    })
+    push(g, "Maintenance · resurfacers", s1.maintenance?.resurfacers ?? null)
+    push(g, "Maintenance · ventilation", s1.maintenance?.ventilation ?? null)
+    push(g, "Maintenance · other", s1.maintenance?.other ?? null)
+  }
+
+  ;(fd.section2?.routine ?? []).forEach((m) => {
+    push("Section 2 — Routine", measurementLabel(m), measurementValue(m))
+  })
+  ;(fd.section2?.post_edging ?? []).forEach((m) => {
+    push("Section 2 — Post-Edging", measurementLabel(m), measurementValue(m))
+  })
+
+  const s4 = fd.section4
+  if (s4) {
+    const g = "Section 4 — Recommendations"
+    push(
+      g,
+      "Electric equipment",
+      labelFor(ELECTRIC_EQUIPMENT_OPTIONS, s4.electric_equipment_consideration) ||
+        null,
+    )
+    push(g, "Staff trained", s4.staff_trained ? "Yes" : null)
+    push(g, "Public signage present", s4.public_signage ? "Yes" : null)
+    push(g, "Unusual observations", s4.unusual_observations)
+  }
+
+  return out
+}
+
 function severityRank(
   s: NonNullable<ReadingsExceedanceSummary["max_severity"]>,
 ): number {
@@ -57,7 +178,7 @@ export async function renderAirQualityPdf(
     .from("air_quality_reports")
     .select(
       `id, facility_id, employee_id, location_id, equipment_id, notes,
-       submitted_at, has_exceedance, max_severity`,
+       submitted_at, has_exceedance, max_severity, form_data`,
     )
     .eq("id", recordId)
     .maybeSingle()
@@ -155,6 +276,8 @@ export async function renderAirQualityPdf(
       }
     }
   }
+
+  rows.push(...formDataRows(row.form_data))
 
   const exceedanceTotal = readings.filter((r) => r.is_exceedance).length
 
