@@ -6,7 +6,14 @@ import { requireUser } from "@/lib/auth"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 
-import type { AirQualitySeverity, SubmittedReading } from "./types"
+import { emptyAirQualityFormData } from "./types"
+import type {
+  AirQualityFormData,
+  AirQualityFuelType,
+  AirQualityMeasurement,
+  AirQualitySeverity,
+  SubmittedReading,
+} from "./types"
 
 export type SubmissionFormState = {
   error?: string
@@ -56,6 +63,128 @@ function parseReadings(raw: string): SubmittedReading[] | null {
   }
 }
 
+const FUEL_TYPES = new Set<AirQualityFuelType>([
+  "electric",
+  "natural_gas",
+  "propane",
+  "gasoline",
+  "diesel",
+  "other",
+])
+
+const MAX_ROWS = 100
+
+function jstr(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null
+}
+
+function jnum(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function jfuel(v: unknown): AirQualityFuelType | null {
+  return typeof v === "string" && FUEL_TYPES.has(v as AirQualityFuelType)
+    ? (v as AirQualityFuelType)
+    : null
+}
+
+function asObj(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {}
+}
+
+function jmeasurements(v: unknown): AirQualityMeasurement[] {
+  if (!Array.isArray(v)) return []
+  return v.slice(0, MAX_ROWS).map((item) => {
+    const r = asObj(item)
+    return {
+      location: jstr(r.location),
+      time: jstr(r.time),
+      co: jnum(r.co),
+      no2: jnum(r.no2),
+      temperature: jnum(r.temperature),
+      note: jstr(r.note),
+    }
+  })
+}
+
+/**
+ * Lenient sanitizer for the optional extended monitoring-log payload. Unknown
+ * keys are dropped; bad values become null. Never throws — returns null only
+ * when the input isn't a JSON object, so submission is never blocked.
+ */
+function parseFormData(raw: string): AirQualityFormData | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== "object") return null
+  const src = parsed as Record<string, unknown>
+  const fd = emptyAirQualityFormData()
+
+  fd.tester_certification = jstr(src.tester_certification)
+  fd.date_of_test = jstr(src.date_of_test)
+
+  const eq = asObj(src.equipment)
+  const co = asObj(eq.co_monitor)
+  const no2 = asObj(eq.no2_monitor)
+  fd.equipment.co_monitor = {
+    type: jstr(co.type),
+    model: jstr(co.model),
+    calibration_date: jstr(co.calibration_date),
+  }
+  fd.equipment.no2_monitor = {
+    type: jstr(no2.type),
+    model: jstr(no2.model),
+    calibration_date: jstr(no2.calibration_date),
+  }
+  fd.equipment.ventilation_last_inspection = jstr(
+    eq.ventilation_last_inspection
+  )
+
+  const s1 = asObj(src.section1)
+  fd.section1.arena_status = jstr(s1.arena_status)
+  fd.section1.ventilation_status = jstr(s1.ventilation_status)
+  fd.section1.resurfacers = Array.isArray(s1.resurfacers)
+    ? s1.resurfacers.slice(0, MAX_ROWS).map((item) => {
+        const r = asObj(item)
+        return { make_model: jstr(r.make_model), fuel_type: jfuel(r.fuel_type) }
+      })
+    : []
+  fd.section1.other_equipment = Array.isArray(s1.other_equipment)
+    ? s1.other_equipment.slice(0, MAX_ROWS).map((item) => {
+        const r = asObj(item)
+        return { name: jstr(r.name), fuel_type: jfuel(r.fuel_type) }
+      })
+    : []
+  const maint = asObj(s1.maintenance)
+  fd.section1.maintenance = {
+    resurfacers: jstr(maint.resurfacers),
+    ventilation: jstr(maint.ventilation),
+    other: jstr(maint.other),
+  }
+
+  const s2 = asObj(src.section2)
+  fd.section2.routine = jmeasurements(s2.routine)
+  fd.section2.post_edging = jmeasurements(s2.post_edging)
+
+  const s4 = asObj(src.section4)
+  fd.section4.electric_equipment_consideration = jstr(
+    s4.electric_equipment_consideration
+  )
+  fd.section4.staff_trained = s4.staff_trained === true
+  fd.section4.public_signage = s4.public_signage === true
+  fd.section4.unusual_observations = jstr(s4.unusual_observations)
+
+  return fd
+}
+
 async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   const current = await requireUser()
   const supabase = await createClient()
@@ -73,6 +202,12 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
       : null
   const readingsRaw = String(formData.get("readings_json") ?? "")
   const readings = parseReadings(readingsRaw)
+
+  const formDataRaw = formData.get("form_data")
+  const extendedForm =
+    typeof formDataRaw === "string" && formDataRaw.length > 0
+      ? parseFormData(formDataRaw)
+      : null
 
   if (!locationId || !readings) {
     return { ok: false, error: "Invalid form data." }
@@ -196,6 +331,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
       location_id: location.id,
       equipment_id: equipmentId,
       notes,
+      form_data: extendedForm,
       submitted_at: new Date().toISOString(),
       has_exceedance: false,
       max_severity: null,

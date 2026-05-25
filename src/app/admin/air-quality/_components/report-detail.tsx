@@ -15,6 +15,15 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+import {
+  ARENA_STATUS_OPTIONS,
+  ELECTRIC_EQUIPMENT_OPTIONS,
+  FUEL_TYPE_OPTIONS,
+  VENTILATION_STATUS_OPTIONS,
+  type AirQualityFormData,
+  type AirQualityMeasurement,
+} from "@/app/reports/air-quality/types"
+
 import { addAirQualityFollowupNote } from "../actions"
 import type {
   ActionState,
@@ -42,6 +51,271 @@ function fmt(ts: string | null): string {
 function severityBadgeVariant(sev: Severity | null): "destructive" | "warning" {
   if (sev === "critical") return "destructive"
   return "warning"
+}
+
+function labelFor(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  value: string | null,
+): string | null {
+  if (!value) return null
+  return options.find((o) => o.value === value)?.label ?? value
+}
+
+function asFormData(value: unknown): AirQualityFormData | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as AirQualityFormData)
+    : null
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="text-sm">{value}</span>
+    </div>
+  )
+}
+
+function MeasurementsTable({ rows }: { rows: AirQualityMeasurement[] }) {
+  return (
+    <div className="overflow-auto rounded-md border">
+      <table className="w-full border-collapse text-sm">
+        <thead className="bg-muted/60">
+          <tr>
+            <th className="border-b px-3 py-2 text-left font-medium">Location</th>
+            <th className="border-b px-3 py-2 text-left font-medium">Time</th>
+            <th className="border-b px-3 py-2 text-left font-medium">CO</th>
+            <th className="border-b px-3 py-2 text-left font-medium">NO2</th>
+            <th className="border-b px-3 py-2 text-left font-medium">Temp</th>
+            <th className="border-b px-3 py-2 text-left font-medium">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="hover:bg-muted/30">
+              <td className="border-b px-3 py-2 align-top">{r.location ?? "—"}</td>
+              <td className="border-b px-3 py-2 align-top">{r.time ?? "—"}</td>
+              <td className="border-b px-3 py-2 align-top">{r.co ?? "—"}</td>
+              <td className="border-b px-3 py-2 align-top">{r.no2 ?? "—"}</td>
+              <td className="border-b px-3 py-2 align-top">
+                {r.temperature ?? "—"}
+              </td>
+              <td className="border-b px-3 py-2 align-top">{r.note ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function MonitoringLogDetails({ data }: { data: AirQualityFormData }) {
+  const eq = data.equipment
+  const s1 = data.section1
+  const s2 = data.section2
+  const s4 = data.section4
+
+  const equipmentRows: Array<{ label: string; value: string }> = []
+  if (data.date_of_test)
+    equipmentRows.push({ label: "Date of test", value: data.date_of_test })
+  if (data.tester_certification)
+    equipmentRows.push({
+      label: "Tester certification",
+      value: data.tester_certification,
+    })
+  const coParts = [eq.co_monitor.type, eq.co_monitor.model]
+    .filter(Boolean)
+    .join(" · ")
+  if (coParts || eq.co_monitor.calibration_date)
+    equipmentRows.push({
+      label: "CO monitor",
+      value: [coParts, eq.co_monitor.calibration_date && `cal ${eq.co_monitor.calibration_date}`]
+        .filter(Boolean)
+        .join(" — "),
+    })
+  const no2Parts = [eq.no2_monitor.type, eq.no2_monitor.model]
+    .filter(Boolean)
+    .join(" · ")
+  if (no2Parts || eq.no2_monitor.calibration_date)
+    equipmentRows.push({
+      label: "NO2 monitor",
+      value: [no2Parts, eq.no2_monitor.calibration_date && `cal ${eq.no2_monitor.calibration_date}`]
+        .filter(Boolean)
+        .join(" — "),
+    })
+  if (eq.ventilation_last_inspection)
+    equipmentRows.push({
+      label: "Ventilation last inspection",
+      value: eq.ventilation_last_inspection,
+    })
+
+  const arenaStatus = labelFor(ARENA_STATUS_OPTIONS, s1.arena_status)
+  const ventStatus = labelFor(VENTILATION_STATUS_OPTIONS, s1.ventilation_status)
+  const resurfacers = s1.resurfacers.filter(
+    (r) => r.make_model || r.fuel_type,
+  )
+  const otherEquipment = s1.other_equipment.filter((r) => r.name || r.fuel_type)
+  const hasSection1 =
+    arenaStatus ||
+    ventStatus ||
+    resurfacers.length > 0 ||
+    otherEquipment.length > 0 ||
+    s1.maintenance.resurfacers ||
+    s1.maintenance.ventilation ||
+    s1.maintenance.other
+
+  const electric = labelFor(
+    ELECTRIC_EQUIPMENT_OPTIONS,
+    s4.electric_equipment_consideration,
+  )
+  const hasSection4 =
+    electric || s4.staff_trained || s4.public_signage || s4.unusual_observations
+
+  const hasAny =
+    equipmentRows.length > 0 ||
+    hasSection1 ||
+    s2.routine.length > 0 ||
+    s2.post_edging.length > 0 ||
+    hasSection4
+
+  if (!hasAny) return null
+
+  return (
+    <section className="flex flex-col gap-4">
+      <h3 className="text-sm font-semibold">Monitoring log</h3>
+
+      {equipmentRows.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-semibold uppercase">
+            Equipment & tester
+          </h4>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {equipmentRows.map((r) => (
+              <DetailRow key={r.label} label={r.label} value={r.value} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hasSection1 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-semibold uppercase">
+            Section 1 · General info
+          </h4>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {arenaStatus && (
+              <DetailRow label="Arena status" value={arenaStatus} />
+            )}
+            {ventStatus && (
+              <DetailRow label="Ventilation status" value={ventStatus} />
+            )}
+            {s1.maintenance.resurfacers && (
+              <DetailRow
+                label="Last maintenance · resurfacers"
+                value={s1.maintenance.resurfacers}
+              />
+            )}
+            {s1.maintenance.ventilation && (
+              <DetailRow
+                label="Last maintenance · ventilation"
+                value={s1.maintenance.ventilation}
+              />
+            )}
+            {s1.maintenance.other && (
+              <DetailRow
+                label="Last maintenance · other"
+                value={s1.maintenance.other}
+              />
+            )}
+          </div>
+          {resurfacers.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs">
+                Ice resurfacers
+              </span>
+              <ul className="list-disc pl-5 text-sm">
+                {resurfacers.map((r, i) => (
+                  <li key={i}>
+                    {[
+                      r.make_model,
+                      labelFor(FUEL_TYPE_OPTIONS, r.fuel_type),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {otherEquipment.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs">
+                Other fuel-burning equipment
+              </span>
+              <ul className="list-disc pl-5 text-sm">
+                {otherEquipment.map((r, i) => (
+                  <li key={i}>
+                    {[r.name, labelFor(FUEL_TYPE_OPTIONS, r.fuel_type)]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {s2.routine.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-semibold uppercase">
+            Section 2 · Routine measurements
+          </h4>
+          <MeasurementsTable rows={s2.routine} />
+        </div>
+      )}
+
+      {s2.post_edging.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-semibold uppercase">
+            Section 2 · Post-edging measurements
+          </h4>
+          <MeasurementsTable rows={s2.post_edging} />
+        </div>
+      )}
+
+      {hasSection4 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-semibold uppercase">
+            Section 4 · Recommendations
+          </h4>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {electric && (
+              <DetailRow label="Electric equipment" value={electric} />
+            )}
+            <DetailRow
+              label="Staff trained"
+              value={s4.staff_trained ? "Yes" : "No"}
+            />
+            <DetailRow
+              label="Public signage present"
+              value={s4.public_signage ? "Yes" : "No"}
+            />
+          </div>
+          {s4.unusual_observations && (
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs">
+                Unusual observations or complaints
+              </span>
+              <p className="bg-muted/30 rounded-md border p-3 text-sm whitespace-pre-wrap">
+                {s4.unusual_observations}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
 }
 
 function fmtRange(min: number | null, max: number | null): string | null {
@@ -103,6 +377,7 @@ export function ReportDetail({ detail, backHref }: Props) {
   }, [noteState])
 
   const sev = (report.max_severity as Severity | null) ?? null
+  const formData = asFormData(report.form_data)
 
   return (
     <Card>
@@ -188,6 +463,8 @@ export function ReportDetail({ detail, backHref }: Props) {
             </div>
           )}
         </section>
+
+        {formData && <MonitoringLogDetails data={formData} />}
 
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">
