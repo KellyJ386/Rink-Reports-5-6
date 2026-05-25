@@ -1,7 +1,12 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import { Clock, Thermometer, User } from "lucide-react"
 import { useSyncExternalStore } from "react"
+
+// Routes that render their own full-width header card and therefore suppress
+// this slim shared bar.
+const SUPPRESSED_ROUTES = new Set(["/reports/refrigeration"])
 
 type Props = {
   userName: string
@@ -32,12 +37,15 @@ function subscribeClock(cb: () => void) {
 }
 
 export function ReportPageHeader({ userName, tempF, tempLocation }: Props) {
+  const pathname = usePathname()
   const nowMs = useSyncExternalStore(
     subscribeClock,
     () => Date.now(),
     () => null,
   )
   const now = nowMs == null ? null : new Date(nowMs)
+
+  if (SUPPRESSED_ROUTES.has(pathname)) return null
 
   const tempLabel =
     typeof tempF === "number"

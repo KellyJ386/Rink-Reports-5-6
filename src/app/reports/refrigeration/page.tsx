@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
 import { SubmissionForm } from "./_components/submission-form"
 import type {
@@ -165,7 +166,7 @@ export default async function RefrigerationHomePage() {
       .maybeSingle(),
     supabase
       .from("facilities")
-      .select("timezone")
+      .select("name, timezone, city, state, zip_code")
       .eq("id", employeeRow.facility_id)
       .maybeSingle(),
   ])
@@ -234,6 +235,27 @@ export default async function RefrigerationHomePage() {
 
   const tz = facility?.timezone ?? null
 
+  const thresholds = (thresholdsRaw ?? []) as Pick<
+    RefrigerationThreshold,
+    "field_id" | "equipment_id" | "min_value" | "max_value"
+  >[]
+
+  // Same precedence as the server matcher (actions.ts lookupThreshold):
+  // an equipment-specific threshold wins, otherwise the section-level one.
+  function resolveRange(fieldId: string, equipmentId: string | null) {
+    const t =
+      (equipmentId
+        ? thresholds.find(
+            (x) => x.field_id === fieldId && x.equipment_id === equipmentId
+          )
+        : undefined) ??
+      thresholds.find((x) => x.field_id === fieldId && x.equipment_id === null)
+    return {
+      normalMin: t?.min_value ?? null,
+      normalMax: t?.max_value ?? null,
+    }
+  }
+
   const formSections = sections.map((s) => {
     const sectionEquipment = equipment.filter((e) => e.section_id === s.id)
     const sectionFields = fields.filter((f) => f.section_id === s.id)
@@ -253,6 +275,7 @@ export default async function RefrigerationHomePage() {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           is_required: Boolean((f as any).is_required),
           options: parseFieldOptions(f.options),
+          ...resolveRange(f.id, null),
         })),
       equipment: sectionEquipment.map((e) => ({
         id: e.id,
@@ -268,6 +291,7 @@ export default async function RefrigerationHomePage() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             is_required: Boolean((f as any).is_required),
             options: parseFieldOptions(f.options),
+            ...resolveRange(f.id, e.id),
           })),
       })),
     }
@@ -277,31 +301,29 @@ export default async function RefrigerationHomePage() {
     settingsRow?.out_of_range_alerts_enabled ?? false
   )
 
-  // Static-thresholds count surfaced for parity / debug, but actual matching
-  // happens server-side in the action.
-  void (thresholdsRaw as unknown as RefrigerationThreshold[] | null)
+  const temp = facility
+    ? await getCurrentTempForFacility({
+        city: facility.city,
+        state: facility.state,
+        zip_code: facility.zip_code,
+      })
+    : null
+
+  const userName =
+    current.profile?.full_name ??
+    current.profile?.email ??
+    current.authUser.email ??
+    "Unknown user"
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Refrigeration
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Refrigeration readings
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Record what you can. Empty fields are fine. After you submit, the
-          report can&apos;t be edited.
-        </p>
-      </div>
-
       <SubmissionForm
         sections={formSections}
         oorAlertsEnabled={oorAlertsEnabled}
+        userName={userName}
+        facilityName={facility?.name ?? "Facility"}
+        tempF={temp?.tempF ?? null}
+        tempLocation={temp?.location ?? null}
       />
 
       {recentReports.length > 0 ? (
