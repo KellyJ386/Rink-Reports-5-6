@@ -1,0 +1,99 @@
+name: Deploy Migrations
+
+# Pushes supabase/migrations/** to the linked Supabase project whenever they
+# change on main. Closes the gap that let schema changes (e.g. ice_depth_rinks)
+# merge to main without ever reaching the database — until now nothing applied
+# migrations to the remote project, so they only landed when someone ran them
+# by hand.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ONE-TIME PREREQUISITE — read before enabling this workflow
+# ─────────────────────────────────────────────────────────────────────────────
+# `supabase db push` decides what to run by comparing each local migration's
+# version (the numeric filename prefix, e.g. 00000000000056) against the rows
+# in the remote `supabase_migrations.schema_migrations` table.
+#
+# This project's remote history was recorded with TIMESTAMP-style versions
+# (e.g. 20260506172311) rather than the repo's 00000000000NN prefixes. Because
+# none of the repo's version strings exist in that history, a first
+# `db push` would consider ALL migrations unapplied and try to replay the
+# entire history — which fails immediately on already-existing objects.
+#
+# Before turning this on, reconcile the history ONCE so already-applied
+# migrations are recorded under the repo's version numbers. From a machine
+# with the linked project (`supabase link --project-ref <ref>`):
+#
+#   supabase migration list --linked        # shows local vs remote, side by side
+#   # For every migration whose schema is ALREADY in the database, mark it applied:
+#   supabase migration repair --status applied <version> [<version> ...]
+#   # For any that are genuinely not yet applied, leave them so push can run them.
+#   supabase migration list --linked        # re-check: local and remote should align
+#
+# After that, `supabase db push` is incremental and safe, and this workflow
+# keeps it that way on every merge.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# REQUIRED REPOSITORY SECRETS / VARIABLES
+# ─────────────────────────────────────────────────────────────────────────────
+#   secret  SUPABASE_ACCESS_TOKEN  — personal/CI access token (account → Access Tokens)
+#   secret  SUPABASE_DB_PASSWORD   — the linked project's database password
+#   var     SUPABASE_PROJECT_REF   — the project ref (e.g. bqbdgwlhbhabsibjgwmk)
+#
+# Define the ref as a repo *variable* (not a secret) so it's visible in logs;
+# the token and DB password must be secrets.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - ".github/workflows/deploy-migrations.yml"
+  # Manual trigger so a failed/auto-skipped run can be retried without an
+  # empty commit, and so the one-time setup can be validated on demand.
+  workflow_dispatch:
+
+# Never let two deploys race the same project — migrations are stateful.
+concurrency:
+  group: deploy-migrations
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Guard against running with an unconfigured ref (e.g. on a fork). The
+    # token/password are validated implicitly by the CLI calls below.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify project ref is configured
+        env:
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          if [ -z "${SUPABASE_PROJECT_REF}" ]; then
+            echo "::error::SUPABASE_PROJECT_REF repo variable is not set. See the header of this workflow for setup." >&2
+            exit 1
+          fi
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
+
+      - name: Show pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase migration list --linked
+
+      - name: Push migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push
