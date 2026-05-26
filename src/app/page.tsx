@@ -1,3 +1,4 @@
+import Image from "next/image"
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
@@ -116,9 +117,6 @@ function ModuleIcon({ d }: { d: string }) {
 export default async function Home() {
   const current = await getCurrentUser()
   if (current) redirect("/dashboard")
-
-  const DISPLAY_FONT =
-    "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
   return (
     <div
@@ -273,22 +271,26 @@ export default async function Home() {
             Max Facility Operations
           </div>
 
-          {/* Wordmark */}
+          {/* Logo wordmark */}
           <h1
             style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: "clamp(76px, 15vw, 168px)",
-              lineHeight: 0.88,
-              letterSpacing: "0.01em",
-              color: "#ffffff",
               margin: "0 0 28px",
-              textTransform: "uppercase",
-              textShadow: "0 8px 40px rgba(0,0,0,0.35)",
+              width: "min(740px, 88vw)",
+              maxWidth: "100%",
             }}
           >
-            RINK
-            <br />
-            REPORTS
+            <Image
+              src="/rink-reports-logo.svg"
+              alt="Rink Reports"
+              width={740}
+              height={380}
+              priority
+              style={{
+                width: "100%",
+                height: "auto",
+                filter: "drop-shadow(0 8px 40px rgba(0,0,0,0.35))",
+              }}
+            />
           </h1>
 
           {/* Tagline */}
