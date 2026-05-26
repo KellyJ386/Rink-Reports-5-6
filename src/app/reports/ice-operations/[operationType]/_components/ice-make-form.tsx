@@ -17,13 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useSelectedRink } from "@/lib/ice-operations/rink-selection"
 
 import {
   submitIceOperationsReport,
   type SubmissionFormState,
 } from "../../actions"
-import type { TemperatureUnit } from "../../types"
 import {
   equipmentLabel,
   nowForDateTimeLocal,
@@ -32,34 +30,24 @@ import {
 } from "./shared"
 
 type Props = {
-  facilityId: string
   rinks: RinkOption[]
   equipment: EquipmentOption[]
-  temperatureUnit: TemperatureUnit
 }
 
 const initialState: SubmissionFormState = {}
 
-export function IceMakeForm({
-  facilityId,
-  rinks,
-  equipment,
-  temperatureUnit,
-}: Props) {
+export function IceMakeForm({ rinks, equipment }: Props) {
   const action = submitIceOperationsReport.bind(null, "ice_make")
   const [state, formAction] = useActionState(action, initialState)
 
-  const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [storedRinkId, setRinkId] = useSelectedRink(facilityId)
-  const rinkId = rinks.some((r) => r.id === storedRinkId) ? storedRinkId : ""
+  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
+  const [rinkId, setRinkId] = useState("")
   const [equipmentId, setEquipmentId] = useState("")
-  const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
-  const [waterTemp, setWaterTemp] = useState("")
-  const [iceTemp, setIceTemp] = useState("")
-  const [timeIn, setTimeIn] = useState("")
-  const [timeOut, setTimeOut] = useState("")
   const [waterUsed, setWaterUsed] = useState("")
-  const [passes, setPasses] = useState("")
+  const [machineHours, setMachineHours] = useState("")
+  const [snowTaken, setSnowTaken] = useState("")
+  const [timeOn, setTimeOn] = useState("")
+  const [timeOff, setTimeOff] = useState("")
   const [notes, setNotes] = useState("")
 
   useEffect(() => {
@@ -69,117 +57,54 @@ export function IceMakeForm({
   return (
     <form action={formAction} className="flex flex-col gap-5">
       <FormError message={state.error} />
-      <input
-        type="hidden"
-        name="temperature_unit"
-        value={temperatureUnit}
-      />
 
+      <input type="hidden" name="occurred_at" value={occurredAt} />
       <input type="hidden" name="rink_id" value={rinkId} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
+      <input type="hidden" name="time_in" value={timeOn} />
+      <input type="hidden" name="time_out" value={timeOff} />
 
-      <div className="flex flex-col gap-2">
-        <Label>Rink<RequiredMark /></Label>
-        <Select value={rinkId} onValueChange={setRinkId} required>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a rink" />
-          </SelectTrigger>
-          <SelectContent>
-            {rinks.map((r) => (
-              <SelectItem key={r.id} value={r.id}>
-                {r.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label>Ice Resurfacer<RequiredMark /></Label>
-        <Select value={equipmentId} onValueChange={setEquipmentId} required>
-          <SelectTrigger>
-            <SelectValue placeholder="Select an ice resurfacer" />
-          </SelectTrigger>
-          <SelectContent>
-            {equipment.map((eq) => (
-              <SelectItem key={eq.id} value={eq.id}>
-                {equipmentLabel(eq)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
-        <Input
-          id="occurred_at"
-          name="occurred_at"
-          required
-          type="datetime-local"
-          value={occurredAt}
-          onChange={(e) => setOccurredAt(e.target.value)}
-          className="h-12 text-base"
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-5 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="water_temp">Water temp (°{temperatureUnit})</Label>
-          <Input
-            id="water_temp"
-            name="water_temp"
-            type="number"
-            inputMode="decimal"
-            step="any"
-            value={waterTemp}
-            onChange={(e) => setWaterTemp(e.target.value)}
-            className="h-12 text-base"
-          />
+          <Label>
+            Rink
+            <RequiredMark />
+          </Label>
+          <Select value={rinkId} onValueChange={setRinkId} required>
+            <SelectTrigger>
+              <SelectValue placeholder="Select rink" />
+            </SelectTrigger>
+            <SelectContent>
+              {rinks.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="ice_temp">Ice temp (°{temperatureUnit})</Label>
-          <Input
-            id="ice_temp"
-            name="ice_temp"
-            type="number"
-            inputMode="decimal"
-            step="any"
-            value={iceTemp}
-            onChange={(e) => setIceTemp(e.target.value)}
-            className="h-12 text-base"
-          />
-        </div>
-      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="time_in">Time in</Label>
-          <Input
-            id="time_in"
-            name="time_in"
-            type="time"
-            value={timeIn}
-            onChange={(e) => setTimeIn(e.target.value)}
-            className="h-12 text-base"
-          />
+          <Label>
+            Machine
+            <RequiredMark />
+          </Label>
+          <Select value={equipmentId} onValueChange={setEquipmentId} required>
+            <SelectTrigger>
+              <SelectValue placeholder="Select machine" />
+            </SelectTrigger>
+            <SelectContent>
+              {equipment.map((eq) => (
+                <SelectItem key={eq.id} value={eq.id}>
+                  {equipmentLabel(eq)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="time_out">Time out</Label>
-          <Input
-            id="time_out"
-            name="time_out"
-            type="time"
-            value={timeOut}
-            onChange={(e) => setTimeOut(e.target.value)}
-            className="h-12 text-base"
-          />
-        </div>
-      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="water_used_gal">Water used (gal)</Label>
+          <Label htmlFor="water_used_gal">Water Used (gallons)</Label>
           <Input
             id="water_used_gal"
             name="water_used_gal"
@@ -187,33 +112,76 @@ export function IceMakeForm({
             inputMode="decimal"
             step="any"
             min="0"
+            placeholder="0.00"
             value={waterUsed}
             onChange={(e) => setWaterUsed(e.target.value)}
             className="h-12 text-base"
           />
         </div>
+
         <div className="flex flex-col gap-2">
-          <Label htmlFor="surface_pass_count">Surface passes</Label>
+          <Label htmlFor="machine_hours">Machine Hours</Label>
           <Input
-            id="surface_pass_count"
-            name="surface_pass_count"
+            id="machine_hours"
+            name="machine_hours"
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min="0"
+            placeholder="0.00"
+            value={machineHours}
+            onChange={(e) => setMachineHours(e.target.value)}
+            className="h-12 text-base"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="snow_taken_pct">Snow Taken (%)</Label>
+          <Input
+            id="snow_taken_pct"
+            name="snow_taken_pct"
             type="number"
             inputMode="numeric"
             step="1"
             min="0"
-            value={passes}
-            onChange={(e) => setPasses(e.target.value)}
+            max="100"
+            placeholder="0-100"
+            value={snowTaken}
+            onChange={(e) => setSnowTaken(e.target.value)}
+            className="h-12 text-base"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="time_on">Time On</Label>
+          <Input
+            id="time_on"
+            type="time"
+            value={timeOn}
+            onChange={(e) => setTimeOn(e.target.value)}
+            className="h-12 text-base"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="time_off">Time Off</Label>
+          <Input
+            id="time_off"
+            type="time"
+            value={timeOff}
+            onChange={(e) => setTimeOff(e.target.value)}
             className="h-12 text-base"
           />
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="notes">Notes (optional)</Label>
+        <Label htmlFor="notes">Notes</Label>
         <Textarea
           id="notes"
           name="notes"
           rows={4}
+          placeholder="Add any additional notes..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           className="min-h-24 text-base"
@@ -234,7 +202,7 @@ function SubmitBar() {
       disabled={pending}
       className="h-12 w-full text-base"
     >
-      {pending ? "Submitting…" : "Submit ice make"}
+      {pending ? "Submitting…" : "Submit resurface"}
     </Button>
   )
 }

@@ -219,32 +219,48 @@ function PayloadSection({
   switch (submission.operation_type) {
     case "ice_make": {
       const p = readIceMakePayload(submission.payload)
+      const hasLegacyTemps =
+        p.water_temp_c !== null || p.ice_temp_c !== null
       return (
         <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Ice make</h3>
+          <h3 className="text-sm font-semibold">Resurface</h3>
           <div className="grid grid-cols-2 gap-4 rounded-md border p-3 sm:grid-cols-3">
-            <GridRow
-              label="Water temp"
-              value={formatTemp(p.water_temp_c, tempUnit)}
-            />
-            <GridRow
-              label="Ice temp"
-              value={formatTemp(p.ice_temp_c, tempUnit)}
-            />
-            <GridRow label="Time in" value={fmtTime(p.time_in)} />
-            <GridRow label="Time out" value={fmtTime(p.time_out)} />
             <GridRow
               label="Water used (gal)"
               value={p.water_used_gal !== null ? String(p.water_used_gal) : null}
             />
             <GridRow
-              label="Surface passes"
+              label="Machine hours"
+              value={p.machine_hours !== null ? String(p.machine_hours) : null}
+            />
+            <GridRow
+              label="Snow taken (%)"
               value={
-                p.surface_pass_count !== null
-                  ? String(p.surface_pass_count)
-                  : null
+                p.snow_taken_pct !== null ? String(p.snow_taken_pct) : null
               }
             />
+            <GridRow label="Time on" value={fmtTime(p.time_in)} />
+            <GridRow label="Time off" value={fmtTime(p.time_out)} />
+            {hasLegacyTemps ? (
+              <>
+                <GridRow
+                  label="Water temp"
+                  value={formatTemp(p.water_temp_c, tempUnit)}
+                />
+                <GridRow
+                  label="Ice temp"
+                  value={formatTemp(p.ice_temp_c, tempUnit)}
+                />
+                <GridRow
+                  label="Surface passes"
+                  value={
+                    p.surface_pass_count !== null
+                      ? String(p.surface_pass_count)
+                      : null
+                  }
+                />
+              </>
+            ) : null}
           </div>
         </section>
       )

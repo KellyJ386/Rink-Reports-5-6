@@ -147,9 +147,16 @@ function summarizeSubmission(
   switch (s.operation_type) {
     case "ice_make": {
       const p = readIceMakePayload(s.payload)
-      const water = formatTemp(p.water_temp_c, tempUnit)
-      const ice = formatTemp(p.ice_temp_c, tempUnit)
-      return `Water ${water} / Ice ${ice}`
+      const parts: string[] = []
+      if (p.water_used_gal !== null) parts.push(`${p.water_used_gal} gal`)
+      if (p.machine_hours !== null) parts.push(`${p.machine_hours} hrs`)
+      if (p.snow_taken_pct !== null) parts.push(`${p.snow_taken_pct}% snow`)
+      if (parts.length === 0 && (p.water_temp_c !== null || p.ice_temp_c !== null)) {
+        parts.push(
+          `Water ${formatTemp(p.water_temp_c, tempUnit)} / Ice ${formatTemp(p.ice_temp_c, tempUnit)}`,
+        )
+      }
+      return parts.length > 0 ? parts.join(" · ") : "Resurface"
     }
     case "circle_check": {
       const failed = s.failed_count

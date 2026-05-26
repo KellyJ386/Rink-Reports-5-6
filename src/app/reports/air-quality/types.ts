@@ -53,3 +53,144 @@ export type SubmittedReading = {
   reading_type_id: string
   value: number
 }
+
+// ---------------------------------------------------------------------------
+// Extended monitoring-log payload (stored optionally in
+// air_quality_reports.form_data). All fields optional; supplementary to the
+// threshold-checked readings above.
+// ---------------------------------------------------------------------------
+
+export const FUEL_TYPE_OPTIONS = [
+  { value: "electric", label: "Electric" },
+  { value: "natural_gas", label: "Natural gas" },
+  { value: "propane", label: "Propane" },
+  { value: "gasoline", label: "Gasoline" },
+  { value: "diesel", label: "Diesel" },
+  { value: "other", label: "Other" },
+] as const
+
+export const ARENA_STATUS_OPTIONS = [
+  { value: "operating", label: "Operating" },
+  { value: "limited", label: "Limited operation" },
+  { value: "closed", label: "Closed" },
+] as const
+
+export const VENTILATION_STATUS_OPTIONS = [
+  { value: "operational", label: "Operational" },
+  { value: "needs_attention", label: "Needs attention" },
+  { value: "offline", label: "Offline" },
+] as const
+
+export const ELECTRIC_EQUIPMENT_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+  { value: "considering", label: "Considering" },
+] as const
+
+export const MEASUREMENT_LOCATION_OPTIONS = [
+  "Rink Level",
+  "Timekeeper's Box / Seating",
+  "Dressing Room",
+  "Other",
+] as const
+
+export type AirQualityFuelType =
+  | "electric"
+  | "natural_gas"
+  | "propane"
+  | "gasoline"
+  | "diesel"
+  | "other"
+
+export type MonitorInfo = {
+  type: string | null
+  model: string | null
+  calibration_date: string | null
+}
+
+export type ResurfacerEntry = {
+  make_model: string | null
+  fuel_type: AirQualityFuelType | null
+}
+
+export type OtherEquipmentEntry = {
+  name: string | null
+  fuel_type: AirQualityFuelType | null
+}
+
+export type AirQualityMeasurement = {
+  location: string | null
+  time: string | null
+  co: number | null
+  no2: number | null
+  temperature: number | null
+  note: string | null
+}
+
+export type AirQualityFormData = {
+  tester_certification: string | null
+  date_of_test: string | null
+  equipment: {
+    co_monitor: MonitorInfo
+    no2_monitor: MonitorInfo
+    ventilation_last_inspection: string | null
+  }
+  section1: {
+    arena_status: string | null
+    resurfacers: ResurfacerEntry[]
+    other_equipment: OtherEquipmentEntry[]
+    ventilation_status: string | null
+    maintenance: {
+      resurfacers: string | null
+      ventilation: string | null
+      other: string | null
+    }
+  }
+  section2: {
+    routine: AirQualityMeasurement[]
+    post_edging: AirQualityMeasurement[]
+  }
+  section4: {
+    electric_equipment_consideration: string | null
+    staff_trained: boolean
+    public_signage: boolean
+    unusual_observations: string | null
+  }
+}
+
+export function emptyMeasurement(): AirQualityMeasurement {
+  return {
+    location: null,
+    time: null,
+    co: null,
+    no2: null,
+    temperature: null,
+    note: null,
+  }
+}
+
+export function emptyAirQualityFormData(): AirQualityFormData {
+  return {
+    tester_certification: null,
+    date_of_test: null,
+    equipment: {
+      co_monitor: { type: null, model: null, calibration_date: null },
+      no2_monitor: { type: null, model: null, calibration_date: null },
+      ventilation_last_inspection: null,
+    },
+    section1: {
+      arena_status: null,
+      resurfacers: [],
+      other_equipment: [],
+      ventilation_status: null,
+      maintenance: { resurfacers: null, ventilation: null, other: null },
+    },
+    section2: { routine: [], post_edging: [] },
+    section4: {
+      electric_equipment_consideration: null,
+      staff_trained: false,
+      public_signage: false,
+      unusual_observations: null,
+    },
+  }
+}

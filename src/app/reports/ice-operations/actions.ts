@@ -40,19 +40,6 @@ function asOptionalNumber(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function asOptionalInt(v: FormDataEntryValue | null): number | null {
-  const n = asOptionalNumber(v)
-  if (n === null) return null
-  return Math.trunc(n)
-}
-
-/**
- * Convert °F to °C. Stored values are always Celsius regardless of UI unit.
- */
-function fahrenheitToCelsius(f: number): number {
-  return ((f - 32) * 5) / 9
-}
-
 function buildOccurredAt(raw: string): Date | null {
   if (!raw) return null
   const d = new Date(raw)
@@ -152,35 +139,18 @@ async function performSubmit(
   let payload: Json
   switch (operationType) {
     case "ice_make": {
-      const tempUnitInput =
-        asTrimmedString(formData.get("temperature_unit")) === "F" ? "F" : "C"
-      const waterTempRaw = asOptionalNumber(formData.get("water_temp"))
-      const iceTempRaw = asOptionalNumber(formData.get("ice_temp"))
-      const waterTempC =
-        waterTempRaw === null
-          ? null
-          : tempUnitInput === "F"
-            ? fahrenheitToCelsius(waterTempRaw)
-            : waterTempRaw
-      const iceTempC =
-        iceTempRaw === null
-          ? null
-          : tempUnitInput === "F"
-            ? fahrenheitToCelsius(iceTempRaw)
-            : iceTempRaw
-
       const timeIn = asTrimmedString(formData.get("time_in")) || null
       const timeOut = asTrimmedString(formData.get("time_out")) || null
       const waterUsed = asOptionalNumber(formData.get("water_used_gal"))
-      const passes = asOptionalInt(formData.get("surface_pass_count"))
+      const machineHours = asOptionalNumber(formData.get("machine_hours"))
+      const snowTakenPct = asOptionalNumber(formData.get("snow_taken_pct"))
 
       payload = {
-        water_temp_c: waterTempC,
-        ice_temp_c: iceTempC,
+        water_used_gal: waterUsed,
+        machine_hours: machineHours,
+        snow_taken_pct: snowTakenPct,
         time_in: timeIn,
         time_out: timeOut,
-        water_used_gal: waterUsed,
-        surface_pass_count: passes,
       }
       break
     }

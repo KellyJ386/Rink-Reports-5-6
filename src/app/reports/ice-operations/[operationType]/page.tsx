@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import type { ReactNode } from "react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import {
@@ -9,60 +10,93 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { requireUser } from "@/lib/auth"
+import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { cn } from "@/lib/utils"
+import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
 import { BladeChangeForm } from "./_components/blade-change-form"
 import { CircleCheckForm } from "./_components/circle-check-form"
 import { EdgingForm } from "./_components/edging-form"
-import { IceOperationsControls } from "./_components/ice-operations-controls"
 import { IceMakeForm } from "./_components/ice-make-form"
 import {
-
+  IceOpsShell,
+  type RecentActivityItem,
+} from "./_components/ice-ops-shell"
+import {
   OPERATION_DESCRIPTIONS,
   OPERATION_EQUIPMENT_TYPE,
   OPERATION_LABELS,
+  OPERATION_REQUIRES_RINK,
+  OPERATION_TAB_ORDER,
   isOperationType,
   type EquipmentType,
   type OperationType,
-  type TemperatureUnit,
 } from "../types"
 
 export const dynamic = "force-dynamic"
+
+const CONFIGURE_HREF = "/admin/ice-operations?tab=setup"
+
+const FORM_TITLES: Record<OperationType, string> = {
+  ice_make: "Resurface Activity",
+  blade_change: "Blade Change",
+  edging: "Edging",
+  circle_check: "Digital Circle Check",
+}
 
 type RouteParams = {
   operationType: string
 }
 
-function NotAvailable({
-  operationType,
+function TabsNav({ active }: { active: OperationType }) {
+  return (
+    <nav
+      aria-label="Ice operation"
+      className="rounded-xl border border-border bg-muted/40 p-1"
+    >
+      <ul className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+        {OPERATION_TAB_ORDER.map((op) => {
+          const isActive = op === active
+          return (
+            <li key={op}>
+              <Link
+                href={`/reports/ice-operations/${op}`}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "border border-border bg-card text-foreground shadow-[var(--shadow-elev-1)]"
+                    : "border border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {OPERATION_LABELS[op]}
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  )
+}
+
+/** Bare layout for states where we can't load the full module shell. */
+function MinimalNotice({
   title,
   description,
   showSignOut = false,
 }: {
-  operationType: OperationType | null
   title: string
   description: string
   showSignOut?: boolean
 }) {
-  const breadcrumbLabel = operationType
-    ? OPERATION_LABELS[operationType]
-    : "Ice Operations"
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
       <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          /{" "}
-          <Link href="/reports/ice-operations" className="hover:underline">
-            Ice Operations
-          </Link>
-          {operationType ? ` / ${breadcrumbLabel}` : ""}
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Ice Maintenance Log
+        </h1>
       </div>
-      <IceOperationsControls activeOperation={operationType} />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -102,8 +136,7 @@ export default async function OperationTypePage({
 
   if (!employeeRow) {
     return (
-      <NotAvailable
-        operationType={operationType}
+      <MinimalNotice
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
         showSignOut
@@ -120,8 +153,7 @@ export default async function OperationTypePage({
 
   if (!perm?.can_submit) {
     return (
-      <NotAvailable
-        operationType={operationType}
+      <MinimalNotice
         title="No permission"
         description="You don't have permission to submit ice operations reports."
       />
@@ -134,7 +166,9 @@ export default async function OperationTypePage({
   const [
     { data: rinksRaw },
     { data: equipmentRaw },
-    { data: settingsRow },
+    { data: facilityRow },
+    { data: recentRaw },
+    isAdmin,
   ] = await Promise.all([
     supabase
       .from("ice_operations_rinks")
@@ -155,10 +189,19 @@ export default async function OperationTypePage({
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     supabase
-      .from("ice_operations_settings")
-      .select("temperature_unit, alerts_enabled, default_alert_severity")
-      .eq("facility_id", facilityId)
+      .from("facilities")
+      .select("name, city, state, zip_code")
+      .eq("id", facilityId)
       .maybeSingle(),
+    supabase
+      .from("ice_operations_submissions")
+      .select(
+        "id, operation_type, occurred_at, submitted_at, failed_count, ice_operations_rinks(name), ice_operations_equipment(name)"
+      )
+      .eq("facility_id", facilityId)
+      .order("submitted_at", { ascending: false })
+      .limit(8),
+    getIsAdmin(current),
   ])
 
   const rinks = (rinksRaw ?? []).map((r) => ({ id: r.id, name: r.name }))
@@ -177,36 +220,94 @@ export default async function OperationTypePage({
     fuel_type_id: row.fuel_type_id ?? null,
   }))
 
-  const tempUnit: TemperatureUnit =
-    settingsRow?.temperature_unit === "F" ? "F" : "C"
+  const facilityName = facilityRow?.name ?? null
+  const temp = facilityRow
+    ? await getCurrentTempForFacility({
+        city: facilityRow.city,
+        state: facilityRow.state,
+        zip_code: facilityRow.zip_code,
+      })
+    : null
 
-  // Empty state guards.
-  if (rinks.length === 0) {
-    return (
-      <NotAvailable
-        operationType={operationType}
-        title="No rinks configured"
-        description="An administrator hasn't configured any rinks for this facility yet."
-      />
+  type RecentDbRow = {
+    id: string
+    operation_type: string
+    occurred_at: string
+    submitted_at: string | null
+    failed_count: number | null
+    ice_operations_rinks: { name: string } | null
+    ice_operations_equipment: { name: string } | null
+  }
+  const recent: RecentActivityItem[] = (
+    (recentRaw ?? []) as unknown as RecentDbRow[]
+  ).map((s) => ({
+    id: s.id,
+    label: isOperationType(s.operation_type)
+      ? OPERATION_LABELS[s.operation_type]
+      : s.operation_type,
+    when: s.submitted_at ?? s.occurred_at,
+    rinkName: s.ice_operations_rinks?.name ?? null,
+    equipmentName: s.ice_operations_equipment?.name ?? null,
+    failedCount: s.failed_count ?? 0,
+  }))
+
+  const shell = (
+    <IceOpsShell
+      userName={current.profile?.full_name ?? current.authUser.email ?? "User"}
+      facilityName={facilityName}
+      tempF={temp?.tempF ?? null}
+      tempLocation={temp?.location ?? null}
+      isAdmin={isAdmin}
+      configureHref={CONFIGURE_HREF}
+      recent={recent}
+    />
+  )
+
+  const renderShellLayout = (content: ReactNode) => (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
+      {shell}
+      <TabsNav active={operationType} />
+      {content}
+    </div>
+  )
+
+  const noticeCard = (title: string, description: string) => (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+    </Card>
+  )
+
+  // Empty-state guards (rendered inside the full module shell).
+  if (OPERATION_REQUIRES_RINK[operationType] && rinks.length === 0) {
+    return renderShellLayout(
+      noticeCard(
+        "No rinks configured",
+        "An administrator hasn't configured any rinks for this facility yet.",
+      ),
     )
   }
 
   if (equipment.length === 0) {
-    return (
-      <NotAvailable
-        operationType={operationType}
-        title="No equipment configured"
-        description={`No ${equipmentType.replace("_", " ")} equipment is set up yet. Talk to your administrator.`}
-      />
+    return renderShellLayout(
+      noticeCard(
+        "No machines configured",
+        `No ${equipmentType.replace("_", " ")} equipment is set up yet. Talk to your administrator.`,
+      ),
     )
   }
 
   // Operation-specific extra data.
-  let circleCheckItems: { id: string; label: string; applies_to_equipment_type: string | null }[] = []
+  let circleCheckItems: {
+    id: string
+    label: string
+    applies_to_equipment_type: string | null
+  }[] = []
   let fuelTypes: { id: string; name: string }[] = []
   let templates: { id: string; name: string; fuel_type_id: string }[] = []
   let templateItems: { id: string; template_id: string; label: string }[] = []
-  let employees: { id: string; name: string }[] = []
 
   if (operationType === "circle_check") {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -253,10 +354,12 @@ export default async function OperationTypePage({
       }),
     )
 
-    fuelTypes = (fuelsRes.data ?? []).map((f: { id: string; name: string }) => ({
-      id: f.id,
-      name: f.name,
-    }))
+    fuelTypes = (fuelsRes.data ?? []).map(
+      (f: { id: string; name: string }) => ({
+        id: f.id,
+        name: f.name,
+      }),
+    )
 
     templates = (tmplRes.data ?? []).map(
       (t: { id: string; name: string; fuel_type_id: string }) => ({
@@ -274,102 +377,49 @@ export default async function OperationTypePage({
       }),
     )
 
-    // Operator can proceed if either legacy items OR at least one template
-    // with fields exists. Equipment without a fuel-type binding will fall
-    // back to legacy items.
     const hasAnyTemplateItems = templateItems.length > 0
     if (circleCheckItems.length === 0 && !hasAnyTemplateItems) {
-      return (
-        <NotAvailable
-          operationType={operationType}
-          title="No checklist items"
-          description="An administrator hasn't configured any circle check items or templates yet."
-        />
+      return renderShellLayout(
+        noticeCard(
+          "No checklist items",
+          "An administrator hasn't configured any circle check items or templates yet.",
+        ),
       )
     }
   }
 
-  if (operationType === "blade_change") {
-    const { data: empsRaw } = await supabase
-      .from("employees")
-      .select("id, first_name, last_name, is_active")
-      .eq("facility_id", facilityId)
-      .eq("is_active", true)
-      .order("last_name", { ascending: true })
-      .order("first_name", { ascending: true })
-
-    employees = (empsRaw ?? []).map((e) => {
-      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim()
-      return { id: e.id, name: name || "Employee" }
-    })
-  }
-
-  return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          /{" "}
-          <Link href="/reports/ice-operations" className="hover:underline">
-            Ice Operations
-          </Link>{" "}
-          / {OPERATION_LABELS[operationType]}
-        </p>
-      </div>
-
-      <IceOperationsControls
-        activeOperation={operationType}
-        facilityId={facilityId}
-        rinks={rinks}
-      />
-
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {OPERATION_LABELS[operationType]}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {OPERATION_DESCRIPTIONS[operationType]} You can&apos;t edit this
-          after submitting.
-        </p>
-      </div>
-
-      {operationType === "ice_make" ? (
-        <IceMakeForm
-          facilityId={facilityId}
-          rinks={rinks}
-          equipment={equipment}
-          temperatureUnit={tempUnit}
-        />
-      ) : null}
-      {operationType === "edging" ? (
-        <EdgingForm
-          facilityId={facilityId}
-          rinks={rinks}
-          equipment={equipment}
-        />
-      ) : null}
-      {operationType === "blade_change" ? (
-        <BladeChangeForm
-          facilityId={facilityId}
-          rinks={rinks}
-          equipment={equipment}
-          employees={employees}
-          currentEmployeeId={employeeRow.id}
-        />
-      ) : null}
-      {operationType === "circle_check" ? (
-        <CircleCheckForm
-          facilityId={facilityId}
-          rinks={rinks}
-          equipment={equipment}
-          checklistItems={circleCheckItems}
-          fuelTypes={fuelTypes}
-          templates={templates}
-          templateItems={templateItems}
-        />
-      ) : null}
-    </div>
+  return renderShellLayout(
+    <Card>
+      <CardHeader>
+        <CardTitle>{FORM_TITLES[operationType]}</CardTitle>
+        <CardDescription>
+          {OPERATION_DESCRIPTIONS[operationType]} You can&apos;t edit this after
+          submitting.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {operationType === "ice_make" ? (
+          <IceMakeForm rinks={rinks} equipment={equipment} />
+        ) : null}
+        {operationType === "edging" ? (
+          <EdgingForm equipment={equipment} />
+        ) : null}
+        {operationType === "blade_change" ? (
+          <BladeChangeForm
+            equipment={equipment}
+            currentEmployeeId={employeeRow.id}
+          />
+        ) : null}
+        {operationType === "circle_check" ? (
+          <CircleCheckForm
+            equipment={equipment}
+            checklistItems={circleCheckItems}
+            fuelTypes={fuelTypes}
+            templates={templates}
+            templateItems={templateItems}
+          />
+        ) : null}
+      </CardContent>
+    </Card>,
   )
 }
