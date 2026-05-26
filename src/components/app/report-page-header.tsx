@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation"
 import { Clock, Thermometer, User } from "lucide-react"
-import { usePathname } from "next/navigation"
 import { useSyncExternalStore } from "react"
 
 // Routes that render their own full-width header card and therefore suppress
