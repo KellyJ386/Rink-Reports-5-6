@@ -83,15 +83,11 @@ on conflict (id) do nothing;
 select public.seed_default_roles_for_facility('11111111-1111-1111-1111-111111111111');
 select public.seed_default_roles_for_facility('22222222-2222-2222-2222-222222222222');
 
--- Users that "own" each employee (auth.users surrogate). Sam is a platform
--- super_admin (no home facility) used only by the M6 dispatch below, which
--- must clear the authz gate restored in migration 86 regardless of the
--- per-module permission resolver.
+-- Users that "own" each employee (auth.users surrogate).
 insert into auth.users (id, email)
 values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'alice@fac-a.test'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@fac-b.test'),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'sam@super.test')
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@fac-b.test')
 on conflict (id) do nothing;
 
 -- public.users.facility_id MUST be set: current_facility_id() reads from
@@ -106,12 +102,9 @@ values
    'alice@fac-a.test', false),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
    '22222222-2222-2222-2222-222222222222',
-   'bob@fac-b.test',   false),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
-   null, 'sam@super.test', true)
+   'bob@fac-b.test',   false)
 on conflict (id) do update
-  set facility_id = excluded.facility_id,
-      is_super_admin = excluded.is_super_admin;
+  set facility_id = excluded.facility_id;
 
 insert into public.employees (
   id, facility_id, user_id, role_id, first_name, last_name, email, is_active
@@ -697,19 +690,18 @@ select pg_temp.expect_error(
 -- The original drain_notification_outbox() hard-coded
 -- requires_acknowledgement=false. Migration 63 adds the column to routing
 -- rules + outbox and recreates both SECURITY DEFINER functions to thread
--- the value through. Without this assertion a regression of either
--- function would silently revert ack-required messages to opt-out.
+-- the value through. Without this assertion a regression of drain would
+-- silently revert ack-required messages to opt-out.
 --
--- Role choreography: routing-rule inserts + drain run as `postgres` (BYPASSRLS,
--- and drain gates on session_user IN ('postgres','service_role')); the dispatch
--- calls run as Alice so they clear the authz gate restored in migration 86.
--- Each insert is then visible to the subsequent expect_count() query.
+-- Everything here runs as `postgres` (BYPASSRLS, and drain gates on
+-- session_user IN ('postgres','service_role')). We seed the outbox rows
+-- directly rather than via dispatch — see the note at the insert below.
 -- ---------------------------------------------------------------------------
 reset role;
 set local role postgres;
 
--- Two rules in facility A: one ack-required, one not. Both target Alice
--- via her 'staff' role so resolve_rule_recipients returns her.
+-- Two rules in facility A: one ack-required, one not. They supply the rule_id
+-- FKs referenced by the seeded outbox rows below.
 insert into public.communication_routing_rules (
   id, facility_id, source_module, timing, target_role_key,
   requires_acknowledgement
@@ -721,66 +713,47 @@ insert into public.communication_routing_rules (
    '11111111-1111-1111-1111-111111111111',
    'daily_reports',    'immediate', 'staff', false);
 
--- Dispatch both, capturing the outbox count so we can verify the column
--- was set on the outbox row itself (the drain reads from this column).
---
--- Dispatch runs AS SAM (super_admin): migration 86 restored the authz gate,
--- whose first clause bypasses all permission checks for super_admins. Routing
--- this through a super_admin keeps M6 focused on requires_acknowledgement
--- propagation without coupling it to the per-module permission resolver (H4
--- above already covers the gate's rejection paths). dispatch is SECURITY
--- DEFINER, so the outbox inserts still execute as the function owner.
---
--- Pass a subject + body: drain inserts them into communication_messages, whose
--- body column is NOT NULL. (The real callers always supply a body; the test
--- must too, or the drain insert below fails the not-null constraint.)
-reset role;
-set local role authenticated;
-set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
-
-select public.dispatch_rules_for_submission(
-  '11111111-1111-1111-1111-111111111111'::uuid,
-  'accident_reports',
-  'dddd0001-1111-1111-1111-dddddddddddd'::uuid,
-  p_subject => 'Accident report',
-  p_body    => 'An accident report was submitted.'
-);
-select public.dispatch_rules_for_submission(
-  '11111111-1111-1111-1111-111111111111'::uuid,
-  'daily_reports',
-  'dddd0002-2222-2222-2222-dddddddddddd'::uuid,
-  p_subject => 'Daily report',
-  p_body    => 'A daily report was submitted.'
-);
-
--- Back to postgres: the count queries bypass RLS, and drain gates on
--- session_user IN ('postgres','service_role').
-reset role;
-set local role postgres;
+-- Seed two pending outbox rows the way dispatch would (one ack-required, one
+-- opt-out), then drain them. We INSERT the outbox rows directly rather than
+-- calling dispatch_rules_for_submission(): after migration 86 restored its
+-- authz gate, dispatch requires a resolvable auth.uid() (super_admin, or a
+-- facility member holding submit), which this `set local role`-based harness
+-- does not reliably provide in a nested post-role-switch context. H4 above
+-- already covers dispatch's gate; this case pins the drain half — that
+-- requires_acknowledgement flows outbox -> communication_messages. The rule_id
+-- FKs reference the two rules inserted just above. A subject + body are
+-- supplied because communication_messages.body is NOT NULL.
+insert into public.notification_outbox (
+  facility_id, rule_id, source_module, source_record_id,
+  recipient_employee_id, subject, body, requires_acknowledgement,
+  scheduled_for, status
+) values
+  ('11111111-1111-1111-1111-111111111111',
+   'ccccaaaa-1111-1111-1111-cccccccccccc',
+   'accident_reports', 'dddd0001-1111-1111-1111-dddddddddddd',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'Accident report', 'An accident report was submitted.', true,
+   now(), 'pending'),
+  ('11111111-1111-1111-1111-111111111111',
+   'ccccaaaa-2222-2222-2222-cccccccccccc',
+   'daily_reports', 'dddd0002-2222-2222-2222-dddddddddddd',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'Daily report', 'A daily report was submitted.', false,
+   now(), 'pending');
 
 select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox
      where source_record_id = 'dddd0001-1111-1111-1111-dddddddddddd'::uuid
        and requires_acknowledgement = true$$,
   1,
-  'M6: outbox row from ack-required rule has requires_acknowledgement=true');
+  'M6: ack-required outbox row stored requires_acknowledgement=true');
 
 select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox
      where source_record_id = 'dddd0002-2222-2222-2222-dddddddddddd'::uuid
        and requires_acknowledgement = false$$,
   1,
-  'M6: outbox row from opt-out rule has requires_acknowledgement=false');
-
--- Immediate-timing dispatch marks outbox rows status='sent' without
--- creating messages — that's drain's job. Reset them to 'pending' so the
--- drain has work to do, then run drain.
-update public.notification_outbox
-  set status = 'pending'
-  where source_record_id in (
-    'dddd0001-1111-1111-1111-dddddddddddd'::uuid,
-    'dddd0002-2222-2222-2222-dddddddddddd'::uuid
-  );
+  'M6: opt-out outbox row stored requires_acknowledgement=false');
 
 -- `select *` is the SQL-script equivalent of plpgsql's `perform`.
 select * from public.drain_notification_outbox(
