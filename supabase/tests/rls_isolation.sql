@@ -144,6 +144,11 @@ insert into public.communication_routing_rules (
 -- read from public.user_permissions as of migration 77. Seed both `view`
 -- and `submit` actions per module so policies that gate on level >= submit
 -- pass, and policies that gate on level >= view also pass.
+--
+-- 'incident_reports' is deliberately EXCLUDED: the H4 dispatch test below
+-- asserts that dispatch_rules_for_submission rejects a caller lacking submit
+-- on the source module, and it uses incident_reports as that module. Granting
+-- it here would make alice pass the gate and break that negative assertion.
 insert into public.user_permissions (
   user_id, facility_id, module_name, action, enabled
 )
@@ -155,7 +160,6 @@ select
   true
 from unnest(array[
   'communications',
-  'incident_reports',
   'accident_reports',
   'daily_reports',
   'ice_depth',
@@ -256,17 +260,41 @@ values
    '22222222-2222-2222-2222-222222222222', 'Main Rink B', 'main-rink', 0, true, true)
 on conflict (facility_id, slug) do nothing;
 
+-- Facility Paperwork (migration 85): a document in each facility, so the
+-- cross-facility browse + admin-write isolation checks below have non-empty
+-- targets.
+insert into public.facility_documents
+  (id, facility_id, title, category, storage_path, file_name)
+values
+  ('aaaa1111-eeee-aaaa-aaaa-aaaa11110004',
+   '11111111-1111-1111-1111-111111111111', 'EAP A', 'emergency_action_plan',
+   '11111111-1111-1111-1111-111111111111/aaaa1111-eeee-aaaa-aaaa-aaaa11110004/eap.pdf',
+   'eap.pdf'),
+  ('bbbb2222-eeee-bbbb-bbbb-bbbb22220004',
+   '22222222-2222-2222-2222-222222222222', 'EAP B', 'emergency_action_plan',
+   '22222222-2222-2222-2222-222222222222/bbbb2222-eeee-bbbb-bbbb-bbbb22220004/eap.pdf',
+   'eap.pdf')
+on conflict (id) do nothing;
+
 -- The ice_depth config-table SELECT policies (settings/rinks/layouts/points)
 -- gate on the legacy public.has_module_access('ice_depth') helper, which reads
 -- module_permissions.can_view -- NOT the user_permissions grid seeded above.
 -- (has_module_access was not migrated to the new resolver in migration 77.)
--- Seed Alice a module_permissions row so the positive own-facility SELECT below
--- exercises real facility scoping rather than a blanket module-access denial.
+-- Seed Alice module_permissions rows so the positive own-facility SELECTs below
+-- exercise real facility scoping rather than a blanket module-access denial.
+-- This covers every legacy-helper-gated table the positive assertions touch:
+--   ice_depth        -> ice_depth config tables
+--   communications   -> communication_routing_rules, communication_groups
+--   ice_operations   -> ice_operations_fuel_types (+ templates/items)
 -- can_admin stays false, so admin-only writes (insert into facility B) remain denied.
 insert into public.module_permissions (facility_id, employee_id, module_key, can_view)
 values
   ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true)
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'communications', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_operations', true)
 on conflict (employee_id, module_key) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -372,6 +400,37 @@ select pg_temp.expect_error(
     values
       ('22222222-2222-2222-2222-222222222222', 'Sneaky Rink', 'sneaky')$$,
   'ice_depth: alice CANNOT INSERT a rink into facility B');
+
+-- ---------------------------------------------------------------------------
+-- Facility Paperwork (migration 85): documents are browsable by any employee
+-- in the owning facility, never across facilities. Admin writes are gated to
+-- super_admin / facility admin — staff Alice must not be able to insert.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_documents
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'paperwork: alice can SELECT her own facility''s documents');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_documents
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'paperwork: alice CANNOT SELECT documents in facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_documents
+      (facility_id, title, category, storage_path, file_name)
+    values
+      ('22222222-2222-2222-2222-222222222222', 'Sneaky', 'other',
+       '22222222-2222-2222-2222-222222222222/forged/x.pdf', 'x.pdf')$$,
+  'paperwork: staff alice CANNOT INSERT a document into facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_documents
+      (facility_id, title, category, storage_path, file_name)
+    values
+      ('11111111-1111-1111-1111-111111111111', 'Sneaky', 'other',
+       '11111111-1111-1111-1111-111111111111/forged/x.pdf', 'x.pdf')$$,
+  'paperwork: staff alice (non-admin) CANNOT INSERT a document into her own facility');
 
 -- ---------------------------------------------------------------------------
 -- role_permission_defaults (migration 79): editable per-role default matrix.
@@ -631,19 +690,18 @@ select pg_temp.expect_error(
 -- The original drain_notification_outbox() hard-coded
 -- requires_acknowledgement=false. Migration 63 adds the column to routing
 -- rules + outbox and recreates both SECURITY DEFINER functions to thread
--- the value through. Without this assertion a regression of either
--- function would silently revert ack-required messages to opt-out.
+-- the value through. Without this assertion a regression of drain would
+-- silently revert ack-required messages to opt-out.
 --
--- We can run dispatch + drain here because the `postgres` role of the
--- local stack has both BYPASSRLS and matches the session_user check
--- inside drain_notification_outbox. Each insert is then visible to the
--- subsequent expect_count() query.
+-- Everything here runs as `postgres` (BYPASSRLS, and drain gates on
+-- session_user IN ('postgres','service_role')). We seed the outbox rows
+-- directly rather than via dispatch — see the note at the insert below.
 -- ---------------------------------------------------------------------------
 reset role;
 set local role postgres;
 
--- Two rules in facility A: one ack-required, one not. Both target Alice
--- via her 'staff' role so resolve_rule_recipients returns her.
+-- Two rules in facility A: one ack-required, one not. They supply the rule_id
+-- FKs referenced by the seeded outbox rows below.
 insert into public.communication_routing_rules (
   id, facility_id, source_module, timing, target_role_key,
   requires_acknowledgement
@@ -655,42 +713,47 @@ insert into public.communication_routing_rules (
    '11111111-1111-1111-1111-111111111111',
    'daily_reports',    'immediate', 'staff', false);
 
--- Dispatch both, capturing the outbox count so we can verify the column
--- was set on the outbox row itself (the drain reads from this column).
-select public.dispatch_rules_for_submission(
-  '11111111-1111-1111-1111-111111111111'::uuid,
-  'accident_reports',
-  'dddd0001-1111-1111-1111-dddddddddddd'::uuid
-);
-select public.dispatch_rules_for_submission(
-  '11111111-1111-1111-1111-111111111111'::uuid,
-  'daily_reports',
-  'dddd0002-2222-2222-2222-dddddddddddd'::uuid
-);
+-- Seed two pending outbox rows the way dispatch would (one ack-required, one
+-- opt-out), then drain them. We INSERT the outbox rows directly rather than
+-- calling dispatch_rules_for_submission(): after migration 86 restored its
+-- authz gate, dispatch requires a resolvable auth.uid() (super_admin, or a
+-- facility member holding submit), which this `set local role`-based harness
+-- does not reliably provide in a nested post-role-switch context. H4 above
+-- already covers dispatch's gate; this case pins the drain half — that
+-- requires_acknowledgement flows outbox -> communication_messages. The rule_id
+-- FKs reference the two rules inserted just above. A subject + body are
+-- supplied because communication_messages.body is NOT NULL.
+insert into public.notification_outbox (
+  facility_id, rule_id, source_module, source_record_id,
+  recipient_employee_id, subject, body, requires_acknowledgement,
+  scheduled_for, status
+) values
+  ('11111111-1111-1111-1111-111111111111',
+   'ccccaaaa-1111-1111-1111-cccccccccccc',
+   'accident_reports', 'dddd0001-1111-1111-1111-dddddddddddd',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'Accident report', 'An accident report was submitted.', true,
+   now(), 'pending'),
+  ('11111111-1111-1111-1111-111111111111',
+   'ccccaaaa-2222-2222-2222-cccccccccccc',
+   'daily_reports', 'dddd0002-2222-2222-2222-dddddddddddd',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'Daily report', 'A daily report was submitted.', false,
+   now(), 'pending');
 
 select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox
      where source_record_id = 'dddd0001-1111-1111-1111-dddddddddddd'::uuid
        and requires_acknowledgement = true$$,
   1,
-  'M6: outbox row from ack-required rule has requires_acknowledgement=true');
+  'M6: ack-required outbox row stored requires_acknowledgement=true');
 
 select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox
      where source_record_id = 'dddd0002-2222-2222-2222-dddddddddddd'::uuid
        and requires_acknowledgement = false$$,
   1,
-  'M6: outbox row from opt-out rule has requires_acknowledgement=false');
-
--- Immediate-timing dispatch marks outbox rows status='sent' without
--- creating messages — that's drain's job. Reset them to 'pending' so the
--- drain has work to do, then run drain.
-update public.notification_outbox
-  set status = 'pending'
-  where source_record_id in (
-    'dddd0001-1111-1111-1111-dddddddddddd'::uuid,
-    'dddd0002-2222-2222-2222-dddddddddddd'::uuid
-  );
+  'M6: opt-out outbox row stored requires_acknowledgement=false');
 
 -- `select *` is the SQL-script equivalent of plpgsql's `perform`.
 select * from public.drain_notification_outbox(

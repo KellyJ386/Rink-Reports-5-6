@@ -206,14 +206,17 @@ begin
         and cgm.group_id = v_rule.target_group_id
         and e.is_active = true
     )
-  select distinct employee_id
+  -- Qualify with the subquery alias: the RETURN TABLE OUT column is also named
+  -- employee_id, so an unqualified reference is ambiguous (plpgsql
+  -- variable_conflict). Behaviour-preserving — still the all_targets column.
+  select distinct all_targets.employee_id
   from (
     select * from via_employee
     union all select * from via_role
     union all select * from via_department
     union all select * from via_group
   ) all_targets
-  where employee_id is not null;
+  where all_targets.employee_id is not null;
 end;
 $$;
 

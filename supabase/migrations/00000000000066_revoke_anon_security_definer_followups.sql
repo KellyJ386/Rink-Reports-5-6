@@ -26,7 +26,27 @@
 -- owner (postgres) and do not need EXECUTE on the role calling INSERT/UPDATE.
 -- =============================================================================
 
-revoke execute on function public.handle_new_user()                from public, anon, authenticated;
+-- handle_new_user() is the auth.users trigger created out-of-band by Supabase
+-- (the managed auth stack creates it), not by any migration in this repo. On a
+-- bare supabase/postgres instance — e.g. the rls-isolation CI job, which applies
+-- migrations on the raw image without the managed auth setup — the function is
+-- absent and an unconditional REVOKE aborts the whole migration run. Guard it so
+-- the migration applies whether or not the function exists; environments that
+-- have it (production) still get the lockdown.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'handle_new_user'
+      and pg_get_function_identity_arguments(p.oid) = ''
+  ) then
+    revoke execute on function public.handle_new_user() from public, anon, authenticated;
+  end if;
+end $$;
+
 revoke execute on function public.enforce_accident_witnesses_cap() from public, anon, authenticated;
 
 revoke execute on function public.get_employee_counts_by_facility() from public, anon;

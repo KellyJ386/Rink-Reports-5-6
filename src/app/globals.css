@@ -219,6 +219,7 @@
   --module-air:         var(--sky-500);
   --module-comms:       #5D4037;
   --module-scheduling:  var(--violet-500);
+  --module-paperwork:   #475569;
 }
 
 /* ═══════════ Semantic — DARK ═══════════ */
@@ -318,6 +319,7 @@
   --module-air:         var(--sky-300);
   --module-comms:       var(--amber-400);
   --module-scheduling:  var(--violet-300);
+  --module-paperwork:   #94A3B8;
 }
 
 /* `.light` mirror of :root for explicit-class toggling */
@@ -399,6 +401,7 @@
   --module-air:         var(--sky-500);
   --module-comms:       #5D4037;
   --module-scheduling:  var(--violet-500);
+  --module-paperwork:   #475569;
 }
 
 @theme inline {
@@ -483,6 +486,7 @@
   --color-module-air: var(--module-air);
   --color-module-comms: var(--module-comms);
   --color-module-scheduling: var(--module-scheduling);
+  --color-module-paperwork: var(--module-paperwork);
 
   /* Elevation scale — soft on light, deeper alpha on dark (set below) */
   --shadow-elev-1: 0 1px 2px 0 rgba(0,34,68,0.06);
