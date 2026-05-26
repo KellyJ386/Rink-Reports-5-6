@@ -144,6 +144,11 @@ insert into public.communication_routing_rules (
 -- read from public.user_permissions as of migration 77. Seed both `view`
 -- and `submit` actions per module so policies that gate on level >= submit
 -- pass, and policies that gate on level >= view also pass.
+--
+-- 'incident_reports' is deliberately EXCLUDED: the H4 dispatch test below
+-- asserts that dispatch_rules_for_submission rejects a caller lacking submit
+-- on the source module, and it uses incident_reports as that module. Granting
+-- it here would make alice pass the gate and break that negative assertion.
 insert into public.user_permissions (
   user_id, facility_id, module_name, action, enabled
 )
@@ -155,7 +160,6 @@ select
   true
 from unnest(array[
   'communications',
-  'incident_reports',
   'accident_reports',
   'daily_reports',
   'ice_depth',
@@ -276,13 +280,21 @@ on conflict (id) do nothing;
 -- gate on the legacy public.has_module_access('ice_depth') helper, which reads
 -- module_permissions.can_view -- NOT the user_permissions grid seeded above.
 -- (has_module_access was not migrated to the new resolver in migration 77.)
--- Seed Alice a module_permissions row so the positive own-facility SELECT below
--- exercises real facility scoping rather than a blanket module-access denial.
+-- Seed Alice module_permissions rows so the positive own-facility SELECTs below
+-- exercise real facility scoping rather than a blanket module-access denial.
+-- This covers every legacy-helper-gated table the positive assertions touch:
+--   ice_depth        -> ice_depth config tables
+--   communications   -> communication_routing_rules, communication_groups
+--   ice_operations   -> ice_operations_fuel_types (+ templates/items)
 -- can_admin stays false, so admin-only writes (insert into facility B) remain denied.
 insert into public.module_permissions (facility_id, employee_id, module_key, can_view)
 values
   ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true)
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'communications', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_operations', true)
 on conflict (employee_id, module_key) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -681,10 +693,10 @@ select pg_temp.expect_error(
 -- the value through. Without this assertion a regression of either
 -- function would silently revert ack-required messages to opt-out.
 --
--- We can run dispatch + drain here because the `postgres` role of the
--- local stack has both BYPASSRLS and matches the session_user check
--- inside drain_notification_outbox. Each insert is then visible to the
--- subsequent expect_count() query.
+-- Role choreography: routing-rule inserts + drain run as `postgres` (BYPASSRLS,
+-- and drain gates on session_user IN ('postgres','service_role')); the dispatch
+-- calls run as Alice so they clear the authz gate restored in migration 86.
+-- Each insert is then visible to the subsequent expect_count() query.
 -- ---------------------------------------------------------------------------
 reset role;
 set local role postgres;
@@ -704,16 +716,39 @@ insert into public.communication_routing_rules (
 
 -- Dispatch both, capturing the outbox count so we can verify the column
 -- was set on the outbox row itself (the drain reads from this column).
+--
+-- Dispatch runs AS ALICE: migration 86 restored the authz gate, which requires
+-- the caller to act inside their own facility AND hold submit on the source
+-- module. Alice (facility A) has submit on accident_reports + daily_reports, so
+-- she clears the gate. (dispatch is SECURITY DEFINER, so the outbox inserts
+-- still execute as the function owner regardless of the caller.)
+--
+-- Pass a subject + body: drain inserts them into communication_messages, whose
+-- body column is NOT NULL. (The real callers always supply a body; the test
+-- must too, or the drain insert below fails the not-null constraint.)
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+
 select public.dispatch_rules_for_submission(
   '11111111-1111-1111-1111-111111111111'::uuid,
   'accident_reports',
-  'dddd0001-1111-1111-1111-dddddddddddd'::uuid
+  'dddd0001-1111-1111-1111-dddddddddddd'::uuid,
+  p_subject => 'Accident report',
+  p_body    => 'An accident report was submitted.'
 );
 select public.dispatch_rules_for_submission(
   '11111111-1111-1111-1111-111111111111'::uuid,
   'daily_reports',
-  'dddd0002-2222-2222-2222-dddddddddddd'::uuid
+  'dddd0002-2222-2222-2222-dddddddddddd'::uuid,
+  p_subject => 'Daily report',
+  p_body    => 'A daily report was submitted.'
 );
+
+-- Back to postgres: the count queries bypass RLS, and drain gates on
+-- session_user IN ('postgres','service_role').
+reset role;
+set local role postgres;
 
 select pg_temp.expect_count(
   $$select count(*) from public.notification_outbox

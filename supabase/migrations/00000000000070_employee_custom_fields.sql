@@ -9,6 +9,17 @@
 --   DELETE : super_admin OR (same-facility AND role in admin/gm/super_admin)
 -- =============================================================================
 
+-- Migration 42 created a table of the same name for a different feature
+-- (facility-defined field *definitions*: key/label/field_type). This migration
+-- repurposes the name for per-employee key/value storage (employee_id/field_name
+-- /field_value). With migration 42's table still present, the CREATE ... IF NOT
+-- EXISTS below silently no-ops and the subsequent employee_id index fails. Drop
+-- the prior shape first so this migration always establishes its own schema on a
+-- clean slate. The feature is removed entirely by migration 72, so re-creating
+-- here is harmless. (CASCADE also clears 42's now-orphaned FK from
+-- employee_custom_field_values, which migration 72 drops.)
+drop table if exists public.employee_custom_fields cascade;
+
 create table if not exists public.employee_custom_fields (
   id           uuid        primary key default gen_random_uuid(),
   facility_id  uuid        not null references public.facilities(id)  on delete cascade,
