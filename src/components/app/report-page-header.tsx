@@ -1,8 +1,12 @@
 "use client"
 
-import { Clock, Thermometer, User } from "lucide-react"
 import { usePathname } from "next/navigation"
+import { Clock, Thermometer, User } from "lucide-react"
 import { useSyncExternalStore } from "react"
+
+// Routes that render their own full-width header card and therefore suppress
+// this slim shared bar.
+const SUPPRESSED_ROUTES = new Set(["/reports/refrigeration"])
 
 type Props = {
   userName: string
@@ -41,6 +45,7 @@ export function ReportPageHeader({ userName, tempF, tempLocation }: Props) {
   )
   const now = nowMs == null ? null : new Date(nowMs)
 
+  if (SUPPRESSED_ROUTES.has(pathname)) return null
   // Ice Operations renders its own richer context bar (incl. facility), so the
   // shared header would just duplicate user/date/time/temp there.
   if (pathname?.startsWith("/reports/ice-operations")) return null

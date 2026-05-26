@@ -1,12 +1,24 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
+import {
+  ArrowLeft,
+  Building2,
+  Calendar,
+  Clock,
+  LayoutDashboard,
+  Thermometer,
+  User,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
@@ -18,6 +30,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
+import {
+  cToF,
+  fToC,
+  isTempUnit,
+  roundTemp,
+  type TempUnit,
+} from "@/lib/units"
 
 import {
   submitRefrigerationReport,
@@ -37,6 +57,8 @@ type FieldDef = {
   unit: string | null
   is_required: boolean
   options: RefrigerationFieldOption[]
+  normalMin: number | null
+  normalMax: number | null
 }
 
 type EquipmentGroup = {
@@ -55,6 +77,10 @@ type SectionDef = {
 type Props = {
   sections: SectionDef[]
   oorAlertsEnabled: boolean
+  userName: string
+  facilityName: string
+  tempF: number | null
+  tempLocation: string | null
 }
 
 const initialState: SubmissionFormState = {}
@@ -68,7 +94,36 @@ function fieldKey(fieldId: string, equipmentId: string | null): string {
   return equipmentId ? `${fieldId}::${equipmentId}` : `${fieldId}::null`
 }
 
-export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
+function formatDate(d: Date): string {
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })
+}
+
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+function subscribeClock(cb: () => void) {
+  const id = setInterval(cb, 1000)
+  return () => clearInterval(id)
+}
+
+export function SubmissionForm({
+  sections,
+  oorAlertsEnabled,
+  userName,
+  facilityName,
+  tempF,
+  tempLocation,
+}: Props) {
+  const router = useRouter()
   const [state, formAction] = useActionState(
     submitRefrigerationReport,
     initialState
@@ -76,6 +131,14 @@ export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
 
   const [values, setValues] = useState<Record<string, RawValue>>({})
   const [notes, setNotes] = useState("")
+  const [displayUnit, setDisplayUnit] = useState<TempUnit>("F")
+
+  const nowMs = useSyncExternalStore(
+    subscribeClock,
+    () => Date.now(),
+    () => null
+  )
+  const now = nowMs == null ? null : new Date(nowMs)
 
   useEffect(() => {
     if (state.error) toast.error(state.error)
@@ -95,29 +158,114 @@ export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
     }))
   }
 
+  // Toggle is display-only. Per-field text state always lives in the field's
+  // canonical base unit (°F). Flipping the toggle converts the visible text of
+  // every temperature field once, so there is no per-keystroke round-tripping.
+  const setUnit = (next: TempUnit) => {
+    if (next === displayUnit) return
+    setValues((prev) => {
+      const out: Record<string, RawValue> = { ...prev }
+      for (const section of sections) {
+        const allFields = [
+          ...section.sectionLevelFields,
+          ...section.equipment.flatMap((eq) => eq.fields),
+        ]
+        for (const field of allFields) {
+          if (field.field_type !== "numeric" || !isTempUnit(field.unit)) continue
+          const key = fieldKey(field.id, field.equipment_id)
+          const raw = out[key]
+          if (!raw || raw.text.trim() === "") continue
+          const n = Number(raw.text)
+          if (!Number.isFinite(n)) continue
+          const converted = next === "C" ? fToC(n) : cToF(n)
+          out[key] = { ...raw, text: String(roundTemp(converted)) }
+        }
+      }
+      return out
+    })
+    setDisplayUnit(next)
+  }
+
   const valuesJson = useMemo(() => {
     const rows: SubmittedFieldValue[] = []
     for (const section of sections) {
       for (const field of section.sectionLevelFields) {
         const key = fieldKey(field.id, null)
-        const raw = values[key]
-        const row = buildRow(field, section.name, raw)
+        const row = buildRow(field, section.name, values[key], displayUnit)
         if (row) rows.push(row)
       }
       for (const eq of section.equipment) {
         for (const field of eq.fields) {
           const key = fieldKey(field.id, eq.id)
-          const raw = values[key]
-          const row = buildRow(field, eq.name, raw)
+          const row = buildRow(field, eq.name, values[key], displayUnit)
           if (row) rows.push(row)
         }
       }
     }
     return JSON.stringify({ notes: notes.trim() || undefined, values: rows })
-  }, [sections, values, notes])
+  }, [sections, values, notes, displayUnit])
+
+  const tempLabel =
+    typeof tempF === "number"
+      ? `${Math.round(tempF)}°F${tempLocation ? ` · ${tempLocation}` : ""}`
+      : "Temp unavailable"
 
   return (
     <form action={formAction} className="flex flex-col gap-5">
+      {/* Header card */}
+      <Card className="gap-4 py-5">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Thermometer className="h-6 w-6" aria-hidden />
+            </span>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Refrigeration Equipment Logbook
+              </h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Record daily operational readings for refrigeration equipment
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => router.back()}
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              Back
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard">
+                <LayoutDashboard className="h-4 w-4" aria-hidden />
+                Dashboard
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        <div className="mx-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-background px-4 py-3 text-sm">
+          <MetaChip icon={<User className="h-4 w-4" aria-hidden />}>
+            {userName}
+          </MetaChip>
+          <MetaChip icon={<Building2 className="h-4 w-4" aria-hidden />}>
+            {facilityName}
+          </MetaChip>
+          <MetaChip icon={<Calendar className="h-4 w-4" aria-hidden />}>
+            {now ? formatDate(now) : "—"}
+          </MetaChip>
+          <MetaChip icon={<Clock className="h-4 w-4" aria-hidden />}>
+            {now ? formatTime(now) : "—"}
+          </MetaChip>
+          <MetaChip icon={<Thermometer className="h-4 w-4" aria-hidden />}>
+            {tempLabel}
+          </MetaChip>
+        </div>
+      </Card>
+
       <FormError message={state.error} />
 
       {oorAlertsEnabled ? (
@@ -126,49 +274,43 @@ export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
         </p>
       ) : null}
 
-      {sections.map((section) => {
-        const equipmentCount = section.equipment.length
-        return (
-          <details
-            key={section.id}
-            open
-            className="group rounded-xl border bg-card"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <div className="flex flex-col">
-                <span className="text-base font-semibold">{section.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {equipmentCount} equipment
-                  {equipmentCount === 1 ? "" : ""}
-                </span>
-              </div>
-              <span
-                aria-hidden
-                className="text-muted-foreground transition-transform group-open:rotate-180"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </span>
-            </summary>
+      {/* Log Information card */}
+      <Card className="gap-4 py-5">
+        <div className="flex items-center justify-between gap-4 px-6">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Log Information
+          </h2>
+          <UnitToggle value={displayUnit} onChange={setUnit} />
+        </div>
+        <div className="grid gap-4 px-6 sm:grid-cols-2 lg:grid-cols-3">
+          <ReadOnlyField label="Facility" value={facilityName} />
+          <ReadOnlyField label="Employee" value={userName} />
+          <ReadOnlyField
+            label="Date & Time"
+            value={now ? `${formatDate(now)} · ${formatTime(now)}` : "—"}
+          />
+        </div>
+      </Card>
 
-            <div className="flex flex-col gap-4 border-t border-border px-4 py-4">
+      {/* Section cards */}
+      {sections.map((section) => {
+        const hasContent =
+          section.sectionLevelFields.length > 0 ||
+          section.equipment.some((eq) => eq.fields.length > 0)
+        return (
+          <Card key={section.id} className="gap-4 py-5">
+            <h2 className="px-6 text-lg font-semibold tracking-tight">
+              {section.name}
+            </h2>
+            <div className="flex flex-col gap-5 px-6">
               {section.sectionLevelFields.length > 0 ? (
-                <div className="flex flex-col gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   {section.sectionLevelFields.map((field) => (
                     <FieldInput
                       key={fieldKey(field.id, null)}
                       field={field}
                       value={values[fieldKey(field.id, null)]}
+                      displayUnit={displayUnit}
                       onText={(t) => updateText(fieldKey(field.id, null), t)}
                       onBool={(b) => updateBool(fieldKey(field.id, null), b)}
                     />
@@ -176,23 +318,19 @@ export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
                 </div>
               ) : null}
 
-              {section.equipment.map((eq) => (
-                <div
-                  key={eq.id}
-                  className="flex flex-col gap-3 rounded-lg border bg-background p-3"
-                >
-                  <div className="text-sm font-semibold">{eq.name}</div>
-                  {eq.fields.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      No fields configured.
-                    </p>
-                  ) : (
-                    <div className="flex flex-col gap-4">
+              {section.equipment.map((eq) =>
+                eq.fields.length === 0 ? null : (
+                  <div key={eq.id} className="flex flex-col gap-3">
+                    <div className="text-sm font-semibold text-muted-foreground">
+                      {eq.name}
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
                       {eq.fields.map((field) => (
                         <FieldInput
                           key={fieldKey(field.id, eq.id)}
                           field={field}
                           value={values[fieldKey(field.id, eq.id)]}
+                          displayUnit={displayUnit}
                           onText={(t) =>
                             updateText(fieldKey(field.id, eq.id), t)
                           }
@@ -202,34 +340,36 @@ export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
                         />
                       ))}
                     </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                )
+              )}
 
-              {section.sectionLevelFields.length === 0 &&
-              section.equipment.length === 0 ? (
+              {!hasContent ? (
                 <p className="text-xs text-muted-foreground">
                   No fields configured for this section yet.
                 </p>
               ) : null}
             </div>
-          </details>
+          </Card>
         )
       })}
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="notes">Notes (optional)</Label>
-        <Textarea
-          id="notes"
-          name="notes_display"
-          rows={4}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Any general comments about this report?"
-          className="min-h-24 text-base"
-          enterKeyHint="done"
-        />
-      </div>
+      {/* Notes */}
+      <Card className="gap-3 py-5">
+        <div className="flex flex-col gap-2 px-6">
+          <Label htmlFor="notes">Notes (optional)</Label>
+          <Textarea
+            id="notes"
+            name="notes_display"
+            rows={4}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any general comments about this report?"
+            className="min-h-24 text-base"
+            enterKeyHint="done"
+          />
+        </div>
+      </Card>
 
       <input type="hidden" name="values_json" value={valuesJson} />
 
@@ -238,10 +378,73 @@ export function SubmissionForm({ sections, oorAlertsEnabled }: Props) {
   )
 }
 
+function MetaChip({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <span className="flex items-center gap-2 text-muted-foreground">
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        {icon}
+      </span>
+      <span className="font-medium text-foreground">{children}</span>
+    </span>
+  )
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>{label}</Label>
+      <div className="flex h-12 items-center rounded-md border border-input bg-input-bg px-3 text-base text-muted-foreground">
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function UnitToggle({
+  value,
+  onChange,
+}: {
+  value: TempUnit
+  onChange: (next: TempUnit) => void
+}) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-medium">
+      <span className={value === "F" ? "text-foreground" : "text-muted-foreground"}>
+        °F
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value === "C"}
+        aria-label="Toggle temperature units between Fahrenheit and Celsius"
+        onClick={() => onChange(value === "F" ? "C" : "F")}
+        className="relative inline-flex h-6 w-11 items-center rounded-full border border-input bg-input-bg transition-colors focus-visible:ring-[var(--ring)]/40 focus-visible:ring-[3px] focus-visible:outline-none"
+      >
+        <span
+          className={cn(
+            "inline-block h-4 w-4 transform rounded-full bg-primary transition-transform",
+            value === "C" ? "translate-x-6" : "translate-x-1"
+          )}
+        />
+      </button>
+      <span className={value === "C" ? "text-foreground" : "text-muted-foreground"}>
+        °C
+      </span>
+    </div>
+  )
+}
+
 function buildRow(
   field: FieldDef,
   equipmentNameSnapshot: string,
-  raw: RawValue | undefined
+  raw: RawValue | undefined,
+  displayUnit: TempUnit
 ): SubmittedFieldValue | null {
   const text = raw?.text ?? ""
   const bool = raw?.bool ?? false
@@ -262,7 +465,10 @@ function buildRow(
       // Send as text so server can flag, but server uses value_numeric for OOR.
       value_text = text.trim()
     } else {
-      value_numeric = n
+      // Values are entered/displayed in `displayUnit` but stored canonically in
+      // the field's base unit (°F) so server thresholds (in °F) still match.
+      value_numeric =
+        displayUnit === "C" && isTempUnit(field.unit) ? cToF(n) : n
     }
   } else if (field.field_type === "select") {
     if (text.trim() === "") return null
@@ -288,18 +494,20 @@ function buildRow(
 function FieldInput({
   field,
   value,
+  displayUnit,
   onText,
   onBool,
 }: {
   field: FieldDef
   value: RawValue | undefined
+  displayUnit: TempUnit
   onText: (text: string) => void
   onBool: (bool: boolean) => void
 }) {
   const inputId = `f-${field.id}-${field.equipment_id ?? "section"}`
-  const labelText = field.unit
-    ? `${field.label} (${field.unit})`
-    : field.label
+  const isTemp = isTempUnit(field.unit)
+  const activeUnit = isTemp ? `°${displayUnit}` : field.unit
+  const labelText = activeUnit ? `${field.label} (${activeUnit})` : field.label
   const reqMark = field.is_required ? <RequiredMark /> : null
 
   if (field.field_type === "boolean") {
@@ -370,12 +578,13 @@ function FieldInput({
             value={value?.text ?? ""}
             onChange={(e) => onText(e.target.value)}
             className="h-12 flex-1 text-base"
-            placeholder="—"
+            placeholder="0"
           />
-          {field.unit ? (
-            <span className="text-sm text-muted-foreground">{field.unit}</span>
+          {activeUnit ? (
+            <span className="text-sm text-muted-foreground">{activeUnit}</span>
           ) : null}
         </div>
+        <NormalRangeHint field={field} displayUnit={displayUnit} />
       </div>
     )
   }
@@ -402,6 +611,36 @@ function FieldInput({
   )
 }
 
+function NormalRangeHint({
+  field,
+  displayUnit,
+}: {
+  field: FieldDef
+  displayUnit: TempUnit
+}) {
+  if (field.normalMin === null && field.normalMax === null) return null
+
+  const isTemp = isTempUnit(field.unit)
+  const convert = (v: number) =>
+    isTemp && displayUnit === "C" ? roundTemp(fToC(v)) : v
+  const unit = isTemp ? `°${displayUnit}` : (field.unit ?? "")
+
+  const min = field.normalMin === null ? null : convert(field.normalMin)
+  const max = field.normalMax === null ? null : convert(field.normalMax)
+
+  let range: string
+  if (min !== null && max !== null) range = `${min} – ${max}`
+  else if (min !== null) range = `≥ ${min}`
+  else range = `≤ ${max}`
+
+  return (
+    <p className="text-sm text-muted-foreground">
+      Normal: {range}
+      {unit ? ` ${unit}` : ""}
+    </p>
+  )
+}
+
 function SubmitBar() {
   const { pending } = useFormStatus()
   return (
@@ -415,4 +654,3 @@ function SubmitBar() {
     </Button>
   )
 }
-
