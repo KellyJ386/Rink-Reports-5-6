@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Calendar,
   ClipboardList,
+  FolderOpen,
   LayoutDashboard,
   Mail,
   Ruler,
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Accidents",        href: "/reports/accidents",      icon: AlertTriangle },
   { label: "Scheduling",       href: "/reports/scheduling",     icon: Calendar },
   { label: "Communications",   href: "/reports/communications", icon: Mail },
+  { label: "Facility Paperwork", href: "/reports/facility-paperwork", icon: FolderOpen },
 ]
 
 interface AppSidebarNavProps {

@@ -256,6 +256,22 @@ values
    '22222222-2222-2222-2222-222222222222', 'Main Rink B', 'main-rink', 0, true, true)
 on conflict (facility_id, slug) do nothing;
 
+-- Facility Paperwork (migration 85): a document in each facility, so the
+-- cross-facility browse + admin-write isolation checks below have non-empty
+-- targets.
+insert into public.facility_documents
+  (id, facility_id, title, category, storage_path, file_name)
+values
+  ('aaaa1111-eeee-aaaa-aaaa-aaaa11110004',
+   '11111111-1111-1111-1111-111111111111', 'EAP A', 'emergency_action_plan',
+   '11111111-1111-1111-1111-111111111111/aaaa1111-eeee-aaaa-aaaa-aaaa11110004/eap.pdf',
+   'eap.pdf'),
+  ('bbbb2222-eeee-bbbb-bbbb-bbbb22220004',
+   '22222222-2222-2222-2222-222222222222', 'EAP B', 'emergency_action_plan',
+   '22222222-2222-2222-2222-222222222222/bbbb2222-eeee-bbbb-bbbb-bbbb22220004/eap.pdf',
+   'eap.pdf')
+on conflict (id) do nothing;
+
 -- The ice_depth config-table SELECT policies (settings/rinks/layouts/points)
 -- gate on the legacy public.has_module_access('ice_depth') helper, which reads
 -- module_permissions.can_view -- NOT the user_permissions grid seeded above.
@@ -372,6 +388,37 @@ select pg_temp.expect_error(
     values
       ('22222222-2222-2222-2222-222222222222', 'Sneaky Rink', 'sneaky')$$,
   'ice_depth: alice CANNOT INSERT a rink into facility B');
+
+-- ---------------------------------------------------------------------------
+-- Facility Paperwork (migration 85): documents are browsable by any employee
+-- in the owning facility, never across facilities. Admin writes are gated to
+-- super_admin / facility admin — staff Alice must not be able to insert.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_documents
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'paperwork: alice can SELECT her own facility''s documents');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_documents
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'paperwork: alice CANNOT SELECT documents in facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_documents
+      (facility_id, title, category, storage_path, file_name)
+    values
+      ('22222222-2222-2222-2222-222222222222', 'Sneaky', 'other',
+       '22222222-2222-2222-2222-222222222222/forged/x.pdf', 'x.pdf')$$,
+  'paperwork: staff alice CANNOT INSERT a document into facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_documents
+      (facility_id, title, category, storage_path, file_name)
+    values
+      ('11111111-1111-1111-1111-111111111111', 'Sneaky', 'other',
+       '11111111-1111-1111-1111-111111111111/forged/x.pdf', 'x.pdf')$$,
+  'paperwork: staff alice (non-admin) CANNOT INSERT a document into her own facility');
 
 -- ---------------------------------------------------------------------------
 -- role_permission_defaults (migration 79): editable per-role default matrix.
