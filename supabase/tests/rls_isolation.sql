@@ -83,11 +83,15 @@ on conflict (id) do nothing;
 select public.seed_default_roles_for_facility('11111111-1111-1111-1111-111111111111');
 select public.seed_default_roles_for_facility('22222222-2222-2222-2222-222222222222');
 
--- Users that "own" each employee (auth.users surrogate).
+-- Users that "own" each employee (auth.users surrogate). Sam is a platform
+-- super_admin (no home facility) used only by the M6 dispatch below, which
+-- must clear the authz gate restored in migration 86 regardless of the
+-- per-module permission resolver.
 insert into auth.users (id, email)
 values
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'alice@fac-a.test'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@fac-b.test')
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@fac-b.test'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'sam@super.test')
 on conflict (id) do nothing;
 
 -- public.users.facility_id MUST be set: current_facility_id() reads from
@@ -102,9 +106,12 @@ values
    'alice@fac-a.test', false),
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
    '22222222-2222-2222-2222-222222222222',
-   'bob@fac-b.test',   false)
+   'bob@fac-b.test',   false),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   null, 'sam@super.test', true)
 on conflict (id) do update
-  set facility_id = excluded.facility_id;
+  set facility_id = excluded.facility_id,
+      is_super_admin = excluded.is_super_admin;
 
 insert into public.employees (
   id, facility_id, user_id, role_id, first_name, last_name, email, is_active
@@ -717,18 +724,19 @@ insert into public.communication_routing_rules (
 -- Dispatch both, capturing the outbox count so we can verify the column
 -- was set on the outbox row itself (the drain reads from this column).
 --
--- Dispatch runs AS ALICE: migration 86 restored the authz gate, which requires
--- the caller to act inside their own facility AND hold submit on the source
--- module. Alice (facility A) has submit on accident_reports + daily_reports, so
--- she clears the gate. (dispatch is SECURITY DEFINER, so the outbox inserts
--- still execute as the function owner regardless of the caller.)
+-- Dispatch runs AS SAM (super_admin): migration 86 restored the authz gate,
+-- whose first clause bypasses all permission checks for super_admins. Routing
+-- this through a super_admin keeps M6 focused on requires_acknowledgement
+-- propagation without coupling it to the per-module permission resolver (H4
+-- above already covers the gate's rejection paths). dispatch is SECURITY
+-- DEFINER, so the outbox inserts still execute as the function owner.
 --
 -- Pass a subject + body: drain inserts them into communication_messages, whose
 -- body column is NOT NULL. (The real callers always supply a body; the test
 -- must too, or the drain insert below fails the not-null constraint.)
 reset role;
 set local role authenticated;
-set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
 
 select public.dispatch_rules_for_submission(
   '11111111-1111-1111-1111-111111111111'::uuid,
