@@ -1,8 +1,19 @@
 "use client"
 
-import { useActionState, useEffect, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import {
+  useActionState,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react"
 import { toast } from "sonner"
 
+import {
+  BulkUploadPanel,
+  type ImportSchema,
+} from "@/components/admin/bulk-upload"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,10 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { cn } from "@/lib/utils"
 
 import {
-  bulkAddCircleCheckItems,
   createCircleCheckItem,
   createCircleCheckTemplate,
   createCircleCheckTemplateItem,
@@ -33,6 +42,8 @@ import {
   createFuelType,
   createRink,
   deleteCircleCheckItem,
+  importCircleCheckItems,
+  importCircleCheckTemplateItems,
   deleteCircleCheckTemplate,
   deleteCircleCheckTemplateItem,
   deleteEquipment,
@@ -69,6 +80,10 @@ import {
   equipmentTypeLabel,
 } from "../types"
 
+import {
+  circleCheckItemsImportSpec,
+  circleCheckTemplateItemsImportSpec,
+} from "./circle-check-import"
 import { SeedDefaultsCard } from "./seed-defaults-card"
 
 const NULL_STATE: ActionState = { ok: null }
@@ -614,8 +629,17 @@ function EquipmentCreateForm({ fuelTypes }: { fuelTypes: FuelTypeRow[] }) {
 // ===========================================================================
 
 function CircleCheckItemsCard({ items }: { items: CircleCheckItemRow[] }) {
-  const [bulkOpen, setBulkOpen] = useState(false)
+  const router = useRouter()
   const total = items.length
+  const atCap = total >= CIRCLE_CHECK_BULK_CAP
+
+  const importSchema: ImportSchema = useMemo(
+    () => ({
+      ...circleCheckItemsImportSpec,
+      onImport: (rows) => importCircleCheckItems(rows),
+    }),
+    [],
+  )
 
   return (
     <Card>
@@ -628,22 +652,14 @@ function CircleCheckItemsCard({ items }: { items: CircleCheckItemRow[] }) {
               {CIRCLE_CHECK_BULK_CAP} total per facility.
             </CardDescription>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setBulkOpen((v) => !v)}
-          >
-            {bulkOpen ? "Cancel bulk" : "Bulk add"}
-          </Button>
+          <BulkUploadPanel
+            schema={importSchema}
+            disabled={atCap}
+            onImported={() => router.refresh()}
+          />
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {bulkOpen && (
-          <BulkAddForm
-            existingCount={total}
-            onClose={() => setBulkOpen(false)}
-          />
-        )}
         {items.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No circle-check items yet.
@@ -690,6 +706,9 @@ function CircleCheckItemRowItem({
   const [delPending, startDel] = useTransition()
   const [movePending, startMove] = useTransition()
   const [appliesToType, setAppliesToType] = useState(item.applies_to_equipment_type ?? "")
+  const [responseType, setResponseType] = useState(
+    item.response_type ?? "pass_fail",
+  )
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Item updated.")
@@ -732,6 +751,11 @@ function CircleCheckItemRowItem({
           >
             {scopeLabel}
           </Badge>
+          {item.response_type === "text" && (
+            <Badge variant="outline" className="uppercase">
+              Text{item.is_response_required ? " · required" : ""}
+            </Badge>
+          )}
           {!item.is_active && (
             <Badge variant="secondary" className="uppercase">off</Badge>
           )}
@@ -823,6 +847,30 @@ function CircleCheckItemRowItem({
               </SelectContent>
             </Select>
           </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor={`cci-response-${item.id}`}>Response type</Label>
+            <input type="hidden" name="response_type" value={responseType} />
+            <Select value={responseType} onValueChange={(v) => setResponseType(v)}>
+              <SelectTrigger id={`cci-response-${item.id}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pass_fail">Pass / Fail</SelectItem>
+                <SelectItem value="text">Text response</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {responseType === "text" && (
+            <label className="flex items-center gap-2 text-sm font-medium sm:col-span-2">
+              <input
+                type="checkbox"
+                name="is_response_required"
+                defaultChecked={item.is_response_required}
+                className="border-input size-4 rounded border"
+              />
+              Require a response
+            </label>
+          )}
           <div className="sm:col-span-2 flex justify-end">
             <Button type="submit" size="sm" disabled={pending}>
               {pending ? "Saving…" : "Save"}
@@ -840,6 +888,7 @@ function CircleCheckCreateForm() {
     NULL_STATE,
   )
   const [newCciType, setNewCciType] = useState("")
+  const [newCciResponseType, setNewCciResponseType] = useState("pass_fail")
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Item created.")
@@ -883,104 +932,38 @@ function CircleCheckCreateForm() {
           </SelectContent>
         </Select>
       </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="new-cci-response">Response type</Label>
+        <input type="hidden" name="response_type" value={newCciResponseType} />
+        <Select
+          value={newCciResponseType}
+          onValueChange={(v) => setNewCciResponseType(v)}
+        >
+          <SelectTrigger id="new-cci-response">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pass_fail">Pass / Fail</SelectItem>
+            <SelectItem value="text">Text response</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {newCciResponseType === "text" && (
+        <label className="flex items-center gap-2 text-sm font-medium sm:col-span-2">
+          <input
+            type="checkbox"
+            name="is_response_required"
+            className="border-input size-4 rounded border"
+          />
+          Require a response
+        </label>
+      )}
       <div className="sm:col-span-2 flex justify-end">
         <Button type="submit" size="sm" disabled={pending}>
           {pending ? "Adding…" : "Add item"}
         </Button>
       </div>
     </form>
-  )
-}
-
-function BulkAddForm({
-  existingCount,
-  onClose,
-}: {
-  existingCount: number
-  onClose: () => void
-}) {
-  const [text, setText] = useState("")
-  const [pending, startTransition] = useTransition()
-
-  const lines = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-  const newCount = lines.length
-  const remaining = CIRCLE_CHECK_BULK_CAP - existingCount
-  const total = existingCount + newCount
-  const overCap = total > CIRCLE_CHECK_BULK_CAP
-  const overBatch = newCount > CIRCLE_CHECK_BULK_CAP
-
-  function onSubmit() {
-    if (newCount === 0) {
-      toast.error("Paste at least one line.")
-      return
-    }
-    if (overCap || overBatch) {
-      toast.error(
-        overBatch
-          ? `Batch is over the ${CIRCLE_CHECK_BULK_CAP}-line cap.`
-          : `Total would be ${total}; cap is ${CIRCLE_CHECK_BULK_CAP}.`,
-      )
-      return
-    }
-    startTransition(async () => {
-      const r = await bulkAddCircleCheckItems(lines)
-      if (!r.ok) {
-        toast.error(r.error)
-      } else {
-        toast.success(`Added ${newCount} items.`)
-        setText("")
-        onClose()
-      }
-    })
-  }
-
-  return (
-    <div className="bg-background flex flex-col gap-2 rounded-md border p-3">
-      <Label htmlFor="bulk-cci">Bulk add (one item per line)</Label>
-      <Textarea
-        id="bulk-cci"
-        rows={6}
-        placeholder={"Tires OK\nHydraulic fluid OK\nBlade sharp\n…"}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <span
-          className={cn(
-            "text-muted-foreground",
-            overCap || overBatch ? "text-destructive" : "",
-          )}
-        >
-          {newCount} new · {existingCount} existing · {remaining} remaining
-          (cap {CIRCLE_CHECK_BULK_CAP})
-        </span>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setText("")
-              onClose()
-            }}
-            disabled={pending}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={onSubmit}
-            disabled={pending || newCount === 0 || overCap || overBatch}
-          >
-            {pending ? "Adding…" : `Add ${newCount} items`}
-          </Button>
-        </div>
-      </div>
-    </div>
   )
 }
 
@@ -1383,11 +1366,26 @@ function TemplateItemsList({
   templateId: string
   items: CircleCheckTemplateItemRow[]
 }) {
+  const router = useRouter()
+  const importSchema: ImportSchema = useMemo(
+    () => ({
+      ...circleCheckTemplateItemsImportSpec,
+      onImport: (rows) => importCircleCheckTemplateItems(templateId, rows),
+    }),
+    [templateId],
+  )
   return (
     <div className="flex flex-col gap-2 border-t pt-3">
-      <h5 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-        Checklist fields ({items.length})
-      </h5>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h5 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+          Checklist fields ({items.length})
+        </h5>
+        <BulkUploadPanel
+          schema={importSchema}
+          triggerLabel="Bulk upload fields"
+          onImported={() => router.refresh()}
+        />
+      </div>
       {items.length === 0 ? (
         <p className="text-muted-foreground text-sm italic">
           No fields yet. Add one below.

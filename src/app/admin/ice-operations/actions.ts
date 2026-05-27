@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
+import {
+  circleCheckItemsImportSpec,
+  circleCheckTemplateItemsImportSpec,
+} from "./_components/circle-check-import"
 import type {
   ActionState,
   EquipmentType,
@@ -411,6 +416,10 @@ export async function createCircleCheckItem(
       }
       applies_to_equipment_type = appliesRaw
     }
+    const response_type =
+      nonEmpty(formData.get("response_type")) === "text" ? "text" : "pass_fail"
+    const is_response_required =
+      response_type === "text" && formData.get("is_response_required") === "on"
 
     const supabase = await createClient()
     const { data: maxRow } = await supabase
@@ -429,6 +438,8 @@ export async function createCircleCheckItem(
         label,
         description,
         applies_to_equipment_type,
+        response_type,
+        is_response_required,
         sort_order: nextSort,
       })
     if (error) {
@@ -463,6 +474,10 @@ export async function updateCircleCheckItem(
       }
       applies_to_equipment_type = appliesRaw
     }
+    const response_type =
+      nonEmpty(formData.get("response_type")) === "text" ? "text" : "pass_fail"
+    const is_response_required =
+      response_type === "text" && formData.get("is_response_required") === "on"
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -471,6 +486,8 @@ export async function updateCircleCheckItem(
         label,
         description,
         applies_to_equipment_type,
+        response_type,
+        is_response_required,
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
@@ -611,26 +628,36 @@ export async function moveCircleCheckItem(
   }
 }
 
-export async function bulkAddCircleCheckItems(
-  lines: string[],
-): Promise<SimpleResult> {
+type CircleCheckImportRow = {
+  label: string
+  description?: string
+  applies_to_equipment_type?: string
+  response_type: "pass_fail" | "text"
+  is_response_required: boolean
+}
+
+export async function importCircleCheckItems(
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
   try {
     await requireAdmin()
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
-
-    const cleaned = lines
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0)
-      .map((l) => l.slice(0, 200))
-    if (cleaned.length === 0) {
-      return { ok: false, error: "Nothing to add." }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
     }
-    if (cleaned.length > CIRCLE_CHECK_BULK_CAP) {
-      return {
-        ok: false,
-        error: `At most ${CIRCLE_CHECK_BULK_CAP} items can be added at once.`,
+
+    // Re-validate every row server-side; never trust the client payload.
+    const parsed: CircleCheckImportRow[] = []
+    for (const r of rows) {
+      const res = circleCheckItemsImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
       }
+      parsed.push(res.data as CircleCheckImportRow)
     }
 
     const supabase = await createClient()
@@ -643,11 +670,11 @@ export async function bulkAddCircleCheckItems(
     if (cntErr) {
       return { ok: false, error: dbError(cntErr, "Failed to count items.") }
     }
-    const total = (existingCount ?? 0) + cleaned.length
+    const total = (existingCount ?? 0) + parsed.length
     if (total > CIRCLE_CHECK_BULK_CAP) {
       return {
         ok: false,
-        error: `Cap is ${CIRCLE_CHECK_BULK_CAP} items total; adding ${cleaned.length} would bring total to ${total}.`,
+        error: `Cap is ${CIRCLE_CHECK_BULK_CAP} items total; importing ${parsed.length} would bring the total to ${total}.`,
       }
     }
 
@@ -660,20 +687,28 @@ export async function bulkAddCircleCheckItems(
       .maybeSingle()
     const baseSort = maxRow?.sort_order ?? 0
 
-    const rows = cleaned.map((label, idx) => ({
+    const insertRows = parsed.map((row, idx) => ({
       facility_id: facility.facilityId,
-      label,
+      label: row.label,
+      description: row.description ?? null,
+      applies_to_equipment_type: row.applies_to_equipment_type ?? null,
+      response_type: row.response_type,
+      is_response_required: row.is_response_required,
       sort_order: baseSort + idx + 1,
     }))
 
     const { error } = await supabase
       .from("ice_operations_circle_check_items")
-      .insert(rows)
+      .insert(insertRows)
     if (error) {
-      return { ok: false, error: dbError(error, "Failed to bulk-add items.") }
+      return { ok: false, error: dbError(error, "Failed to import items.") }
     }
     revalidatePath("/admin/ice-operations")
-    return { ok: true }
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} item(s).`,
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
@@ -1155,6 +1190,78 @@ export async function createCircleCheckTemplateItem(
     }
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Field added." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+type CircleCheckTemplateImportRow = { label: string; description?: string }
+
+export async function importCircleCheckTemplateItems(
+  templateId: string,
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!templateId) return { ok: false, error: "Missing template id." }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
+
+    const parsed: CircleCheckTemplateImportRow[] = []
+    for (const r of rows) {
+      const res = circleCheckTemplateItemsImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
+      }
+      parsed.push(res.data as CircleCheckTemplateImportRow)
+    }
+
+    const supabase = await createClient()
+
+    // The template must belong to the caller's facility.
+    const { data: tmpl, error: tmplErr } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_templates")
+      .select("id")
+      .eq("id", templateId)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (tmplErr || !tmpl) return { ok: false, error: "Template not found." }
+
+    const { data: maxRow } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .select("sort_order")
+      .eq("template_id", templateId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const baseSort = (maxRow?.sort_order as number | undefined) ?? 0
+
+    const insertRows = parsed.map((row, idx) => ({
+      facility_id: facility.facilityId,
+      template_id: templateId,
+      label: row.label,
+      description: row.description ?? null,
+      sort_order: baseSort + idx + 1,
+    }))
+
+    const { error } = await (supabase as AnySupabase)
+      .from("ice_operations_circle_check_template_items")
+      .insert(insertRows)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to import fields.") }
+    }
+    revalidatePath("/admin/ice-operations")
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} field(s).`,
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }

@@ -3119,7 +3119,9 @@ export type Database = {
           facility_id: string
           id: string
           is_active: boolean
+          is_response_required: boolean
           label: string
+          response_type: string
           sort_order: number
           updated_at: string | null
         }
@@ -3130,7 +3132,9 @@ export type Database = {
           facility_id: string
           id?: string
           is_active?: boolean
+          is_response_required?: boolean
           label: string
+          response_type?: string
           sort_order?: number
           updated_at?: string | null
         }
@@ -3141,7 +3145,9 @@ export type Database = {
           facility_id?: string
           id?: string
           is_active?: boolean
+          is_response_required?: boolean
           label?: string
+          response_type?: string
           sort_order?: number
           updated_at?: string | null
         }
