@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
 
+import {
+  readingTypeImportSpec,
+  type ReadingTypeImportRow,
+} from "./_components/reading-types-import"
 import type { ActionState, Severity, SimpleResult } from "./types"
 import { isSeverity } from "./types"
 
@@ -396,6 +401,79 @@ export async function deleteEquipment(id: string): Promise<SimpleResult> {
 // ============================================================================
 // Reading types
 // ============================================================================
+
+export async function importReadingTypes(
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
+
+    // Re-validate every row server-side; never trust the client payload.
+    const parsed: ReadingTypeImportRow[] = []
+    const seen = new Set<string>()
+    for (const r of rows) {
+      const res = readingTypeImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
+      }
+      const row = res.data as ReadingTypeImportRow
+      if (seen.has(row.key)) {
+        return { ok: false, error: `Duplicate key "${row.key}" in the file.` }
+      }
+      seen.add(row.key)
+      parsed.push(row)
+    }
+
+    const supabase = await createClient()
+    const { data: maxRow } = await supabase
+      .from("air_quality_reading_types")
+      .select("sort_order")
+      .eq("facility_id", facility.facilityId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const start = (maxRow?.sort_order ?? -1) + 1
+
+    const insertRows = parsed.map((row, i) => ({
+      facility_id: facility.facilityId,
+      key: row.key,
+      label: row.label,
+      unit: row.unit,
+      decimals: row.decimals,
+      is_required: row.is_required,
+      sort_order: start + i,
+    }))
+
+    const { error } = await supabase
+      .from("air_quality_reading_types")
+      .insert(insertRows)
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "One or more keys already exist for this facility.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to import reading types.") }
+    }
+    revalidatePath("/admin/air-quality")
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} reading type(s).`,
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
 
 export async function createReadingType(
   _prev: ActionState,

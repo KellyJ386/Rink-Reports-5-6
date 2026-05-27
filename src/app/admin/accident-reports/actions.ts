@@ -4,9 +4,14 @@ import { revalidatePath, updateTag } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { accidentDropdownsTag } from "@/app/reports/accidents/_lib/dropdowns"
+import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
 import type { Json } from "@/types/database"
 
+import {
+  dropdownsImportSpec,
+  type AccidentDropdownImportRow,
+} from "./_components/dropdowns-import"
 import type { ActionState, DropdownCategory, SimpleResult } from "./types"
 import { DROPDOWN_CATEGORIES, isDropdownCategory } from "./types"
 
@@ -63,6 +68,100 @@ function buildMetadata(
     return triggers ? { triggers_alert: true } : {}
   }
   return {}
+}
+
+export async function importDropdowns(
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
+
+    // Re-validate server-side; never trust the client payload.
+    const parsed: AccidentDropdownImportRow[] = []
+    const seen = new Set<string>()
+    for (const r of rows) {
+      const res = dropdownsImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
+      }
+      const row = res.data as AccidentDropdownImportRow
+      const dedupeKey = `${row.category}:${row.key}`
+      if (seen.has(dedupeKey)) {
+        return {
+          ok: false,
+          error: `Duplicate ${row.category} key "${row.key}" in the file.`,
+        }
+      }
+      seen.add(dedupeKey)
+      parsed.push(row)
+    }
+
+    const supabase = await createClient()
+
+    // Next sort_order per category present in the batch (append to the end).
+    const categories = Array.from(new Set(parsed.map((r) => r.category)))
+    const nextByCategory = new Map<string, number>()
+    for (const cat of categories) {
+      const { data: maxRow } = await supabase
+        .from("accident_dropdowns")
+        .select("sort_order")
+        .eq("facility_id", facility.facilityId)
+        .eq("category", cat)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      nextByCategory.set(cat, (maxRow?.sort_order ?? 0) + 1)
+    }
+
+    const insertRows = parsed.map((row) => {
+      const so = nextByCategory.get(row.category) ?? 1
+      nextByCategory.set(row.category, so + 1)
+      const metadata: Json =
+        row.category === "medical_attention" && row.triggers_alert
+          ? { triggers_alert: true }
+          : {}
+      return {
+        facility_id: facility.facilityId,
+        category: row.category,
+        key: row.key,
+        display_name: row.display_name,
+        color: row.color ?? null,
+        sort_order: so,
+        metadata,
+        is_active: row.is_active,
+      }
+    })
+
+    const { error } = await supabase
+      .from("accident_dropdowns")
+      .insert(insertRows)
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "One or more (category, key) pairs already exist.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to import dropdowns.") }
+    }
+    revalidatePath("/admin/accident-reports")
+    updateTag(accidentDropdownsTag(facility.facilityId))
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} value(s).`,
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
 }
 
 export async function createDropdown(

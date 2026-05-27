@@ -1,14 +1,19 @@
 "use client"
 
 import Link from "next/link"
-import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import {
+  BulkUploadPanel,
+  type ImportSchema,
+} from "@/components/admin/bulk-upload"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-import { deleteDropdown, setDropdownActive } from "../actions"
+import { deleteDropdown, importDropdowns, setDropdownActive } from "../actions"
 import {
   DROPDOWN_CATEGORIES,
   DROPDOWN_CATEGORY_LABELS,
@@ -17,6 +22,7 @@ import {
 } from "../types"
 
 import { DropdownForm } from "./dropdown-form"
+import { dropdownsImportSpec } from "./dropdowns-import"
 import { SeedDefaultsCard } from "./seed-defaults-card"
 
 type Props = {
@@ -56,6 +62,14 @@ export function DropdownsTab({
   const [editing, setEditing] = useState<AccidentDropdownRow | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
+  const router = useRouter()
+  const importSchema = useMemo<ImportSchema>(
+    () => ({
+      ...dropdownsImportSpec,
+      onImport: (rows) => importDropdowns(rows),
+    }),
+    [],
+  )
 
   function openCreate() {
     setEditing(null)
@@ -83,10 +97,15 @@ export function DropdownsTab({
     return (
       <div className="flex flex-col gap-4">
         <SeedDefaultsCard />
-        <div>
+        <div className="flex flex-wrap gap-2">
           <Button onClick={openCreate} variant="outline">
             Add value manually
           </Button>
+          <BulkUploadPanel
+            schema={importSchema}
+            triggerLabel="Bulk upload values"
+            onImported={() => router.refresh()}
+          />
         </div>
         <DropdownForm
           open={formOpen}
@@ -112,9 +131,16 @@ export function DropdownsTab({
             {rows.length} total in {DROPDOWN_CATEGORY_LABELS[category]}
           </span>
         </div>
-        <Button onClick={openCreate}>
-          Add {DROPDOWN_CATEGORY_LABELS[category].toLowerCase()} value
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <BulkUploadPanel
+            schema={importSchema}
+            triggerLabel="Bulk upload values"
+            onImported={() => router.refresh()}
+          />
+          <Button onClick={openCreate}>
+            Add {DROPDOWN_CATEGORY_LABELS[category].toLowerCase()} value
+          </Button>
+        </div>
       </div>
 
       {rows.length === 0 ? (
