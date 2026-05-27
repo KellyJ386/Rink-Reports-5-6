@@ -65,12 +65,14 @@ export const requireAdmin = cache(async (): Promise<AuthedUser> => {
   // row wasn't seeded (e.g. accounts that predate migration 77's backfill, or
   // admins not yet assigned a facility_id). Without this, deploying the new
   // permission model would lock those admins out of the console entirely.
+  // ('gm' is intentionally absent — it is retired into 'admin', see
+  // docs/permission-model-consolidation.md.)
   const { data: adminEmployee } = await supabase
     .from("employees")
     .select("id, roles!inner(key)")
     .eq("user_id", profile.id)
     .eq("is_active", true)
-    .in("roles.key", ["admin", "gm", "super_admin"])
+    .in("roles.key", ["admin", "super_admin"])
     .limit(1)
     .maybeSingle()
 
