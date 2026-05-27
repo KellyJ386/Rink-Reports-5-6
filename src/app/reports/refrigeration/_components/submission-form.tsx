@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { FieldError } from "@/components/ui/field-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -132,6 +133,9 @@ export function SubmissionForm({
   const [values, setValues] = useState<Record<string, RawValue>>({})
   const [notes, setNotes] = useState("")
   const [displayUnit, setDisplayUnit] = useState<TempUnit>("F")
+  // Per-field client-side validation messages, keyed by fieldKey(). Populated
+  // on submit; cleared for a field as soon as the user edits it.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   const nowMs = useSyncExternalStore(
     subscribeClock,
@@ -144,7 +148,17 @@ export function SubmissionForm({
     if (state.error) toast.error(state.error)
   }, [state.error])
 
+  const clearFieldError = (key: string) => {
+    setFieldErrors((prev) => {
+      if (!(key in prev)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
   const updateText = (key: string, text: string) => {
+    clearFieldError(key)
     setValues((prev) => ({
       ...prev,
       [key]: { text, bool: prev[key]?.bool ?? false },
@@ -152,10 +166,45 @@ export function SubmissionForm({
   }
 
   const updateBool = (key: string, bool: boolean) => {
+    clearFieldError(key)
     setValues((prev) => ({
       ...prev,
       [key]: { text: prev[key]?.text ?? "", bool },
     }))
+  }
+
+  // Lightweight client-side gate: required fields must be non-empty and
+  // numeric fields must parse as a finite number. Returns the error map so
+  // the caller can both store it and decide whether to block submission.
+  // The server action remains the source of truth — this only improves UX.
+  const validate = (): Record<string, string> => {
+    const errors: Record<string, string> = {}
+    for (const section of sections) {
+      const groups: Array<[FieldDef[], string | null]> = [
+        [section.sectionLevelFields, null],
+        ...section.equipment.map(
+          (eq) => [eq.fields, eq.id] as [FieldDef[], string]
+        ),
+      ]
+      for (const [fields] of groups) {
+        for (const field of fields) {
+          // Booleans (checkboxes) can't be "empty" in a meaningful way here.
+          if (field.field_type === "boolean") continue
+          const key = fieldKey(field.id, field.equipment_id)
+          const text = values[key]?.text?.trim() ?? ""
+          if (field.is_required && text === "") {
+            errors[key] = "This field is required."
+            continue
+          }
+          if (field.field_type === "numeric" && text !== "") {
+            if (!Number.isFinite(Number(text))) {
+              errors[key] = "Enter a valid number."
+            }
+          }
+        }
+      }
+    }
+    return errors
   }
 
   // Toggle is display-only. Per-field text state always lives in the field's
@@ -211,7 +260,23 @@ export function SubmissionForm({
       : "Temp unavailable"
 
   return (
-    <form action={formAction} className="flex flex-col gap-5">
+    <form
+      action={formAction}
+      onSubmit={(e) => {
+        const errors = validate()
+        setFieldErrors(errors)
+        if (Object.keys(errors).length > 0) {
+          e.preventDefault()
+          // Focus the first invalid field so keyboard/AT users land on it.
+          const firstKey = Object.keys(errors)[0]
+          const focusTarget = document.querySelector<HTMLElement>(
+            `[aria-describedby="fe-${firstKey}"]`
+          )
+          focusTarget?.focus()
+        }
+      }}
+      className="flex flex-col gap-5"
+    >
       {/* Header card */}
       <Card className="gap-4 py-5">
         <div className="flex flex-wrap items-start justify-between gap-4 px-6">
@@ -310,6 +375,7 @@ export function SubmissionForm({
                       key={fieldKey(field.id, null)}
                       field={field}
                       value={values[fieldKey(field.id, null)]}
+                      error={fieldErrors[fieldKey(field.id, null)]}
                       displayUnit={displayUnit}
                       onText={(t) => updateText(fieldKey(field.id, null), t)}
                       onBool={(b) => updateBool(fieldKey(field.id, null), b)}
@@ -330,6 +396,7 @@ export function SubmissionForm({
                           key={fieldKey(field.id, eq.id)}
                           field={field}
                           value={values[fieldKey(field.id, eq.id)]}
+                          error={fieldErrors[fieldKey(field.id, eq.id)]}
                           displayUnit={displayUnit}
                           onText={(t) =>
                             updateText(fieldKey(field.id, eq.id), t)
@@ -494,21 +561,28 @@ function buildRow(
 function FieldInput({
   field,
   value,
+  error,
   displayUnit,
   onText,
   onBool,
 }: {
   field: FieldDef
   value: RawValue | undefined
+  error: string | undefined
   displayUnit: TempUnit
   onText: (text: string) => void
   onBool: (bool: boolean) => void
 }) {
   const inputId = `f-${field.id}-${field.equipment_id ?? "section"}`
+  // Must match the form-level error map key (fieldKey) so aria-describedby and
+  // first-invalid focus resolve correctly.
+  const errorId = `fe-${fieldKey(field.id, field.equipment_id)}`
   const isTemp = isTempUnit(field.unit)
   const activeUnit = isTemp ? `°${displayUnit}` : field.unit
   const labelText = activeUnit ? `${field.label} (${activeUnit})` : field.label
   const reqMark = field.is_required ? <RequiredMark /> : null
+  const invalid = Boolean(error)
+  const describedBy = invalid ? errorId : undefined
 
   if (field.field_type === "boolean") {
     return (
@@ -545,6 +619,8 @@ function FieldInput({
           <SelectTrigger
             id={`${inputId}-trigger`}
             aria-required={field.is_required ? "true" : undefined}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
           >
             <SelectValue placeholder="Select…" />
           </SelectTrigger>
@@ -556,6 +632,7 @@ function FieldInput({
             ))}
           </SelectContent>
         </Select>
+        <FieldError id={errorId} message={error} />
       </div>
     )
   }
@@ -575,6 +652,8 @@ function FieldInput({
             enterKeyHint="next"
             required={field.is_required}
             aria-required={field.is_required ? "true" : undefined}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
             value={value?.text ?? ""}
             onChange={(e) => onText(e.target.value)}
             className="h-12 flex-1 text-base"
@@ -584,6 +663,7 @@ function FieldInput({
             <span className="text-sm text-muted-foreground">{activeUnit}</span>
           ) : null}
         </div>
+        <FieldError id={errorId} message={error} />
         <NormalRangeHint field={field} displayUnit={displayUnit} />
       </div>
     )
@@ -603,10 +683,13 @@ function FieldInput({
         enterKeyHint="next"
         required={field.is_required}
         aria-required={field.is_required ? "true" : undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         value={value?.text ?? ""}
         onChange={(e) => onText(e.target.value)}
         className="h-12 text-base"
       />
+      <FieldError id={errorId} message={error} />
     </div>
   )
 }
