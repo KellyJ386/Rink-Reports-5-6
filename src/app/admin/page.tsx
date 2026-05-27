@@ -238,6 +238,14 @@ export default async function AdminDashboardPage({
   const todayUtc = new Date()
   todayUtc.setUTCHours(0, 0, 0, 0)
 
+  // Rolling 90-day window for the incident/accident count so the query stays
+  // bounded (both tables grow unbounded over a facility's lifetime). Derived
+  // from `todayUtc` (a `new Date()`, the same impure-read pattern the existing
+  // "today" boundary above uses) rather than a fresh `Date.now()`.
+  const ninetyDaysAgo = new Date(todayUtc)
+  ninetyDaysAgo.setUTCDate(ninetyDaysAgo.getUTCDate() - 90)
+  const ninetyDaysAgoIso = ninetyDaysAgo.toISOString()
+
   const [
     { count: facilityCount },
     { count: employeeCount },
@@ -270,12 +278,14 @@ export default async function AdminDashboardPage({
           .from("incident_reports")
           .select("*", { count: "exact", head: true })
           .eq("facility_id", activeFacilityId)
+          .gte("submitted_at", ninetyDaysAgoIso)
       : Promise.resolve({ count: null }),
     activeFacilityId
       ? supabase
           .from("accident_reports")
           .select("*", { count: "exact", head: true })
           .eq("facility_id", activeFacilityId)
+          .gte("submitted_at", ninetyDaysAgoIso)
       : Promise.resolve({ count: null }),
   ])
 
@@ -319,7 +329,7 @@ export default async function AdminDashboardPage({
           ? (incidentCount ?? 0) + (accidentCount ?? 0)
           : null
       ),
-      description: "Total incident and accident reports on record.",
+      description: "Incident and accident reports in the last 90 days.",
       icon: AlertTriangle,
     },
   ]

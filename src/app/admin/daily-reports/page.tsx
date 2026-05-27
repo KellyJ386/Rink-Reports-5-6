@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
@@ -207,12 +208,15 @@ async function AccessTabLoader({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Daily Reports</h1>
-      <p className="text-muted-foreground text-sm">
-        Configure areas, templates, and checklists. Review and edit recent
-        submissions. Reports auto-delete after 14 days.
-      </p>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Daily Reports</h1>
+        <p className="text-muted-foreground text-sm">
+          Configure areas, templates, and checklists. Review and edit recent
+          submissions. Reports auto-delete after 14 days.
+        </p>
+      </div>
+      <ExportButton moduleKey="daily_reports" />
     </div>
   )
 }

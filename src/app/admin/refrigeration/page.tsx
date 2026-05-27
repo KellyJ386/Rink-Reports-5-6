@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
@@ -112,12 +113,15 @@ export default async function RefrigerationAdminPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Refrigeration</h1>
-      <p className="text-muted-foreground text-sm">
-        Configure sections, equipment, fields, and thresholds. Review submitted
-        reports and add follow-up notes. Original reports are immutable.
-      </p>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Refrigeration</h1>
+        <p className="text-muted-foreground text-sm">
+          Configure sections, equipment, fields, and thresholds. Review submitted
+          reports and add follow-up notes. Original reports are immutable.
+        </p>
+      </div>
+      <ExportButton moduleKey="refrigeration" />
     </div>
   )
 }

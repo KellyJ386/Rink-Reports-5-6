@@ -21,10 +21,12 @@ import {
 } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 
-import { parseFile } from "./parse"
-import { downloadTemplateCsv, downloadTemplateXlsx } from "./template"
 import type { ImportSchema, ValidatedRow } from "./types"
 import { mapHeaders, validateRows, type RowResult } from "./validate"
+
+// `./parse` and `./template` statically `import * as XLSX from "xlsx"` (~400KB+).
+// They are imported dynamically inside event handlers below so xlsx is only
+// fetched on file-pick or template-download — never at render / on initial load.
 
 type Props = {
   schema: ImportSchema
@@ -88,6 +90,7 @@ function PanelBody({
   const [unknownHeaders, setUnknownHeaders] = useState<string[]>([])
   const [missingRequired, setMissingRequired] = useState<string[]>([])
   const [results, setResults] = useState<RowResult[] | null>(null)
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [importing, startImport] = useTransition()
 
   const validCount = results?.filter((r) => r.ok).length ?? 0
@@ -103,6 +106,8 @@ function PanelBody({
     setResults(null)
     setFileName(file.name)
     try {
+      // Lazy-load the xlsx-backed parser only when a file is actually picked.
+      const { parseFile } = await import("./parse")
       const parsed = await parseFile(file)
       if (parsed.headers.length === 0) {
         toast.error("That file appears to be empty.")
@@ -133,6 +138,23 @@ function PanelBody({
     setUnknownHeaders([])
     setMissingRequired([])
     if (inputRef.current) inputRef.current.value = ""
+  }
+
+  // Lazy-load the xlsx-backed template generator only on download click.
+  async function handleTemplateDownload(format: "xlsx" | "csv") {
+    setDownloadingTemplate(true)
+    try {
+      const mod = await import("./template")
+      if (format === "xlsx") {
+        mod.downloadTemplateXlsx(schema.columns, schema.surfaceId)
+      } else {
+        mod.downloadTemplateCsv(schema.columns, schema.surfaceId)
+      }
+    } catch {
+      toast.error("Could not generate the template. Try again.")
+    } finally {
+      setDownloadingTemplate(false)
+    }
   }
 
   function confirmImport() {
@@ -167,9 +189,8 @@ function PanelBody({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() =>
-            downloadTemplateXlsx(schema.columns, schema.surfaceId)
-          }
+          disabled={downloadingTemplate}
+          onClick={() => void handleTemplateDownload("xlsx")}
         >
           <Download className="mr-1.5 h-4 w-4" />
           Template (.xlsx)
@@ -178,7 +199,8 @@ function PanelBody({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => downloadTemplateCsv(schema.columns, schema.surfaceId)}
+          disabled={downloadingTemplate}
+          onClick={() => void handleTemplateDownload("csv")}
         >
           <Download className="mr-1.5 h-4 w-4" />
           Template (.csv)
