@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
 import { formatDateRange, formatDateTime } from "./_components/format-utils"
@@ -123,14 +124,7 @@ export default async function SchedulingDashboardPage() {
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_view")
-    .eq("module_key", "scheduling")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_view) {
+  if (!(await currentUserCan(supabase, "scheduling", "view"))) {
     return (
       <NotAvailable
         title="No permission"

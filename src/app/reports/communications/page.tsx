@@ -11,6 +11,7 @@ import {
 import { requireUser } from "@/lib/auth"
 import { signPdfUrl } from "@/lib/notifications/pdf/upload"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { AcknowledgeAlertForm } from "./_components/acknowledge-alert-form"
 import { AlertsList } from "./_components/alerts-list"
@@ -124,14 +125,7 @@ export default async function CommunicationsInboxPage({
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_view, can_submit")
-    .eq("module_key", "communications")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_view) {
+  if (!(await currentUserCan(supabase, "communications", "view"))) {
     return (
       <NotAvailable
         title="No permission"
@@ -140,7 +134,7 @@ export default async function CommunicationsInboxPage({
     )
   }
 
-  const canSubmit = perm?.can_submit === true
+  const canSubmit = await currentUserCan(supabase, "communications", "submit")
 
   const { data: facility } = await supabase
     .from("facilities")

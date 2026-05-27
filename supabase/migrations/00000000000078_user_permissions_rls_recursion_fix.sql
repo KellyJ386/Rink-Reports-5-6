@@ -10,6 +10,8 @@
 -- SECURITY DEFINER helper (is_facility_admin) that bypasses RLS when
 -- it queries user_permissions, then rewrite both policies to call it.
 
+begin;
+
 create or replace function public.is_facility_admin(p_facility_id uuid)
 returns boolean
 language sql
@@ -53,3 +55,5 @@ create policy user_permissions_write on public.user_permissions
     public.is_super_admin()
     or public.is_facility_admin(facility_id)
   );
+
+commit;

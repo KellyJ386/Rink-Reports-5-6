@@ -41,11 +41,12 @@ export type ActionState =
 
 export type SimpleResult = { ok: true } | { ok: false; error: string }
 
-export type Tab = "areas" | "templates" | "items" | "submissions"
+export type Tab = "areas" | "templates" | "items" | "submissions" | "access"
 
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "areas", label: "Areas" },
   { key: "templates", label: "Templates" },
   { key: "items", label: "Checklist Items" },
+  { key: "access", label: "Area Access" },
   { key: "submissions", label: "Submissions" },
 ]

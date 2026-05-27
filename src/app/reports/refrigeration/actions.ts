@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { requireUser } from "@/lib/auth"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import type {
   RefrigerationFieldType,
@@ -149,14 +150,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   }
 
   // Defense-in-depth permission check.
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "refrigeration")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "refrigeration", "submit"))) {
     return {
       ok: false,
       error: "You don't have permission to submit refrigeration reports.",

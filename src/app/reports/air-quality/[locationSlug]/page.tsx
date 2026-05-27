@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { SubmissionForm } from "../_components/submission-form"
 import type {
@@ -96,14 +97,7 @@ export default async function AirQualityLocationPage({
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "air_quality")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "air_quality", "submit"))) {
     return (
       <NotAvailable
         title="No permission"

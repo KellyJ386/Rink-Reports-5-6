@@ -776,59 +776,59 @@ export async function renumberPointsForLayout(
     const all = points ?? []
     if (all.length === 0) return { ok: true }
 
+    // Within a phase the row updates are independent (each targets a distinct
+    // id and a distinct point_number), so run them concurrently rather than
+    // issuing one sequential round-trip per point.
+    const applyPhase = async (
+      updates: { id: string; point_number: number; sort_order?: number }[],
+    ): Promise<string | null> => {
+      const results = await Promise.all(
+        updates.map((u) =>
+          supabase
+            .from("ice_depth_points")
+            .update(
+              u.sort_order === undefined
+                ? { point_number: u.point_number }
+                : { point_number: u.point_number, sort_order: u.sort_order },
+            )
+            .eq("id", u.id)
+            .eq("facility_id", facility.facilityId),
+        ),
+      )
+      const failed = results.find((r) => r.error)
+      return failed ? dbError(failed.error, "Failed to renumber.") : null
+    }
+
     // 1) Park every row in the negative range so the unique constraint on
     //    (layout_id, point_number) cannot collide while we shuffle.
-    for (const p of all) {
-      const tmp = -(TEMP_OFFSET + Math.abs(p.point_number) + 1)
-      const { error } = await supabase
-        .from("ice_depth_points")
-        .update({ point_number: tmp })
-        .eq("id", p.id)
-        .eq("facility_id", facility.facilityId)
-      if (error) {
-        return { ok: false, error: dbError(error, "Failed to renumber.") }
-      }
-    }
+    const parkError = await applyPhase(
+      all.map((p) => ({
+        id: p.id,
+        point_number: -(TEMP_OFFSET + Math.abs(p.point_number) + 1),
+      })),
+    )
+    if (parkError) return { ok: false, error: parkError }
 
     // 2) Sort active points by current sort_order, then point_number; assign
     //    1..N. Inactive points get pushed to the tail so future inserts can
     //    reuse the next free number.
-    const active = all
-      .filter((p) => p.is_active)
-      .sort(
-        (a, b) =>
-          a.sort_order - b.sort_order || a.point_number - b.point_number,
-      )
-    const inactive = all
-      .filter((p) => !p.is_active)
-      .sort(
-        (a, b) =>
-          a.sort_order - b.sort_order || a.point_number - b.point_number,
-      )
+    const bySort = (
+      a: { sort_order: number; point_number: number },
+      b: { sort_order: number; point_number: number },
+    ) => a.sort_order - b.sort_order || a.point_number - b.point_number
+    const ordered = [
+      ...all.filter((p) => p.is_active).sort(bySort),
+      ...all.filter((p) => !p.is_active).sort(bySort),
+    ]
 
-    let n = 0
-    for (const p of active) {
-      n += 1
-      const { error } = await supabase
-        .from("ice_depth_points")
-        .update({ point_number: n, sort_order: n })
-        .eq("id", p.id)
-        .eq("facility_id", facility.facilityId)
-      if (error) {
-        return { ok: false, error: dbError(error, "Failed to renumber.") }
-      }
-    }
-    for (const p of inactive) {
-      n += 1
-      const { error } = await supabase
-        .from("ice_depth_points")
-        .update({ point_number: n, sort_order: n })
-        .eq("id", p.id)
-        .eq("facility_id", facility.facilityId)
-      if (error) {
-        return { ok: false, error: dbError(error, "Failed to renumber.") }
-      }
-    }
+    const assignError = await applyPhase(
+      ordered.map((p, i) => ({
+        id: p.id,
+        point_number: i + 1,
+        sort_order: i + 1,
+      })),
+    )
+    if (assignError) return { ok: false, error: assignError }
 
     revalidatePath("/admin/ice-depth")
     return { ok: true }

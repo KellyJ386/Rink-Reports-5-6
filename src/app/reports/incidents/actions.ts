@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { requireUser } from "@/lib/auth"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 // Names match form input `name` attributes — keep them in sync.
 export type IncidentFieldName =
@@ -97,14 +98,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   }
 
   // Defense-in-depth: confirm submit permission before insert.
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "incident_reports")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "incident_reports", "submit"))) {
     return {
       ok: false,
       error: "You don't have permission to submit incident reports.",

@@ -29,7 +29,7 @@ const PRIMARY_BUTTON_STYLE: React.CSSProperties = {
   justifyContent: "center",
   gap: 10,
   padding: "17px 36px",
-  borderRadius: 10,
+  borderRadius: "var(--radius-md)",
   background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
   border: "none",
   color: "#051200",
@@ -161,7 +161,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
             right: 14,
             width: 36,
             height: 36,
-            borderRadius: 8,
+            borderRadius: "var(--radius-sm)",
             background: "rgba(255,255,255,0.06)",
             border: "1px solid rgba(255,255,255,0.12)",
             color: "#fff",
@@ -298,7 +298,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
                   style={{
                     marginTop: 12,
                     padding: "10px 14px",
-                    borderRadius: 8,
+                    borderRadius: "var(--radius-sm)",
                     background: "rgba(255, 80, 80, 0.12)",
                     border: "1px solid rgba(255, 80, 80, 0.35)",
                     color: "#ffb4b4",
@@ -324,7 +324,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
                   disabled={submitting}
                   style={{
                     padding: "13px 22px",
-                    borderRadius: 10,
+                    borderRadius: "var(--radius-md)",
                     background: "rgba(255,255,255,0.06)",
                     border: "1px solid rgba(255,255,255,0.18)",
                     color: "#fff",
@@ -340,7 +340,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
                   disabled={submitting}
                   style={{
                     padding: "13px 28px",
-                    borderRadius: 10,
+                    borderRadius: "var(--radius-md)",
                     background:
                       "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
                     color: "#051200",
@@ -418,7 +418,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
         onClick={onClose}
         style={{
           padding: "13px 28px",
-          borderRadius: 10,
+          borderRadius: "var(--radius-md)",
           background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
           color: "#051200",
           fontWeight: 700,
@@ -491,7 +491,7 @@ function Field({
   const inputStyle: React.CSSProperties = {
     width: "100%",
     padding: "11px 13px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-sm)",
     background: "rgba(0,0,0,0.25)",
     border: "1px solid rgba(255,255,255,0.14)",
     color: "#ffffff",

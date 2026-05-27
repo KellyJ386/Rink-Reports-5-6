@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
@@ -103,14 +104,7 @@ export default async function RefrigerationHomePage() {
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "refrigeration")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "refrigeration", "submit"))) {
     return (
       <NotAvailable
         title="No permission"

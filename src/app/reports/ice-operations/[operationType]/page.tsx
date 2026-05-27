@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { cn } from "@/lib/utils"
 import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
@@ -144,14 +145,7 @@ export default async function OperationTypePage({
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "ice_operations")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "ice_operations", "submit"))) {
     return (
       <MinimalNotice
         title="No permission"

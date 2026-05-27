@@ -8,6 +8,7 @@ import {
   MODULE_NAMES,
   USER_ACTIONS,
   USER_ACTION_LABELS,
+  presetMatrix,
   type ModuleName,
   type PermissionMatrix as Matrix,
   type Preset,
@@ -82,19 +83,7 @@ export function PermissionMatrix({
         setError(res.error)
         return
       }
-      const next: Matrix = {} as Matrix
-      const all = preset === "full_access"
-      const submitter = preset === "submitter_only"
-      const viewer = preset === "viewer_only"
-      for (const m of MODULE_NAMES) {
-        next[m] = {
-          view: all || submitter || viewer,
-          submit: all || submitter,
-          edit: all,
-          admin: all,
-        }
-      }
-      setMatrix(next)
+      setMatrix(presetMatrix(preset))
       setInfo(`Applied preset: ${preset.replace("_", " ")}`)
     })
   }

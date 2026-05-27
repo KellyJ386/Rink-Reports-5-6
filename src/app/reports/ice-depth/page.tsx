@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 export const dynamic = "force-dynamic"
 
@@ -90,14 +91,7 @@ export default async function IceDepthHomePage() {
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "ice_depth")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "ice_depth", "submit"))) {
     return (
       <StateScreen
         title="No permission"
