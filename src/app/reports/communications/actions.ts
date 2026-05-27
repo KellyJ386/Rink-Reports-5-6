@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 export type ComposeFieldName = "body" | "group_ids"
 
@@ -74,14 +75,7 @@ async function performSendMessage(formData: FormData): Promise<SendResult> {
   }
 
   // Defense-in-depth: confirm the user has submit on the communications module.
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "communications")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "communications", "submit"))) {
     return {
       ok: false,
       error: "You don't have permission to send messages.",

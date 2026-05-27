@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { SubmissionForm } from "./_components/submission-form"
 import { getAccidentDropdowns } from "./_lib/dropdowns"
@@ -168,14 +169,7 @@ export default async function AccidentsHomePage() {
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "accident_reports")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "accident_reports", "submit"))) {
     return (
       <NotAvailable
         title="No access"

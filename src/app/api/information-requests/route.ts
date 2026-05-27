@@ -15,12 +15,26 @@ type RequestBody = {
   note?: string
 }
 
-const MAX_LEN = 2000
+// Per-field caps mirror the CHECK constraints on public.information_requests
+// (migration 88). Truncating here keeps the boundary clean so a long input is
+// trimmed rather than rejected by the DB with an opaque 500.
+const LIMITS = {
+  name: 200,
+  email: 320,
+  company: 200,
+  addressLine1: 200,
+  addressLine2: 200,
+  addressCity: 120,
+  addressRegion: 120,
+  addressPostal: 40,
+  addressCountry: 120,
+  note: 5000,
+} as const
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-function clean(value: unknown): string {
+function clean(value: unknown, max: number): string {
   if (typeof value !== "string") return ""
-  return value.trim().slice(0, MAX_LEN)
+  return value.trim().slice(0, max)
 }
 
 export async function POST(request: NextRequest) {
@@ -31,10 +45,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  const name = clean(body.name)
-  const email = clean(body.email)
-  const company = clean(body.company)
-  const addressCountry = clean(body.addressCountry)
+  const name = clean(body.name, LIMITS.name)
+  const email = clean(body.email, LIMITS.email)
+  const company = clean(body.company, LIMITS.company)
+  const addressCountry = clean(body.addressCountry, LIMITS.addressCountry)
 
   if (!name || !email || !company || !addressCountry) {
     return NextResponse.json(
@@ -61,13 +75,13 @@ export async function POST(request: NextRequest) {
       name,
       email,
       company,
-      address_line1: clean(body.addressLine1),
-      address_line2: clean(body.addressLine2),
-      address_city: clean(body.addressCity),
-      address_region: clean(body.addressRegion),
-      address_postal: clean(body.addressPostal),
+      address_line1: clean(body.addressLine1, LIMITS.addressLine1),
+      address_line2: clean(body.addressLine2, LIMITS.addressLine2),
+      address_city: clean(body.addressCity, LIMITS.addressCity),
+      address_region: clean(body.addressRegion, LIMITS.addressRegion),
+      address_postal: clean(body.addressPostal, LIMITS.addressPostal),
       address_country: addressCountry,
-      note: clean(body.note),
+      note: clean(body.note, LIMITS.note),
     })
 
   if (error) {

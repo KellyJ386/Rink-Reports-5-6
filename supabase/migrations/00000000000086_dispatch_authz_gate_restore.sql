@@ -88,11 +88,13 @@ begin
         v_emp_id, p_subject, p_body, coalesce(v_rule.attach_pdf, false),
         coalesce(v_rule.requires_acknowledgement, false),
         coalesce(v_sched, now() + interval '100 years'),
-        case
-          when v_rule.timing = 'manual' then 'pending'
-          when v_rule.timing = 'immediate' then 'sent'
-          else 'pending'
-        end
+        -- Every row enters the queue as 'pending'; the drain worker claims
+        -- pending rows whose scheduled_for has passed and flips them to 'sent'
+        -- after fanning into communication_messages. 'immediate' rows get
+        -- scheduled_for = now() so they drain on the next cycle. Marking them
+        -- 'sent' here (the historical behavior) meant the drain never claimed
+        -- them, so immediate notifications were silently never delivered.
+        'pending'
       );
       v_count := v_count + 1;
     end loop;

@@ -172,16 +172,20 @@ export async function bulkImportUserPermissionsCsv(
         errors.push(`Line ${lineNo}: invalid action "${action}"`)
         return
       }
-      const enabled =
-        enabledRaw === "true" || enabledRaw === "1" || enabledRaw === "yes" || enabledRaw === ""
-      if (
-        enabledRaw !== "" &&
-        !["true", "false", "1", "0", "yes", "no"].includes(enabledRaw)
-      ) {
+      // A blank `enabled` cell must never default to granting access — require
+      // an explicit, recognized value.
+      if (!enabledRaw) {
+        skipped++
+        errors.push(`Line ${lineNo}: missing required column`)
+        return
+      }
+      if (!["true", "false", "1", "0", "yes", "no"].includes(enabledRaw)) {
         skipped++
         errors.push(`Line ${lineNo}: invalid enabled "${row.enabled}"`)
         return
       }
+      const enabled =
+        enabledRaw === "true" || enabledRaw === "1" || enabledRaw === "yes"
 
       rows.push({
         user_id: userId,

@@ -1,4 +1,4 @@
--- 00000000000078_information_requests.sql
+-- 00000000000088_information_requests.sql
 --
 -- Public-facing "Request Information" submissions from the splash page.
 -- These come from unauthenticated visitors, so the table accepts inserts
@@ -22,7 +22,21 @@ create table if not exists public.information_requests (
   address_country text        not null,
   note            text        not null default '',
   status          text        not null default 'new',
-  created_at      timestamptz not null default now()
+  created_at      timestamptz not null default now(),
+  -- Length caps bound the abuse surface of the unauthenticated insert path
+  -- (the anon key ships in the client bundle, so anyone can POST directly).
+  constraint information_requests_lengths_check check (
+    char_length(name)            <= 200  and
+    char_length(email)           <= 320  and
+    char_length(company)         <= 200  and
+    char_length(address_line1)   <= 200  and
+    char_length(address_line2)   <= 200  and
+    char_length(address_city)    <= 120  and
+    char_length(address_region)  <= 120  and
+    char_length(address_postal)  <= 40   and
+    char_length(address_country) <= 120  and
+    char_length(note)            <= 5000
+  )
 );
 
 create index if not exists information_requests_created_at_idx

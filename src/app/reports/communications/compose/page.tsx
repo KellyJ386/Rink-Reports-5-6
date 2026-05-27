@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { ComposeForm } from "../_components/compose-form"
 
@@ -75,14 +76,7 @@ export default async function CommunicationsComposePage() {
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "communications")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "communications", "submit"))) {
     return (
       <NotAvailable
         title="No permission"

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { CancelTimeOffButton } from "../_components/cancel-time-off-button"
 import { formatDateTime } from "../_components/format-utils"
@@ -98,14 +99,7 @@ export default async function TimeOffPage() {
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_view")
-    .eq("module_key", "scheduling")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_view) {
+  if (!(await currentUserCan(supabase, "scheduling", "view"))) {
     return (
       <NotAvailable
         title="No permission"

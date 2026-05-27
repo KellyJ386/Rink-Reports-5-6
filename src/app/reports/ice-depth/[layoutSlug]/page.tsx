@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { DiagramNav } from "../_components/diagram-nav"
 import { SubmissionForm } from "../_components/submission-form"
@@ -80,14 +81,7 @@ export default async function IceDepthLayoutSubmissionPage({
     )
   }
 
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "ice_depth")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "ice_depth", "submit"))) {
     return (
       <NotAvailable
         title="No permission"

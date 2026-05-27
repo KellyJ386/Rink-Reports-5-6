@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { requireUser } from "@/lib/auth"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 
 import { emptyAirQualityFormData } from "./types"
 import type {
@@ -232,14 +233,7 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   }
 
   // Defense-in-depth permission check.
-  const { data: perm } = await supabase
-    .from("module_permissions")
-    .select("can_submit")
-    .eq("module_key", "air_quality")
-    .eq("employee_id", employeeRow.id)
-    .maybeSingle()
-
-  if (!perm?.can_submit) {
+  if (!(await currentUserCan(supabase, "air_quality", "submit"))) {
     return {
       ok: false,
       error: "You don't have permission to submit air quality reports.",
