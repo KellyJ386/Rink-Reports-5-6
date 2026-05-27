@@ -12,6 +12,7 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { AreasGrid, type AreaCard } from "./_components/areas-grid"
+import { getAllowedDailyAreas } from "./actions"
 
 export const dynamic = "force-dynamic"
 
@@ -45,34 +46,9 @@ export default async function DailyReportsAreaPickerPage() {
     )
   }
 
-  // Pull all areas in the user's facility (RLS will restrict to allowed rows).
-  const { data: allAreas } = await supabase
-    .from("daily_report_areas")
-    .select("id, slug, name, color, sort_order, is_active, facility_id")
-    .eq("facility_id", employeeRow.facility_id)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true })
-    .order("name", { ascending: true })
-
-  // Find which of those areas the staff has can_submit on.
-  const { data: perms } = await supabase
-    .from("module_area_permissions")
-    .select("area_id, can_submit")
-    .eq("module_key", "daily_reports")
-    .eq("employee_id", employeeRow.id)
-
-  const submittableAreaIds = new Set(
-    (perms ?? []).filter((p) => p.can_submit).map((p) => p.area_id)
-  )
-
-  const accessible: AreaCard[] = (allAreas ?? [])
-    .filter((a) => submittableAreaIds.has(a.id))
-    .map((a) => ({
-      id: a.id,
-      slug: a.slug,
-      name: a.name,
-      color: a.color,
-    }))
+  // Areas this user may submit to (per-area can_submit). Shared with the
+  // server-side RLS boundary via getAllowedDailyAreas().
+  const accessible: AreaCard[] = await getAllowedDailyAreas()
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">

@@ -27,6 +27,54 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
+export type AllowedDailyArea = {
+  id: string
+  slug: string
+  name: string
+  color: string | null
+}
+
+/**
+ * Returns the daily-report areas the current user may SUBMIT to (per-area
+ * can_submit in module_area_permissions). Mirrors the server-side RLS boundary
+ * (migration 89) for UI use; the DB remains the final authority on writes.
+ */
+export async function getAllowedDailyAreas(): Promise<AllowedDailyArea[]> {
+  const current = await requireUser()
+  const supabase = await createClient()
+
+  const { data: employeeRow } = await supabase
+    .from("employees")
+    .select("id, facility_id")
+    .eq("user_id", current.authUser.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle()
+  if (!employeeRow) return []
+
+  const [{ data: areas }, { data: perms }] = await Promise.all([
+    supabase
+      .from("daily_report_areas")
+      .select("id, slug, name, color, sort_order")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("module_area_permissions")
+      .select("area_id, can_submit")
+      .eq("module_key", "daily_reports")
+      .eq("employee_id", employeeRow.id),
+  ])
+
+  const submittable = new Set(
+    (perms ?? []).filter((p) => p.can_submit).map((p) => p.area_id),
+  )
+  return (areas ?? [])
+    .filter((a) => submittable.has(a.id))
+    .map((a) => ({ id: a.id, slug: a.slug, name: a.name, color: a.color }))
+}
+
 async function performSubmit(
   formData: FormData
 ): Promise<SubmissionResult> {

@@ -13,6 +13,7 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
 
+import { AreaAccessTab } from "./_components/area-access-tab"
 import { AreasTab } from "./_components/areas-tab"
 import { ItemsTab } from "./_components/items-tab"
 import { SubmissionDetailPanel } from "./_components/submission-detail"
@@ -145,6 +146,10 @@ export default async function DailyReportsAdminPage({
         />
       )}
 
+      {tab === "access" && (
+        <AccessTabLoader facilityId={facilityId} areas={areas} />
+      )}
+
       {tab === "submissions" && (
         <SubmissionsTabLoader
           facilityId={facilityId}
@@ -153,6 +158,50 @@ export default async function DailyReportsAdminPage({
         />
       )}
     </div>
+  )
+}
+
+async function AccessTabLoader({
+  facilityId,
+  areas,
+}: {
+  facilityId: string
+  areas: AreaRow[]
+}) {
+  const supabase = await createClient()
+  const [{ data: empsRaw }, { data: permsRaw }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, first_name, last_name, email")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("last_name", { ascending: true }),
+    supabase
+      .from("module_area_permissions")
+      .select("employee_id, area_id, can_submit")
+      .eq("facility_id", facilityId)
+      .eq("module_key", "daily_reports"),
+  ])
+
+  const employees = (empsRaw ?? []) as Array<{
+    id: string
+    first_name: string
+    last_name: string
+    email: string | null
+  }>
+  const initialGrants = (permsRaw ?? [])
+    .filter((p) => p.can_submit)
+    .map((p) => `${p.employee_id}:${p.area_id}`)
+  const activeAreas = areas
+    .filter((a) => a.is_active)
+    .map((a) => ({ id: a.id, name: a.name, slug: a.slug, color: a.color }))
+
+  return (
+    <AreaAccessTab
+      employees={employees}
+      areas={activeAreas}
+      initialGrants={initialGrants}
+    />
   )
 }
 
