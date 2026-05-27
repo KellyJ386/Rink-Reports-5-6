@@ -12,10 +12,25 @@ import {
 
 export type ActionResult = { ok: true } | { ok: false; error: string }
 
+// Map a legacy permission_level to the set of user_permissions actions that
+// should be enabled — the same explosion migration 77's backfill used.
+const LEVEL_ACTIONS: Record<string, ReadonlyArray<"view" | "submit" | "edit" | "admin">> = {
+  none: [],
+  view: ["view"],
+  submit: ["view", "submit"],
+  edit_own: ["view", "submit", "edit"],
+  edit_all: ["view", "submit", "edit"],
+  approve: ["view", "submit", "edit", "admin"],
+  publish: ["view", "submit", "edit", "admin"],
+  manage_settings: ["view", "submit", "edit", "admin"],
+  admin: ["view", "submit", "edit", "admin"],
+}
+const ALL_ACTIONS = ["view", "submit", "edit", "admin"] as const
+
 /**
  * Set (or replace) the explicit per-employee override for a single module.
- * Wraps the same upsert path used by /admin/permissions but scoped to a
- * single (employee, module).
+ * Writes to user_permissions (the source of truth since migration 77) by
+ * exploding the chosen level into per-action rows.
  */
 export async function setEmployeeModuleOverride(
   employeeId: string,
@@ -30,23 +45,30 @@ export async function setEmployeeModuleOverride(
     const supabase = await createClient()
     const { data: employee, error: empErr } = await supabase
       .from("employees")
-      .select("id, facility_id")
+      .select("id, facility_id, user_id")
       .eq("id", employeeId)
       .maybeSingle()
     if (empErr) return { ok: false, error: empErr.message }
     if (!employee) return { ok: false, error: "Employee not found" }
+    if (!employee.user_id) {
+      return { ok: false, error: "Employee has no linked user account" }
+    }
+
+    const enabledActions = new Set(LEVEL_ACTIONS[level] ?? [])
+    const rows = ALL_ACTIONS.map((action) => ({
+      user_id: employee.user_id,
+      facility_id: employee.facility_id,
+      module_name: moduleKey,
+      action,
+      enabled: enabledActions.has(action),
+      source: "manual_override",
+    }))
 
     const { error } = await supabase
-      .from("module_permissions")
-      .upsert(
-        {
-          facility_id: employee.facility_id,
-          employee_id: employeeId,
-          module_key: moduleKey,
-          permission_level: level,
-        },
-        { onConflict: "employee_id,module_key" },
-      )
+      // user_permissions isn't in generated types yet.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .from("user_permissions" as any)
+      .upsert(rows, { onConflict: "user_id,facility_id,module_name,action" })
     if (error) return { ok: false, error: error.message }
 
     revalidatePath(`/admin/employees/${employeeId}`)
@@ -58,8 +80,9 @@ export async function setEmployeeModuleOverride(
 }
 
 /**
- * Clear the explicit override so the employee falls back through the chain
- * (role -> department -> facility -> none).
+ * Clear the explicit override by removing the employee's user_permissions rows
+ * for the module. The new model has no runtime fallback chain, so this revokes
+ * the module unless a later role-default re-seed grants it again.
  */
 export async function clearEmployeeModuleOverride(
   employeeId: string,
@@ -70,11 +93,25 @@ export async function clearEmployeeModuleOverride(
     assertValidModuleKey(moduleKey)
 
     const supabase = await createClient()
+    const { data: employee, error: empErr } = await supabase
+      .from("employees")
+      .select("id, facility_id, user_id")
+      .eq("id", employeeId)
+      .maybeSingle()
+    if (empErr) return { ok: false, error: empErr.message }
+    if (!employee) return { ok: false, error: "Employee not found" }
+    if (!employee.user_id) {
+      return { ok: false, error: "Employee has no linked user account" }
+    }
+
     const { error } = await supabase
-      .from("module_permissions")
+      // user_permissions isn't in generated types yet.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .from("user_permissions" as any)
       .delete()
-      .eq("employee_id", employeeId)
-      .eq("module_key", moduleKey)
+      .eq("user_id", employee.user_id)
+      .eq("facility_id", employee.facility_id)
+      .eq("module_name", moduleKey)
     if (error) return { ok: false, error: error.message }
 
     revalidatePath(`/admin/employees/${employeeId}`)

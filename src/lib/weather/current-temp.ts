@@ -1,5 +1,7 @@
 import "server-only"
 
+import { fToC } from "@/lib/units"
+
 export type CurrentTemp = {
   tempF: number
   tempC: number
@@ -85,7 +87,7 @@ export async function getCurrentTempForFacility(
     }
     const tempF = json.current?.temperature_2m
     if (typeof tempF !== "number") return null
-    const tempC = ((tempF - 32) * 5) / 9
+    const tempC = fToC(tempF)
     return {
       tempF,
       tempC,

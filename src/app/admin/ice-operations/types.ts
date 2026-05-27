@@ -1,6 +1,7 @@
 // Local types for the Ice Operations admin module.
 // Row types come from generated Supabase types; we layer composite shapes here.
 
+import { cToF } from "@/lib/units"
 import type { Tables } from "@/types/database"
 
 export type SettingsRow = Tables<"ice_operations_settings">
@@ -243,6 +244,5 @@ export function formatTemp(
 ): string {
   if (celsius === null) return "—"
   if (unit === "C") return `${celsius.toFixed(1)} °C`
-  const f = (celsius * 9) / 5 + 32
-  return `${f.toFixed(1)} °F`
+  return `${cToF(celsius).toFixed(1)} °F`
 }
