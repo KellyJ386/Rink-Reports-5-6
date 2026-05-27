@@ -302,7 +302,14 @@ on conflict (employee_id, module_key) do nothing;
 -- ---------------------------------------------------------------------------
 reset role;
 set local role authenticated;
+-- Impersonate Alice. Set BOTH the plural `request.jwt.claims` (read by the
+-- hosted/newer auth.uid()) and the singular `request.jwt.claim.sub` (read by
+-- older Supabase-CLI local stacks whose auth.uid() does NOT fall back to the
+-- plural JSON). Without the singular form, auth.uid() resolves to NULL on those
+-- stacks, current_facility_id() returns NULL, and every own-facility positive
+-- assertion below reads 0 rows while the cross-facility negatives pass trivially.
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
 
 -- Alice sees her own employee row but not Bob's.
 select pg_temp.expect_count(
