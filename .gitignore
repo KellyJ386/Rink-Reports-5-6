@@ -50,6 +50,9 @@ secrets/
 # vercel
 .vercel
 
+# claude code local state (agent worktrees, local settings)
+.claude/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
