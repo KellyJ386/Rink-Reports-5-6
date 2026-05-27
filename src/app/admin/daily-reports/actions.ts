@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
+import { checklistImportSpec } from "./_components/checklist-import"
 import type { ActionState, SimpleResult } from "./types"
 
 type SupabaseError = { code?: string; message?: string } | null
@@ -417,53 +419,74 @@ export async function createChecklistItem(
   }
 }
 
-export async function bulkCreateChecklistItems(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
+type ChecklistImportRow = { label: string; description?: string }
+
+export async function importDailyChecklistItems(
+  templateId: string,
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
   try {
     await requireAdmin()
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
+    if (!templateId) return { ok: false, error: "Template is required." }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
 
-    const template_id = nonEmpty(formData.get("template_id"))
-    if (!template_id) return { ok: false, error: "Template is required." }
-    const raw = nonEmpty(formData.get("labels"))
-    if (!raw) return { ok: false, error: "Enter at least one label." }
-
-    const labels = raw
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0)
-    if (labels.length === 0) {
-      return { ok: false, error: "Enter at least one label." }
+    // Re-validate every row server-side; never trust the client payload.
+    const parsed: ChecklistImportRow[] = []
+    for (const r of rows) {
+      const res = checklistImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
+      }
+      parsed.push(res.data as ChecklistImportRow)
     }
 
     const supabase = await createClient()
+
+    // The template must belong to the caller's facility.
+    const { data: tmpl } = await supabase
+      .from("daily_report_templates")
+      .select("id")
+      .eq("id", templateId)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (!tmpl) return { ok: false, error: "Template not found." }
+
     const { data: maxRow } = await supabase
       .from("daily_report_checklist_items")
       .select("sort_order")
-      .eq("template_id", template_id)
+      .eq("template_id", templateId)
       .order("sort_order", { ascending: false })
       .limit(1)
       .maybeSingle()
     const start = (maxRow?.sort_order ?? -1) + 1
 
-    const rows = labels.map((label, i) => ({
+    const insertRows = parsed.map((row, i) => ({
       facility_id: facility.facilityId,
-      template_id,
-      label,
+      template_id: templateId,
+      label: row.label,
+      description: row.description ?? null,
       sort_order: start + i,
     }))
 
     const { error } = await supabase
       .from("daily_report_checklist_items")
-      .insert(rows)
+      .insert(insertRows)
     if (error) {
-      return { ok: false, error: dbError(error, "Failed to add items.") }
+      return { ok: false, error: dbError(error, "Failed to import items.") }
     }
     revalidatePath("/admin/daily-reports")
-    return { ok: true, message: `Added ${rows.length} item(s).` }
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} item(s).`,
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }

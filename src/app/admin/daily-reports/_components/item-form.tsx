@@ -15,11 +15,7 @@ import {
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 
-import {
-  bulkCreateChecklistItems,
-  createChecklistItem,
-  updateChecklistItem,
-} from "../actions"
+import { createChecklistItem, updateChecklistItem } from "../actions"
 import type { ActionState, ChecklistItemRow } from "../types"
 
 const INITIAL: ActionState = { ok: null }
@@ -28,17 +24,14 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   templateId: string
-  /** When set, opens edit mode. When null + bulk=false, single create. When null + bulk=true, bulk create. */
+  /** When set, opens edit mode; otherwise single create. */
   editing: ChecklistItemRow | null
-  bulk?: boolean
 }
 
 export function ItemForm(props: Props) {
   const formKey = props.editing
     ? `edit:${props.editing.id}`
-    : props.bulk
-      ? `bulk:${props.templateId}`
-      : `new:${props.templateId}`
+    : `new:${props.templateId}`
   return (
     <Sheet open={props.open} onOpenChange={props.onOpenChange}>
       <SheetContent
@@ -51,9 +44,8 @@ export function ItemForm(props: Props) {
   )
 }
 
-function ItemFormBody({ onOpenChange, templateId, editing, bulk }: Props) {
+function ItemFormBody({ onOpenChange, templateId, editing }: Props) {
   const isEdit = editing !== null
-  const isBulk = !isEdit && !!bulk
 
   const [createState, createAction, createPending] = useActionState(
     createChecklistItem,
@@ -63,14 +55,10 @@ function ItemFormBody({ onOpenChange, templateId, editing, bulk }: Props) {
     updateChecklistItem,
     INITIAL,
   )
-  const [bulkState, bulkAction, bulkPending] = useActionState(
-    bulkCreateChecklistItems,
-    INITIAL,
-  )
 
-  const state = isEdit ? updateState : isBulk ? bulkState : createState
-  const action = isEdit ? updateAction : isBulk ? bulkAction : createAction
-  const pending = isEdit ? updatePending : isBulk ? bulkPending : createPending
+  const state = isEdit ? updateState : createState
+  const action = isEdit ? updateAction : createAction
+  const pending = isEdit ? updatePending : createPending
 
   useEffect(() => {
     if (state && "ok" in state && state.ok === true) {
@@ -80,51 +68,6 @@ function ItemFormBody({ onOpenChange, templateId, editing, bulk }: Props) {
 
   const errorMsg =
     state && "ok" in state && state.ok === false ? state.error : null
-
-  if (isBulk) {
-    return (
-      <>
-        <SheetHeader>
-          <SheetTitle>Bulk add items</SheetTitle>
-          <SheetDescription>
-            One label per line. Empty lines are ignored. Items are appended in
-            order to the end of the list.
-          </SheetDescription>
-        </SheetHeader>
-        <form action={action} className="flex flex-col gap-4">
-          <input type="hidden" name="template_id" value={templateId} />
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="labels">Labels<RequiredMark /></Label>
-            <Textarea
-              id="labels"
-              name="labels"
-              required
-              rows={10}
-              placeholder={"Inspect ice surface\nCheck ice resurfacer levels\nLog temperature"}
-            />
-          </div>
-          {errorMsg && (
-            <p role="alert" className="text-destructive text-sm">
-              {errorMsg}
-            </p>
-          )}
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={pending}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? "Adding…" : "Add items"}
-            </Button>
-          </div>
-        </form>
-      </>
-    )
-  }
 
   return (
     <>
