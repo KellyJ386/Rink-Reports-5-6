@@ -1,9 +1,14 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState, useEffect, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import {
+  BulkUploadPanel,
+  type ImportSchema,
+} from "@/components/admin/bulk-upload"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,6 +37,7 @@ import {
   deleteLocation,
   deleteReadingType,
   deleteThreshold,
+  importReadingTypes,
   moveReadingType,
   setEquipmentActive,
   setLocationActive,
@@ -55,6 +61,7 @@ import type {
 } from "../types"
 import { SEVERITIES } from "../types"
 
+import { readingTypeImportSpec } from "./reading-types-import"
 import { SeedDefaultsCard } from "./seed-defaults-card"
 
 const NULL_STATE: ActionState = { ok: null }
@@ -585,14 +592,31 @@ function ReadingTypesCard({
   thresholds: ThresholdRow[]
   locations: LocationRow[]
 }) {
+  const router = useRouter()
+  const importSchema = useMemo<ImportSchema>(
+    () => ({
+      ...readingTypeImportSpec,
+      onImport: (rows) => importReadingTypes(rows),
+    }),
+    [],
+  )
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Reading types ({readingTypes.length})</CardTitle>
-        <p className="text-muted-foreground text-sm">
-          Reading types apply across all locations. Thresholds can be
-          facility-wide or scoped to a single location.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle>Reading types ({readingTypes.length})</CardTitle>
+            <p className="text-muted-foreground text-sm">
+              Reading types apply across all locations. Thresholds can be
+              facility-wide or scoped to a single location.
+            </p>
+          </div>
+          <BulkUploadPanel
+            schema={importSchema}
+            triggerLabel="Bulk upload reading types"
+            onImported={() => router.refresh()}
+          />
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {readingTypes.length === 0 ? (
