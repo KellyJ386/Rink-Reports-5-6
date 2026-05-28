@@ -8,10 +8,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
+import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-import { cn } from "@/lib/utils"
 
 import { ComplianceTab } from "./_components/compliance-tab"
 import { HistoryTab } from "./_components/history-tab"
@@ -120,38 +121,21 @@ export default async function AirQualityAdminPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Air Quality</h1>
-        <p className="text-muted-foreground text-sm">
-          Configure locations, equipment, reading types, thresholds, and
-          compliance rules. Review submitted reports and add follow-up notes.
-          Original reports are immutable.
-        </p>
-      </div>
-      <ExportButton moduleKey="air_quality" />
-    </div>
+    <PageHeader
+      title="Air Quality"
+      description="Configure locations, equipment, reading types, thresholds, and compliance rules. Review submitted reports and add follow-up notes. Original reports are immutable."
+      actions={<ExportButton moduleKey="air_quality" />}
+    />
   )
 }
 
 function TabBar({ active }: { active: Tab }) {
   return (
-    <nav className="flex flex-wrap items-center gap-1 rounded-md border p-1">
-      {TABS.map((t) => (
-        <Link
-          key={t.key}
-          href={tabHref(t.key)}
-          className={cn(
-            "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-            active === t.key
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
+    <TabNav
+      ariaLabel="Air quality sections"
+      activeHref={tabHref(active)}
+      items={TABS.map((t) => ({ label: t.label, href: tabHref(t.key) }))}
+    />
   )
 }
 
