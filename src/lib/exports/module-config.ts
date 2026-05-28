@@ -252,7 +252,7 @@ const buildAccidentReports: ModuleBuilder = async ({ sb, facilityId, range, sett
     subIds.length
       ? sb
           .from("accident_body_part_selections")
-          .select("accident_id, body_part_dropdown_id, side")
+          .select("accident_id, body_part_dropdown_id, side, laterality")
           .in("accident_id", subIds)
       : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
     subIds.length
@@ -273,10 +273,18 @@ const buildAccidentReports: ModuleBuilder = async ({ sb, facilityId, range, sett
     accident_id: string
     body_part_dropdown_id: string
     side: string
+    laterality: string | null
   }>) {
     const label = dropLabel.get(p.body_part_dropdown_id)
     if (!label) continue
-    const display = p.side && p.side !== "none" ? `${label} (${p.side})` : label
+    const latPrefix =
+      p.laterality === "left"
+        ? "Left "
+        : p.laterality === "right"
+          ? "Right "
+          : ""
+    const full = `${latPrefix}${label}`
+    const display = p.side && p.side !== "none" ? `${full} (${p.side})` : full
     const arr = partsByReport.get(p.accident_id) ?? []
     arr.push(display)
     partsByReport.set(p.accident_id, arr)

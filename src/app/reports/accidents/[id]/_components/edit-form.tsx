@@ -8,12 +8,16 @@ import { toast } from "sonner"
 import { FormError } from "@/components/auth/form-error"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
+  BODY_PART_KEYS,
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
   isBodySide,
+  isLaterality,
+  isPairedBodyPartKey,
   type BodyPartKey,
   type BodySelections,
-  type BodySide,
+  type Laterality,
+  type RegionSelection,
 } from "@/components/staff/body-diagram/types"
 import { Button } from "@/components/ui/button"
 import { FieldError } from "@/components/ui/field-error"
@@ -54,6 +58,7 @@ type InitialReport = {
 type InitialBodyPart = {
   body_part_dropdown_id: string
   side: string
+  laterality: string | null
 }
 
 type InitialWitness = {
@@ -104,11 +109,37 @@ function buildInitialSelections(
   for (const bp of bodyParts) {
     if (isBodyPartKey(bp.key)) idToKey.set(bp.id, bp.key)
   }
-  const out: BodySelections = { ...EMPTY_BODY_SELECTIONS }
+  const out: BodySelections = {
+    ...EMPTY_BODY_SELECTIONS,
+    shoulders: { ...EMPTY_BODY_SELECTIONS.shoulders },
+    arms: { ...EMPTY_BODY_SELECTIONS.arms },
+    elbows: { ...EMPTY_BODY_SELECTIONS.elbows },
+    wrists: { ...EMPTY_BODY_SELECTIONS.wrists },
+    hands: { ...EMPTY_BODY_SELECTIONS.hands },
+    fingers: { ...EMPTY_BODY_SELECTIONS.fingers },
+    upper_legs: { ...EMPTY_BODY_SELECTIONS.upper_legs },
+    knees: { ...EMPTY_BODY_SELECTIONS.knees },
+    lower_legs: { ...EMPTY_BODY_SELECTIONS.lower_legs },
+    ankles: { ...EMPTY_BODY_SELECTIONS.ankles },
+    feet: { ...EMPTY_BODY_SELECTIONS.feet },
+  }
   for (const row of initial) {
     const key = idToKey.get(row.body_part_dropdown_id)
     if (!key) continue
-    if (isBodySide(row.side) && row.side !== "none") {
+    if (!isBodySide(row.side) || row.side === "none") continue
+    if (isPairedBodyPartKey(key)) {
+      const lat: Laterality | null =
+        row.laterality && isLaterality(row.laterality) ? row.laterality : null
+      const paired = out[key]
+      if (lat) {
+        paired[lat] = row.side
+      } else {
+        // Legacy row with no laterality: apply to both sides (matches the
+        // pre-split rendering of paired regions).
+        paired.left = row.side
+        paired.right = row.side
+      }
+    } else {
       out[key] = row.side
     }
   }
@@ -210,15 +241,38 @@ export function EditForm({
   const bodyPartsJson = useMemo(() => {
     const entries: Array<{
       body_part_dropdown_id: string
-      side: BodySide
+      side: "front" | "back" | "both"
+      laterality: "left" | "right" | null
     }> = []
-    for (const [key, side] of Object.entries(selections) as Array<
-      [BodyPartKey, BodySide]
-    >) {
-      if (side === "none") continue
+    for (const key of BODY_PART_KEYS) {
       const id = bodyPartIdMap[key]
       if (!id) continue
-      entries.push({ body_part_dropdown_id: id, side })
+      if (isPairedBodyPartKey(key)) {
+        const paired = selections[key]
+        if (paired.left !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side: paired.left,
+            laterality: "left",
+          })
+        }
+        if (paired.right !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side: paired.right,
+            laterality: "right",
+          })
+        }
+      } else {
+        const side = selections[key]
+        if (side !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side,
+            laterality: null,
+          })
+        }
+      }
     }
     return JSON.stringify(entries)
   }, [selections, bodyPartIdMap])
@@ -234,8 +288,11 @@ export function EditForm({
     return JSON.stringify(cleaned)
   }, [witnesses])
 
-  const handleSelectionChange = (key: BodyPartKey, side: BodySide) => {
-    setSelections((prev) => ({ ...prev, [key]: side }))
+  const handleSelectionChange = (
+    key: BodyPartKey,
+    value: RegionSelection
+  ) => {
+    setSelections((prev) => ({ ...prev, [key]: value }))
   }
 
   const addWitness = () =>
