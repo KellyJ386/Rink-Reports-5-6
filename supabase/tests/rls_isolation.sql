@@ -66,6 +66,24 @@ begin
 end;
 $$;
 
+create or replace function pg_temp.expect_ok(
+  p_query text,
+  p_label text
+) returns void
+language plpgsql
+as $$
+begin
+  begin
+    execute p_query;
+    raise notice 'ok: %', p_label;
+  exception when others then
+    insert into _rls_failures (msg)
+    values (format('FAIL: %s — expected success but errored (%s): %s',
+                   p_label, sqlerrm, p_query));
+  end;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 1. Fixture: two facilities with one employee each, one routing rule each.
 -- ---------------------------------------------------------------------------
@@ -280,6 +298,64 @@ values
    'eap.pdf')
 on conflict (id) do nothing;
 
+-- Daily Reports per-area submit boundary (migration 89, has_area_submit_access):
+-- two areas in facility A (alice granted can_submit on one, not the other) plus
+-- one in facility B, each with a template so a submission INSERT has a valid
+-- target. The daily_report_submissions INSERT policy ANDs has_area_submit_access
+-- onto the module-level submit check, so a module-submitter can only write to an
+-- area they hold can_submit on.
+insert into public.daily_report_areas (id, facility_id, name, slug, sort_order, is_active)
+values
+  ('aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+   '11111111-1111-1111-1111-111111111111', 'Granted Area', 'granted-area', 1, true),
+  ('aaaa1111-da02-aaaa-aaaa-aaaa11110012',
+   '11111111-1111-1111-1111-111111111111', 'No-Grant Area', 'nogrant-area', 2, true),
+  ('bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+   '22222222-2222-2222-2222-222222222222', 'B Area', 'b-area', 1, true)
+on conflict (id) do nothing;
+
+insert into public.daily_report_templates (id, facility_id, area_id, name)
+values
+  ('aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011', 'Granted Template'),
+  ('aaaa1111-d702-aaaa-aaaa-aaaa11110014',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-da02-aaaa-aaaa-aaaa11110012', 'No-Grant Template'),
+  ('bbbb2222-d701-bbbb-bbbb-bbbb22220012',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-db01-bbbb-bbbb-bbbb22220011', 'B Template')
+on conflict (id) do nothing;
+
+-- Alice gets can_submit on the granted area only.
+insert into public.module_area_permissions
+  (facility_id, employee_id, module_key, area_id, can_view, can_submit)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'daily_reports', 'aaaa1111-da01-aaaa-aaaa-aaaa11110011', true, true)
+on conflict (employee_id, module_key, area_id) do nothing;
+
+-- The ice_depth config-table SELECT policies (settings/rinks/layouts/points)
+-- gate on the legacy public.has_module_access('ice_depth') helper, which reads
+-- module_permissions.can_view -- NOT the user_permissions grid seeded above.
+-- (has_module_access was not migrated to the new resolver in migration 77.)
+-- Seed Alice module_permissions rows so the positive own-facility SELECTs below
+-- exercise real facility scoping rather than a blanket module-access denial.
+-- This covers every legacy-helper-gated table the positive assertions touch:
+--   ice_depth        -> ice_depth config tables
+--   communications   -> communication_routing_rules, communication_groups
+--   ice_operations   -> ice_operations_fuel_types (+ templates/items)
+-- can_admin stays false, so admin-only writes (insert into facility B) remain denied.
+insert into public.module_permissions (facility_id, employee_id, module_key, can_view)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'communications', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_operations', true)
+on conflict (employee_id, module_key) do nothing;
 -- NOTE (migration 90): The config-table SELECT policies (ice_depth, communications,
 -- ice_operations, refrigeration, ...) gate on public.has_module_access(<module>).
 -- BEFORE migration 90 that helper read the deprecated module_permissions.can_view
@@ -597,6 +673,35 @@ select pg_temp.expect_count(
   $$select count(*) from public.audit_logs
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT audit_logs from facility B');
+
+-- ---------------------------------------------------------------------------
+-- Daily Reports per-area submit boundary (migration 89, has_area_submit_access).
+-- Alice holds module-level daily submit (seeded above) but per-area can_submit
+-- only on the granted area, so the area check is the deciding factor.
+-- ---------------------------------------------------------------------------
+-- Cross-facility: alice cannot submit into facility B's area.
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submissions (facility_id, area_id, template_id)
+    values ('22222222-2222-2222-2222-222222222222',
+            'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+            'bbbb2222-d701-bbbb-bbbb-bbbb22220012')$$,
+  'daily: alice CANNOT submit into facility B area (cross-facility)');
+
+-- Same-facility, no per-area grant: module submit is not enough on its own.
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submissions (facility_id, area_id, template_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da02-aaaa-aaaa-aaaa11110012',
+            'aaaa1111-d702-aaaa-aaaa-aaaa11110014')$$,
+  'daily: alice CANNOT submit into own-facility area without a can_submit grant');
+
+-- Granted area: the insert is allowed.
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions (facility_id, area_id, template_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013')$$,
+  'daily: alice CAN submit into own-facility area she is granted');
 
 -- INSERT into facility B should fail. The user_permissions write policy
 -- (migration 77) restricts to super_admin or facility admin; alice is neither.
