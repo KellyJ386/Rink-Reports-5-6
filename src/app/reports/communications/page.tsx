@@ -1,6 +1,8 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -8,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { signPdfUrl } from "@/lib/notifications/pdf/upload"
 import { createClient } from "@/lib/supabase/server"
@@ -62,14 +65,12 @@ function NotAvailable({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Communications
-        </p>
-      </div>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Communications" },
+        ]}
+      />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -176,21 +177,16 @@ export default async function CommunicationsInboxPage({
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link href="/reports" className="hover:underline">
-              Reports
-            </Link>{" "}
-            /{" "}
-            <Link
-              href="/reports/communications?inbox=alerts"
-              className="hover:underline"
-            >
-              Communications
-            </Link>{" "}
-            / Alert
-          </p>
-        </div>
+        <Breadcrumb
+          segments={[
+            { label: "Reports", href: "/reports" },
+            {
+              label: "Communications",
+              href: "/reports/communications?inbox=alerts",
+            },
+            { label: "Alert" },
+          ]}
+        />
 
         <Card>
           <CardHeader>
@@ -260,12 +256,11 @@ export default async function CommunicationsInboxPage({
         ) : null}
 
         <div>
-          <Link
-            href="/reports/communications?inbox=alerts"
-            className="inline-flex h-11 items-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"
-          >
-            Back to inbox
-          </Link>
+          <Button asChild variant="outline">
+            <Link href="/reports/communications?inbox=alerts">
+              Back to inbox
+            </Link>
+          </Button>
         </div>
       </div>
     )
@@ -336,21 +331,16 @@ export default async function CommunicationsInboxPage({
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link href="/reports" className="hover:underline">
-              Reports
-            </Link>{" "}
-            /{" "}
-            <Link
-              href="/reports/communications?inbox=messages"
-              className="hover:underline"
-            >
-              Communications
-            </Link>{" "}
-            / Message
-          </p>
-        </div>
+        <Breadcrumb
+          segments={[
+            { label: "Reports", href: "/reports" },
+            {
+              label: "Communications",
+              href: "/reports/communications?inbox=messages",
+            },
+            { label: "Message" },
+          ]}
+        />
 
         <MessageDetail
           message={{
@@ -487,28 +477,28 @@ export default async function CommunicationsInboxPage({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link href="/reports" className="hover:underline">
-              Reports
-            </Link>{" "}
-            / Communications
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Inbox</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Alerts and messages for your facility.
-          </p>
-        </div>
-        {canSubmit ? (
-          <Link
-            href="/reports/communications/compose"
-            className="inline-flex h-11 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
-          >
-            New message
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        variant="display"
+        module="comms"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Communications" },
+            ]}
+          />
+        }
+        eyebrow="Inbox"
+        title="Communications"
+        description="Alerts and messages for your facility."
+        actions={
+          canSubmit ? (
+            <Button asChild>
+              <Link href="/reports/communications/compose">New message</Link>
+            </Button>
+          ) : null
+        }
+      />
 
       <InboxTabs
         active={tab}
