@@ -191,6 +191,10 @@ on conflict (facility_id, role_id, module_name, action) do nothing;
 -- this grant, expect_count() / expect_error() lose their ability to log
 -- failures and silently mask everything as "ok".
 grant insert, select on _rls_failures to authenticated;
+-- The RL block below runs assertions under the anon role; without this grant
+-- expect_count()/expect_error() lose the ability to log failures and silently
+-- mask everything as "ok".
+grant insert, select on _rls_failures to anon;
 
 -- An offline_sync_queue row in each facility so cross-facility checks have
 -- non-empty targets (mig 31 + test for migration 59 follow-up isolation).
@@ -821,6 +825,101 @@ select pg_temp.expect_count(
      where requires_acknowledgement = false$$,
   1,
   'M6: drained message from opt-out rule has requires_acknowledgement=false');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- RL: rate limiting (migration 92).
+--
+-- The public lead form (src/app/api/information-requests/route.ts) calls
+-- public.check_rate_limit() via the anon client. Verify:
+--   (a) anon CAN call the function and is blocked after p_max within a window;
+--   (b) anon CANNOT touch public.rate_limit_counters directly (RLS enabled,
+--       no policies — reachable only through the SECURITY DEFINER function).
+-- ---------------------------------------------------------------------------
+reset role;
+set local role anon;
+
+-- (a) First p_max (=3) calls in a fresh window are allowed; the next is blocked.
+-- A unique identifier keeps this independent of any other test's hits.
+select pg_temp.expect_count(
+  $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
+      then 1 else 0 end$$,
+  1, 'RL: anon call #1 allowed');
+select pg_temp.expect_count(
+  $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
+      then 1 else 0 end$$,
+  1, 'RL: anon call #2 allowed');
+select pg_temp.expect_count(
+  $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
+      then 1 else 0 end$$,
+  1, 'RL: anon call #3 allowed (at the cap)');
+select pg_temp.expect_count(
+  $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
+      then 1 else 0 end$$,
+  0, 'RL: anon call #4 BLOCKED (over the cap)');
+
+-- (b) anon cannot read or write the counters table directly. RLS is enabled
+-- with no policies, so SELECT returns 0 rows (no error) and INSERT is blocked.
+select pg_temp.expect_count(
+  $$select count(*) from public.rate_limit_counters$$,
+  0, 'RL: anon CANNOT SELECT rate_limit_counters directly (no policy)');
+
+select pg_temp.expect_error(
+  $$insert into public.rate_limit_counters
+      (bucket, identifier, window_start, hits)
+    values ('rls_test', 'forged', now(), 1)$$,
+  'RL: anon CANNOT INSERT into rate_limit_counters directly');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- AU: identity/permission audit triggers (migration 93).
+--
+-- An UPDATE to user_permissions must append a row to audit_logs via the new
+-- trg_audit_user_permissions trigger. Run as postgres (BYPASSRLS) so the
+-- update lands on a seeded row and the audit_logs read is unfiltered; the
+-- trigger function is SECURITY DEFINER and resolves facility_id from the row.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Baseline: how many audit rows already exist for user_permissions updates in
+-- facility A. The fixture seeds several user_permissions rows; flip one and
+-- assert the audit row count grows by exactly one.
+do $$
+declare
+  v_before int;
+  v_after  int;
+begin
+  select count(*) into v_before
+  from public.audit_logs
+  where entity_type = 'user_permissions'
+    and action = 'update'
+    and facility_id = '11111111-1111-1111-1111-111111111111';
+
+  update public.user_permissions
+     set enabled = enabled  -- no-op value but still fires the AFTER UPDATE trigger
+   where user_id     = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     and facility_id = '11111111-1111-1111-1111-111111111111'
+     and module_name = 'daily_reports'
+     and action      = 'view';
+
+  select count(*) into v_after
+  from public.audit_logs
+  where entity_type = 'user_permissions'
+    and action = 'update'
+    and facility_id = '11111111-1111-1111-1111-111111111111';
+
+  if v_after = v_before + 1 then
+    raise notice 'ok: AU: user_permissions UPDATE wrote one audit_logs row';
+  else
+    insert into _rls_failures (msg)
+    values (format(
+      'FAIL: AU: user_permissions UPDATE audit — expected %s, got %s',
+      v_before + 1, v_after));
+  end if;
+end$$;
 
 reset role;
 

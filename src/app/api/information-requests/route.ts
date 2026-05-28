@@ -37,6 +37,27 @@ function clean(value: unknown, max: number): string {
   return value.trim().slice(0, max)
 }
 
+// IP-based rate limiting for this PUBLIC, unauthenticated endpoint. Postgres
+// backs the counter (no Redis/KV in this stack) via the SECURITY DEFINER
+// public.check_rate_limit() function added in migration 92.
+const RATE_LIMIT_BUCKET = "information_requests"
+const RATE_LIMIT_MAX = 5 // requests allowed per IP per window
+const RATE_LIMIT_WINDOW_SECONDS = 600 // 10 minutes
+
+// Vercel sets x-forwarded-for; the client IP is the first comma-separated
+// entry. Fall back to a stable sentinel so a missing header still rate-limits
+// (shared bucket) rather than bypassing the check entirely.
+function clientIp(request: NextRequest): string {
+  const forwarded = request.headers.get("x-forwarded-for")
+  if (forwarded) {
+    const first = forwarded.split(",")[0]?.trim()
+    if (first) return first
+  }
+  const realIp = request.headers.get("x-real-ip")?.trim()
+  if (realIp) return realIp
+  return "unknown"
+}
+
 export async function POST(request: NextRequest) {
   let body: RequestBody
   try {
@@ -65,6 +86,35 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient()
+
+  // Rate-limit by client IP before touching the table. Fail OPEN if the RPC
+  // itself errors (infra blip) so legit users aren't blocked, but log it.
+  const ip = clientIp(request)
+  // check_rate_limit is not in the generated DB types (added in migration 92),
+  // mirroring the as-any pattern used for information_requests below.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: allowed, error: rateError } = await (supabase as any).rpc(
+    "check_rate_limit",
+    {
+      p_bucket: RATE_LIMIT_BUCKET,
+      p_identifier: ip,
+      p_max: RATE_LIMIT_MAX,
+      p_window_seconds: RATE_LIMIT_WINDOW_SECONDS,
+    }
+  )
+
+  if (rateError) {
+    console.error("information-requests: rate limit check failed", rateError)
+    // Fail open: continue to the insert.
+  } else if (allowed === false) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again in a few minutes." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(RATE_LIMIT_WINDOW_SECONDS) },
+      }
+    )
+  }
 
   // The `information_requests` table is not yet in the generated DB types,
   // mirroring the pattern used in src/app/api/offline-sync/route.ts.
