@@ -1,6 +1,5 @@
-import Link from "next/link"
-
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardContent,
@@ -8,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -52,19 +52,22 @@ export default async function DailyReportsAreaPickerPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <div className="flex items-baseline justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link href="/reports" className="hover:underline">
-              Reports
-            </Link>{" "}
-            / Daily Reports
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            Pick an area
-          </h1>
-        </div>
-      </div>
+      <PageHeader
+        variant="display"
+        module="daily"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Daily Reports" },
+            ]}
+          />
+        }
+        eyebrow="Staff report"
+        title="Pick an area"
+        description="Choose an area to submit today's daily report."
+      />
+
 
       {accessible.length === 0 ? (
         <Card>

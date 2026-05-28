@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -152,12 +153,9 @@ export default async function DataRetentionPage() {
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Data Retention</h1>
-      <p className="text-muted-foreground text-sm">
-        Configure how long submitted data is stored for each module. All
-        periods are measured from the record&apos;s submission date.
-      </p>
-    </div>
+    <PageHeader
+      title="Data Retention"
+      description="Configure how long submitted data is stored for each module. All periods are measured from the record's submission date."
+    />
   )
 }

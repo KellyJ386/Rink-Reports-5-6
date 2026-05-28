@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { type PermissionLevel } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
@@ -192,11 +193,9 @@ export default async function RolesPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Roles</h1>
-      <p className="text-muted-foreground text-sm">
-        Manage facility roles and the permission defaults each role grants.
-      </p>
-    </div>
+    <PageHeader
+      title="Roles"
+      description="Manage facility roles and the permission defaults each role grants."
+    />
   )
 }

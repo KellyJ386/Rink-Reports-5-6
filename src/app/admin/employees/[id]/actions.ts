@@ -53,10 +53,11 @@ export async function setEmployeeModuleOverride(
     if (!employee.user_id) {
       return { ok: false, error: "Employee has no linked user account" }
     }
+    const userId = employee.user_id
 
     const enabledActions = new Set(LEVEL_ACTIONS[level] ?? [])
     const rows = ALL_ACTIONS.map((action) => ({
-      user_id: employee.user_id,
+      user_id: userId,
       facility_id: employee.facility_id,
       module_name: moduleKey,
       action,
@@ -65,9 +66,7 @@ export async function setEmployeeModuleOverride(
     }))
 
     const { error } = await supabase
-      // user_permissions isn't in generated types yet.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("user_permissions" as any)
+      .from("user_permissions")
       .upsert(rows, { onConflict: "user_id,facility_id,module_name,action" })
     if (error) return { ok: false, error: error.message }
 
@@ -105,9 +104,7 @@ export async function clearEmployeeModuleOverride(
     }
 
     const { error } = await supabase
-      // user_permissions isn't in generated types yet.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("user_permissions" as any)
+      .from("user_permissions")
       .delete()
       .eq("user_id", employee.user_id)
       .eq("facility_id", employee.facility_id)

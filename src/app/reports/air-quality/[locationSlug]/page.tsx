@@ -1,7 +1,7 @@
-import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardContent,
@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
@@ -36,17 +37,12 @@ function NotAvailable({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          /{" "}
-          <Link href="/reports/air-quality" className="hover:underline">
-            Air Quality
-          </Link>
-        </p>
-      </div>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Air Quality", href: "/reports/air-quality" },
+        ]}
+      />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -217,25 +213,22 @@ export default async function AirQualityLocationPage({
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          /{" "}
-          <Link href="/reports/air-quality" className="hover:underline">
-            Air Quality
-          </Link>{" "}
-          / {location.name}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          {location.name}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Submitting as {fullName || "you"}. After you submit, the report
-          can&apos;t be edited.
-        </p>
-      </div>
+      <PageHeader
+        variant="display"
+        module="air"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Air Quality", href: "/reports/air-quality" },
+              { label: location.name },
+            ]}
+          />
+        }
+        eyebrow="Air quality reading"
+        title={location.name}
+        description={`Submitting as ${fullName || "you"}. After you submit, the report can't be edited.`}
+      />
 
       <SubmissionForm
         locationId={location.id}

@@ -1,21 +1,29 @@
 "use client"
 
-import { useId } from "react"
+import { useId, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
 import {
   BODY_PART_KEYS,
   BODY_PART_LABELS,
+  EMPTY_PAIRED,
+  isPairedBodyPartKey,
+  nextSide,
+  pairedIsEmpty,
   type BodyPartKey,
   type BodySelections,
   type BodySide,
-  nextSide,
+  type Laterality,
+  type MidlineBodyPartKey,
+  type PairedBodyPartKey,
+  type PairedSelection,
+  type RegionSelection,
 } from "./types"
 
 export type BodyDiagramProps = {
   selections: BodySelections
-  onChange?: (key: BodyPartKey, side: BodySide) => void
+  onChange?: (key: BodyPartKey, value: RegionSelection) => void
   readOnly?: boolean
   className?: string
 }
@@ -23,280 +31,265 @@ export type BodyDiagramProps = {
 type ViewName = "front" | "back"
 
 const VIEW_W = 240
-const VIEW_H = 560
+const VIEW_H = 580
 
 // Cartoon-style figure built from simple primitives (rects/ellipses/circles)
-// per body part. Each region is one shape (or a small group of mirrored
-// shapes) so the entire region shares one fill on selection.
+// per body part. Paired regions (arms, legs, shoulders, …) render as TWO
+// independent groups — one per laterality — so the left and right limbs are
+// separately selectable. Midline regions (head, neck, face_jaw, torso, hips)
+// render as a single group.
 //
 // Coordinate plan (centered on x=120):
-//   head        ellipse cx=120 cy=52 rx=32 ry=38      (smiley face overlay on front only)
-//   face_jaw    lower half of head ellipse            (front only)
-//   neck        rect 110-130 y 86-108
-//   shoulders   two circles cx=72/168 cy=132 r=20
-//   torso       rounded rect x 85-155 y 116-238
-//   arms        upper arm + forearm rects on both sides
-//   elbows      two circles cx=58/182 cy=232 r=14
-//   wrists      two circles cx=58/182 cy=322 r=11
-//   hands       two rounded rects
-//   fingers     small rounded shapes at hand tips
-//   hips        rounded rect x 84-156 y 244-298
-//   upper_legs  two rects
-//   knees       two circles
-//   lower_legs  two rects
-//   ankles      two circles
-//   feet        two foot ellipses
+//   head        ellipse cx=120 cy=44 rx=30 ry=34       (smiley face overlay on front only)
+//   face_jaw    lower half of head ellipse             (front only)
+//   neck        rect 104-136 y 82-110                  (gap above + below to separate visually)
+//   shoulders   two circles cx=72/168 cy=140 r=22      (paired, independently clickable)
+//   torso       rounded rect x 85-155 y 122-244
+//   arms        upper-arm + forearm rects per side     (paired)
+//   elbows      two circles per side                   (paired)
+//   wrists      two circles per side                   (paired)
+//   hands       two rounded rects per side             (paired)
+//   fingers     two rounded rects per side             (paired)
+//   hips        rounded rect x 82-158 y 250-304
+//   upper_legs  one rect per side                      (paired)
+//   knees       one circle per side                    (paired)
+//   lower_legs  one rect per side                      (paired)
+//   ankles      one circle per side                    (paired)
+//   feet        one ellipse per side                   (paired)
 
-type RegionDef = {
-  key: BodyPartKey
+type MidlineRegion = {
+  kind: "midline"
+  key: MidlineBodyPartKey
   front?: React.ReactNode
   back?: React.ReactNode
 }
+
+type PairedRegion = {
+  kind: "paired"
+  key: PairedBodyPartKey
+  // Each side renders both on the front and back view; if a side has
+  // different geometry per view, supply both. Most regions are symmetric
+  // and reuse the same shapes for both views.
+  left: { front?: React.ReactNode; back?: React.ReactNode }
+  right: { front?: React.ReactNode; back?: React.ReactNode }
+}
+
+type RegionDef = MidlineRegion | PairedRegion
 
 function rect(
   x: number,
   y: number,
   w: number,
   h: number,
-  r = 0
+  r = 0,
+  k?: string
 ): React.ReactNode {
-  return <rect key={`${x}-${y}-${w}-${h}`} x={x} y={y} width={w} height={h} rx={r} ry={r} />
+  return (
+    <rect
+      key={k ?? `${x}-${y}-${w}-${h}`}
+      x={x}
+      y={y}
+      width={w}
+      height={h}
+      rx={r}
+      ry={r}
+    />
+  )
 }
 
-function circle(cx: number, cy: number, r: number): React.ReactNode {
-  return <circle key={`${cx}-${cy}-${r}`} cx={cx} cy={cy} r={r} />
+function circle(cx: number, cy: number, r: number, k?: string): React.ReactNode {
+  return <circle key={k ?? `${cx}-${cy}-${r}`} cx={cx} cy={cy} r={r} />
 }
 
 function ellipse(
   cx: number,
   cy: number,
   rx: number,
-  ry: number
+  ry: number,
+  k?: string
 ): React.ReactNode {
-  return <ellipse key={`e-${cx}-${cy}-${rx}-${ry}`} cx={cx} cy={cy} rx={rx} ry={ry} />
+  return (
+    <ellipse key={k ?? `e-${cx}-${cy}-${rx}-${ry}`} cx={cx} cy={cy} rx={rx} ry={ry} />
+  )
 }
 
-// Build the per-region shapes. We use the same shapes for front and back so
-// the figure stays anatomically aligned; face_jaw only exists on the front.
+// X-coordinates per side. Left in the viewer's perspective uses cx=72, which is
+// the figure's RIGHT-of-body when looking at the front view — but for the
+// purposes of this diagram we label sides from the viewer's perspective on the
+// front view (left side of the page = "left" selection). The same physical
+// pixel position on the back view corresponds to the figure's right shoulder;
+// we accept this convention as it matches what users tap on screen. Read-only
+// renderers and PDF labels report laterality as the user selected it on the
+// front view.
+const LEFT_OUTER = 54
+const RIGHT_INNER = 150
+
 function buildRegions(): RegionDef[] {
+  // Head shapes. Front excludes the lower jaw (claimed by face_jaw).
+  const HEAD_CX = 120
+  const HEAD_CY = 44
+  const HEAD_RX = 30
+  const HEAD_RY = 34
+  const HEAD_JAW_LINE = HEAD_CY // y at which we split top vs jaw
   const headFull = (
     <g>
-      <ellipse cx={120} cy={52} rx={32} ry={38} />
+      <ellipse cx={HEAD_CX} cy={HEAD_CY} rx={HEAD_RX} ry={HEAD_RY} />
     </g>
   )
-  // Front "head" excludes the lower jaw (claimed by face_jaw).
   const headTopOnly = (
     <g>
-      <path d="M120,14 a32,38 0 0 1 32,38 L88,52 a32,38 0 0 1 32,-38 Z" />
+      <path
+        d={`M${HEAD_CX},${HEAD_CY - HEAD_RY} a${HEAD_RX},${HEAD_RY} 0 0 1 ${HEAD_RX},${HEAD_RY} L${HEAD_CX - HEAD_RX},${HEAD_JAW_LINE} a${HEAD_RX},${HEAD_RY} 0 0 1 ${HEAD_RX},-${HEAD_RY} Z`}
+      />
     </g>
   )
   const faceJaw = (
     <g>
-      <path d="M88,52 L152,52 a32,38 0 0 1 -64,0 Z" />
+      <path
+        d={`M${HEAD_CX - HEAD_RX},${HEAD_JAW_LINE} L${HEAD_CX + HEAD_RX},${HEAD_JAW_LINE} a${HEAD_RX},${HEAD_RY} 0 0 1 -${HEAD_RX * 2},0 Z`}
+      />
     </g>
   )
 
+  const neckShape = <g>{rect(104, 82, 32, 28, 6, "neck")}</g>
+
+  const torsoShape = <g>{rect(85, 122, 70, 122, 14, "torso")}</g>
+  const hipsShape = <g>{rect(82, 250, 76, 54, 14, "hips")}</g>
+
+  // Paired regions: shoulder, arm (upper + forearm), elbow, wrist, hand,
+  // fingers, upper_leg, knee, lower_leg, ankle, foot. Each laterality renders
+  // the geometry for its own side.
+  const shoulderLeft = <g>{circle(72, 140, 22, "sh-l")}</g>
+  const shoulderRight = <g>{circle(168, 140, 22, "sh-r")}</g>
+
+  // Arms: upper-arm rect + forearm rect per side
+  const armLeft = (
+    <g>
+      {rect(LEFT_OUTER, 148, 36, 86, 12, "ua-l")}
+      {rect(LEFT_OUTER, 250, 36, 76, 12, "fa-l")}
+    </g>
+  )
+  const armRight = (
+    <g>
+      {rect(RIGHT_INNER, 148, 36, 86, 12, "ua-r")}
+      {rect(RIGHT_INNER, 250, 36, 76, 12, "fa-r")}
+    </g>
+  )
+
+  const elbowLeft = <g>{circle(72, 240, 16, "el-l")}</g>
+  const elbowRight = <g>{circle(168, 240, 16, "el-r")}</g>
+
+  const wristLeft = <g>{circle(72, 332, 12, "wr-l")}</g>
+  const wristRight = <g>{circle(168, 332, 12, "wr-r")}</g>
+
+  const handLeft = <g>{rect(56, 340, 32, 36, 10, "ha-l")}</g>
+  const handRight = <g>{rect(152, 340, 32, 36, 10, "ha-r")}</g>
+
+  const fingersLeft = <g>{rect(58, 374, 28, 12, 5, "fi-l")}</g>
+  const fingersRight = <g>{rect(154, 374, 28, 12, 5, "fi-r")}</g>
+
+  const upperLegLeft = <g>{rect(88, 308, 28, 96, 10, "ul-l")}</g>
+  const upperLegRight = <g>{rect(124, 308, 28, 96, 10, "ul-r")}</g>
+
+  const kneeLeft = <g>{circle(102, 412, 16, "kn-l")}</g>
+  const kneeRight = <g>{circle(138, 412, 16, "kn-r")}</g>
+
+  const lowerLegLeft = <g>{rect(90, 422, 24, 78, 10, "ll-l")}</g>
+  const lowerLegRight = <g>{rect(126, 422, 24, 78, 10, "ll-r")}</g>
+
+  const ankleLeft = <g>{circle(102, 506, 11, "an-l")}</g>
+  const ankleRight = <g>{circle(138, 506, 11, "an-r")}</g>
+
+  const footLeft = <g>{ellipse(102, 530, 18, 14, "ft-l")}</g>
+  const footRight = <g>{ellipse(138, 530, 18, 14, "ft-r")}</g>
+
   return [
-    { key: "head", front: headTopOnly, back: headFull },
-    { key: "face_jaw", front: faceJaw },
+    { kind: "midline", key: "head", front: headTopOnly, back: headFull },
+    { kind: "midline", key: "face_jaw", front: faceJaw },
+    { kind: "midline", key: "neck", front: neckShape, back: neckShape },
     {
-      key: "neck",
-      front: <g>{rect(108, 88, 24, 20, 4)}</g>,
-      back: <g>{rect(108, 88, 24, 20, 4)}</g>,
-    },
-    {
+      kind: "paired",
       key: "shoulders",
-      front: (
-        <g>
-          {circle(72, 132, 20)}
-          {circle(168, 132, 20)}
-        </g>
-      ),
-      back: (
-        <g>
-          {circle(72, 132, 20)}
-          {circle(168, 132, 20)}
-        </g>
-      ),
+      left: { front: shoulderLeft, back: shoulderLeft },
+      right: { front: shoulderRight, back: shoulderRight },
     },
+    { kind: "midline", key: "torso", front: torsoShape, back: torsoShape },
     {
-      key: "torso",
-      front: <g>{rect(85, 116, 70, 122, 14)}</g>,
-      back: <g>{rect(85, 116, 70, 122, 14)}</g>,
-    },
-    {
+      kind: "paired",
       key: "arms",
-      // Upper arm + forearm (elbow/wrist are separate joints)
-      front: (
-        <g>
-          {rect(54, 138, 36, 86, 12)}
-          {rect(54, 240, 36, 76, 12)}
-          {rect(150, 138, 36, 86, 12)}
-          {rect(150, 240, 36, 76, 12)}
-        </g>
-      ),
-      back: (
-        <g>
-          {rect(54, 138, 36, 86, 12)}
-          {rect(54, 240, 36, 76, 12)}
-          {rect(150, 138, 36, 86, 12)}
-          {rect(150, 240, 36, 76, 12)}
-        </g>
-      ),
+      left: { front: armLeft, back: armLeft },
+      right: { front: armRight, back: armRight },
     },
     {
+      kind: "paired",
       key: "elbows",
-      front: (
-        <g>
-          {circle(72, 230, 16)}
-          {circle(168, 230, 16)}
-        </g>
-      ),
-      back: (
-        <g>
-          {circle(72, 230, 16)}
-          {circle(168, 230, 16)}
-        </g>
-      ),
+      left: { front: elbowLeft, back: elbowLeft },
+      right: { front: elbowRight, back: elbowRight },
     },
     {
+      kind: "paired",
       key: "wrists",
-      front: (
-        <g>
-          {circle(72, 322, 12)}
-          {circle(168, 322, 12)}
-        </g>
-      ),
-      back: (
-        <g>
-          {circle(72, 322, 12)}
-          {circle(168, 322, 12)}
-        </g>
-      ),
+      left: { front: wristLeft, back: wristLeft },
+      right: { front: wristRight, back: wristRight },
     },
     {
+      kind: "paired",
       key: "hands",
-      front: (
-        <g>
-          {rect(56, 330, 32, 36, 10)}
-          {rect(152, 330, 32, 36, 10)}
-        </g>
-      ),
-      back: (
-        <g>
-          {rect(56, 330, 32, 36, 10)}
-          {rect(152, 330, 32, 36, 10)}
-        </g>
-      ),
+      left: { front: handLeft, back: handLeft },
+      right: { front: handRight, back: handRight },
     },
     {
+      kind: "paired",
       key: "fingers",
-      front: (
-        <g>
-          {rect(58, 364, 28, 12, 5)}
-          {rect(154, 364, 28, 12, 5)}
-        </g>
-      ),
-      back: (
-        <g>
-          {rect(58, 364, 28, 12, 5)}
-          {rect(154, 364, 28, 12, 5)}
-        </g>
-      ),
+      left: { front: fingersLeft, back: fingersLeft },
+      right: { front: fingersRight, back: fingersRight },
     },
+    { kind: "midline", key: "hips", front: hipsShape, back: hipsShape },
     {
-      key: "hips",
-      front: <g>{rect(82, 244, 76, 56, 14)}</g>,
-      back: <g>{rect(82, 244, 76, 56, 14)}</g>,
-    },
-    {
+      kind: "paired",
       key: "upper_legs",
-      front: (
-        <g>
-          {rect(88, 302, 28, 96, 10)}
-          {rect(124, 302, 28, 96, 10)}
-        </g>
-      ),
-      back: (
-        <g>
-          {rect(88, 302, 28, 96, 10)}
-          {rect(124, 302, 28, 96, 10)}
-        </g>
-      ),
+      left: { front: upperLegLeft, back: upperLegLeft },
+      right: { front: upperLegRight, back: upperLegRight },
     },
     {
+      kind: "paired",
       key: "knees",
-      front: (
-        <g>
-          {circle(102, 406, 16)}
-          {circle(138, 406, 16)}
-        </g>
-      ),
-      back: (
-        <g>
-          {circle(102, 406, 16)}
-          {circle(138, 406, 16)}
-        </g>
-      ),
+      left: { front: kneeLeft, back: kneeLeft },
+      right: { front: kneeRight, back: kneeRight },
     },
     {
+      kind: "paired",
       key: "lower_legs",
-      front: (
-        <g>
-          {rect(90, 416, 24, 78, 10)}
-          {rect(126, 416, 24, 78, 10)}
-        </g>
-      ),
-      back: (
-        <g>
-          {rect(90, 416, 24, 78, 10)}
-          {rect(126, 416, 24, 78, 10)}
-        </g>
-      ),
+      left: { front: lowerLegLeft, back: lowerLegLeft },
+      right: { front: lowerLegRight, back: lowerLegRight },
     },
     {
+      kind: "paired",
       key: "ankles",
-      front: (
-        <g>
-          {circle(102, 500, 11)}
-          {circle(138, 500, 11)}
-        </g>
-      ),
-      back: (
-        <g>
-          {circle(102, 500, 11)}
-          {circle(138, 500, 11)}
-        </g>
-      ),
+      left: { front: ankleLeft, back: ankleLeft },
+      right: { front: ankleRight, back: ankleRight },
     },
     {
+      kind: "paired",
       key: "feet",
-      front: (
-        <g>
-          {ellipse(102, 524, 18, 14)}
-          {ellipse(138, 524, 18, 14)}
-        </g>
-      ),
-      back: (
-        <g>
-          {ellipse(102, 524, 18, 14)}
-          {ellipse(138, 524, 18, 14)}
-        </g>
-      ),
+      left: { front: footLeft, back: footLeft },
+      right: { front: footRight, back: footRight },
     },
-    // Legacy: render over head + neck only when present on historical reports.
+    // Legacy: render head + neck combined only when present on historical
+    // reports. Treated as midline.
     {
+      kind: "midline",
       key: "head_neck",
       front: (
         <g>
-          <ellipse cx={120} cy={52} rx={32} ry={38} />
-          {rect(108, 88, 24, 20, 4)}
+          <ellipse cx={HEAD_CX} cy={HEAD_CY} rx={HEAD_RX} ry={HEAD_RY} />
+          {rect(104, 82, 32, 28, 6, "hn-neck")}
         </g>
       ),
       back: (
         <g>
-          <ellipse cx={120} cy={52} rx={32} ry={38} />
-          {rect(108, 88, 24, 20, 4)}
+          <ellipse cx={HEAD_CX} cy={HEAD_CY} rx={HEAD_RX} ry={HEAD_RY} />
+          {rect(104, 82, 32, 28, 6, "hn-neck")}
         </g>
       ),
     },
@@ -309,15 +302,16 @@ const BASE_FILL = "#dbeafe" // blue-100
 const BASE_STROKE = "#3b82f6" // blue-500
 const SELECTED_FILL = "#ef4444" // red-500
 const SELECTED_STROKE = "#b91c1c" // red-700
+const HOVER_FILL = "#bfdbfe" // blue-200
 
-function fillForSide(side: BodySide, view: ViewName): string {
-  if (side === "both" || side === view) return SELECTED_FILL
-  return BASE_FILL
-}
-
-function strokeForSide(side: BodySide, view: ViewName): string {
-  if (side === "both" || side === view) return SELECTED_STROKE
-  return BASE_STROKE
+function paintForSide(
+  side: BodySide,
+  view: ViewName
+): { fill: string; stroke: string } {
+  if (side === "both" || side === view) {
+    return { fill: SELECTED_FILL, stroke: SELECTED_STROKE }
+  }
+  return { fill: BASE_FILL, stroke: BASE_STROKE }
 }
 
 function ViewSvg({
@@ -329,13 +323,38 @@ function ViewSvg({
 }: {
   view: ViewName
   selections: BodySelections
-  onChange?: (key: BodyPartKey, side: BodySide) => void
+  onChange?: (key: BodyPartKey, value: RegionSelection) => void
   readOnly?: boolean
   titleId: string
 }) {
-  const handleClick = (key: BodyPartKey) => {
+  const [hovered, setHovered] = useState<string | null>(null)
+
+  const enter = (id: string) => {
+    if (readOnly) return
+    setHovered(id)
+  }
+  const leave = (id: string) => {
+    if (readOnly) return
+    setHovered((cur) => (cur === id ? null : cur))
+  }
+
+  const handleMidlineClick = (key: MidlineBodyPartKey) => {
     if (readOnly || !onChange) return
-    onChange(key, nextSide(selections[key], view))
+    const current = selections[key]
+    onChange(key, nextSide(current, view))
+  }
+
+  const handlePairedClick = (
+    key: PairedBodyPartKey,
+    laterality: Laterality
+  ) => {
+    if (readOnly || !onChange) return
+    const current = selections[key]
+    const updated: PairedSelection = {
+      ...current,
+      [laterality]: nextSide(current[laterality], view),
+    }
+    onChange(key, updated)
   }
 
   return (
@@ -356,30 +375,76 @@ function ViewSvg({
         </title>
 
         {REGIONS.map((region) => {
-          const node = view === "front" ? region.front : region.back
-          if (!node) return null
-          const side = selections[region.key]
-          const label = `${BODY_PART_LABELS[region.key]} (${view})`
-          const fill = fillForSide(side, view)
-          const stroke = strokeForSide(side, view)
+          if (region.kind === "midline") {
+            const node = view === "front" ? region.front : region.back
+            if (!node) return null
+            const side = selections[region.key]
+            const isHovered = hovered === region.key
+            const paint = paintForSide(side, view)
+            const fill =
+              isHovered && paint.fill === BASE_FILL ? HOVER_FILL : paint.fill
+            return (
+              <g
+                key={region.key}
+                aria-label={BODY_PART_LABELS[region.key]}
+                data-body-part={region.key}
+                onClick={() => handleMidlineClick(region.key)}
+                onMouseEnter={() => enter(region.key)}
+                onMouseLeave={() => leave(region.key)}
+                style={{
+                  cursor: readOnly ? "default" : "pointer",
+                  pointerEvents: readOnly ? "none" : "auto",
+                  fill,
+                  stroke: paint.stroke,
+                  strokeWidth: 2,
+                  strokeLinejoin: "round",
+                  transition: "fill 120ms ease, stroke 120ms ease",
+                }}
+              >
+                <title>{`${BODY_PART_LABELS[region.key]} (${view})`}</title>
+                {node}
+              </g>
+            )
+          }
+
+          // Paired: render left and right as independent <g>s.
+          const paired = selections[region.key]
           return (
-            <g
-              key={region.key}
-              aria-label={region.key}
-              data-body-part={region.key}
-              onClick={() => handleClick(region.key)}
-              style={{
-                cursor: readOnly ? "default" : "pointer",
-                pointerEvents: readOnly ? "none" : "auto",
-                fill,
-                stroke,
-                strokeWidth: 2,
-                strokeLinejoin: "round",
-                transition: "fill 120ms ease, stroke 120ms ease",
-              }}
-            >
-              <title>{label}</title>
-              {node}
+            <g key={region.key} data-body-part={region.key}>
+              {(["left", "right"] as const).map((lat) => {
+                const node =
+                  view === "front" ? region[lat].front : region[lat].back
+                if (!node) return null
+                const side = paired[lat]
+                const id = `${region.key}-${lat}`
+                const isHovered = hovered === id
+                const paint = paintForSide(side, view)
+                const fill =
+                  isHovered && paint.fill === BASE_FILL ? HOVER_FILL : paint.fill
+                const labelSide = lat === "left" ? "Left" : "Right"
+                return (
+                  <g
+                    key={lat}
+                    aria-label={`${labelSide} ${BODY_PART_LABELS[region.key]}`}
+                    data-laterality={lat}
+                    onClick={() => handlePairedClick(region.key, lat)}
+                    onMouseEnter={() => enter(id)}
+                    onMouseLeave={() => leave(id)}
+                    style={{
+                      cursor: readOnly ? "default" : "pointer",
+                      pointerEvents: readOnly ? "none" : "auto",
+                      fill,
+                      stroke: paint.stroke,
+                      strokeWidth: 2,
+                      strokeLinejoin: "round",
+                      transition: "fill 120ms ease, stroke 120ms ease",
+                    }}
+                  >
+                    <title>{`${labelSide} ${BODY_PART_LABELS[region.key]} (${view})`}</title>
+                    {node}
+                  </g>
+                )
+              })}
             </g>
           )
         })}
@@ -394,15 +459,49 @@ function ViewSvg({
             fill="#1d4ed8"
           >
             {/* eyes */}
-            <circle cx={110} cy={46} r={2.2} />
-            <circle cx={130} cy={46} r={2.2} />
+            <circle cx={110} cy={40} r={2.2} />
+            <circle cx={130} cy={40} r={2.2} />
             {/* smile */}
-            <path d="M108,58 Q120,68 132,58" fill="none" />
+            <path d="M108,52 Q120,62 132,52" fill="none" />
           </g>
         ) : null}
       </svg>
     </figure>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Selected-rows summary
+// ---------------------------------------------------------------------------
+
+type SummaryRow =
+  | {
+      kind: "midline"
+      key: MidlineBodyPartKey
+      side: BodySide
+    }
+  | {
+      kind: "paired"
+      key: PairedBodyPartKey
+      laterality: Laterality
+      side: BodySide
+    }
+
+function buildSummary(selections: BodySelections): SummaryRow[] {
+  const out: SummaryRow[] = []
+  for (const key of BODY_PART_KEYS) {
+    if (isPairedBodyPartKey(key)) {
+      const p = selections[key]
+      if (p.left !== "none")
+        out.push({ kind: "paired", key, laterality: "left", side: p.left })
+      if (p.right !== "none")
+        out.push({ kind: "paired", key, laterality: "right", side: p.right })
+    } else {
+      const s = selections[key]
+      if (s !== "none") out.push({ kind: "midline", key, side: s })
+    }
+  }
+  return out
 }
 
 export function BodyDiagram({
@@ -416,19 +515,26 @@ export function BodyDiagram({
   // Hide the legacy head_neck row from the live selectors; it's still
   // rendered in the SVG if present (e.g. on historical reports in admin view).
   const visibleKeys = BODY_PART_KEYS.filter((k) => k !== "head_neck")
-  const selectedEntries = BODY_PART_KEYS.filter(
-    (key) => selections[key] !== "none"
-  )
+  const summary = buildSummary(selections)
 
-  const removeRow = (key: BodyPartKey) => {
+  const removeSummaryRow = (row: SummaryRow) => {
     if (readOnly || !onChange) return
-    onChange(key, "none")
+    if (row.kind === "midline") {
+      onChange(row.key, "none")
+    } else {
+      const cur = selections[row.key]
+      onChange(row.key, { ...cur, [row.laterality]: "none" })
+    }
   }
 
   const clearAll = () => {
     if (readOnly || !onChange) return
     for (const key of BODY_PART_KEYS) {
-      if (selections[key] !== "none") onChange(key, "none")
+      if (isPairedBodyPartKey(key)) {
+        if (!pairedIsEmpty(selections[key])) onChange(key, { ...EMPTY_PAIRED })
+      } else if (selections[key] !== "none") {
+        onChange(key, "none")
+      }
     }
   }
 
@@ -460,7 +566,7 @@ export function BodyDiagram({
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Selected body parts
           </span>
-          {!readOnly && selectedEntries.length > 0 ? (
+          {!readOnly && summary.length > 0 ? (
             <button
               type="button"
               onClick={clearAll}
@@ -470,33 +576,40 @@ export function BodyDiagram({
             </button>
           ) : null}
         </div>
-        {selectedEntries.length === 0 ? (
+        {summary.length === 0 ? (
           <p className="px-3 py-3 text-sm text-muted-foreground">
             None selected. Tap regions on the diagram or use the buttons below.
           </p>
         ) : (
           <ul className="divide-y divide-border">
-            {selectedEntries.map((key) => (
-              <li
-                key={key}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-              >
-                <span className="flex items-center gap-2">
-                  <span className="font-medium">{BODY_PART_LABELS[key]}</span>
-                  <SideBadge side={selections[key]} />
-                </span>
-                {!readOnly ? (
-                  <button
-                    type="button"
-                    onClick={() => removeRow(key)}
-                    className="rounded-md border border-input bg-background px-2 py-1 text-xs hover:bg-accent"
-                    aria-label={`Remove ${BODY_PART_LABELS[key]}`}
-                  >
-                    Remove
-                  </button>
-                ) : null}
-              </li>
-            ))}
+            {summary.map((row, idx) => {
+              const label =
+                row.kind === "paired"
+                  ? `${row.laterality === "left" ? "Left" : "Right"} ${BODY_PART_LABELS[row.key]}`
+                  : BODY_PART_LABELS[row.key]
+              const removeLabel = `Remove ${label}`
+              return (
+                <li
+                  key={`${row.key}-${row.kind === "paired" ? row.laterality : "midline"}-${idx}`}
+                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium">{label}</span>
+                    <SideBadge side={row.side} />
+                  </span>
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => removeSummaryRow(row)}
+                      className="rounded-md border border-input bg-background px-2 py-1 text-xs hover:bg-accent"
+                      aria-label={removeLabel}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
@@ -508,6 +621,53 @@ export function BodyDiagram({
           </summary>
           <div className="grid grid-cols-1 gap-2 px-3 pb-3 sm:grid-cols-2">
             {visibleKeys.map((key) => {
+              if (isPairedBodyPartKey(key)) {
+                const paired = selections[key]
+                return (
+                  <div
+                    key={key}
+                    className="rounded-md border bg-background"
+                  >
+                    <div className="border-b px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {BODY_PART_LABELS[key]}
+                    </div>
+                    {(["left", "right"] as const).map((lat) => {
+                      const side = paired[lat]
+                      const rowLabel = lat === "left" ? "Left" : "Right"
+                      return (
+                        <div
+                          key={lat}
+                          className="flex items-center justify-between gap-2 border-t border-border px-2 py-2 first:border-t-0"
+                        >
+                          <span className="text-sm font-medium">{rowLabel}</span>
+                          <div className="flex items-center gap-1">
+                            {(["front", "back", "both", "none"] as const).map(
+                              (s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() =>
+                                    onChange?.(key, { ...paired, [lat]: s })
+                                  }
+                                  aria-pressed={side === s}
+                                  className={cn(
+                                    "min-h-[36px] rounded-md border px-2 py-1 text-xs",
+                                    side === s
+                                      ? "border-red-600 bg-red-600/10 text-red-700"
+                                      : "border-input bg-background hover:bg-accent"
+                                  )}
+                                >
+                                  {s}
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              }
               const side = selections[key]
               return (
                 <div

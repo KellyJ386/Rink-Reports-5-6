@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "@/lib/auth"
+import type { Json } from "@/types/database"
 
 export async function POST(request: NextRequest) {
   const current = await getCurrentUser()
@@ -49,9 +50,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Upsert into the sync queue (ON CONFLICT local_id = no-op for dedup).
-  // Cast required: offline_sync_queue (migration 31) is not yet in generated types.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("offline_sync_queue")
     .upsert(
       {
@@ -60,7 +59,7 @@ export async function POST(request: NextRequest) {
         employee_id: employee.id,
         module_key: moduleKey,
         action,
-        payload,
+        payload: payload as Json,
         sync_status: "synced",
         started_at: startedAt ? new Date(startedAt).toISOString() : new Date().toISOString(),
         synced_at: new Date().toISOString(),

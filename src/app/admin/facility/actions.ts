@@ -143,9 +143,9 @@ export async function createFacility(
       p_name: name,
       p_slug: slug,
       p_timezone: timezone,
-      p_address: rawInput.address ?? null,
-      p_zip_code: rawInput.zip_code ?? null,
-      p_phone: rawInput.phone ?? null,
+      p_address: rawInput.address ?? undefined,
+      p_zip_code: rawInput.zip_code ?? undefined,
+      p_phone: rawInput.phone ?? undefined,
     },
   )
 

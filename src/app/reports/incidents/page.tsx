@@ -1,7 +1,6 @@
-import Link from "next/link"
-
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge, type BadgeProps } from "@/components/ui/badge"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardContent,
@@ -9,6 +8,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DataList, DataListRow } from "@/components/ui/data-table"
+import { PageHeader } from "@/components/ui/page-header"
+import { SeverityPill } from "@/components/ui/severity"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
@@ -43,14 +45,12 @@ function NotAvailable({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Incident Reports
-        </p>
-      </div>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Incident Reports" },
+        ]}
+      />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -194,21 +194,21 @@ export default async function IncidentsHomePage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Incident Reports
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Report an incident
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Tell us what happened. You can&apos;t edit a report after you submit
-          it.
-        </p>
-      </div>
+      <PageHeader
+        variant="display"
+        module="incidents"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Incident Reports" },
+            ]}
+          />
+        }
+        eyebrow="Staff report"
+        title="Report an incident"
+        description="Tell us what happened. You can't edit a report after you submit it."
+      />
 
       <SubmissionForm
         defaultReporterName=""
@@ -226,7 +226,7 @@ export default async function IncidentsHomePage() {
             Your recent reports
           </h2>
           <p className="text-xs text-muted-foreground">Last 30 days</p>
-          <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
+          <DataList>
             {recent.map((r) => {
               const typeName = r.incident_types?.name ?? "Incident"
               const severityName =
@@ -237,10 +237,7 @@ export default async function IncidentsHomePage() {
                   ? `${r.description.slice(0, 140).trimEnd()}…`
                   : r.description
               return (
-                <li
-                  key={r.id}
-                  className="flex flex-col gap-2 px-4 py-3 text-sm"
-                >
+                <DataListRow key={r.id} as="div" className="flex-col items-stretch gap-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{typeName}</span>
                     <span className="text-xs text-muted-foreground">
@@ -249,19 +246,9 @@ export default async function IncidentsHomePage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {severityName ? (
-                      <span
-                        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                        style={
-                          severityColor
-                            ? {
-                                backgroundColor: `${severityColor}20`,
-                                color: severityColor,
-                              }
-                            : undefined
-                        }
-                      >
+                      <SeverityPill color={severityColor}>
                         {severityName}
-                      </span>
+                      </SeverityPill>
                     ) : null}
                     <Badge variant={statusBadgeVariant(r.status)}>
                       {statusLabel(r.status)}
@@ -273,10 +260,10 @@ export default async function IncidentsHomePage() {
                     ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">{excerpt}</p>
-                </li>
+                </DataListRow>
               )
             })}
-          </ul>
+          </DataList>
         </section>
       ) : null}
     </div>

@@ -125,9 +125,10 @@ In order. Stop at the first failure.
 
 ## 6. Routine maintenance
 
-- **Migrations:** new SQL files go in `supabase/migrations/` with a monotonically increasing prefix. Add an assertion to `supabase/tests/rls_isolation.sql` for any new RLS policy or SECURITY DEFINER function whose job is tenant isolation. The `.github/workflows/rls-isolation.yml` workflow runs the script on every migration-touching PR.
+- **Migrations:** new SQL files go in `supabase/migrations/` with a monotonically increasing prefix. Add an assertion to `supabase/tests/rls_isolation.sql` for any new RLS policy or SECURITY DEFINER function whose job is tenant isolation. The `.github/workflows/rls-isolation.yml` workflow runs the script on every migration-touching PR. Migration delivery to the remote project and the one-time history reconciliation it requires are covered in §8.
 - **Retention purges:** Admins configure `retention_settings.auto_purge` per module in `/admin/retention`. The daily `run-retention-purge` cron processes those rows; the UI surfaces `last_purged_at` after each run. The `offline_sync_queue` table is purged on a fixed 90-day TTL within the same cron (synced rows only — pending/failed rows are kept for triage).
 - **Releases:** PRs merge to `main`, Vercel auto-deploys. The CSP, the security headers, and the cron schedule all live in tracked files, so nothing has to be re-configured in Vercel after a deploy.
+- **CI gate (`.github/workflows/ci.yml`):** every PR and every push to `main` runs `pnpm lint`, `tsc --noEmit`, and `pnpm build` against Node 20 with a cached pnpm store. This is the gate that keeps a type error or a broken build from merging (Vercel used to be the first thing to catch it, and only post-merge). The build uses dummy `NEXT_PUBLIC_SUPABASE_*` placeholders — pages are dynamic, so the build never talks to Supabase; the values only satisfy the client constructors. The migration/RLS workflows (`rls-isolation.yml`, `migration-prefix-check.yml`) remain separate and path-filtered.
 - **Rotating CRON_SECRET:** generate a new value, update Vercel env, redeploy. The crons will start using the new secret immediately; no overlap window is required because Vercel's scheduler reads the env var per invocation.
 
 ## 7. Things this app deliberately does not do
@@ -135,3 +136,55 @@ In order. Stop at the first failure.
 - **No client-side caching of authenticated HTML.** The service worker caches static `_next/static/*` only; navigation requests are network-only with a synthetic offline page on failure. This is intentional — shared rink-office kiosks must not serve user A's rendered admin pages to user B.
 - **No SW auto-update mid-session.** A new service worker stays in `waiting` until the user clicks "Reload" on the in-app update toast, so a deploy can't swap the IndexedDB submission queue under a staff member filling out a report.
 - **No public signup path.** New employees are invited via the admin Employees flow; the invite email lands them at `/update-password`. Self-serve `/signup` exists for super-admin bootstrap only.
+
+## 8. Migration delivery (`deploy-migrations.yml`) — one-time reconciliation before enabling
+
+`.github/workflows/deploy-migrations.yml` pushes `supabase/migrations/**` to the linked project on every merge to `main` that touches them. **It is not safe to enable until the remote migration history has been reconciled once** — see the warning in the workflow's own header, distilled into the checklist below.
+
+### Why the reconciliation is required
+
+`supabase db push` decides what to apply by comparing each local migration's version (the numeric filename prefix, e.g. `00000000000056`) against the rows in the remote `supabase_migrations.schema_migrations` table. This project's remote history was recorded with **timestamp-style** versions (e.g. `20260506172311`), not the repo's `00000000000NN` prefixes. Because none of the repo's version strings exist in that history, a first `db push` would treat **every** migration as unapplied and try to replay the entire history — which fails immediately on already-existing objects.
+
+### One-time runbook (run from a machine linked to the project; requires prod credentials — do this deliberately, not from CI)
+
+1. Link the repo to the remote project:
+
+   ```bash
+   supabase link --project-ref <project-ref>
+   ```
+
+2. Compare local vs remote history side by side:
+
+   ```bash
+   supabase migration list --linked
+   ```
+
+3. For **every** migration whose schema is **already** in the database, record it as applied under the repo's version number (space-separate multiple versions in one call):
+
+   ```bash
+   supabase migration repair --status applied <version> [<version> ...]
+   # e.g. supabase migration repair --status applied 00000000000001 00000000000002 ...
+   ```
+
+   Leave any migration that is **genuinely not yet applied** alone, so the first push runs it.
+
+4. Re-check — local and remote should now align:
+
+   ```bash
+   supabase migration list --linked
+   ```
+
+5. Provision the workflow's secrets/variables (see the workflow header), then enable it. After reconciliation, `supabase db push` is incremental and safe, and the workflow keeps it that way on every merge:
+
+   - secret `SUPABASE_ACCESS_TOKEN` — CI access token
+   - secret `SUPABASE_DB_PASSWORD` — the linked project's database password
+   - var `SUPABASE_PROJECT_REF` — the project ref (a *variable*, not a secret, so it shows in logs)
+
+### Known duplicate migration prefix (do NOT rename)
+
+Two migration files share the prefix `00000000000088`:
+
+- `supabase/migrations/00000000000088_circle_check_response_type.sql`
+- `supabase/migrations/00000000000088_information_requests.sql`
+
+This is a grandfathered collision: `migration-prefix-check.yml` only fails on *newly added* duplicates, and these two are already in `main` (and likely already applied to prod). **Do not rename them** — renaming changes the version string `supabase db push` keys on and would desync the very history this section reconciles. When step 3 above marks versions applied, treat `00000000000088` as covering both files (apply each underlying object's state as it exists in the DB). Any *new* migration must use the next free monotonic prefix, never `00000000000088`.

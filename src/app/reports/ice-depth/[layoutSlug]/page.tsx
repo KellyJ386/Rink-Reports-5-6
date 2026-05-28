@@ -1,6 +1,10 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { ChevronLeft } from "lucide-react"
 
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
@@ -16,41 +20,24 @@ type RouteParams = {
   layoutSlug: string
 }
 
-const SCREEN_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-
 function NotAvailable({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
-      <div
-        style={{
-          fontFamily: SCREEN_FONT,
-          fontSize: "clamp(20px, 5vw, 28px)",
-          textTransform: "uppercase",
-          color: "var(--foreground)",
-          lineHeight: 1.1,
-        }}
-      >
-        {title}
-      </div>
-      <p style={{ fontSize: 14, color: "var(--muted-foreground)", maxWidth: 300 }}>
-        {description}
-      </p>
-      <Link
-        href="/reports/ice-depth"
-        style={{
-          marginTop: 8,
-          padding: "10px 24px",
-          borderRadius: 8,
-          border: "1px solid var(--border)",
-          background: "var(--card)",
-          color: "var(--foreground)",
-          fontSize: 13,
-          fontWeight: 600,
-          textDecoration: "none",
-        }}
-      >
-        Back to Ice Depth
-      </Link>
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Ice Depth", href: "/reports/ice-depth" },
+        ]}
+      />
+      <EmptyState
+        title={title}
+        description={description}
+        action={
+          <Button asChild variant="outline">
+            <Link href="/reports/ice-depth">Back to Ice Depth</Link>
+          </Button>
+        }
+      />
     </div>
   )
 }
@@ -192,81 +179,30 @@ export default async function IceDepthLayoutSubmissionPage({
     .map((s) => ({ slug: s.slug, name: s.name }))
   const showNav = rinkOptions.length > 1 || diagramOptions.length > 1
 
-  const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100%",
-        background: "var(--background)",
-      }}
-    >
+    <div className="flex min-h-full flex-col bg-background">
       {/* Module header */}
-      <div
-        style={{
-          padding: "16px 16px 12px",
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <Link
-          href="/reports/ice-depth"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 9999,
-            border: "1px solid var(--border)",
-            background: "var(--card)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-            color: "var(--muted-foreground)",
-            textDecoration: "none",
-          }}
+      <div className="flex items-center gap-3 border-b border-border px-4 pt-4 pb-3">
+        <Button
+          asChild
+          variant="outline"
+          size="icon"
+          className="size-9 shrink-0 rounded-full"
           aria-label="Back to layouts"
         >
-          <svg
-            width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-          >
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </Link>
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "#4DFF00",
-              marginBottom: 2,
-            }}
-          >
+          <Link href="/reports/ice-depth">
+            <ChevronLeft className="size-4" aria-hidden />
+          </Link>
+        </Button>
+        <div className="min-w-0">
+          <div className="mb-0.5 text-[10px] font-extrabold uppercase tracking-[0.12em] text-module-ice-depth">
             Ice Depth
           </div>
-          <div
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: "clamp(20px, 5vw, 28px)",
-              lineHeight: 1,
-              textTransform: "uppercase",
-              color: "var(--foreground)",
-              letterSpacing: "0.01em",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[clamp(20px,5vw,28px)] uppercase leading-none tracking-[0.01em] text-foreground">
             {layout.name}
           </div>
         </div>
-        <div style={{ marginLeft: "auto", flexShrink: 0 }}>
+        <div className="ml-auto shrink-0">
           <SyncChip />
         </div>
       </div>
@@ -282,7 +218,7 @@ export default async function IceDepthLayoutSubmissionPage({
       )}
 
       {/* Form */}
-      <div style={{ padding: "12px 12px 24px" }}>
+      <div className="px-3 pt-3 pb-6">
         <SubmissionForm
           layout={layoutForForm}
           points={points}

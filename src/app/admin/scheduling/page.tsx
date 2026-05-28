@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { StatCard } from "@/components/ui/stat-card"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
@@ -513,15 +514,13 @@ function Header({
   facilityName: string | null
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Scheduling overview
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        {weekLabel
+    <PageHeader
+      title="Scheduling overview"
+      description={
+        weekLabel
           ? `${weekLabel}${facilityName ? ` · ${facilityName}` : ""}`
-          : "Manage shifts, templates, and publishing for this facility."}
-      </p>
-    </div>
+          : "Manage shifts, templates, and publishing for this facility."
+      }
+    />
   )
 }

@@ -14,37 +14,21 @@ export function SyncChip() {
       ? `${pendingCount} queued`
       : "Synced"
 
-  const dotColor = showOffline ? "#FFB800" : "#4DFF00"
-  const bg = showOffline ? "rgba(255,184,0,0.15)" : "rgba(77,255,0,0.15)"
-  const border = showOffline ? "rgba(255,184,0,0.4)" : "rgba(77,255,0,0.4)"
-  const fg = showOffline ? "#CC9300" : "#3DB800"
-
   return (
     <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "6px 10px",
-        borderRadius: 9999,
-        background: bg,
-        border: `1px solid ${border}`,
-        color: fg,
-        fontSize: 10,
-        fontWeight: 800,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        whiteSpace: "nowrap",
-      }}
+      className={
+        showOffline
+          ? "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-warning bg-warning-soft px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.06em] text-warning-soft-foreground"
+          : "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-success bg-success-soft px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.06em] text-success-soft-foreground"
+      }
     >
       <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 9999,
-          background: dotColor,
-          boxShadow: showOffline ? "none" : `0 0 0 3px rgba(77,255,0,0.3)`,
-        }}
+        aria-hidden="true"
+        className={
+          showOffline
+            ? "size-1.5 rounded-full bg-warning"
+            : "size-1.5 rounded-full bg-success shadow-[0_0_0_3px_rgba(105,190,40,0.3)]"
+        }
       />
       {label}
     </span>

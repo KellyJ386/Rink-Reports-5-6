@@ -3,8 +3,11 @@ import {
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
   isBodySide,
-  type BodyPartKey,
+  isLaterality,
+  isPairedBodyPartKey,
   type BodySelections,
+  type BodySide,
+  type Laterality,
 } from "@/components/staff/body-diagram/types"
 import { Card, CardContent } from "@/components/ui/card"
 
@@ -30,6 +33,7 @@ type BodyPartRow = {
   id: string
   body_part_dropdown_id: string
   side: string
+  laterality: string | null
 }
 
 type WitnessRow = {
@@ -73,14 +77,45 @@ function buildSelections(
   rows: BodyPartRow[],
   dropdownsById: Map<string, DropdownRow>
 ): BodySelections {
-  const out: BodySelections = { ...EMPTY_BODY_SELECTIONS }
+  // Clone paired entries so we can mutate per-side without leaking writes back
+  // into the shared EMPTY_BODY_SELECTIONS constant.
+  const out: BodySelections = {
+    ...EMPTY_BODY_SELECTIONS,
+    shoulders: { ...EMPTY_BODY_SELECTIONS.shoulders },
+    arms: { ...EMPTY_BODY_SELECTIONS.arms },
+    elbows: { ...EMPTY_BODY_SELECTIONS.elbows },
+    wrists: { ...EMPTY_BODY_SELECTIONS.wrists },
+    hands: { ...EMPTY_BODY_SELECTIONS.hands },
+    fingers: { ...EMPTY_BODY_SELECTIONS.fingers },
+    upper_legs: { ...EMPTY_BODY_SELECTIONS.upper_legs },
+    knees: { ...EMPTY_BODY_SELECTIONS.knees },
+    lower_legs: { ...EMPTY_BODY_SELECTIONS.lower_legs },
+    ankles: { ...EMPTY_BODY_SELECTIONS.ankles },
+    feet: { ...EMPTY_BODY_SELECTIONS.feet },
+  }
   for (const r of rows) {
     const dd = dropdownsById.get(r.body_part_dropdown_id)
     if (!dd) continue
     const key: string = dd.key
     if (!isBodyPartKey(key)) continue
-    if (isBodySide(r.side) && r.side !== "none") {
-      out[key as BodyPartKey] = r.side
+    if (!isBodySide(r.side) || r.side === "none") continue
+    if (isPairedBodyPartKey(key)) {
+      const lat: Laterality | null =
+        r.laterality && isLaterality(r.laterality) ? r.laterality : null
+      const paired = out[key]
+      if (lat) {
+        paired[lat] = r.side
+      } else {
+        // Legacy row (pre-migration 92) had no laterality on paired regions.
+        // Show as both sides, matching the pre-split rendering.
+        paired.left = r.side
+        paired.right = r.side
+      }
+    } else {
+      // Midline region: BodySide value. The union-indexed assignment trips
+      // TypeScript because it intersects every possible value type, so cast
+      // through unknown to write the narrowed BodySide.
+      ;(out as unknown as Record<string, BodySide>)[key] = r.side
     }
   }
   return out

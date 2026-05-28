@@ -30,15 +30,15 @@ const PRIMARY_BUTTON_STYLE: React.CSSProperties = {
   gap: 10,
   padding: "17px 36px",
   borderRadius: "var(--radius-md)",
-  background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
+  background: "linear-gradient(180deg, #82CC36 0%, #69BE28 100%)",
   border: "none",
-  color: "#051200",
+  color: "#002244",
   fontWeight: 700,
   fontSize: 17,
   textDecoration: "none",
   minHeight: 56,
   cursor: "pointer",
-  boxShadow: "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.30)",
+  boxShadow: "0 2px 0 0 #3F7C13, 0 4px 16px rgba(105,190,40,0.30)",
   letterSpacing: "0.01em",
 }
 
@@ -191,7 +191,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
             </h2>
             <p
               style={{
-                color: "rgba(255,255,255,0.55)",
+                color: "rgba(255,255,255,0.72)",
                 fontSize: 15,
                 margin: "0 0 24px",
                 lineHeight: 1.55,
@@ -342,13 +342,13 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
                     padding: "13px 28px",
                     borderRadius: "var(--radius-md)",
                     background:
-                      "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
-                    color: "#051200",
+                      "linear-gradient(180deg, #82CC36 0%, #69BE28 100%)",
+                    color: "#002244",
                     fontWeight: 700,
                     fontSize: 15,
                     border: "none",
                     boxShadow:
-                      "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.30)",
+                      "0 2px 0 0 #3F7C13, 0 4px 16px rgba(105,190,40,0.30)",
                     cursor: submitting ? "wait" : "pointer",
                     opacity: submitting ? 0.7 : 1,
                   }}
@@ -372,7 +372,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
           width: 64,
           height: 64,
           borderRadius: "50%",
-          background: "rgba(77,255,0,0.14)",
+          background: "rgba(105,190,40,0.18)",
           display: "grid",
           placeItems: "center",
           margin: "0 auto 18px",
@@ -383,7 +383,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
           height="28"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#4DFF00"
+          stroke="#82CC36"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -403,7 +403,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
       </h2>
       <p
         style={{
-          color: "rgba(255,255,255,0.55)",
+          color: "rgba(255,255,255,0.72)",
           fontSize: 15,
           margin: "0 auto 24px",
           maxWidth: 380,
@@ -419,12 +419,12 @@ function SuccessView({ onClose }: { onClose: () => void }) {
         style={{
           padding: "13px 28px",
           borderRadius: "var(--radius-md)",
-          background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
-          color: "#051200",
+          background: "linear-gradient(180deg, #82CC36 0%, #69BE28 100%)",
+          color: "#002244",
           fontWeight: 700,
           fontSize: 15,
           border: "none",
-          boxShadow: "0 2px 0 0 #2E9900, 0 4px 16px rgba(77,255,0,0.30)",
+          boxShadow: "0 2px 0 0 #3F7C13, 0 4px 16px rgba(105,190,40,0.30)",
           cursor: "pointer",
         }}
       >
@@ -456,7 +456,7 @@ function FieldsetHeader({ children }: { children: React.ReactNode }) {
         fontWeight: 700,
         letterSpacing: "0.14em",
         textTransform: "uppercase",
-        color: "#4DFF00",
+        color: "#82CC36",
         margin: "20px 0 8px",
       }}
     >
@@ -513,7 +513,7 @@ function Field({
         }}
       >
         {label}
-        {required ? <span style={{ color: "#4DFF00" }}> *</span> : null}
+        {required ? <span style={{ color: "#82CC36" }}> *</span> : null}
       </label>
       {multiline ? (
         <textarea

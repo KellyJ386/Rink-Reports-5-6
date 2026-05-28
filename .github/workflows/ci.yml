@@ -1,0 +1,65 @@
+name: CI
+
+# Build / typecheck / lint gate for the Next.js app. Until this existed the
+# only CI was the SQL/migration workflows, so a type error or a broken build
+# could merge to main unnoticed — Vercel would be the first thing to fail, and
+# only after merge. This runs the same three checks a developer runs locally
+# (`pnpm lint`, `tsc --noEmit`, `pnpm build`) on every PR and every push to
+# main.
+#
+# Note on env: `next build` evaluates the Supabase clients (src/lib/supabase/*),
+# which read NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY from the
+# environment at build time. Pages are server-rendered on demand (dynamic), so
+# the build never talks to Supabase — dummy placeholder values are enough to
+# satisfy the client constructors. These are NOT real credentials; production
+# values live in Vercel project env (see docs/DEPLOY.md §3).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Placeholder build-time public env — see header. Dynamic pages mean the
+      # build never reaches the network; these only satisfy the client
+      # constructors so `next build` doesn't throw on missing env.
+      NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci-build
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm before setup-node so setup-node's built-in pnpm store cache can
+      # find the binary. Version mirrors the lockfile (lockfileVersion 9.0 →
+      # pnpm 9/10); pin the major to avoid a future pnpm bumping the lockfile.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: pnpm build

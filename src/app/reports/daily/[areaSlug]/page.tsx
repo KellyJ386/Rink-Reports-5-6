@@ -1,12 +1,13 @@
-import Link from "next/link"
 import { redirect } from "next/navigation"
 
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -119,8 +120,13 @@ export default async function DailyReportTemplatePickerPage({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <Breadcrumbs areaName={area.name} />
-      <h1 className="text-2xl font-semibold tracking-tight">Pick a template</h1>
+      <PageHeader
+        variant="display"
+        module="daily"
+        breadcrumb={<Breadcrumbs areaName={area.name} />}
+        eyebrow={area.name}
+        title="Pick a template"
+      />
       <TemplatesList areaSlug={area.slug} templates={active} />
     </div>
   )
@@ -128,16 +134,13 @@ export default async function DailyReportTemplatePickerPage({
 
 function Breadcrumbs({ areaName }: { areaName: string }) {
   return (
-    <p className="text-sm text-muted-foreground">
-      <Link href="/reports" className="hover:underline">
-        Reports
-      </Link>{" "}
-      /{" "}
-      <Link href="/reports/daily" className="hover:underline">
-        Daily Reports
-      </Link>{" "}
-      / {areaName}
-    </p>
+    <Breadcrumb
+      segments={[
+        { label: "Reports", href: "/reports" },
+        { label: "Daily Reports", href: "/reports/daily" },
+        { label: areaName },
+      ]}
+    />
   )
 }
 

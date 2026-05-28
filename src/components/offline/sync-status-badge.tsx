@@ -18,7 +18,7 @@ export function SyncStatusBadge() {
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
         failedCount > 0
           ? "bg-destructive text-destructive-foreground"
-          : "bg-amber-600 text-white"
+          : "bg-[var(--amber-100)] text-[var(--amber-600)] dark:bg-[rgba(255,201,64,0.18)] dark:text-[var(--amber-200)]"
       )}
       title={
         failedCount > 0

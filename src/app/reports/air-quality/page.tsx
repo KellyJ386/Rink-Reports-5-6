@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardContent,
@@ -8,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
@@ -25,14 +27,12 @@ function NotAvailable({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Air Quality
-        </p>
-      </div>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Air Quality" },
+        ]}
+      />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -100,20 +100,21 @@ export default async function AirQualityHomePage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Air Quality
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Air quality
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pick a location to submit readings.
-        </p>
-      </div>
+      <PageHeader
+        variant="display"
+        module="air"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Air Quality" },
+            ]}
+          />
+        }
+        eyebrow="Staff report"
+        title="Air Quality"
+        description="Pick a location to submit readings."
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         {locations.map((loc) => (

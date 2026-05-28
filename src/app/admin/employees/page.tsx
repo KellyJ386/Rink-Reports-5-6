@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import {
   emptyMatrix,
@@ -178,11 +179,8 @@ export default async function EmployeesPage({
       .from("employee_departments")
       .select("employee_id, department_id, is_primary")
       .eq("facility_id", facilityId),
-    // role_permission_defaults isn't in generated types yet; cast follows the
-    // project pattern (see src/app/api/offline-sync/route.ts).
     supabase
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("role_permission_defaults" as any)
+      .from("role_permission_defaults")
       .select("role_id, module_name, action, enabled")
       .eq("facility_id", facilityId),
   ])
@@ -284,13 +282,9 @@ export default async function EmployeesPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Employee / User Setup
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Add staff, assign roles and departments, manage activation.
-      </p>
-    </div>
+    <PageHeader
+      title="Employee / User Setup"
+      description="Add staff, assign roles and departments, manage activation."
+    />
   )
 }

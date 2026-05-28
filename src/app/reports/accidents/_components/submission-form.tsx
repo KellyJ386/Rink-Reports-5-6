@@ -7,11 +7,13 @@ import { toast } from "sonner"
 import { FormError } from "@/components/auth/form-error"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
+  BODY_PART_KEYS,
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
+  isPairedBodyPartKey,
   type BodyPartKey,
   type BodySelections,
-  type BodySide,
+  type RegionSelection,
 } from "@/components/staff/body-diagram/types"
 import {
   AlertDialog,
@@ -23,10 +25,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FieldError } from "@/components/ui/field-error"
+import { Button } from "@/components/ui/button"
+import { FormField } from "@/components/ui/form-field"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { RequiredMark } from "@/components/ui/required-mark"
+import { SectionCard, SectionHead } from "@/components/ui/section-card"
 import {
   Select,
   SelectContent,
@@ -34,127 +37,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  SeverityPillGroup,
+  SeverityRadioPill,
+} from "@/components/ui/severity"
 import { Textarea } from "@/components/ui/textarea"
 
 import { submitAccidentReport, type AccidentFormState } from "../actions"
 import type { BodyPartOption, DropdownOption } from "../types"
 
-const DISPLAY_FONT =
-  "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-const RED = "#F42A2A"
-const RED_DARK = "#C62828"
-const NAVY = "#003B6F"
-const GREEN = "#4DFF00"
-const GREEN_DARK = "#2E9900"
-const NAVY_DARK = "#001A3A"
-
-function SectionHead({
-  n,
-  title,
-  sub,
-}: {
-  n: number
-  title: string
-  sub?: string
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        marginBottom: 16,
-      }}
-    >
-      <div
-        style={{
-          width: 36,
-          height: 36,
-          borderRadius: 9999,
-          background: NAVY,
-          color: "#fff",
-          fontFamily: DISPLAY_FONT,
-          fontSize: 18,
-          display: "grid",
-          placeItems: "center",
-          flexShrink: 0,
-        }}
-      >
-        {n}
-      </div>
-      <div>
-        <h3
-          style={{
-            margin: 0,
-            fontFamily: DISPLAY_FONT,
-            fontSize: 22,
-            color: "var(--foreground)",
-            textTransform: "uppercase",
-            letterSpacing: "-.01em",
-          }}
-        >
-          {title}
-        </h3>
-        {sub ? (
-          <div
-            style={{
-              fontSize: 12.5,
-              color: "var(--muted-foreground)",
-              marginTop: 2,
-            }}
-          >
-            {sub}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function SectionCard({ children }: { children: React.ReactNode }) {
-  return (
-    <section
-      style={{
-        background: "var(--card)",
-        border: "1px solid var(--border)",
-        borderRadius: 14,
-        padding: 20,
-        boxShadow: "0 1px 3px rgba(0,0,0,.05)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      {children}
-    </section>
-  )
-}
-
 function ReportHeaderCard({ draftId }: { draftId: string }) {
   return (
-    <div
-      style={{
-        background: "var(--card)",
-        border: "1px solid var(--border)",
-        borderRadius: 14,
-        padding: "16px 18px",
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        boxShadow: "0 1px 3px rgba(0,0,0,.05)",
-      }}
-    >
+    <SectionCard className="flex-row items-center gap-3.5 p-4">
       <div
-        style={{
-          width: 44,
-          height: 44,
-          borderRadius: 10,
-          background: RED,
-          color: "#fff",
-          display: "grid",
-          placeItems: "center",
-          flexShrink: 0,
-          boxShadow: "0 2px 6px rgba(244,42,42,.35)",
-        }}
+        aria-hidden="true"
+        className="grid size-11 shrink-0 place-items-center rounded-[10px] bg-[var(--module-accidents)] text-white shadow-[var(--shadow-elev-1)]"
       >
         <svg
           width="22"
@@ -170,91 +67,15 @@ function ReportHeaderCard({ draftId }: { draftId: string }) {
           <path d="M12 9v4M12 17h.01" />
         </svg>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: ".16em",
-            color: RED_DARK,
-            textTransform: "uppercase",
-          }}
-        >
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-module-accidents">
           New report · Draft
         </div>
-        <h2
-          style={{
-            margin: "2px 0 0",
-            fontFamily: DISPLAY_FONT,
-            fontSize: 22,
-            color: "var(--foreground)",
-            textTransform: "uppercase",
-            letterSpacing: ".01em",
-          }}
-        >
+        <h2 className="m-0 mt-0.5 font-display text-[22px] leading-none uppercase tracking-[0.01em] text-foreground">
           {draftId}
         </h2>
       </div>
-    </div>
-  )
-}
-
-function SeverityPills({
-  options,
-  value,
-  onChange,
-}: {
-  options: DropdownOption[]
-  value: string
-  onChange: (v: string) => void
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Severity"
-      style={{
-        display: "flex",
-        gap: 8,
-        flexWrap: "wrap",
-      }}
-    >
-      {options.map((o) => {
-        const on = value === o.id
-        const accent = o.color ?? NAVY
-        return (
-          <button
-            key={o.id}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => onChange(o.id)}
-            style={{
-              flex: "1 1 120px",
-              minWidth: 120,
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: `2px solid ${on ? accent : "var(--border)"}`,
-              background: on ? `${accent}1A` : "var(--card)",
-              cursor: "pointer",
-              textAlign: "left",
-              transition: "all .12s",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: ".1em",
-                color: accent,
-                textTransform: "uppercase",
-              }}
-            >
-              {o.display_name}
-            </div>
-          </button>
-        )
-      })}
-    </div>
+    </SectionCard>
   )
 }
 
@@ -364,15 +185,38 @@ export function SubmissionForm({
   const bodyPartsJson = useMemo(() => {
     const entries: Array<{
       body_part_dropdown_id: string
-      side: BodySide
+      side: "front" | "back" | "both"
+      laterality: "left" | "right" | null
     }> = []
-    for (const [key, side] of Object.entries(selections) as Array<
-      [BodyPartKey, BodySide]
-    >) {
-      if (side === "none") continue
+    for (const key of BODY_PART_KEYS) {
       const id = bodyPartIdMap[key]
       if (!id) continue
-      entries.push({ body_part_dropdown_id: id, side })
+      if (isPairedBodyPartKey(key)) {
+        const paired = selections[key]
+        if (paired.left !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side: paired.left,
+            laterality: "left",
+          })
+        }
+        if (paired.right !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side: paired.right,
+            laterality: "right",
+          })
+        }
+      } else {
+        const side = selections[key]
+        if (side !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side,
+            laterality: null,
+          })
+        }
+      }
     }
     return JSON.stringify(entries)
   }, [selections, bodyPartIdMap])
@@ -388,8 +232,11 @@ export function SubmissionForm({
     return JSON.stringify(cleaned)
   }, [witnesses])
 
-  const handleSelectionChange = (key: BodyPartKey, side: BodySide) => {
-    setSelections((prev) => ({ ...prev, [key]: side }))
+  const handleSelectionChange = (
+    key: BodyPartKey,
+    value: RegionSelection
+  ) => {
+    setSelections((prev) => ({ ...prev, [key]: value }))
   }
 
   const addWitness = () => {
@@ -459,10 +306,12 @@ export function SubmissionForm({
         <SectionCard>
           <SectionHead n={1} title="Person involved" />
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="injured_person_name">
-                Injured person&apos;s name<RequiredMark />
-              </Label>
+            <FormField
+              label="Injured person's name"
+              required
+              htmlFor="injured_person_name"
+              error={state.fieldErrors?.injured_person_name}
+            >
               <Input
                 id="injured_person_name"
                 name="injured_person_name"
@@ -475,13 +324,14 @@ export function SubmissionForm({
                 onChange={(e) => setInjuredName(e.target.value)}
                 className="h-12 text-base"
               />
-              <FieldError id="injured_person_name-error" message={state.fieldErrors?.injured_person_name} />
-            </div>
+            </FormField>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="injured_person_contact">
-                Contact (phone or email)<RequiredMark />
-              </Label>
+            <FormField
+              label="Contact (phone or email)"
+              required
+              htmlFor="injured_person_contact"
+              error={state.fieldErrors?.injured_person_contact}
+            >
               <Input
                 id="injured_person_contact"
                 name="injured_person_contact"
@@ -495,11 +345,14 @@ export function SubmissionForm({
                 onChange={(e) => setInjuredContact(e.target.value)}
                 className="h-12 text-base"
               />
-              <FieldError id="injured_person_contact-error" message={state.fieldErrors?.injured_person_contact} />
-            </div>
+            </FormField>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="injured_person_age">Age<RequiredMark /></Label>
+            <FormField
+              label="Age"
+              required
+              htmlFor="injured_person_age"
+              error={state.fieldErrors?.injured_person_age}
+            >
               <Input
                 id="injured_person_age"
                 name="injured_person_age"
@@ -517,8 +370,7 @@ export function SubmissionForm({
                 onChange={(e) => setInjuredAge(e.target.value)}
                 className="h-12 text-base"
               />
-              <FieldError id="injured_person_age-error" message={state.fieldErrors?.injured_person_age} />
-            </div>
+            </FormField>
           </div>
         </SectionCard>
 
@@ -530,18 +382,27 @@ export function SubmissionForm({
             sub="Severity, injuries, and what the responder saw."
           />
           <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <Label>
-                Severity<RequiredMark />
-              </Label>
+            <FormField label="Severity" required>
               {severities.length > 0 ? (
-                <SeverityPills
-                  options={severities}
-                  value={severityId}
-                  onChange={setSeverityId}
-                />
-              ) : null}
-            </div>
+                <SeverityPillGroup ariaLabel="Severity">
+                  {severities.map((o) => (
+                    <SeverityRadioPill
+                      key={o.id}
+                      color={o.color}
+                      selected={severityId === o.id}
+                      onClick={() => setSeverityId(o.id)}
+                      ariaLabel={o.display_name}
+                    >
+                      {o.display_name}
+                    </SeverityRadioPill>
+                  ))}
+                </SeverityPillGroup>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No severity options configured.
+                </p>
+              )}
+            </FormField>
 
             <SelectField
               label="Primary injury type"
@@ -562,7 +423,7 @@ export function SubmissionForm({
               {showMedicalAlertNotice ? (
                 <p
                   role="status"
-                  className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-200"
+                  className="rounded-md border border-warning bg-warning-soft px-3 py-2 text-xs text-warning-soft-foreground"
                 >
                   Selecting this option will alert managers.
                 </p>
@@ -580,8 +441,12 @@ export function SubmissionForm({
               />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="description">What happened?<RequiredMark /></Label>
+            <FormField
+              label="What happened?"
+              required
+              htmlFor="description"
+              error={state.fieldErrors?.description}
+            >
               <Textarea
                 id="description"
                 name="description"
@@ -597,8 +462,7 @@ export function SubmissionForm({
                 onChange={(e) => setDescription(e.target.value)}
                 className="min-h-32 text-base"
               />
-              <FieldError id="description-error" message={state.fieldErrors?.description} />
-            </div>
+            </FormField>
           </div>
         </SectionCard>
 
@@ -606,8 +470,12 @@ export function SubmissionForm({
         <SectionCard>
           <SectionHead n={3} title="Where & when" />
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
+            <FormField
+              label="When did it happen?"
+              required
+              htmlFor="occurred_at"
+              error={state.fieldErrors?.occurred_at}
+            >
               <Input
                 id="occurred_at"
                 name="occurred_at"
@@ -619,8 +487,7 @@ export function SubmissionForm({
                 onChange={(e) => setOccurredAt(e.target.value)}
                 className="h-12 text-base"
               />
-              <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />
-            </div>
+            </FormField>
 
             <SelectField
               label="Location"
@@ -657,20 +524,21 @@ export function SubmissionForm({
                 {witnesses.map((w, idx) => (
                   <li
                     key={idx}
-                    className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3"
+                    className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         Witness {idx + 1}
                       </span>
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => removeWitness(idx)}
                         aria-label={`Remove witness ${idx + 1}`}
-                        className="inline-flex h-9 items-center rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                       >
                         Remove
-                      </button>
+                      </Button>
                     </div>
                     <div className="flex flex-col gap-2">
                       <Input
@@ -709,20 +577,7 @@ export function SubmissionForm({
               <button
                 type="button"
                 onClick={addWitness}
-                style={{
-                  padding: "12px 14px",
-                  border: "2px dashed var(--border)",
-                  borderRadius: 12,
-                  background: "transparent",
-                  color: "var(--foreground)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
+                className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border bg-transparent px-3.5 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-accent/40"
               >
                 <svg
                   width="16"
@@ -733,6 +588,7 @@ export function SubmissionForm({
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <path d="M12 5v14M5 12h14" />
                 </svg>
@@ -772,7 +628,7 @@ export function SubmissionForm({
 
             {workersComp ? (
               <div className="flex flex-col gap-3">
-                <div className="rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
                   <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Workers&apos; comp instructions
                   </p>
@@ -806,70 +662,17 @@ export function SubmissionForm({
         </SectionCard>
 
         {/* Sticky submit bar */}
-        <div
-          style={{
-            position: "sticky",
-            bottom: 0,
-            zIndex: 5,
-            background: "color-mix(in srgb, var(--card) 92%, transparent)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid var(--border)",
-            borderRadius: 14,
-            padding: "12px 14px",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginTop: 4,
-            boxShadow: "0 6px 16px rgba(0,0,0,.08)",
-            flexWrap: "wrap",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--muted-foreground)",
-              flex: "1 1 160px",
-              minWidth: 0,
-            }}
-          >
-            <strong style={{ color: "var(--foreground)", fontWeight: 700 }}>
-              Auto-saved
-            </strong>
+        <div className="sticky bottom-0 z-[5] mt-1 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/90 px-3.5 py-3 shadow-[var(--shadow-elev-2)] backdrop-blur-md">
+          <div className="min-w-0 flex-[1_1_160px] text-xs text-muted-foreground">
+            <strong className="font-bold text-foreground">Auto-saved</strong>
             {" · review before submitting"}
           </div>
-          <button
+          <Button
             type="button"
+            size="lg"
             disabled={isPending || submitDisabled}
             onClick={handleSubmitClick}
-            style={{
-              padding: "12px 20px",
-              borderRadius: 8,
-              border: 0,
-              cursor:
-                isPending || submitDisabled ? "not-allowed" : "pointer",
-              background:
-                isPending || submitDisabled
-                  ? "var(--muted)"
-                  : `linear-gradient(180deg, #7AFF40, ${GREEN})`,
-              color:
-                isPending || submitDisabled
-                  ? "var(--muted-foreground)"
-                  : NAVY_DARK,
-              fontSize: 13.5,
-              fontWeight: 800,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              letterSpacing: ".04em",
-              textTransform: "uppercase",
-              boxShadow:
-                isPending || submitDisabled
-                  ? "none"
-                  : `0 2px 0 0 ${GREEN_DARK}, 0 4px 8px rgba(77,255,0,.30)`,
-              opacity: isPending || submitDisabled ? 0.7 : 1,
-              transition: "transform .08s",
-            }}
+            className="uppercase tracking-[0.04em]"
           >
             {isPending ? null : (
               <svg
@@ -881,12 +684,13 @@ export function SubmissionForm({
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                aria-hidden="true"
               >
                 <path d="m20 6-11 11-5-5" />
               </svg>
             )}
             {isPending ? "Submitting…" : "Submit report"}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -927,8 +731,7 @@ function SelectField({
   placeholder: string
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <Label>{label}</Label>
+    <FormField label={label}>
       <Select value={value} onValueChange={onValueChange}>
         <SelectTrigger>
           <SelectValue placeholder={placeholder} />
@@ -941,6 +744,6 @@ function SelectField({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </FormField>
   )
 }

@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -238,6 +239,14 @@ export default async function AdminDashboardPage({
   const todayUtc = new Date()
   todayUtc.setUTCHours(0, 0, 0, 0)
 
+  // Rolling 90-day window for the incident/accident count so the query stays
+  // bounded (both tables grow unbounded over a facility's lifetime). Derived
+  // from `todayUtc` (a `new Date()`, the same impure-read pattern the existing
+  // "today" boundary above uses) rather than a fresh `Date.now()`.
+  const ninetyDaysAgo = new Date(todayUtc)
+  ninetyDaysAgo.setUTCDate(ninetyDaysAgo.getUTCDate() - 90)
+  const ninetyDaysAgoIso = ninetyDaysAgo.toISOString()
+
   const [
     { count: facilityCount },
     { count: employeeCount },
@@ -270,12 +279,14 @@ export default async function AdminDashboardPage({
           .from("incident_reports")
           .select("*", { count: "exact", head: true })
           .eq("facility_id", activeFacilityId)
+          .gte("submitted_at", ninetyDaysAgoIso)
       : Promise.resolve({ count: null }),
     activeFacilityId
       ? supabase
           .from("accident_reports")
           .select("*", { count: "exact", head: true })
           .eq("facility_id", activeFacilityId)
+          .gte("submitted_at", ninetyDaysAgoIso)
       : Promise.resolve({ count: null }),
   ])
 
@@ -319,7 +330,7 @@ export default async function AdminDashboardPage({
           ? (incidentCount ?? 0) + (accidentCount ?? 0)
           : null
       ),
-      description: "Total incident and accident reports on record.",
+      description: "Incident and accident reports in the last 90 days.",
       icon: AlertTriangle,
     },
   ]
@@ -327,22 +338,18 @@ export default async function AdminDashboardPage({
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Admin Dashboard
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Setup status and operational overview for the selected facility.
-          </p>
-        </div>
-        {isSuperAdmin && facilityOptions.length > 0 && (
-          <FacilitySwitcher
-            facilities={facilityOptions}
-            activeFacilityId={activeFacilityId}
-          />
-        )}
-      </div>
+      <PageHeader
+        title="Admin Dashboard"
+        description="Setup status and operational overview for the selected facility."
+        actions={
+          isSuperAdmin && facilityOptions.length > 0 ? (
+            <FacilitySwitcher
+              facilities={facilityOptions}
+              activeFacilityId={activeFacilityId}
+            />
+          ) : null
+        }
+      />
 
       {activeFacilityId ? (
         <Card>

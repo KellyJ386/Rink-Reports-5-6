@@ -8,9 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
+import { TabNav } from "@/components/ui/tab-nav"
+import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-import { cn } from "@/lib/utils"
 
 import { DropdownsTab } from "./_components/dropdowns-tab"
 import { HistoryTabLoader } from "./_components/history-tab"
@@ -114,36 +116,21 @@ export default async function AccidentReportsAdminPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Accident Reports Admin
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Review submitted accident reports, manage dropdown values, and edit
-        Workers&apos; Compensation instructions. Original reports are immutable.
-      </p>
-    </div>
+    <PageHeader
+      title="Accident Reports Admin"
+      description="Review submitted accident reports, manage dropdown values, and edit Workers' Compensation instructions. Original reports are immutable."
+      actions={<ExportButton moduleKey="accident_reports" />}
+    />
   )
 }
 
 function TabBar({ active }: { active: Tab }) {
   return (
-    <nav className="flex flex-wrap items-center gap-1 rounded-md border p-1">
-      {TABS.map((t) => (
-        <Link
-          key={t.key}
-          href={tabHref(t.key)}
-          className={cn(
-            "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-            active === t.key
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
+    <TabNav
+      ariaLabel="Accident reports sections"
+      activeHref={tabHref(active)}
+      items={TABS.map((t) => ({ label: t.label, href: tabHref(t.key) }))}
+    />
   )
 }
 

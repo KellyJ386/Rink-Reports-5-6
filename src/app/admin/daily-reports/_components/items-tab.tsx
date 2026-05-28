@@ -1,15 +1,25 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import {
+  BulkUploadPanel,
+  type ImportSchema,
+} from "@/components/admin/bulk-upload"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
-import { deleteChecklistItem, moveChecklistItem } from "../actions"
+import {
+  deleteChecklistItem,
+  importDailyChecklistItems,
+  moveChecklistItem,
+} from "../actions"
 import type { AreaRow, ChecklistItemRow, TemplateRow } from "../types"
 
+import { checklistImportSpec } from "./checklist-import"
 import { ItemForm } from "./item-form"
 import { ScopePicker } from "./scope-picker"
 
@@ -28,8 +38,8 @@ export function ItemsTab({
   selectedAreaId,
   selectedTemplateId,
 }: Props) {
+  const router = useRouter()
   const [formOpen, setFormOpen] = useState(false)
-  const [bulkOpen, setBulkOpen] = useState(false)
   const [editing, setEditing] = useState<ChecklistItemRow | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
@@ -37,6 +47,15 @@ export function ItemsTab({
   const selectedTemplate = selectedTemplateId
     ? (templates.find((t) => t.id === selectedTemplateId) ?? null)
     : null
+
+  const importSchema: ImportSchema | null = useMemo(() => {
+    if (!selectedTemplate) return null
+    const templateId = selectedTemplate.id
+    return {
+      ...checklistImportSpec,
+      onImport: (rows) => importDailyChecklistItems(templateId, rows),
+    }
+  }, [selectedTemplate])
 
   function runRowAction(
     id: string,
@@ -88,17 +107,12 @@ export function ItemsTab({
           }
           options={templates.map((t) => ({ id: t.id, label: t.name }))}
         />
-        {selectedTemplate && (
+        {selectedTemplate && importSchema && (
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditing(null)
-                setBulkOpen(true)
-              }}
-            >
-              Bulk add
-            </Button>
+            <BulkUploadPanel
+              schema={importSchema}
+              onImported={() => router.refresh()}
+            />
             <Button
               onClick={() => {
                 setEditing(null)
@@ -149,15 +163,12 @@ export function ItemsTab({
             >
               Add item
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditing(null)
-                setBulkOpen(true)
-              }}
-            >
-              Bulk add
-            </Button>
+            {importSchema && (
+              <BulkUploadPanel
+                schema={importSchema}
+                onImported={() => router.refresh()}
+              />
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -280,21 +291,12 @@ export function ItemsTab({
       )}
 
       {selectedTemplate && (
-        <>
-          <ItemForm
-            open={formOpen}
-            onOpenChange={setFormOpen}
-            templateId={selectedTemplate.id}
-            editing={editing}
-          />
-          <ItemForm
-            open={bulkOpen}
-            onOpenChange={setBulkOpen}
-            templateId={selectedTemplate.id}
-            editing={null}
-            bulk
-          />
-        </>
+        <ItemForm
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          templateId={selectedTemplate.id}
+          editing={editing}
+        />
       )}
     </div>
   )

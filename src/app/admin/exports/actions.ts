@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { authorizeExport } from "@/lib/exports/authorize"
+import { buildExport } from "@/lib/exports/build-export"
+import type { ExportFormat } from "@/lib/exports/types"
 
 import type { ActionState } from "./types"
 import { MODULE_COLUMN_OPTIONS } from "./types"
@@ -97,4 +100,62 @@ export async function saveExportSettings(
 
   revalidatePath("/admin/exports")
   return { ok: true, message: "Export settings saved." }
+}
+
+// ---------------------------------------------------------------------------
+// Run export (CSV / PDF) — server-only generation.
+// ---------------------------------------------------------------------------
+
+export type RunExportInput = {
+  module: string
+  format: ExportFormat
+  /** Inclusive start date, "YYYY-MM-DD". */
+  from: string
+  /** Inclusive end date, "YYYY-MM-DD". */
+  to: string
+}
+
+export type RunExportResult =
+  | {
+      ok: true
+      /** Base64-encoded file bytes (CSV or PDF). */
+      base64: string
+      filename: string
+      contentType: string
+    }
+  | { ok: false; error: string }
+
+/**
+ * Generate an export and return its bytes (base64) for client-side download.
+ * Fails closed: requireAdmin → per-module `view` permission → facility-scoped
+ * build. The browser-friendly streaming path is GET /api/exports; this action
+ * exists for callers that prefer an action result over a navigation.
+ */
+export async function runExport(input: RunExportInput): Promise<RunExportResult> {
+  const current = await requireAdmin()
+  const profile = current?.profile
+  if (!profile) return { ok: false, error: "Not signed in." }
+
+  const auth = await authorizeExport({
+    module: input.module,
+    facilityId: profile.facility_id ?? null,
+    isSuperAdmin: profile.is_super_admin ?? false,
+  })
+  if (!auth.ok) return { ok: false, error: auth.error }
+
+  const supabase = await createClient()
+  const result = await buildExport(supabase, auth.facilityId, {
+    module: input.module,
+    format: input.format,
+    from: input.from,
+    to: input.to,
+  })
+  if (!result.ok) return { ok: false, error: result.error }
+
+  return {
+    ok: true,
+    base64: result.file.bytes.toString("base64"),
+    filename: result.file.filename,
+    contentType: result.file.contentType,
+  }
 }

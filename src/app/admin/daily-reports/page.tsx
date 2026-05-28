@@ -9,9 +9,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
+import { TabNav } from "@/components/ui/tab-nav"
+import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-import { cn } from "@/lib/utils"
 
 import { AreaAccessTab } from "./_components/area-access-tab"
 import { AreasTab } from "./_components/areas-tab"
@@ -207,13 +209,11 @@ async function AccessTabLoader({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Daily Reports</h1>
-      <p className="text-muted-foreground text-sm">
-        Configure areas, templates, and checklists. Review and edit recent
-        submissions. Reports auto-delete after 14 days.
-      </p>
-    </div>
+    <PageHeader
+      title="Daily Reports"
+      description="Configure areas, templates, and checklists. Review and edit recent submissions. Reports auto-delete after 14 days."
+      actions={<ExportButton moduleKey="daily_reports" />}
+    />
   )
 }
 
@@ -225,22 +225,14 @@ function TabBar({
   carry: { area?: string; template?: string }
 }) {
   return (
-    <nav className="flex flex-wrap items-center gap-1 rounded-md border p-1">
-      {TABS.map((t) => (
-        <Link
-          key={t.key}
-          href={tabHref(t.key, carry)}
-          className={cn(
-            "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-            active === t.key
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
+    <TabNav
+      ariaLabel="Daily reports sections"
+      activeHref={tabHref(active, carry)}
+      items={TABS.map((t) => ({
+        label: t.label,
+        href: tabHref(t.key, carry),
+      }))}
+    />
   )
 }
 

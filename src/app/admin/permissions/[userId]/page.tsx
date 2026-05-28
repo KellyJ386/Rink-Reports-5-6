@@ -76,9 +76,7 @@ export default async function UserPermissionsPage({
   }
 
   const { data: rows } = await supabase
-    // user_permissions isn't in generated types yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("user_permissions" as any)
+    .from("user_permissions")
     .select("user_id, facility_id, module_name, action, enabled")
     .eq("user_id", userId)
     .eq("facility_id", userRow.facility_id)
