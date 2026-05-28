@@ -379,6 +379,13 @@ function ViewSvg({
             const node = view === "front" ? region.front : region.back
             if (!node) return null
             const side = selections[region.key]
+            // Legacy `head_neck` overlays both the head ellipse and the neck
+            // rect at the same coordinates as the real head/neck regions.
+            // While it's drawn it paints (and intercepts clicks) on top of
+            // both, so new submissions can't click head OR neck without
+            // toggling head_neck instead. Only render it when a historical
+            // report actually carries a head_neck selection.
+            if (region.key === "head_neck" && side === "none") return null
             const isHovered = hovered === region.key
             const paint = paintForSide(side, view)
             const fill =
