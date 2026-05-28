@@ -8,10 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
+import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-import { cn } from "@/lib/utils"
 
 import { HistoryTab } from "./_components/history-tab"
 import { SettingsTab } from "./_components/settings-tab"
@@ -121,38 +122,21 @@ export default async function IceOperationsAdminPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Ice Operations</h1>
-        <p className="text-muted-foreground text-sm">
-          Manage rinks, equipment, and circle-check items. Review submitted
-          operations (ice make, circle check, edging, blade change) and append
-          follow-up notes. Original reports are immutable.
-        </p>
-      </div>
-      <ExportButton moduleKey="ice_operations" />
-    </div>
+    <PageHeader
+      title="Ice Operations"
+      description="Manage rinks, equipment, and circle-check items. Review submitted operations (ice make, circle check, edging, blade change) and append follow-up notes. Original reports are immutable."
+      actions={<ExportButton moduleKey="ice_operations" />}
+    />
   )
 }
 
 function TabBar({ active }: { active: Tab }) {
   return (
-    <nav className="flex flex-wrap items-center gap-1 rounded-md border p-1">
-      {TABS.map((t) => (
-        <Link
-          key={t.key}
-          href={tabHref(t.key)}
-          className={cn(
-            "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-            active === t.key
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
+    <TabNav
+      ariaLabel="Ice operations sections"
+      activeHref={tabHref(active)}
+      items={TABS.map((t) => ({ label: t.label, href: tabHref(t.key) }))}
+    />
   )
 }
 

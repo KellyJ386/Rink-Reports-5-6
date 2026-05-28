@@ -528,6 +528,9 @@
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
+  .font-display {
+    font-family: var(--font-anton), Anton, Impact, "Arial Narrow", sans-serif;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

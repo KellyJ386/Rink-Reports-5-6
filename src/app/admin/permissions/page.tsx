@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { Badge } from "@/components/ui/badge"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -32,16 +33,10 @@ export default async function PermissionsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Module Access Control
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Per-user permissions for each module. Pick a user to edit their
-          matrix of (module &times; action) toggles. Users with no row default
-          to zero access.
-        </p>
-      </header>
+      <PageHeader
+        title="Module Access Control"
+        description="Per-user permissions for each module. Pick a user to edit their matrix of (module × action) toggles. Users with no row default to zero access."
+      />
 
       {users.length === 0 ? (
         <p className="text-sm text-muted-foreground">No active users.</p>

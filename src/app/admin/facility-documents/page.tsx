@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -29,15 +30,10 @@ type FacilityOption = {
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Facility Paperwork
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Upload and manage the documents, policies, and manuals your staff can
-        browse and download. Bulk-upload multiple files at once.
-      </p>
-    </div>
+    <PageHeader
+      title="Facility Paperwork"
+      description="Upload and manage the documents, policies, and manuals your staff can browse and download. Bulk-upload multiple files at once."
+    />
   )
 }
 

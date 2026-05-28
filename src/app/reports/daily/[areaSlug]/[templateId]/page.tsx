@@ -1,5 +1,4 @@
-import Link from "next/link"
-
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardDescription,
@@ -110,22 +109,14 @@ export default async function DailyReportSubmitPage({
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
-      <p className="text-sm text-muted-foreground">
-        <Link href="/reports" className="hover:underline">
-          Reports
-        </Link>{" "}
-        /{" "}
-        <Link href="/reports/daily" className="hover:underline">
-          Daily Reports
-        </Link>{" "}
-        /{" "}
-        <Link
-          href={`/reports/daily/${area.slug}`}
-          className="hover:underline"
-        >
-          {area.name}
-        </Link>
-      </p>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Daily Reports", href: "/reports/daily" },
+          { label: area.name, href: `/reports/daily/${area.slug}` },
+          { label: template.name },
+        ]}
+      />
       <SubmissionForm
         areaId={area.id}
         areaSlug={area.slug}

@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -337,22 +338,18 @@ export default async function AdminDashboardPage({
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Admin Dashboard
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Setup status and operational overview for the selected facility.
-          </p>
-        </div>
-        {isSuperAdmin && facilityOptions.length > 0 && (
-          <FacilitySwitcher
-            facilities={facilityOptions}
-            activeFacilityId={activeFacilityId}
-          />
-        )}
-      </div>
+      <PageHeader
+        title="Admin Dashboard"
+        description="Setup status and operational overview for the selected facility."
+        actions={
+          isSuperAdmin && facilityOptions.length > 0 ? (
+            <FacilitySwitcher
+              facilities={facilityOptions}
+              activeFacilityId={activeFacilityId}
+            />
+          ) : null
+        }
+      />
 
       {activeFacilityId ? (
         <Card>

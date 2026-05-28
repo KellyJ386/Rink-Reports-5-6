@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -109,12 +110,10 @@ export default async function SuperAdminPage({
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Super Admin</h1>
-        <p className="text-muted-foreground text-sm">
-          Cross-facility platform management. Changes here affect all tenants.
-        </p>
-      </div>
+      <PageHeader
+        title="Super Admin"
+        description="Cross-facility platform management. Changes here affect all tenants."
+      />
 
       {/* Stats strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

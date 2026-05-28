@@ -1,13 +1,14 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
 export const dynamic = "force-dynamic"
-
-const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
 type RinkRow = { id: string; name: string; slug: string; is_default: boolean }
 type LayoutRow = {
@@ -18,8 +19,6 @@ type LayoutRow = {
   is_default: boolean
 }
 
-// ── Error / empty states ──────────────────────────────────────────────────────
-
 function StateScreen({
   title,
   description,
@@ -28,47 +27,29 @@ function StateScreen({
   description: string
 }) {
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
-      <div
-        style={{
-          fontFamily: DISPLAY_FONT,
-          fontSize: "clamp(22px, 5vw, 32px)",
-          textTransform: "uppercase",
-          color: "var(--foreground)",
-          lineHeight: 1.1,
-        }}
-      >
-        {title}
-      </div>
-      <p style={{ fontSize: 14, color: "var(--muted-foreground)", maxWidth: 320 }}>
-        {description}
-      </p>
-      <Link
-        href="/dashboard"
-        style={{
-          marginTop: 8,
-          padding: "10px 24px",
-          borderRadius: 8,
-          border: "1px solid var(--border)",
-          background: "var(--card)",
-          color: "var(--foreground)",
-          fontSize: 13,
-          fontWeight: 600,
-          textDecoration: "none",
-        }}
-      >
-        Back to Dashboard
-      </Link>
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Ice Depth" },
+        ]}
+      />
+      <EmptyState
+        title={title}
+        description={description}
+        action={
+          <Button asChild variant="outline">
+            <Link href="/dashboard">Back to Dashboard</Link>
+          </Button>
+        }
+      />
     </div>
   )
 }
 
-// Pick a rink's default diagram, falling back to its first active diagram.
 function pickDiagram(layouts: LayoutRow[]): LayoutRow | null {
   return layouts.find((l) => l.is_default) ?? layouts[0] ?? null
 }
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function IceDepthHomePage() {
   const current = await requireUser()
@@ -129,8 +110,6 @@ export default async function IceDepthHomePage() {
     )
   }
 
-  // Resolve the default rink (flagged, else first active), then walk rinks in
-  // order so we land on the first one that actually has a diagram.
   const orderedRinks = [
     ...rinks.filter((r) => r.is_default),
     ...rinks.filter((r) => !r.is_default),

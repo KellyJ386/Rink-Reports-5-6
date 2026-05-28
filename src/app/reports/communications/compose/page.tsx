@@ -1,5 +1,5 @@
-import Link from "next/link"
-
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { PageHeader } from "@/components/ui/page-header"
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import {
   Card,
@@ -27,18 +27,13 @@ function NotAvailable({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          /{" "}
-          <Link href="/reports/communications" className="hover:underline">
-            Communications
-          </Link>{" "}
-          / Compose
-        </p>
-      </div>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Communications", href: "/reports/communications" },
+          { label: "Compose" },
+        ]}
+      />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -119,24 +114,22 @@ export default async function CommunicationsComposePage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          /{" "}
-          <Link href="/reports/communications" className="hover:underline">
-            Communications
-          </Link>{" "}
-          / Compose
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          New message
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Send a message to one or more groups in your facility.
-        </p>
-      </div>
+      <PageHeader
+        variant="display"
+        module="comms"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Communications", href: "/reports/communications" },
+              { label: "Compose" },
+            ]}
+          />
+        }
+        eyebrow="New message"
+        title="Compose"
+        description="Send a message to one or more groups in your facility."
+      />
 
       <ComposeForm
         groups={groups.map((g) => ({
