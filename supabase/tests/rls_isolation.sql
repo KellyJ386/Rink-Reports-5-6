@@ -276,26 +276,20 @@ values
    'eap.pdf')
 on conflict (id) do nothing;
 
--- The ice_depth config-table SELECT policies (settings/rinks/layouts/points)
--- gate on the legacy public.has_module_access('ice_depth') helper, which reads
--- module_permissions.can_view -- NOT the user_permissions grid seeded above.
--- (has_module_access was not migrated to the new resolver in migration 77.)
--- Seed Alice module_permissions rows so the positive own-facility SELECTs below
--- exercise real facility scoping rather than a blanket module-access denial.
--- This covers every legacy-helper-gated table the positive assertions touch:
---   ice_depth        -> ice_depth config tables
---   communications   -> communication_routing_rules, communication_groups
---   ice_operations   -> ice_operations_fuel_types (+ templates/items)
--- can_admin stays false, so admin-only writes (insert into facility B) remain denied.
-insert into public.module_permissions (facility_id, employee_id, module_key, can_view)
-values
-  ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true),
-  ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'communications', true),
-  ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_operations', true)
-on conflict (employee_id, module_key) do nothing;
+-- NOTE (migration 90): The config-table SELECT policies (ice_depth, communications,
+-- ice_operations, refrigeration, ...) gate on public.has_module_access(<module>).
+-- BEFORE migration 90 that helper read the deprecated module_permissions.can_view
+-- table, NOT the user_permissions grid seeded above — so this test used to seed
+-- Alice module_permissions rows here purely to make those SELECTs pass. That seed
+-- documented the split-brain bug migration 90 removes: has_module_access /
+-- has_module_admin_access / has_area_access / has_area_submit_access now read
+-- public.user_permissions for the module-level check. The user_permissions grant
+-- seeded above (view + submit on ice_depth, communications, ice_operations, ...)
+-- is therefore sufficient on its own; the manual module_permissions seed is gone.
+-- The positive own-facility SELECT assertions in the "M-helpers" block below
+-- (and the existing fuel-type / rink / routing-rule / groups checks) confirm that
+-- access now flows through user_permissions. Alice has no `admin` action seeded,
+-- so admin-only writes (insert into facility B) remain denied.
 
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
@@ -310,6 +304,51 @@ set local role authenticated;
 -- assertion below reads 0 rows while the cross-facility negatives pass trivially.
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
 select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- ---------------------------------------------------------------------------
+-- M-helpers (migration 90): the module-level RLS helpers now read
+-- public.user_permissions, not the deprecated module_permissions table.
+--
+-- Alice's access to these config / settings tables comes SOLELY from the
+-- user_permissions grant seeded in the fixture (view + submit on ice_depth,
+-- communications, ice_operations). Before migration 90 these SELECTs only
+-- passed because of a manual module_permissions seed (now removed). After
+-- migration 90 they must pass via user_permissions alone. The cross-facility
+-- negatives for the same tables live further down and must keep passing.
+-- ---------------------------------------------------------------------------
+
+-- ice_depth config (ice_depth_rinks SELECT is gated on has_module_access('ice_depth')).
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_depth_rinks
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'M-helpers: alice CAN SELECT ice_depth config via user_permissions (view)');
+
+-- communications config: groups + routing rules gate on has_module_access('communications').
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_groups
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  2, 'M-helpers: alice CAN SELECT communication_groups via user_permissions (view)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_routing_rules
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'M-helpers: alice CAN SELECT communication_routing_rules via user_permissions (view)');
+
+-- ice_operations config: fuel types gate on has_module_access('ice_operations').
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_operations_fuel_types
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'M-helpers: alice CAN SELECT ice_operations_fuel_types via user_permissions (view)');
+
+-- Negative: Alice has NO admin grant, so has_module_admin_access() stays false
+-- and an admin-only own-facility config write (a rink in her own facility) is
+-- still denied. This pins that migration 90 did not over-grant by reading view.
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_rinks
+      (facility_id, name, slug)
+    values
+      ('11111111-1111-1111-1111-111111111111', 'Admin Only Rink', 'admin-only')$$,
+  'M-helpers: staff alice (no admin grant) CANNOT INSERT a rink into her own facility');
 
 -- Alice sees her own employee row but not Bob's.
 select pg_temp.expect_count(

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useActionState } from "react"
 
 import {
@@ -19,9 +20,24 @@ const INITIAL: ActionState = { ok: null }
 
 interface Props {
   facilities: FacilityWithStats[]
+  page: number
+  totalPages: number
+  totalCount: number
+  pageSize: number
 }
 
-export function FacilitiesPanel({ facilities }: Props) {
+export function FacilitiesPanel({
+  facilities,
+  page,
+  totalPages,
+  totalCount,
+  pageSize,
+}: Props) {
+  const firstShown = totalCount === 0 ? 0 : (page - 1) * pageSize + 1
+  const lastShown = Math.min(page * pageSize, totalCount)
+  const hasPrev = page > 1
+  const hasNext = page < totalPages
+
   return (
     <Card>
       <CardHeader>
@@ -38,6 +54,33 @@ export function FacilitiesPanel({ facilities }: Props) {
         {facilities.map((f) => (
           <FacilityRow key={f.id} facility={f} />
         ))}
+
+        {totalCount > 0 && (
+          <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-xs text-muted-foreground">
+              Showing {firstShown}–{lastShown} of {totalCount}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button asChild={hasPrev} variant="outline" size="sm" disabled={!hasPrev}>
+                {hasPrev ? (
+                  <Link href={`/admin/super-admin?page=${page - 1}`}>Previous</Link>
+                ) : (
+                  <span>Previous</span>
+                )}
+              </Button>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                Page {page} of {totalPages}
+              </span>
+              <Button asChild={hasNext} variant="outline" size="sm" disabled={!hasNext}>
+                {hasNext ? (
+                  <Link href={`/admin/super-admin?page=${page + 1}`}>Next</Link>
+                ) : (
+                  <span>Next</span>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

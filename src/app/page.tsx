@@ -214,7 +214,7 @@ export default async function Home() {
             position: "absolute",
             inset: 0,
             background:
-              "radial-gradient(ellipse 52% 82% at 0% 50%, rgba(77,255,0,0.52) 0%, rgba(77,255,0,0.18) 35%, transparent 65%), linear-gradient(104deg, rgba(77,255,0,0.42) 0%, rgba(77,255,0,0.0) 38%, rgba(0,59,111,0.38) 60%, rgba(0,26,58,0.92) 100%)",
+              "radial-gradient(ellipse 52% 82% at 0% 50%, rgba(105,190,40,0.52) 0%, rgba(105,190,40,0.18) 35%, transparent 65%), linear-gradient(104deg, rgba(105,190,40,0.42) 0%, rgba(105,190,40,0.0) 38%, rgba(0,59,111,0.38) 60%, rgba(0,26,58,0.92) 100%)",
           }}
         />
         {/* Ice-crystal dot pattern */}
@@ -255,7 +255,7 @@ export default async function Home() {
               fontWeight: 700,
               letterSpacing: "0.16em",
               textTransform: "uppercase",
-              color: "#4DFF00",
+              color: "#82CC36",
             }}
           >
             <span
@@ -264,8 +264,8 @@ export default async function Home() {
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: "#4DFF00",
-                boxShadow: "0 0 0 4px rgba(77,255,0,0.22)",
+                background: "#69BE28",
+                boxShadow: "0 0 0 4px rgba(105,190,40,0.22)",
               }}
             />
             Max Facility Operations
@@ -316,7 +316,7 @@ export default async function Home() {
             zIndex: 4,
             textAlign: "center",
             paddingBottom: 28,
-            color: "rgba(255,255,255,0.30)",
+            color: "rgba(255,255,255,0.62)",
             fontSize: 11,
             letterSpacing: "0.12em",
             textTransform: "uppercase",
@@ -343,7 +343,7 @@ export default async function Home() {
                 fontWeight: 700,
                 letterSpacing: "0.14em",
                 textTransform: "uppercase",
-                color: "#4DFF00",
+                color: "#82CC36",
                 marginBottom: 16,
               }}
             >
@@ -366,7 +366,7 @@ export default async function Home() {
             <p
               style={{
                 fontSize: "clamp(15px, 1.4vw, 19px)",
-                color: "rgba(255,255,255,0.45)",
+                color: "rgba(255,255,255,0.72)",
                 margin: 0,
                 lineHeight: 1.5,
               }}
@@ -405,11 +405,11 @@ export default async function Home() {
                     height: 54,
                     borderRadius: 14,
                     background:
-                      "linear-gradient(135deg, #3DB800 0%, #4DFF00 100%)",
+                      "linear-gradient(135deg, #54A01A 0%, #69BE28 100%)",
                     display: "grid",
                     placeItems: "center",
                     color: "#fff",
-                    boxShadow: "0 6px 14px -4px rgba(77,255,0,0.42)",
+                    boxShadow: "0 6px 14px -4px rgba(105,190,40,0.42)",
                     flexShrink: 0,
                   }}
                 >
@@ -433,7 +433,7 @@ export default async function Home() {
                     style={{
                       fontSize: 14,
                       lineHeight: 1.55,
-                      color: "rgba(255,255,255,0.42)",
+                      color: "rgba(255,255,255,0.72)",
                     }}
                   >
                     {m.desc}
@@ -479,7 +479,7 @@ export default async function Home() {
               <p
                 style={{
                   fontSize: 17,
-                  color: "rgba(255,255,255,0.48)",
+                  color: "rgba(255,255,255,0.72)",
                   lineHeight: 1.6,
                   margin: "0 0 36px",
                   maxWidth: 460,
@@ -515,7 +515,7 @@ export default async function Home() {
                         width: 28,
                         height: 28,
                         borderRadius: "50%",
-                        background: "rgba(77,255,0,0.12)",
+                        background: "rgba(105,190,40,0.16)",
                         display: "grid",
                         placeItems: "center",
                         flexShrink: 0,
@@ -526,7 +526,7 @@ export default async function Home() {
                         height="14"
                         viewBox="0 0 24 24"
                         fill="none"
-                        stroke="#4DFF00"
+                        stroke="#82CC36"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -564,7 +564,7 @@ export default async function Home() {
               <p
                 style={{
                   fontSize: 15,
-                  color: "rgba(255,255,255,0.48)",
+                  color: "rgba(255,255,255,0.72)",
                   lineHeight: 1.6,
                   margin: "0 0 28px",
                 }}
@@ -592,7 +592,7 @@ export default async function Home() {
           borderTop: "1px solid #122a4a",
           padding: "26px 24px",
           textAlign: "center",
-          color: "rgba(255,255,255,0.28)",
+          color: "rgba(255,255,255,0.62)",
           fontSize: 13,
         }}
       >

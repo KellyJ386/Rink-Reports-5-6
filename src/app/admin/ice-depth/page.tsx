@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
@@ -115,13 +116,16 @@ export default async function IceDepthAdminPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Ice Depth</h1>
-      <p className="text-muted-foreground text-sm">
-        Manage rinks (sheets of ice), build their diagrams and measurement
-        points, review submitted depth sessions, and configure thresholds,
-        colors, and alerting. Sessions are immutable.
-      </p>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Ice Depth</h1>
+        <p className="text-muted-foreground text-sm">
+          Manage rinks (sheets of ice), build their diagrams and measurement
+          points, review submitted depth sessions, and configure thresholds,
+          colors, and alerting. Sessions are immutable.
+        </p>
+      </div>
+      <ExportButton moduleKey="ice_depth" />
     </div>
   )
 }

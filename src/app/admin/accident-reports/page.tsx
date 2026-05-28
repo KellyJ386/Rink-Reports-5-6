@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
@@ -114,14 +115,17 @@ export default async function AccidentReportsAdminPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Accident Reports Admin
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Review submitted accident reports, manage dropdown values, and edit
-        Workers&apos; Compensation instructions. Original reports are immutable.
-      </p>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Accident Reports Admin
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Review submitted accident reports, manage dropdown values, and edit
+          Workers&apos; Compensation instructions. Original reports are immutable.
+        </p>
+      </div>
+      <ExportButton moduleKey="accident_reports" />
     </div>
   )
 }
