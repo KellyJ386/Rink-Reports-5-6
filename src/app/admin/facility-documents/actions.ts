@@ -24,10 +24,7 @@ const UUID_RE =
 type DocsClient = ReturnType<typeof createAdminClient>
 
 function documents(client: DocsClient) {
-  // facility_documents isn't in the generated types yet; cast follows the
-  // project pattern (see src/app/api/offline-sync/route.ts).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return client.from("facility_documents" as any)
+  return client.from("facility_documents")
 }
 
 function nonEmpty(value: FormDataEntryValue | null): string | null {

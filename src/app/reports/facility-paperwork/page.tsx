@@ -83,10 +83,7 @@ export default async function FacilityPaperworkPage() {
   }
 
   const { data: docsRaw } = await supabase
-    // facility_documents isn't in the generated types yet; cast follows the
-    // project pattern (see src/app/api/offline-sync/route.ts).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("facility_documents" as any)
+    .from("facility_documents")
     .select(
       "id, title, description, category, storage_path, file_name, mime_type, size_bytes, created_at",
     )

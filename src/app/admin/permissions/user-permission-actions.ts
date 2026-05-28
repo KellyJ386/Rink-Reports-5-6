@@ -56,10 +56,7 @@ export async function upsertUserPermission(input: {
 
     const supabase = await createClient()
     const { error } = await supabase
-      // user_permissions isn't in generated types yet; cast follows
-      // the project pattern (see src/app/api/offline-sync/route.ts).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("user_permissions" as any)
+      .from("user_permissions")
       .upsert(
         {
           user_id: input.userId,
@@ -111,8 +108,7 @@ export async function applyPresetToUser(input: {
     }
 
     const { error } = await supabase
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("user_permissions" as any)
+      .from("user_permissions")
       .upsert(rows, { onConflict: "user_id,facility_id,module_name,action" })
 
     if (error) return { ok: false, error: error.message }
@@ -200,8 +196,7 @@ export async function bulkImportUserPermissionsCsv(
     let inserted = 0
     if (rows.length > 0) {
       const { error, count } = await supabase
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .from("user_permissions" as any)
+        .from("user_permissions")
         .upsert(rows, {
           onConflict: "user_id,facility_id,module_name,action",
           count: "exact",

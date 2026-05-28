@@ -142,10 +142,7 @@ export default async function FacilityDocumentsAdminPage({
 
   const supabase = await createClient()
   const { data: docsRaw } = await supabase
-    // facility_documents isn't in the generated types yet; cast follows the
-    // project pattern (see src/app/api/offline-sync/route.ts).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("facility_documents" as any)
+    .from("facility_documents")
     .select("*")
     .eq("facility_id", facilityId)
     .order("category", { ascending: true })
