@@ -18,9 +18,11 @@ import {
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
   isBodySide,
-  type BodyPartKey,
+  isLaterality,
+  isPairedBodyPartKey,
   type BodySelections,
   type BodySide,
+  type Laterality,
 } from "@/components/staff/body-diagram/types"
 
 import { addAccidentFollowupNote } from "../actions"
@@ -50,17 +52,43 @@ function fmt(ts: string | null | undefined): string {
 function buildBodySelections(
   bps: AccidentReportDetail["body_parts"],
 ): BodySelections {
-  const out: BodySelections = { ...EMPTY_BODY_SELECTIONS }
+  const out: BodySelections = {
+    ...EMPTY_BODY_SELECTIONS,
+    shoulders: { ...EMPTY_BODY_SELECTIONS.shoulders },
+    arms: { ...EMPTY_BODY_SELECTIONS.arms },
+    elbows: { ...EMPTY_BODY_SELECTIONS.elbows },
+    wrists: { ...EMPTY_BODY_SELECTIONS.wrists },
+    hands: { ...EMPTY_BODY_SELECTIONS.hands },
+    fingers: { ...EMPTY_BODY_SELECTIONS.fingers },
+    upper_legs: { ...EMPTY_BODY_SELECTIONS.upper_legs },
+    knees: { ...EMPTY_BODY_SELECTIONS.knees },
+    lower_legs: { ...EMPTY_BODY_SELECTIONS.lower_legs },
+    ankles: { ...EMPTY_BODY_SELECTIONS.ankles },
+    feet: { ...EMPTY_BODY_SELECTIONS.feet },
+  }
+  // `laterality` was added by migration 00000000000092 and isn't yet in the
+  // generated Database types — read it dynamically off the row.
   for (const b of bps) {
     const key = b.body_part?.key
     if (!key || !isBodyPartKey(key)) continue
     const side: BodySide = isBodySide(b.side) ? (b.side as BodySide) : "none"
-    // If multiple selections collide, prefer "both".
-    const prev = out[key as BodyPartKey]
-    if (prev !== "none" && prev !== side) {
-      out[key as BodyPartKey] = "both"
+    if (side === "none") continue
+    const rawLat = (b as unknown as { laterality?: string | null }).laterality
+    const lat: Laterality | null =
+      typeof rawLat === "string" && isLaterality(rawLat) ? rawLat : null
+    if (isPairedBodyPartKey(key)) {
+      const paired = out[key]
+      if (lat) {
+        paired[lat] = side
+      } else {
+        // Legacy row (pre-migration 92): treat as both sides.
+        paired.left = side
+        paired.right = side
+      }
     } else {
-      out[key as BodyPartKey] = side
+      // Midline region. The union-indexed assignment trips TypeScript because
+      // it intersects every possible value type, so cast to write BodySide.
+      ;(out as unknown as Record<string, BodySide>)[key] = side
     }
   }
   return out
@@ -189,18 +217,28 @@ export function ReportDetail({ detail, backHref }: Props) {
             <ul className="flex flex-col gap-1.5 text-sm">
               {body_parts
                 .filter((b) => b.notes)
-                .map((b) => (
-                  <li
-                    key={b.id}
-                    className="bg-muted/30 rounded-md border p-2 text-xs"
-                  >
-                    <span className="font-medium">
-                      {b.body_part?.display_name ?? "—"}
-                    </span>{" "}
-                    <span className="text-muted-foreground">({b.side})</span>:{" "}
-                    {b.notes}
-                  </li>
-                ))}
+                .map((b) => {
+                  const rawLat = (b as unknown as { laterality?: string | null })
+                    .laterality
+                  const latPrefix =
+                    rawLat === "left"
+                      ? "Left "
+                      : rawLat === "right"
+                        ? "Right "
+                        : ""
+                  return (
+                    <li
+                      key={b.id}
+                      className="bg-muted/30 rounded-md border p-2 text-xs"
+                    >
+                      <span className="font-medium">
+                        {`${latPrefix}${b.body_part?.display_name ?? "—"}`}
+                      </span>{" "}
+                      <span className="text-muted-foreground">({b.side})</span>:{" "}
+                      {b.notes}
+                    </li>
+                  )
+                })}
             </ul>
           )}
         </section>

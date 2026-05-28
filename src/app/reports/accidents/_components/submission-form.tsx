@@ -7,11 +7,13 @@ import { toast } from "sonner"
 import { FormError } from "@/components/auth/form-error"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
+  BODY_PART_KEYS,
   EMPTY_BODY_SELECTIONS,
   isBodyPartKey,
+  isPairedBodyPartKey,
   type BodyPartKey,
   type BodySelections,
-  type BodySide,
+  type RegionSelection,
 } from "@/components/staff/body-diagram/types"
 import {
   AlertDialog,
@@ -364,15 +366,38 @@ export function SubmissionForm({
   const bodyPartsJson = useMemo(() => {
     const entries: Array<{
       body_part_dropdown_id: string
-      side: BodySide
+      side: "front" | "back" | "both"
+      laterality: "left" | "right" | null
     }> = []
-    for (const [key, side] of Object.entries(selections) as Array<
-      [BodyPartKey, BodySide]
-    >) {
-      if (side === "none") continue
+    for (const key of BODY_PART_KEYS) {
       const id = bodyPartIdMap[key]
       if (!id) continue
-      entries.push({ body_part_dropdown_id: id, side })
+      if (isPairedBodyPartKey(key)) {
+        const paired = selections[key]
+        if (paired.left !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side: paired.left,
+            laterality: "left",
+          })
+        }
+        if (paired.right !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side: paired.right,
+            laterality: "right",
+          })
+        }
+      } else {
+        const side = selections[key]
+        if (side !== "none") {
+          entries.push({
+            body_part_dropdown_id: id,
+            side,
+            laterality: null,
+          })
+        }
+      }
     }
     return JSON.stringify(entries)
   }, [selections, bodyPartIdMap])
@@ -388,8 +413,11 @@ export function SubmissionForm({
     return JSON.stringify(cleaned)
   }, [witnesses])
 
-  const handleSelectionChange = (key: BodyPartKey, side: BodySide) => {
-    setSelections((prev) => ({ ...prev, [key]: side }))
+  const handleSelectionChange = (
+    key: BodyPartKey,
+    value: RegionSelection
+  ) => {
+    setSelections((prev) => ({ ...prev, [key]: value }))
   }
 
   const addWitness = () => {

@@ -37,10 +37,16 @@ export type BodyPartOption = {
 
 /**
  * Wire-format payload for body part selections submitted via hidden input.
+ *
+ * One row is emitted per (region, view-side, laterality) leaf state. Paired
+ * regions (arms, legs, shoulders, …) always carry a non-null laterality; for
+ * "both left and right" the form emits two rows. Midline regions (head, neck,
+ * torso, …) carry laterality=null.
  */
 export type BodyPartsPayloadEntry = {
   body_part_dropdown_id: string
   side: "front" | "back" | "both" | "none"
+  laterality: "left" | "right" | null
 }
 
 /**

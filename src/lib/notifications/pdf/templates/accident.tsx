@@ -33,6 +33,7 @@ type DropdownLite = {
 type BodyPart = {
   display_name: string
   side: "front" | "back" | "both" | "none"
+  laterality: "left" | "right" | null
   notes: string | null
 }
 
@@ -108,10 +109,12 @@ async function fetchAccidentRecord(
     ((dropdownsRaw ?? []) as DropdownLite[]).map((d) => [d.id, d]),
   )
 
-  // Body parts: join to dropdowns for display_name.
-  const { data: bodyRows } = await sb
+  // Body parts: join to dropdowns for display_name. `laterality` (migration
+  // 00000000000092) isn't in the generated Database types yet — cast.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: bodyRows } = await (sb as any)
     .from("accident_body_part_selections")
-    .select("body_part_dropdown_id, side, notes")
+    .select("body_part_dropdown_id, side, laterality, notes")
     .eq("accident_id", recordId)
 
   const bodyDropdownIds = ((bodyRows ?? []) as Array<{
@@ -136,11 +139,14 @@ async function fetchAccidentRecord(
   const body_parts: BodyPart[] = ((bodyRows ?? []) as Array<{
     body_part_dropdown_id: string
     side: BodyPart["side"]
+    laterality: string | null
     notes: string | null
   }>).map((b) => ({
     display_name:
       bodyDropdownById.get(b.body_part_dropdown_id) ?? "(unknown body part)",
     side: b.side,
+    laterality:
+      b.laterality === "left" || b.laterality === "right" ? b.laterality : null,
     notes: b.notes,
   }))
 
@@ -466,19 +472,27 @@ function AccidentReportPdf({
               <Text style={{ ...styles.th, ...styles.thNotes }}>Notes</Text>
             </View>
             <View style={styles.table}>
-              {r.body_parts.map((b, i) => (
-                <View key={i} style={styles.tr}>
-                  <Text style={{ ...styles.td, ...styles.thBody }}>
-                    {b.display_name}
-                  </Text>
-                  <Text style={{ ...styles.td, ...styles.thSide }}>
-                    {sideLabel(b.side)}
-                  </Text>
-                  <Text style={{ ...styles.td, ...styles.thNotes }}>
-                    {b.notes ?? "—"}
-                  </Text>
-                </View>
-              ))}
+              {r.body_parts.map((b, i) => {
+                const prefix =
+                  b.laterality === "left"
+                    ? "Left "
+                    : b.laterality === "right"
+                      ? "Right "
+                      : ""
+                return (
+                  <View key={i} style={styles.tr}>
+                    <Text style={{ ...styles.td, ...styles.thBody }}>
+                      {`${prefix}${b.display_name}`}
+                    </Text>
+                    <Text style={{ ...styles.td, ...styles.thSide }}>
+                      {sideLabel(b.side)}
+                    </Text>
+                    <Text style={{ ...styles.td, ...styles.thNotes }}>
+                      {b.notes ?? "—"}
+                    </Text>
+                  </View>
+                )
+              })}
             </View>
           </View>
         ) : null}
