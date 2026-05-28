@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import {
   emptyMatrix,
@@ -284,13 +285,9 @@ export default async function EmployeesPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Employee / User Setup
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Add staff, assign roles and departments, manage activation.
-      </p>
-    </div>
+    <PageHeader
+      title="Employee / User Setup"
+      description="Add staff, assign roles and departments, manage activation."
+    />
   )
 }

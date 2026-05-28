@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -226,12 +227,9 @@ async function loadSingleEntry(
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
-      <p className="text-muted-foreground text-sm">
-        Immutable record of all create, update, delete, and authentication
-        events across this facility.
-      </p>
-    </div>
+    <PageHeader
+      title="Audit Log"
+      description="Immutable record of all create, update, delete, and authentication events across this facility."
+    />
   )
 }

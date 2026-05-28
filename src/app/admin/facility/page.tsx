@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -111,27 +112,6 @@ async function loadFacilityCounts(
   }
 }
 
-function PageHeader({
-  title,
-  description,
-  action,
-}: {
-  title: string
-  description?: string
-  action?: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {description && (
-          <p className="text-muted-foreground text-sm">{description}</p>
-        )}
-      </div>
-      {action && <div className="flex items-center gap-2">{action}</div>}
-    </div>
-  )
-}
 
 function NotSignedIn() {
   return (
@@ -200,7 +180,7 @@ export default async function FacilitySettingsPage({
         <PageHeader
           title="Facilities"
           description="Manage every facility in the system. Create new facilities and edit existing ones."
-          action={<NewFacilityButton />}
+          actions={<NewFacilityButton />}
         />
 
         <FacilitiesTable
