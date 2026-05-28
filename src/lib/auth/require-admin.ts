@@ -43,9 +43,7 @@ export const requireAdmin = cache(async (): Promise<AuthedUser> => {
   // user's facility.
   if (profile.facility_id) {
     const { data } = await supabase
-      // user_permissions isn't in generated types yet.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("user_permissions" as any)
+      .from("user_permissions")
       .select("id")
       .eq("user_id", profile.id)
       .eq("facility_id", profile.facility_id)

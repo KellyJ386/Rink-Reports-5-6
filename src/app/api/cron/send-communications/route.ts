@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import { type SupabaseClient, createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
+import { mapWithConcurrency } from "@/lib/concurrency"
 import { downloadPdf } from "@/lib/notifications/pdf/upload"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
 import type { Database } from "@/types/database"
@@ -12,6 +13,15 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BATCH_LIMIT = 100
+
+// Send a handful of emails concurrently. Resend's default rate limit is
+// ~10 req/s, so cap at 8 in-flight to stay comfortably under it while still
+// collapsing the previously-sequential per-row Resend round-trips.
+const EMAIL_CONCURRENCY = 8
+// Stop STARTING new sends once we've burned this much of the maxDuration
+// budget. Rows we don't reach stay 'pending' (untouched) and are picked up
+// on the next tick.
+const EMAIL_TIME_BUDGET_MS = 50_000
 
 // Retry budget. The schedule below is total elapsed before the row is
 // marked terminally 'failed':
@@ -170,69 +180,94 @@ async function runEmail(
     skipped: 0,
   }
   const rows = await loadPending(supabase)
-  const nowIso = new Date().toISOString()
+  const startedAt = Date.now()
 
   // A single message often fans out to many recipients; cache PDF bytes
-  // per storage path so we don't redownload N times in one batch.
-  // `null` cached value means "we tried and the object wasn't reachable".
-  const pdfCache = new Map<string, Buffer | null>()
-
-  for (const r of rows) {
-    stats.attempted += 1
-    const to = r.employee?.email?.trim()
-    if (!to) {
-      await markEmailSkipped(supabase, r.id, "no email")
-      stats.skipped += 1
-      continue
-    }
-    const subject = r.message?.subject?.trim() || "New message"
-    const body = r.message?.body ?? ""
-
-    const pdfPath = r.message?.pdf_url ?? null
-    let pdfBuffer: Buffer | null = null
-    if (pdfPath) {
-      if (pdfCache.has(pdfPath)) {
-        pdfBuffer = pdfCache.get(pdfPath) ?? null
-      } else {
-        pdfBuffer = await downloadPdf(supabase, pdfPath)
-        pdfCache.set(pdfPath, pdfBuffer)
-        if (!pdfBuffer) {
-          // Log once per path — falling through to a text-only send is
-          // better than blocking the whole run on a single missing PDF.
-          console.warn(
-            "[send-communications] PDF download failed; sending text-only",
-            { pdf_url: pdfPath },
-          )
-        }
+  // per storage path so we don't redownload N times in one batch. We cache
+  // the in-flight *promise* (not the resolved buffer) so concurrent rows
+  // sharing a pdf_url coalesce onto a single download. A resolved value of
+  // `null` means "we tried and the object wasn't reachable".
+  const pdfCache = new Map<string, Promise<Buffer | null>>()
+  const loadPdf = (pdfPath: string): Promise<Buffer | null> => {
+    const cached = pdfCache.get(pdfPath)
+    if (cached) return cached
+    const p = downloadPdf(supabase, pdfPath).then((buf) => {
+      if (!buf) {
+        // Log once per path — falling through to a text-only send is
+        // better than blocking the whole run on a single missing PDF.
+        console.warn(
+          "[send-communications] PDF download failed; sending text-only",
+          { pdf_url: pdfPath },
+        )
       }
-    }
-
-    const attachments = pdfBuffer
-      ? [{ filename: "rink-report.pdf", content: pdfBuffer, contentType: "application/pdf" }]
-      : undefined
-
-    const result = await sendEmail({ to, subject, bodyText: body, attachments })
-    const nextAttempts = r.attempts + 1
-    if (result.ok) {
-      await markEmailSent(supabase, r.id, nowIso, nextAttempts)
-      stats.sent += 1
-    } else if (nextAttempts >= MAX_EMAIL_ATTEMPTS) {
-      await markEmailTerminalFailure(supabase, r.id, nextAttempts, result.error)
-      stats.failed += 1
-    } else {
-      const backoffMin = BACKOFF_MINUTES[nextAttempts - 1] ?? BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]
-      const nextAttemptAt = new Date(Date.now() + backoffMin * 60_000).toISOString()
-      await markEmailRetry(
-        supabase,
-        r.id,
-        nextAttempts,
-        nextAttemptAt,
-        result.error,
-      )
-      stats.retried += 1
-    }
+      return buf
+    })
+    pdfCache.set(pdfPath, p)
+    return p
   }
+
+  // Send with bounded concurrency. Each task self-checks the elapsed-time
+  // budget before STARTING; once the budget is hit the remaining tasks
+  // short-circuit, leaving their rows untouched ('pending') for the next
+  // tick. Settle-all semantics keep one failing row from aborting the batch;
+  // per-row outcome handling (sent / retry-with-backoff / terminal-failure)
+  // and the email_status='pending' double-send guard are preserved exactly.
+  await mapWithConcurrency(rows, EMAIL_CONCURRENCY, async (r) => {
+    if (Date.now() - startedAt > EMAIL_TIME_BUDGET_MS) return
+    await sendOne(supabase, r, loadPdf, stats)
+  })
+
   return stats
+}
+
+async function sendOne(
+  supabase: SupabaseClient<Database>,
+  r: RecipientRow,
+  loadPdf: (pdfPath: string) => Promise<Buffer | null>,
+  stats: ChannelStats,
+): Promise<void> {
+  stats.attempted += 1
+  const to = r.employee?.email?.trim()
+  if (!to) {
+    await markEmailSkipped(supabase, r.id, "no email")
+    stats.skipped += 1
+    return
+  }
+  const subject = r.message?.subject?.trim() || "New message"
+  const body = r.message?.body ?? ""
+
+  const pdfPath = r.message?.pdf_url ?? null
+  const pdfBuffer = pdfPath ? await loadPdf(pdfPath) : null
+
+  const attachments = pdfBuffer
+    ? [{ filename: "rink-report.pdf", content: pdfBuffer, contentType: "application/pdf" }]
+    : undefined
+
+  // sendEmail() never throws: it returns { ok:false, error } for any
+  // failure including Resend 429/5xx and network errors. All non-ok results
+  // are treated as transient and pushed through the existing backoff ladder
+  // until MAX_EMAIL_ATTEMPTS, at which point the row is marked terminally
+  // failed. This preserves the original error-handling behaviour.
+  const result = await sendEmail({ to, subject, bodyText: body, attachments })
+  const nextAttempts = r.attempts + 1
+  if (result.ok) {
+    await markEmailSent(supabase, r.id, new Date().toISOString(), nextAttempts)
+    stats.sent += 1
+  } else if (nextAttempts >= MAX_EMAIL_ATTEMPTS) {
+    await markEmailTerminalFailure(supabase, r.id, nextAttempts, result.error)
+    stats.failed += 1
+  } else {
+    const backoffMin = BACKOFF_MINUTES[nextAttempts - 1] ?? BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]
+    const nextAttemptAt = new Date(Date.now() + backoffMin * 60_000).toISOString()
+    await markEmailRetry(
+      supabase,
+      r.id,
+      nextAttempts,
+      nextAttemptAt,
+      result.error,
+    )
+    stats.retried += 1
+  }
 }
 
 async function markEmailSent(

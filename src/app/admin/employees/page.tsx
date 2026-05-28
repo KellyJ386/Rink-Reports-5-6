@@ -178,11 +178,8 @@ export default async function EmployeesPage({
       .from("employee_departments")
       .select("employee_id, department_id, is_primary")
       .eq("facility_id", facilityId),
-    // role_permission_defaults isn't in generated types yet; cast follows the
-    // project pattern (see src/app/api/offline-sync/route.ts).
     supabase
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("role_permission_defaults" as any)
+      .from("role_permission_defaults")
       .select("role_id, module_name, action, enabled")
       .eq("facility_id", facilityId),
   ])
