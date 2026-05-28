@@ -1,7 +1,6 @@
-import Link from "next/link"
-
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge } from "@/components/ui/badge"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import {
   Card,
   CardContent,
@@ -9,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DataList, DataListRow } from "@/components/ui/data-table"
 import { requireUser } from "@/lib/auth"
 import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
@@ -38,14 +38,12 @@ function NotAvailable({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Refrigeration
-        </p>
-      </div>
+      <Breadcrumb
+        segments={[
+          { label: "Reports", href: "/reports" },
+          { label: "Refrigeration" },
+        ]}
+      />
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -326,15 +324,12 @@ export default async function RefrigerationHomePage() {
             Your recent submissions
           </h2>
           <p className="text-xs text-muted-foreground">Last 30 days</p>
-          <ul className="flex flex-col divide-y divide-border rounded-xl border bg-card">
+          <DataList>
             {recentReports.map((r) => {
               const counts = recentValueCounts[r.id] ?? { total: 0, oor: 0 }
               return (
-                <li
-                  key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
-                >
-                  <span className="text-xs text-muted-foreground">
+                <DataListRow key={r.id} as="div">
+                  <span className="flex-1 text-xs text-muted-foreground">
                     {formatTimestamp(r.submitted_at, tz)}
                   </span>
                   <span className="flex items-center gap-2">
@@ -345,10 +340,10 @@ export default async function RefrigerationHomePage() {
                       <Badge variant="warning">{counts.oor} out-of-range</Badge>
                     ) : null}
                   </span>
-                </li>
+                </DataListRow>
               )
             })}
-          </ul>
+          </DataList>
         </section>
       ) : null}
     </div>
