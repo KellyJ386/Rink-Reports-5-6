@@ -17,12 +17,15 @@ import {
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
 import { FieldError } from "@/components/ui/field-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PageHeader } from "@/components/ui/page-header"
 import { RequiredMark } from "@/components/ui/required-mark"
+import { SectionCard } from "@/components/ui/section-card"
 import {
   Select,
   SelectContent,
@@ -277,23 +280,22 @@ export function SubmissionForm({
       }}
       className="flex flex-col gap-5"
     >
-      {/* Header card */}
-      <Card className="gap-4 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4 px-6">
-          <div className="flex items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Thermometer className="h-6 w-6" aria-hidden />
-            </span>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Refrigeration Equipment Logbook
-              </h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Record daily operational readings for refrigeration equipment
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        variant="display"
+        module="refrig"
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Refrigeration" },
+            ]}
+          />
+        }
+        eyebrow="Staff report"
+        title="Refrigeration Equipment Logbook"
+        description="Record daily operational readings for refrigeration equipment"
+        actions={
+          <>
             <Button
               type="button"
               variant="outline"
@@ -309,27 +311,30 @@ export function SubmissionForm({
                 Dashboard
               </Link>
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        <div className="mx-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-background px-4 py-3 text-sm">
-          <MetaChip icon={<User className="h-4 w-4" aria-hidden />}>
-            {userName}
-          </MetaChip>
-          <MetaChip icon={<Building2 className="h-4 w-4" aria-hidden />}>
-            {facilityName}
-          </MetaChip>
-          <MetaChip icon={<Calendar className="h-4 w-4" aria-hidden />}>
-            {now ? formatDate(now) : "—"}
-          </MetaChip>
-          <MetaChip icon={<Clock className="h-4 w-4" aria-hidden />}>
-            {now ? formatTime(now) : "—"}
-          </MetaChip>
-          <MetaChip icon={<Thermometer className="h-4 w-4" aria-hidden />}>
-            {tempLabel}
-          </MetaChip>
-        </div>
-      </Card>
+      <SectionCard
+        as="div"
+        className="flex-row flex-wrap items-center gap-x-3 gap-y-2 p-4 text-sm"
+      >
+        <MetaChip icon={<User className="h-4 w-4" aria-hidden />}>
+          {userName}
+        </MetaChip>
+        <MetaChip icon={<Building2 className="h-4 w-4" aria-hidden />}>
+          {facilityName}
+        </MetaChip>
+        <MetaChip icon={<Calendar className="h-4 w-4" aria-hidden />}>
+          {now ? formatDate(now) : "—"}
+        </MetaChip>
+        <MetaChip icon={<Clock className="h-4 w-4" aria-hidden />}>
+          {now ? formatTime(now) : "—"}
+        </MetaChip>
+        <MetaChip icon={<Thermometer className="h-4 w-4" aria-hidden />}>
+          {tempLabel}
+        </MetaChip>
+      </SectionCard>
 
       <FormError message={state.error} />
 

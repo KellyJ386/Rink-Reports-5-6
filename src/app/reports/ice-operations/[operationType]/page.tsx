@@ -1,4 +1,3 @@
-import Link from "next/link"
 import { notFound } from "next/navigation"
 import type { ReactNode } from "react"
 
@@ -10,10 +9,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { TabNav } from "@/components/ui/tab-nav"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
-import { cn } from "@/lib/utils"
 import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
 import { BladeChangeForm } from "./_components/blade-change-form"
@@ -52,32 +51,14 @@ type RouteParams = {
 
 function TabsNav({ active }: { active: OperationType }) {
   return (
-    <nav
-      aria-label="Ice operation"
-      className="rounded-xl border border-border bg-muted/40 p-1"
-    >
-      <ul className="grid grid-cols-2 gap-1 sm:grid-cols-4">
-        {OPERATION_TAB_ORDER.map((op) => {
-          const isActive = op === active
-          return (
-            <li key={op}>
-              <Link
-                href={`/reports/ice-operations/${op}`}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "border border-border bg-card text-foreground shadow-[var(--shadow-elev-1)]"
-                    : "border border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {OPERATION_LABELS[op]}
-              </Link>
-            </li>
-          )
-        })}
-      </ul>
-    </nav>
+    <TabNav
+      ariaLabel="Ice operation"
+      activeHref={`/reports/ice-operations/${active}`}
+      items={OPERATION_TAB_ORDER.map((op) => ({
+        label: OPERATION_LABELS[op],
+        href: `/reports/ice-operations/${op}`,
+      }))}
+    />
   )
 }
 
