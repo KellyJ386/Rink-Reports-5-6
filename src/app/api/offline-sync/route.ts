@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "@/lib/auth"
 import type { Json } from "@/types/database"
+
+// Validate the queued submission shape before it touches the DB, so a bad
+// payload surfaces as a 400 here rather than an opaque RLS/insert failure.
+// `action` mirrors the enqueueSubmission() client contract (a string defaulting
+// to "submit") rather than a fixed enum, so a future action value can't silently
+// 400 on replay and get marked failed by the service worker.
+const bodySchema = z.object({
+  localId: z.string().min(1),
+  moduleKey: z.string().min(1),
+  action: z.string().min(1).default("submit"),
+  payload: z.record(z.string(), z.unknown()),
+  startedAt: z.number().int().positive().optional(),
+})
 
 export async function POST(request: NextRequest) {
   const current = await getCurrentUser()
@@ -15,24 +29,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  let body: {
-    localId?: string
-    moduleKey?: string
-    action?: string
-    payload?: Record<string, unknown>
-    startedAt?: number
-  }
+  let rawBody: unknown
   try {
-    body = await request.json()
+    rawBody = await request.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { localId, moduleKey, action = "submit", payload, startedAt } = body
-
-  if (!localId || !moduleKey || !payload) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  const parsed = bodySchema.safeParse(rawBody)
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Missing or invalid fields" }, { status: 400 })
   }
+
+  const { localId, moduleKey, action, payload, startedAt } = parsed.data
 
   const supabase = await createClient()
 
