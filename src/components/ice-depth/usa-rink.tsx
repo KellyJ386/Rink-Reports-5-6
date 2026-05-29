@@ -216,10 +216,21 @@ function PointChip({
   return (
     <g
       onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onClick()
+              }
+            }
+          : undefined
+      }
       style={{ cursor: onClick ? "pointer" : "default" }}
       opacity={opacity}
       role={onClick ? "button" : undefined}
-      aria-label={onClick ? `Select point ${pointNumber}` : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `Select measurement point ${pointNumber}` : undefined}
     >
       {/* Glow ring for current point */}
       {isCurrent && (
@@ -303,7 +314,8 @@ export function USARink({
       preserveAspectRatio="xMidYMid meet"
       className={cn("w-full", className)}
       style={style}
-      aria-label="Hockey rink diagram"
+      role="img"
+      aria-label="USA Hockey rink diagram with ice-depth measurement points"
     >
       <RinkMarkings />
       {logoUrl && (
