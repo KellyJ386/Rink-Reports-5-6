@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -124,133 +125,149 @@ export function SubmissionForm({
 
         <FormError message={state.error} />
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="reporter_name">Your name<RequiredMark /></Label>
-          <Input
-            id="reporter_name"
-            name="reporter_name"
-            required
-            aria-invalid={state.fieldErrors?.reporter_name ? "true" : undefined}
-            aria-describedby={state.fieldErrors?.reporter_name ? "reporter_name-error" : undefined}
-            autoComplete="name"
-            enterKeyHint="next"
-            value={reporterName}
-            onChange={(e) => setReporterName(e.target.value)}
-            className="h-12 text-base"
-          />
-          <FieldError id="reporter_name-error" message={state.fieldErrors?.reporter_name} />
-        </div>
+        <Card className="gap-4 py-5">
+          <h2 className="px-6 text-lg font-semibold tracking-tight">Reporter</h2>
+          <div className="grid gap-4 px-6 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="reporter_name">Your name<RequiredMark /></Label>
+              <Input
+                id="reporter_name"
+                name="reporter_name"
+                required
+                aria-invalid={state.fieldErrors?.reporter_name ? "true" : undefined}
+                aria-describedby={state.fieldErrors?.reporter_name ? "reporter_name-error" : undefined}
+                autoComplete="name"
+                enterKeyHint="next"
+                value={reporterName}
+                onChange={(e) => setReporterName(e.target.value)}
+                className="h-12 text-base"
+              />
+              <FieldError id="reporter_name-error" message={state.fieldErrors?.reporter_name} />
+            </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="reporter_phone">Phone number<RequiredMark /></Label>
-          <Input
-            id="reporter_phone"
-            name="reporter_phone"
-            required
-            aria-invalid={state.fieldErrors?.reporter_phone ? "true" : undefined}
-            aria-describedby={state.fieldErrors?.reporter_phone ? "reporter_phone-error" : undefined}
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            enterKeyHint="next"
-            value={reporterPhone}
-            onChange={(e) => setReporterPhone(e.target.value)}
-            className="h-12 text-base"
-          />
-          <FieldError id="reporter_phone-error" message={state.fieldErrors?.reporter_phone} />
-        </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="reporter_phone">Phone number<RequiredMark /></Label>
+              <Input
+                id="reporter_phone"
+                name="reporter_phone"
+                required
+                aria-invalid={state.fieldErrors?.reporter_phone ? "true" : undefined}
+                aria-describedby={state.fieldErrors?.reporter_phone ? "reporter_phone-error" : undefined}
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                enterKeyHint="next"
+                value={reporterPhone}
+                onChange={(e) => setReporterPhone(e.target.value)}
+                className="h-12 text-base"
+              />
+              <FieldError id="reporter_phone-error" message={state.fieldErrors?.reporter_phone} />
+            </div>
+          </div>
+        </Card>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
-          <Input
-            id="occurred_at"
-            name="occurred_at"
-            required
-            aria-invalid={state.fieldErrors?.occurred_at ? "true" : undefined}
-            aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
-            type="datetime-local"
-            value={occurredAt}
-            onChange={(e) => setOccurredAt(e.target.value)}
-            className="h-12 text-base"
-          />
-          <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />
-        </div>
+        <Card className="gap-4 py-5">
+          <h2 className="px-6 text-lg font-semibold tracking-tight">
+            Incident details
+          </h2>
+          <div className="flex flex-col gap-4 px-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="occurred_at">When did it happen?<RequiredMark /></Label>
+                <Input
+                  id="occurred_at"
+                  name="occurred_at"
+                  required
+                  aria-invalid={state.fieldErrors?.occurred_at ? "true" : undefined}
+                  aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
+                  type="datetime-local"
+                  value={occurredAt}
+                  onChange={(e) => setOccurredAt(e.target.value)}
+                  className="h-12 text-base"
+                />
+                <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />
+              </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="location">Location (optional)</Label>
-          <Input
-            id="location"
-            name="location"
-            inputMode="text"
-            enterKeyHint="next"
-            placeholder="e.g. Ice rink lobby, locker room 3"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="h-12 text-base"
-          />
-        </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="location">Location (optional)</Label>
+                <Input
+                  id="location"
+                  name="location"
+                  inputMode="text"
+                  enterKeyHint="next"
+                  placeholder="e.g. Ice rink lobby, locker room 3"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="h-12 text-base"
+                />
+              </div>
+            </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="incident_type_id_trigger">Incident type<RequiredMark /></Label>
-          <Select value={incidentTypeId} onValueChange={setIncidentTypeId} required>
-            <SelectTrigger
-              id="incident_type_id_trigger"
-              aria-invalid={state.fieldErrors?.incident_type_id ? "true" : undefined}
-              aria-describedby={state.fieldErrors?.incident_type_id ? "incident_type_id-error" : undefined}
-            >
-              <SelectValue placeholder="Select an incident type" />
-            </SelectTrigger>
-            <SelectContent>
-              {incidentTypes.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FieldError id="incident_type_id-error" message={state.fieldErrors?.incident_type_id} />
-        </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="incident_type_id_trigger">Incident type<RequiredMark /></Label>
+                <Select value={incidentTypeId} onValueChange={setIncidentTypeId} required>
+                  <SelectTrigger
+                    id="incident_type_id_trigger"
+                    aria-invalid={state.fieldErrors?.incident_type_id ? "true" : undefined}
+                    aria-describedby={state.fieldErrors?.incident_type_id ? "incident_type_id-error" : undefined}
+                  >
+                    <SelectValue placeholder="Select an incident type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {incidentTypes.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldError id="incident_type_id-error" message={state.fieldErrors?.incident_type_id} />
+              </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="severity_level_id_trigger">Severity<RequiredMark /></Label>
-          <Select value={severityLevelId} onValueChange={setSeverityLevelId} required>
-            <SelectTrigger
-              id="severity_level_id_trigger"
-              aria-invalid={state.fieldErrors?.severity_level_id ? "true" : undefined}
-              aria-describedby={state.fieldErrors?.severity_level_id ? "severity_level_id-error" : undefined}
-            >
-              <SelectValue placeholder="Select severity" />
-            </SelectTrigger>
-            <SelectContent>
-              {severityLevels.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.display_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FieldError id="severity_level_id-error" message={state.fieldErrors?.severity_level_id} />
-        </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="severity_level_id_trigger">Severity<RequiredMark /></Label>
+                <Select value={severityLevelId} onValueChange={setSeverityLevelId} required>
+                  <SelectTrigger
+                    id="severity_level_id_trigger"
+                    aria-invalid={state.fieldErrors?.severity_level_id ? "true" : undefined}
+                    aria-describedby={state.fieldErrors?.severity_level_id ? "severity_level_id-error" : undefined}
+                  >
+                    <SelectValue placeholder="Select severity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {severityLevels.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldError id="severity_level_id-error" message={state.fieldErrors?.severity_level_id} />
+              </div>
+            </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="description">What happened?<RequiredMark /></Label>
-          <Textarea
-            id="description"
-            name="description"
-            required
-            aria-invalid={state.fieldErrors?.description ? "true" : undefined}
-            aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
-            rows={6}
-            minLength={1}
-            inputMode="text"
-            enterKeyHint="done"
-            placeholder="Describe what happened in as much detail as you can. Who was involved? What was done?"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="min-h-32 text-base"
-          />
-          <FieldError id="description-error" message={state.fieldErrors?.description} />
-        </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="description">What happened?<RequiredMark /></Label>
+              <Textarea
+                id="description"
+                name="description"
+                required
+                aria-invalid={state.fieldErrors?.description ? "true" : undefined}
+                aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
+                rows={6}
+                minLength={1}
+                inputMode="text"
+                enterKeyHint="done"
+                placeholder="Describe what happened in as much detail as you can. Who was involved? What was done?"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="min-h-32 text-base"
+              />
+              <FieldError id="description-error" message={state.fieldErrors?.description} />
+            </div>
+          </div>
+        </Card>
 
         <Button
           type="button"
