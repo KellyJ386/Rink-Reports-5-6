@@ -243,8 +243,6 @@ export default async function SchedulingDashboardPage() {
     return `${DAY_LABELS[d.getDay()]} ${d.getDate()}`
   }
 
-  const firstName = employeeRow.first_name ?? ""
-
   return (
     <div
       style={{
@@ -266,17 +264,6 @@ export default async function SchedulingDashboardPage() {
 
       {/* Page header */}
       <div style={{ marginBottom: 24 }}>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: ".16em",
-            color: SECONDARY,
-            textTransform: "uppercase",
-          }}
-        >
-          {firstName ? `HEY ${firstName.toUpperCase()}` : "WELCOME"}
-        </div>
         <h1
           style={{
             fontFamily: DISPLAY_FONT,
@@ -288,7 +275,7 @@ export default async function SchedulingDashboardPage() {
             margin: "6px 0 0",
           }}
         >
-          My Schedule
+          Scheduling
         </h1>
       </div>
 

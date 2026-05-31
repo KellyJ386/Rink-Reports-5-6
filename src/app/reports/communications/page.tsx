@@ -490,9 +490,7 @@ export default async function CommunicationsInboxPage({
             ]}
           />
         }
-        eyebrow="Inbox"
         title="Communications"
-        description="Alerts and messages for your facility."
         actions={
           canSubmit ? (
             <Button asChild>
