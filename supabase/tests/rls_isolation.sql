@@ -336,27 +336,7 @@ values
    'daily_reports', 'aaaa1111-da01-aaaa-aaaa-aaaa11110011', true, true)
 on conflict (employee_id, module_key, area_id) do nothing;
 
--- The ice_depth config-table SELECT policies (settings/rinks/layouts/points)
--- gate on the legacy public.has_module_access('ice_depth') helper, which reads
--- module_permissions.can_view -- NOT the user_permissions grid seeded above.
--- (has_module_access was not migrated to the new resolver in migration 77.)
--- Seed Alice module_permissions rows so the positive own-facility SELECTs below
--- exercise real facility scoping rather than a blanket module-access denial.
--- This covers every legacy-helper-gated table the positive assertions touch:
---   ice_depth        -> ice_depth config tables
---   communications   -> communication_routing_rules, communication_groups
---   ice_operations   -> ice_operations_fuel_types (+ templates/items)
--- can_admin stays false, so admin-only writes (insert into facility B) remain denied.
-insert into public.module_permissions (facility_id, employee_id, module_key, can_view)
-values
-  ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_depth', true),
-  ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'communications', true),
-  ('11111111-1111-1111-1111-111111111111',
-   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_operations', true)
-on conflict (employee_id, module_key) do nothing;
--- NOTE (migration 90): The config-table SELECT policies (ice_depth, communications,
+-- NOTE (migrations 91 + 99): The config-table SELECT policies (ice_depth, communications,
 -- ice_operations, refrigeration, ...) gate on public.has_module_access(<module>).
 -- BEFORE migration 90 that helper read the deprecated module_permissions.can_view
 -- table, NOT the user_permissions grid seeded above — so this test used to seed

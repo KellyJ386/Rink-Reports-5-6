@@ -21,6 +21,7 @@ export type Database = {
           created_at: string
           facility_id: string
           id: string
+          laterality: string | null
           notes: string | null
           side: string
           updated_at: string | null
@@ -31,6 +32,7 @@ export type Database = {
           created_at?: string
           facility_id: string
           id?: string
+          laterality?: string | null
           notes?: string | null
           side?: string
           updated_at?: string | null
@@ -41,6 +43,7 @@ export type Database = {
           created_at?: string
           facility_id?: string
           id?: string
+          laterality?: string | null
           notes?: string | null
           side?: string
           updated_at?: string | null
@@ -2011,51 +2014,6 @@ export type Database = {
           },
         ]
       }
-      department_module_permission_defaults: {
-        Row: {
-          created_at: string
-          department_id: string
-          facility_id: string
-          id: string
-          module_key: string
-          permission_level: Database["public"]["Enums"]["module_permission_level"]
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          department_id: string
-          facility_id: string
-          id?: string
-          module_key: string
-          permission_level?: Database["public"]["Enums"]["module_permission_level"]
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          department_id?: string
-          facility_id?: string
-          id?: string
-          module_key?: string
-          permission_level?: Database["public"]["Enums"]["module_permission_level"]
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "department_module_permission_defaults_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "department_module_permission_defaults_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       departments: {
         Row: {
           color: string | null
@@ -2530,41 +2488,6 @@ export type Database = {
             columns: ["uploaded_by"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      facility_module_permission_defaults: {
-        Row: {
-          created_at: string
-          facility_id: string
-          id: string
-          module_key: string
-          permission_level: Database["public"]["Enums"]["module_permission_level"]
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          facility_id: string
-          id?: string
-          module_key: string
-          permission_level?: Database["public"]["Enums"]["module_permission_level"]
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          facility_id?: string
-          id?: string
-          module_key?: string
-          permission_level?: Database["public"]["Enums"]["module_permission_level"]
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "facility_module_permission_defaults_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]
@@ -3950,60 +3873,6 @@ export type Database = {
           },
         ]
       }
-      module_permissions: {
-        Row: {
-          can_admin: boolean
-          can_submit: boolean
-          can_view: boolean
-          created_at: string
-          employee_id: string
-          facility_id: string
-          id: string
-          module_key: string
-          permission_level: Database["public"]["Enums"]["module_permission_level"]
-          updated_at: string | null
-        }
-        Insert: {
-          can_admin?: boolean
-          can_submit?: boolean
-          can_view?: boolean
-          created_at?: string
-          employee_id: string
-          facility_id: string
-          id?: string
-          module_key: string
-          permission_level?: Database["public"]["Enums"]["module_permission_level"]
-          updated_at?: string | null
-        }
-        Update: {
-          can_admin?: boolean
-          can_submit?: boolean
-          can_view?: boolean
-          created_at?: string
-          employee_id?: string
-          facility_id?: string
-          id?: string
-          module_key?: string
-          permission_level?: Database["public"]["Enums"]["module_permission_level"]
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "module_permissions_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "module_permissions_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notification_outbox: {
         Row: {
           attach_pdf: boolean
@@ -4148,6 +4017,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rate_limit_counters: {
+        Row: {
+          bucket: string
+          created_at: string
+          hits: number
+          identifier: string
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          created_at?: string
+          hits?: number
+          identifier: string
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          created_at?: string
+          hits?: number
+          identifier?: string
+          window_start?: string
+        }
+        Relationships: []
       }
       refrigeration_change_log: {
         Row: {
@@ -5769,6 +5662,15 @@ export type Database = {
           role_key: string
         }[]
       }
+      check_rate_limit: {
+        Args: {
+          p_bucket: string
+          p_identifier: string
+          p_max: number
+          p_window_seconds: number
+        }
+        Returns: boolean
+      }
       copy_role_permission_defaults: {
         Args: { p_source_role_id: string; p_target_role_id: string }
         Returns: number
@@ -5886,6 +5788,10 @@ export type Database = {
         Args: { p_area_id: string; p_module_key: string }
         Returns: boolean
       }
+      has_area_submit_access: {
+        Args: { p_area_id: string; p_module_key: string }
+        Returns: boolean
+      }
       has_module_access: { Args: { p_module_key: string }; Returns: boolean }
       has_module_admin_access: {
         Args: { p_module_key: string }
@@ -5904,6 +5810,7 @@ export type Database = {
       purge_old_daily_reports: { Args: never; Returns: number }
       purge_old_ice_operations_submissions: { Args: never; Returns: number }
       purge_old_incident_reports: { Args: never; Returns: number }
+      purge_old_rate_limit_counters: { Args: never; Returns: number }
       purge_old_refrigeration_reports: { Args: never; Returns: number }
       reactivate_role: { Args: { p_role_id: string }; Returns: boolean }
       reapply_role_defaults_for_role: {
