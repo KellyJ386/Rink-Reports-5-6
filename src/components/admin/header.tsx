@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ArrowLeft, ChevronRight, LogOut, User as UserIcon } from "lucide-react"
+import { ArrowLeft, ChevronRight, LogOut, User as UserIcon, UserCog } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -114,6 +114,11 @@ export function AdminHeader({ email, fullName }: AdminHeaderProps) {
                 </span>
               )}
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/account")}>
+              <UserCog className="h-4 w-4" aria-hidden />
+              <span>My Account</span>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <form action="/logout" method="post">
               <DropdownMenuItem

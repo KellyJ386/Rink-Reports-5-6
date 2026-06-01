@@ -1006,6 +1006,97 @@ begin
   end if;
 end$$;
 
+-- ---------------------------------------------------------------------------
+-- Profile management (migration 100): can_edit_user_profile, users self-update
+-- + the privilege-escalation guard trigger, and profile_audit_log RLS.
+-- The preceding block ran as postgres, so re-impersonate Alice (staff,
+-- facility A). Bob is staff in facility B.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Alice may edit her own profile, never Bob's (cross-facility).
+select pg_temp.expect_count(
+  $$select (public.can_edit_user_profile('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'))::int$$,
+  1, 'profile: alice CAN edit her own profile');
+select pg_temp.expect_count(
+  $$select (public.can_edit_user_profile('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'))::int$$,
+  0, 'profile: alice CANNOT edit Bob (cross-facility)');
+
+-- Self-service update succeeds (RLS allows id = auth.uid()).
+select pg_temp.expect_count(
+  $$with u as (
+      update public.users set city = 'Selfville'
+      where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      returning 1
+    ) select count(*)::int from u$$,
+  1, 'profile: alice CAN self-update her users row');
+
+-- Cross-facility update is filtered to zero rows by RLS.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.users set city = 'Hackville'
+      where id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+      returning 1
+    ) select count(*)::int from u$$,
+  0, 'profile: alice CANNOT update Bob''s users row');
+
+-- Privilege escalation on self is blocked by the guard trigger.
+select pg_temp.expect_error(
+  $$update public.users set is_super_admin = true
+    where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  'profile: alice CANNOT escalate is_super_admin on herself');
+
+-- Audit-log insert for a target she cannot edit is denied by WITH CHECK.
+select pg_temp.expect_error(
+  $$insert into public.profile_audit_log (edited_by, target_user_id, changed_fields)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '{}'::jsonb)$$,
+  'profile: alice CANNOT write a profile_audit_log row for Bob');
+
+-- Hierarchy: a manager in facility A may edit staff (alice) but still cannot
+-- escalate their privilege.
+set local role postgres;
+insert into auth.users (id, email)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'mona@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '11111111-1111-1111-1111-111111111111', 'mona@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'cccc3333-cccc-cccc-cccc-cccccccccccc'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
+       r.id, 'Mona', 'Manager', 'mona@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'manager'
+on conflict (id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select (public.can_edit_user_profile('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'))::int$$,
+  1, 'profile: manager CAN edit staff (alice) in same facility');
+select pg_temp.expect_count(
+  $$with u as (
+      update public.users set city = 'Manorville'
+      where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      returning 1
+    ) select count(*)::int from u$$,
+  1, 'profile: manager CAN update staff users row');
+select pg_temp.expect_error(
+  $$update public.users set is_super_admin = true
+    where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  'profile: manager CANNOT escalate staff is_super_admin');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
