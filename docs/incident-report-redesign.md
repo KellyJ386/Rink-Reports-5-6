@@ -90,10 +90,11 @@ Route: `src/app/admin/incident-reports` (existing). Admins need to manage the
 dropdown lists that feed the staff form, plus view submissions.
 
 - **Severities** tab — already exists (`incident_severity_levels`). Keep.
-- **Facility Spaces** tab — **NEW.** CRUD on the facility-scoped spaces list.
+- **Facility Spaces** tab — **NEW.** CRUD on the shared `facility_spaces` list.
+  The list is owned by the Facility admin area and surfaced here as a tab.
 - **Activities** tab — **NEW.** CRUD on the incident activity list.
-- **Incident Types** tab — already exists; field is removed from the staff form.
-  See OPEN-3 for whether to retire the tab.
+- **Incident Types** tab — **retired** (hidden); the column and existing data are
+  kept, but the field is gone from the staff form.
 - **History / report detail** — extend the existing detail view to render the
   new fields (spaces, activity, immediate actions, witnesses, reported-at,
   change-log trail).
@@ -119,9 +120,9 @@ is_active boolean not null default true
 created_at / updated_at
 unique (facility_id, slug)
 ```
-RLS: SELECT for same-facility module users; write for module admins. (Mirror
-`incident_types` policies.) See OPEN-2 on whether this should be a shared
-facility-level list rather than incident-scoped.
+Shared facility-wide list (not incident-scoped). RLS: SELECT for same-facility
+users with access to a consuming module; write for facility/module admins.
+(Mirror `incident_types` policies.)
 
 **`incident_report_spaces`** — join (report ↔ space, multi-select).
 ```
@@ -166,7 +167,7 @@ no update/delete policies.
 - **Add** `immediate_actions text`.
 - **Keep** `severity_level_id` (app requires it on submit).
 - **Keep but stop populating** `incident_type_id` and `location` — retained so
-  existing rows and history remain valid (see OPEN-3 / OPEN-4).
+  existing rows and history remain valid.
 - **Update RLS:** the UPDATE policy currently allows admins only. Change to also
   allow the submitter to update their own row while `now() <= edit_window_ends_at`
   (mirror `accident_reports` UPDATE policy), and likewise gate
@@ -200,22 +201,19 @@ Add assertions to `supabase/tests/rls_isolation.sql` for the new tables
 
 ---
 
-## 6. Open decisions
+## 6. Resolved decisions
 
-- **OPEN-1 — Activity dropdown source.** Accidents already have an `activity`
-  category in `accident_dropdowns`. Reusing it couples Incidents to the Accident
-  module's data/permissions. **Recommendation:** create an incident-scoped
-  `incident_activities` table so the Incident admin owns its list. Confirm, or
-  prefer reusing `accident_dropdowns`.
-- **OPEN-2 — Facility Spaces scope.** Incident-scoped, or a **shared
-  facility-level** list (so Accidents' `location` and future modules can reuse
-  it)? **Recommendation:** make it a shared `facility_spaces` list managed under
-  the Facility admin area, surfaced as a tab in Incident admin too.
-- **OPEN-3 — Incident Types retirement.** Field is removed from the staff form.
-  Keep the admin tab + column for historical reports, or fully deprecate?
-  **Recommendation:** keep column + hide/retire the tab; don't drop data.
-- **OPEN-4 — Legacy `location` text.** Keep the column for old rows (recommended)
-  vs. migrate existing values into the new spaces model.
+- **OPEN-1 — Activity dropdown source → NEW `incident_activities` table.** The
+  Incident admin owns its own activity list, decoupled from the Accident module.
+- **OPEN-2 — Facility Spaces scope → SHARED facility-level list.** `facility_spaces`
+  is a facility-wide list managed under the **Facility admin** area and surfaced
+  as a tab in Incident admin; Accidents and future modules may reuse it later.
+- **OPEN-3 — Incident Types → KEEP column, RETIRE tab.** Field is removed from the
+  staff form; `incident_type_id` and existing data are retained; the admin
+  management tab is hidden/retired. No data dropped.
+- **OPEN-4 — Legacy `location` text → KEEP for old rows.** New reports use
+  Facility Spaces; the old free-text `location` column stays for historical rows
+  and is no longer populated.
 
 ---
 
