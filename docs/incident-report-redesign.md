@@ -4,8 +4,8 @@ Status: **Draft for review** · Owner: Kelly Johnson · Branch: `claude/elegant-
 
 This document specifies the redesigned **Incident Report** (staff submission +
 admin management). It is the agreed output of the requirements conversation; no
-code has been written yet. Decisions marked **OPEN** still need a call before
-implementation.
+code has been written yet. All data-model decisions are resolved (see §6) — the
+spec is ready to implement.
 
 ---
 
@@ -133,7 +133,7 @@ space_id uuid not null → facility_spaces (on delete restrict)
 unique (incident_id, space_id)
 ```
 
-**`incident_activities`** — admin-managed activity list (see OPEN-1).
+**`incident_activities`** — incident-owned, admin-managed activity list.
 ```
 id, facility_id, key, display_name, color?, sort_order, is_active, timestamps
 unique (facility_id, key)
