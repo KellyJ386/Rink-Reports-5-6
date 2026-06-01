@@ -5,15 +5,16 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import {
-  PERMISSION_LEVELS,
-  PERMISSION_LEVEL_DESCRIPTIONS,
-  PERMISSION_LEVEL_LABELS,
-  type PermissionLevel,
+  MODULE_LABELS,
+  MODULE_NAMES,
+  USER_ACTION_DESCRIPTIONS,
+  USER_ACTION_LABELS,
+  USER_ACTIONS,
+  type ModuleName,
+  type UserAction,
 } from "@/lib/permissions"
-import { cn } from "@/lib/utils"
 
-import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "../../permissions/types"
-import { setRoleModulePermissionLevel } from "../actions"
+import { setRoleModuleAction } from "../actions"
 
 export type RoleListItem = {
   id: string
@@ -22,53 +23,53 @@ export type RoleListItem = {
   hierarchy_level: number
 }
 
-export type RoleDefaultsMap = Record<string, Partial<Record<ModuleKey, PermissionLevel>>>
+/** roleId -> module -> action -> enabled */
+export type RoleActionDefaults = Record<
+  string,
+  Record<ModuleName, Record<UserAction, boolean>>
+>
 
 type Props = {
   roles: RoleListItem[]
-  defaults: RoleDefaultsMap
+  defaults: RoleActionDefaults
 }
 
-const LEVEL_BADGE_CLASS: Record<PermissionLevel, string> = {
-  none: "bg-muted text-muted-foreground",
-  view: "bg-slate-700/40 text-slate-100",
-  submit: "bg-sky-800/50 text-sky-100",
-  edit_own: "bg-cyan-800/50 text-cyan-100",
-  edit_all: "bg-teal-800/50 text-teal-100",
-  approve: "bg-amber-800/50 text-amber-100",
-  publish: "bg-orange-800/50 text-orange-100",
-  manage_settings: "bg-violet-800/50 text-violet-100",
-  admin: "bg-rose-800/60 text-rose-100",
-}
+type ModMap = Record<ModuleName, Record<UserAction, boolean>>
 
-type RowMap = Partial<Record<ModuleKey, PermissionLevel>>
+const ACTION_ABBR: Record<UserAction, string> = {
+  view: "V",
+  submit: "S",
+  edit: "E",
+  admin: "A",
+}
 
 const RoleRow = memo(function RoleRow({
   role,
   defaults,
 }: {
   role: RoleListItem
-  defaults: RowMap
+  defaults: ModMap
 }) {
   const [, startTransition] = useTransition()
-  const [local, setLocal] = useState<RowMap>(defaults)
-  const [lastSynced, setLastSynced] = useState<RowMap>(defaults)
+  const [local, setLocal] = useState<ModMap>(defaults)
+  const [lastSynced, setLastSynced] = useState<ModMap>(defaults)
 
+  // Re-sync local state if the server-provided defaults change (e.g. after a
+  // copy-from-role action revalidates the page).
   if (lastSynced !== defaults) {
     setLastSynced(defaults)
     setLocal(defaults)
   }
 
-  function levelFor(mod: ModuleKey): PermissionLevel {
-    return local[mod] ?? "none"
-  }
-
-  function setLevel(mod: ModuleKey, next: PermissionLevel) {
+  function toggle(mod: ModuleName, action: UserAction, next: boolean) {
     const prev = local
-    setLocal((cur) => ({ ...cur, [mod]: next }))
+    setLocal((cur) => ({
+      ...cur,
+      [mod]: { ...cur[mod], [action]: next },
+    }))
 
     startTransition(async () => {
-      const res = await setRoleModulePermissionLevel(role.id, mod, next)
+      const res = await setRoleModuleAction(role.id, mod, action, next)
       if (!res.ok) {
         setLocal(prev)
         toast.error(res.error)
@@ -89,29 +90,39 @@ const RoleRow = memo(function RoleRow({
           </Badge>
         </div>
       </th>
-      {MODULE_KEYS.map((mod) => {
-        const level = levelFor(mod)
-        const id = `${role.id}-${mod}-level`
+      {MODULE_NAMES.map((mod) => {
+        const cell = local[mod] ?? {
+          view: false,
+          submit: false,
+          edit: false,
+          admin: false,
+        }
         return (
           <td key={mod} className="border-b border-l px-2 py-2 align-middle">
-            <div className="flex justify-center">
-              <select
-                id={id}
-                value={level}
-                onChange={(e) => setLevel(mod, e.target.value as PermissionLevel)}
-                title={`${MODULE_LABELS[mod]} — ${PERMISSION_LEVEL_DESCRIPTIONS[level]}`}
-                aria-label={`Default level for ${MODULE_LABELS[mod]} for ${role.display_name}`}
-                className={cn(
-                  "border-input focus-visible:ring-ring/50 cursor-pointer rounded-md border px-1.5 py-1 text-xs focus-visible:ring-[3px]",
-                  LEVEL_BADGE_CLASS[level],
-                )}
-              >
-                {PERMISSION_LEVELS.map((l) => (
-                  <option key={l} value={l}>
-                    {PERMISSION_LEVEL_LABELS[l]}
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center justify-center gap-2">
+              {USER_ACTIONS.map((action) => {
+                const id = `${role.id}-${mod}-${action}`
+                return (
+                  <label
+                    key={action}
+                    htmlFor={id}
+                    title={`${MODULE_LABELS[mod]} — ${USER_ACTION_LABELS[action]}: ${USER_ACTION_DESCRIPTIONS[action]}`}
+                    className="flex cursor-pointer flex-col items-center gap-0.5"
+                  >
+                    <input
+                      id={id}
+                      type="checkbox"
+                      checked={cell[action]}
+                      onChange={(e) => toggle(mod, action, e.target.checked)}
+                      aria-label={`${USER_ACTION_LABELS[action]} default for ${MODULE_LABELS[mod]} for ${role.display_name}`}
+                      className="border-input text-primary focus-visible:ring-ring/50 size-4 cursor-pointer rounded border focus-visible:ring-[3px]"
+                    />
+                    <span className="text-muted-foreground text-[10px] leading-none">
+                      {ACTION_ABBR[action]}
+                    </span>
+                  </label>
+                )
+              })}
             </div>
           </td>
         )
@@ -123,6 +134,9 @@ const RoleRow = memo(function RoleRow({
 export function RolesMatrix({ roles, defaults }: Props) {
   return (
     <div className="flex flex-col gap-2">
+      <p className="text-muted-foreground text-xs">
+        V = View · S = Submit · E = Edit · A = Admin
+      </p>
       <div className="relative max-h-[70vh] overflow-auto rounded-md border">
         <table className="w-full border-collapse text-sm">
           <thead className="bg-muted/60 sticky top-0 z-20">
@@ -133,7 +147,7 @@ export function RolesMatrix({ roles, defaults }: Props) {
               >
                 Role
               </th>
-              {MODULE_KEYS.map((mod) => (
+              {MODULE_NAMES.map((mod) => (
                 <th
                   key={mod}
                   scope="col"
@@ -150,13 +164,13 @@ export function RolesMatrix({ roles, defaults }: Props) {
               <RoleRow
                 key={role.id}
                 role={role}
-                defaults={defaults[role.id] ?? {}}
+                defaults={defaults[role.id] ?? ({} as ModMap)}
               />
             ))}
             {roles.length === 0 ? (
               <tr>
                 <td
-                  colSpan={MODULE_KEYS.length + 1}
+                  colSpan={MODULE_NAMES.length + 1}
                   className="text-muted-foreground px-3 py-6 text-center text-sm"
                 >
                   No roles yet. Seed roles on the Employees page first.

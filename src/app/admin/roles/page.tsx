@@ -10,14 +10,18 @@ import {
 } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
-import { type PermissionLevel } from "@/lib/permissions"
+import {
+  MODULE_NAMES,
+  USER_ACTIONS,
+  type ModuleName,
+  type UserAction,
+} from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
-import { MODULE_KEYS, type ModuleKey } from "../permissions/types"
 import { RoleManager, type ManagedRole } from "./_components/role-manager"
 import {
   RolesMatrix,
-  type RoleDefaultsMap,
+  type RoleActionDefaults,
   type RoleListItem,
 } from "./_components/roles-matrix"
 
@@ -40,8 +44,9 @@ type RoleRow = {
 
 type DefaultsRow = {
   role_id: string
-  module_key: string
-  permission_level: PermissionLevel
+  module_name: string
+  action: string
+  enabled: boolean
 }
 
 export default async function RolesPage({
@@ -95,8 +100,8 @@ export default async function RolesPage({
       .order("is_active", { ascending: false })
       .order("hierarchy_level", { ascending: true }),
     supabase
-      .from("role_module_permission_defaults")
-      .select("role_id, module_key, permission_level")
+      .from("role_permission_defaults")
+      .select("role_id, module_name, action, enabled")
       .eq("facility_id", facilityId),
   ])
 
@@ -143,19 +148,20 @@ export default async function RolesPage({
     description: r.description,
   }))
 
-  const defaultsMap: RoleDefaultsMap = {}
-  for (const d of defaults) {
-    if (!(MODULE_KEYS as readonly string[]).includes(d.module_key)) continue
-    const key = d.module_key as ModuleKey
-    const existing = defaultsMap[d.role_id] ?? {}
-    existing[key] = d.permission_level
-    defaultsMap[d.role_id] = existing
-  }
+  const defaultsMap: RoleActionDefaults = {}
   for (const r of roleList) {
-    if (!defaultsMap[r.id]) defaultsMap[r.id] = {}
-    for (const k of MODULE_KEYS) {
-      if (!defaultsMap[r.id]![k]) defaultsMap[r.id]![k] = "none"
+    const modMap = {} as Record<ModuleName, Record<UserAction, boolean>>
+    for (const m of MODULE_NAMES) {
+      modMap[m] = { view: false, submit: false, edit: false, admin: false }
     }
+    defaultsMap[r.id] = modMap
+  }
+  for (const d of defaults) {
+    if (!(MODULE_NAMES as readonly string[]).includes(d.module_name)) continue
+    if (!(USER_ACTIONS as readonly string[]).includes(d.action)) continue
+    const roleMap = defaultsMap[d.role_id]
+    if (!roleMap) continue
+    roleMap[d.module_name as ModuleName][d.action as UserAction] = d.enabled
   }
 
   return (
@@ -180,7 +186,9 @@ export default async function RolesPage({
         <CardHeader>
           <CardTitle className="text-base">Role permission defaults</CardTitle>
           <CardDescription>
-            Set the default permission level each role gets per module.
+            Toggle the default actions (View / Submit / Edit / Admin) each role
+            gets per module. Changes re-apply to that role&apos;s current staff;
+            per-employee overrides set in Module Access Control are preserved.
           </CardDescription>
         </CardHeader>
         <CardContent>
