@@ -120,12 +120,11 @@ export default async function AdminDashboardPage({
         .from("roles")
         .select("*", { count: "exact", head: true })
         .eq("facility_id", facilityIdStr),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
-        .from("role_module_permission_defaults")
+      supabase
+        .from("role_permission_defaults")
         .select("*", { count: "exact", head: true })
         .eq("facility_id", facilityIdStr)
-        .neq("permission_level", "none") as Promise<{ count: number | null }>,
+        .eq("enabled", true),
       supabase
         .from("employees")
         .select("id, user_id, role_id, roles!inner(key)")

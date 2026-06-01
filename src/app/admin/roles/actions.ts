@@ -3,12 +3,21 @@
 import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
+import {
+  MODULE_NAMES,
+  USER_ACTIONS,
+  type ModuleName,
+  type UserAction,
+} from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
-import {
-  assertValidLevel,
-  assertValidModuleKey,
-} from "../permissions/validators"
+function isModuleName(value: string): value is ModuleName {
+  return (MODULE_NAMES as readonly string[]).includes(value)
+}
+
+function isUserAction(value: string): value is UserAction {
+  return (USER_ACTIONS as readonly string[]).includes(value)
+}
 
 const KEY_RE = /^[a-z][a-z0-9_]{1,40}$/
 
@@ -35,17 +44,21 @@ function revalidate() {
 }
 
 // -----------------------------------------------------------------------------
-// Existing: set per-cell role default level (kept as-is for the matrix).
+// Set one per-cell role default action (view/submit/edit/admin) for a module.
+// Writes role_permission_defaults (the live model) then re-applies the role's
+// defaults to its current active employees so the change takes effect for them
+// (apply_role_permission_defaults preserves manual_override rows).
 // -----------------------------------------------------------------------------
-export async function setRoleModulePermissionLevel(
+export async function setRoleModuleAction(
   roleId: string,
-  moduleKey: string,
-  level: string,
+  moduleName: string,
+  action: string,
+  enabled: boolean,
 ): Promise<ActionResult> {
   try {
     await requireAdmin()
-    assertValidLevel(level)
-    assertValidModuleKey(moduleKey)
+    if (!isModuleName(moduleName)) return err(`Invalid module: ${moduleName}`)
+    if (!isUserAction(action)) return err(`Invalid action: ${action}`)
 
     const supabase = await createClient()
 
@@ -59,18 +72,26 @@ export async function setRoleModulePermissionLevel(
     if (!role) return err("Role not found")
 
     const { error: upErr } = await supabase
-      .from("role_module_permission_defaults")
+      .from("role_permission_defaults")
       .upsert(
         {
           facility_id: role.facility_id,
           role_id: roleId,
-          module_key: moduleKey,
-          permission_level: level,
+          module_name: moduleName,
+          action,
+          enabled,
         },
-        { onConflict: "role_id,module_key" },
+        { onConflict: "facility_id,role_id,module_name,action" },
       )
 
     if (upErr) return err(upErr.message)
+
+    // Propagate to current staff on this role (no-op if none).
+    const { error: reapplyErr } = await supabase.rpc(
+      "reapply_role_defaults_for_role",
+      { p_facility_id: role.facility_id, p_role_id: roleId },
+    )
+    if (reapplyErr) return err(reapplyErr.message)
 
     revalidate()
     return { ok: true }
@@ -332,13 +353,52 @@ export async function copyRolePermissionDefaults(
     if (sourceRoleId === targetRoleId) return err("Source and target must differ")
 
     const supabase = await createClient()
-    const { data, error } = await supabase.rpc(
-      "copy_role_permission_defaults",
-      { p_source_role_id: sourceRoleId, p_target_role_id: targetRoleId },
+
+    // Resolve + verify both roles live in the same facility (RLS also scopes
+    // the rows to the caller's facility).
+    const { data: rolePair, error: roleErr } = await supabase
+      .from("roles")
+      .select("id, facility_id")
+      .in("id", [sourceRoleId, targetRoleId])
+    if (roleErr) return err(roleErr.message)
+    const src = rolePair?.find((r) => r.id === sourceRoleId)
+    const tgt = rolePair?.find((r) => r.id === targetRoleId)
+    if (!src || !tgt) return err("Source or target role not found")
+    if (src.facility_id !== tgt.facility_id) {
+      return err("Cannot copy defaults across facilities")
+    }
+
+    // Copy the source role's action grid onto the target (role_permission_defaults).
+    const { data: srcRows, error: srcErr } = await supabase
+      .from("role_permission_defaults")
+      .select("module_name, action, enabled")
+      .eq("role_id", sourceRoleId)
+    if (srcErr) return err(srcErr.message)
+
+    const rows = (srcRows ?? []).map((r) => ({
+      facility_id: tgt.facility_id,
+      role_id: targetRoleId,
+      module_name: r.module_name,
+      action: r.action,
+      enabled: r.enabled,
+    }))
+
+    if (rows.length > 0) {
+      const { error: upErr } = await supabase
+        .from("role_permission_defaults")
+        .upsert(rows, { onConflict: "facility_id,role_id,module_name,action" })
+      if (upErr) return err(upErr.message)
+    }
+
+    // Propagate the copied defaults to the target role's current staff.
+    const { error: reapplyErr } = await supabase.rpc(
+      "reapply_role_defaults_for_role",
+      { p_facility_id: tgt.facility_id, p_role_id: targetRoleId },
     )
-    if (error) return err(error.message)
+    if (reapplyErr) return err(reapplyErr.message)
+
     revalidate()
-    return { ok: true, value: { copied: Number(data ?? 0) } }
+    return { ok: true, value: { copied: rows.length } }
   } catch (e) {
     return err(e instanceof Error ? e.message : "Unknown error")
   }
