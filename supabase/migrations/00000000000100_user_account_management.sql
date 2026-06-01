@@ -174,6 +174,10 @@ comment on function public.guard_users_profile_update() is
   'BEFORE UPDATE guard on public.users: blocks non-admin edits from changing '
   'id / is_super_admin / is_active / facility_id (privilege escalation).';
 
+-- Trigger functions fire under the table owner regardless of EXECUTE grants;
+-- revoking keeps it off the PostgREST RPC surface.
+revoke execute on function public.guard_users_profile_update() from public, anon, authenticated;
+
 drop trigger if exists users_profile_update_guard on public.users;
 create trigger users_profile_update_guard
   before update on public.users
