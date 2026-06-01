@@ -60,7 +60,7 @@ the "Other" free-text fallback.
 **Removed:** Incident Type (the field disappears from the form) and Equipment.
 
 ### Witnesses (optional, repeatable)
-"Add another witness" button; **max 250**. A witness block is validated only
+"Add another witness" button; **max 3**. A witness block is validated only
 once a name is entered.
 | Field | Type | Rules |
 |---|---|---|
@@ -147,11 +147,11 @@ name text not null (length > 0)
 phone text            -- at least one of phone/email enforced in app
 email text
 statement text
-sort_order int not null default 0  (0..249)
+sort_order int not null default 0  (0..2)
 created_at / updated_at
 unique (incident_id, sort_order)
 ```
-Cap-to-250 enforced via a BEFORE INSERT trigger (mirror
+Cap-to-3 enforced via a BEFORE INSERT trigger (mirror
 `enforce_accident_witnesses_cap`).
 
 **`incident_change_log`** — append-only audit trail (mirror
