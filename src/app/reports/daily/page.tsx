@@ -63,9 +63,7 @@ export default async function DailyReportsAreaPickerPage() {
             ]}
           />
         }
-        eyebrow="Staff report"
-        title="Pick an area"
-        description="Choose an area to submit today's daily report."
+        title="Daily Reports"
       />
 
 

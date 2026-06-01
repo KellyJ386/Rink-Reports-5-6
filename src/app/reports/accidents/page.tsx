@@ -258,9 +258,7 @@ export default async function AccidentsHomePage() {
             ]}
           />
         }
-        eyebrow="Staff report"
-        title="Accident Report"
-        description="You can edit a submission for up to 24 hours after you submit it."
+        title="Accident Reports"
       />
 
       <SubmissionForm

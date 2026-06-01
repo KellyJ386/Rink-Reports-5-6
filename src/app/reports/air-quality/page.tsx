@@ -111,9 +111,7 @@ export default async function AirQualityHomePage() {
             ]}
           />
         }
-        eyebrow="Staff report"
         title="Air Quality"
-        description="Pick a location to submit readings."
       />
 
       <div className="grid gap-4 sm:grid-cols-2">

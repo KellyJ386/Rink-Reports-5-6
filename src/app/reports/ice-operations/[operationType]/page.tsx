@@ -76,7 +76,7 @@ function MinimalNotice({
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Ice Maintenance Log
+          Ice Operations
         </h1>
       </div>
       <Card>

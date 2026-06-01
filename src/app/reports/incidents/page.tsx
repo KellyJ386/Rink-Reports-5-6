@@ -205,9 +205,7 @@ export default async function IncidentsHomePage() {
             ]}
           />
         }
-        eyebrow="Staff report"
-        title="Report an incident"
-        description="Tell us what happened. You can't edit a report after you submit it."
+        title="Incident Reports"
       />
 
       <SubmissionForm

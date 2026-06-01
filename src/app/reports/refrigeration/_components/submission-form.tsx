@@ -291,9 +291,7 @@ export function SubmissionForm({
             ]}
           />
         }
-        eyebrow="Staff report"
-        title="Refrigeration Equipment Logbook"
-        description="Record daily operational readings for refrigeration equipment"
+        title="Refrigeration"
         actions={
           <>
             <Button

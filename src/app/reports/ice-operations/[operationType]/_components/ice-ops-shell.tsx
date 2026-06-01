@@ -115,9 +115,7 @@ export function IceOpsShell({
             ]}
           />
         }
-        eyebrow="Staff report"
-        title="Ice Maintenance Log"
-        description="Track resurfacing, blade changes, and equipment checks"
+        title="Ice Operations"
         actions={
           <>
             {isAdmin ? (

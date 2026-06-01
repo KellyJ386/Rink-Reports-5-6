@@ -120,9 +120,6 @@ export default async function FacilityPaperworkPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Facility Paperwork
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Browse and download facility documents, policies, and manuals.
-        </p>
       </div>
 
       <DocumentsBrowser documents={documents} />
