@@ -20,6 +20,7 @@
     "@supabase/supabase-js": "^2.105.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "libphonenumber-js": "^1.13.4",
     "lucide-react": "^1.14.0",
     "next": "16.2.4",
     "posthog-js": "^1.373.5",
