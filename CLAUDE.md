@@ -96,24 +96,24 @@ When adding a new submission flow, route writes through the SW queue + this endp
 
 ### Report form design pattern
 
-Report submission forms (refrigeration, daily, incidents, etc.) follow a metadata-driven, token-themed convention. There are two reference points: **the baseline that ships today**, and **the richer "Logbook" target design** we're moving toward. Build new report forms with the baseline mechanics and the target styling — never introduce a parallel styling system or hardcode colors (the app is permanent dark mode; always use the semantic tokens in `src/app/globals.css`).
+Report submission forms (refrigeration, daily, incidents, etc.) follow a metadata-driven, token-themed convention built on the shared `Card` / `SectionCard` / `PageHeader` primitives. Never introduce a parallel styling system or hardcode colors (the app is permanent dark mode; always use the semantic tokens in `src/app/globals.css`).
 
-**Baseline (what ships today)** — see `src/app/reports/refrigeration/page.tsx` + `_components/submission-form.tsx`:
+**The "Logbook" reference — `src/app/reports/refrigeration/_components/submission-form.tsx`.** This is the canonical, fully-implemented layout; mirror it when building or upgrading a form:
 
-- Page shell: `mx-auto w-full max-w-2xl flex flex-col gap-6 px-4 py-8`, a `Reports / <Module>` breadcrumb, an `h1` (`text-2xl font-semibold tracking-tight`), and a muted subtitle.
-- Sections render as native `<details open>` cards (`group rounded-xl border bg-card`); the `<summary>` is the clickable header with a `group-open:rotate-180` chevron, and content sits under a `border-t border-border px-4 py-4` body. Equipment subcards are `rounded-lg border bg-background p-3`.
-- Fields are **metadata-driven, not hardcoded**: a `FieldInput` component branches on `field.field_type` (`numeric | text | boolean | select`). Numeric inputs are `type="text" inputMode="decimal"`, `h-12 text-base`, with the unit shown both appended to the label (`"Label (unit)"`) and as an inline trailing `text-muted-foreground` span.
-- Submit uses `useActionState` + `useFormStatus`; the payload is serialized into a hidden `values_json` input (see `buildRow` / `SubmittedFieldValue` in the form). Field config is loaded server-side from `refrigeration_sections / _equipment / _fields / _thresholds` and assembled into `formSections`. **Reuse this DB-driven model for new modules** rather than hardcoding fields.
+- Page shell: `mx-auto w-full max-w-2xl flex flex-col gap-6 px-4 py-8`. The form itself renders a `PageHeader variant="display" module="refrig"` (breadcrumb + eyebrow + Anton title + actions), then a `SectionCard` meta-chip row (employee / facility / date / time / temperature, each a Lucide icon in a small rounded chip), then card-based sections.
+- **Section cards**: one `<Card className="gap-4 py-5">` per section, an `h2` (`px-6 text-lg font-semibold tracking-tight`), and a `px-6` body whose fields sit in a responsive grid (`grid gap-4 sm:grid-cols-2`). Subgroups (equipment) get a `text-sm font-semibold text-muted-foreground` label above their own grid.
+- **°F/°C unit toggle** (`UnitToggle`): a right-aligned `role="switch"` in the "Log Information" card header. Temperature fields store canonically in °F; flipping the toggle converts the visible text once (no per-keystroke round-tripping). See `setUnit` and `isTempUnit` from `@/lib/units`.
+- **Per-field normal-range hint** (`NormalRangeHint`): a `text-sm text-muted-foreground` "Normal: min – max unit" line under each numeric field, from that field's resolved threshold min/max (`refrigeration_thresholds`), unit-converted to the active display unit.
+- Fields are **metadata-driven, not hardcoded**: a `FieldInput` component branches on `field.field_type` (`numeric | text | boolean | select`). Numeric inputs are `type="text" inputMode="decimal"`, `h-12 text-base`, with the unit appended to the label (`"Label (unit)"`) and as an inline trailing `text-muted-foreground` span.
+- Submit uses `useActionState` + `useFormStatus`; the payload is serialized into a hidden `values_json` input (see `buildRow` / `SubmittedFieldValue`). Field config is loaded server-side from `refrigeration_sections / _equipment / _fields / _thresholds` and assembled into `formSections`. **Reuse this DB-driven model for new modules** rather than hardcoding fields.
+- **Tokens**: surfaces `bg-card` / `bg-background`, borders `border-border`, hints/labels `text-muted-foreground`, radius `rounded-xl` (cards) / `rounded-lg` (subcards), inputs `h-12 text-base`, primary submit = the default green-gradient `Button` variant.
 
-**Target ("Logbook") design** — the richer layout we're building toward, expressed with existing primitives (`@/components/ui/{card,button,input,label,select}`) and `globals.css` tokens:
+**How the other report forms relate** (don't assume they all look identical):
 
-- **Header card** (`Card`): title + subtitle on the left; `View Dashboard` / `Back` / `Dashboard` action buttons on the right; a meta row of employee / facility / date / time / temperature, each with a Lucide icon in a small rounded chip. Meta text uses `text-muted-foreground`.
-- **Log Information card** (`Card`): header carries a right-aligned **°F/°C unit toggle**; body is a responsive grid (`grid gap-4 sm:grid-cols-2`, up to 4 cols) of Reading Number, Facility, Employee, Date & Time.
-- **Section cards** (Compressor, Condenser, …): one `Card` per section with a bold title and a 2-column field grid (`grid gap-4 sm:grid-cols-2`).
-- **Normal-range hint**: a `text-sm text-muted-foreground` line under each numeric field rendered from that field's threshold min/max + unit (the data already lives in `refrigeration_thresholds`).
-- **Tokens**: surfaces `bg-card` / `bg-background`, borders `border-border`, hints/labels `text-muted-foreground`, radius `rounded-xl` (cards) / `rounded-lg` (subcards), inputs `h-12 text-base`, primary submit = the default green-gradient `Button` variant (carries `--shadow-press-primary`).
-
-**The gap (read this before building):** the Logbook design is **aspirational — not yet implemented**. Today's form is the simpler `<details>`-based "Refrigeration readings" page; the °F/°C toggle and per-field normal-range hints **do not exist yet** and are net-new work. When moving toward the target, extend the existing metadata-driven field model and the tokens above — do not fork the styling.
+- **incidents**, **daily** — flat field / checklist forms wrapped in the same `Card` chrome (Reporter / Incident details cards; Checklist + Notes cards). No temperature or thresholds, so no toggle / range hints.
+- **accidents** — uses `SectionCard` + numbered `SectionHead` chrome (a richer variant of the card layout) with a body diagram, severity pills, and a sticky submit bar.
+- **air-quality** — already **threshold-aware** with live `RangeBadgePill`s (Within range / Warn / Alert) from `warn_min/max` + `alert_min/max`. This is intentionally richer than a static range hint; don't replace it with the refrigeration hint pattern. Temperature is one of several DB-driven reading types, so there is no single global °F/°C toggle.
+- **ice-depth** — a bespoke two-phase (measure → review) interactive form around a tap-driven USA-hockey rink SVG, tuned for Bluetooth calipers. It measures **depth, not temperature** (so a °F/°C toggle is meaningless) and already has per-point severity + summary-stat feedback. Treat it as a special case; do not Card-ify or add a temp toggle.
 
 ### Security headers
 
