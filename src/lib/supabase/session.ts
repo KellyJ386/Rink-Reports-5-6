@@ -6,7 +6,7 @@ import type { Database } from "@/types/database"
 const AUTH_PAGES = ["/login"]
 
 // All routes that require an authenticated session
-const PROTECTED_PREFIXES = ["/admin", "/reports", "/dashboard"]
+const PROTECTED_PREFIXES = ["/admin", "/reports", "/dashboard", "/account"]
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({

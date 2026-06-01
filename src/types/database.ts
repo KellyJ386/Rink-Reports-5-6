@@ -5600,8 +5600,14 @@ export type Database = {
       }
       users: {
         Row: {
+          address_line1: string | null
+          address_line2: string | null
+          city: string | null
+          country: string | null
           created_at: string
           email: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
           facility_id: string | null
           full_name: string | null
           id: string
@@ -5609,11 +5615,20 @@ export type Database = {
           is_super_admin: boolean
           last_seen_at: string | null
           phone: string | null
+          postal_code: string | null
+          sms_opt_in: boolean
+          state_province: string | null
           updated_at: string | null
         }
         Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
           email: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
           facility_id?: string | null
           full_name?: string | null
           id: string
@@ -5621,11 +5636,20 @@ export type Database = {
           is_super_admin?: boolean
           last_seen_at?: string | null
           phone?: string | null
+          postal_code?: string | null
+          sms_opt_in?: boolean
+          state_province?: string | null
           updated_at?: string | null
         }
         Update: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
           email?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
           facility_id?: string | null
           full_name?: string | null
           id?: string
@@ -5633,6 +5657,9 @@ export type Database = {
           is_super_admin?: boolean
           last_seen_at?: string | null
           phone?: string | null
+          postal_code?: string | null
+          sms_opt_in?: boolean
+          state_province?: string | null
           updated_at?: string | null
         }
         Relationships: [

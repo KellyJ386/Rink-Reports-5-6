@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { LogOut } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { LogOut, UserCog } from "lucide-react"
 
 import {
   DropdownMenu,
@@ -23,6 +24,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
+  const router = useRouter()
   const initials = React.useMemo(() => {
     const source = (fullName ?? email ?? "").trim()
     if (!source) return "?"
@@ -71,6 +73,11 @@ export function AppHeader({ email, fullName, isAdmin }: AppHeaderProps) {
                 </span>
               )}
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/account")}>
+              <UserCog className="h-4 w-4" aria-hidden />
+              <span>My Account</span>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <form action="/logout" method="post">
               <DropdownMenuItem type="submit" className="w-full">
