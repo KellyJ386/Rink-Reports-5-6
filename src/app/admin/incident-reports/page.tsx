@@ -143,22 +143,14 @@ function TabBar({ active }: { active: Tab }) {
 
 async function SeveritiesTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [sevRes, typesRes] = await Promise.all([
-    supabase
-      .from("incident_severity_levels")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true })
-      .order("display_name", { ascending: true }),
-    supabase
-      .from("incident_types")
-      .select("id")
-      .eq("facility_id", facilityId)
-      .limit(1),
-  ])
-  const severities = (sevRes.data ?? []) as SeverityRow[]
-  const hasAnyTypes = (typesRes.data ?? []).length > 0
-  return <SeveritiesTab severities={severities} hasAnyTypes={hasAnyTypes} />
+  const { data } = await supabase
+    .from("incident_severity_levels")
+    .select("*")
+    .eq("facility_id", facilityId)
+    .order("sort_order", { ascending: true })
+    .order("display_name", { ascending: true })
+  const severities = (data ?? []) as SeverityRow[]
+  return <SeveritiesTab severities={severities} />
 }
 
 async function ActivitiesTabLoader({ facilityId }: { facilityId: string }) {

@@ -14,10 +14,9 @@ import { SeverityForm } from "./severity-form"
 
 type Props = {
   severities: SeverityRow[]
-  hasAnyTypes: boolean
 }
 
-export function SeveritiesTab({ severities, hasAnyTypes }: Props) {
+export function SeveritiesTab({ severities }: Props) {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<SeverityRow | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -49,13 +48,7 @@ export function SeveritiesTab({ severities, hasAnyTypes }: Props) {
     return (
       <>
         <div className="flex flex-col gap-4">
-          <SeedDefaultsCard scope="severities" />
-          {!hasAnyTypes && (
-            <p className="text-muted-foreground text-xs">
-              Tip: Seeding will install both default types and severities at
-              once.
-            </p>
-          )}
+          <SeedDefaultsCard />
           <div>
             <Button onClick={openCreate} variant="outline">
               Add severity manually
