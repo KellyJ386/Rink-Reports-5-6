@@ -12,6 +12,8 @@ type SupabaseError = { code?: string; message?: string } | null
 
 const TYPE_SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const SEVERITY_KEY_RE = /^[a-z0-9_]+$/
+const ACTIVITY_KEY_RE = /^[a-z0-9_]+$/
+const SPACE_SLUG_RE = /^[a-z0-9]+([_-][a-z0-9]+)*$/
 
 function slugify(input: string): string {
   return input
@@ -575,6 +577,401 @@ export async function addFollowupNote(
     }
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Note added." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Activities ("Activity at the time" — incident-owned dropdown)
+// ============================================================================
+
+export async function createIncidentActivity(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const key = nonEmpty(formData.get("key"))
+    if (!key) return { ok: false, error: "Key is required." }
+    if (!ACTIVITY_KEY_RE.test(key)) {
+      return {
+        ok: false,
+        error:
+          "Key must be lowercase letters, digits, and underscores (e.g. public_skating).",
+      }
+    }
+    const display_name = nonEmpty(formData.get("display_name"))
+    if (!display_name) return { ok: false, error: "Display name is required." }
+    const color = nonEmpty(formData.get("color"))
+    const sort_order = asInt(formData.get("sort_order")) ?? 0
+
+    const supabase = await createClient()
+    const { error } = await supabase.from("incident_activities").insert({
+      facility_id: facility.facilityId,
+      key,
+      display_name,
+      color,
+      sort_order,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to create activity.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, message: "Activity created." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateIncidentActivity(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing activity id." }
+
+    const key = nonEmpty(formData.get("key"))
+    if (!key) return { ok: false, error: "Key is required." }
+    if (!ACTIVITY_KEY_RE.test(key)) {
+      return {
+        ok: false,
+        error:
+          "Key must be lowercase letters, digits, and underscores (e.g. public_skating).",
+      }
+    }
+    const display_name = nonEmpty(formData.get("display_name"))
+    if (!display_name) return { ok: false, error: "Display name is required." }
+    const color = nonEmpty(formData.get("color"))
+    const sort_order = asInt(formData.get("sort_order"))
+    const is_active = formData.get("is_active") === "on"
+
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("incident_activities")
+      .update({
+        key,
+        display_name,
+        color,
+        ...(sort_order !== null ? { sort_order } : {}),
+        is_active,
+      })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update activity.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, message: "Activity updated." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setIncidentActivityActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing activity id." }
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("incident_activities")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update activity.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteIncidentActivity(id: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing activity id." }
+    const supabase = await createClient()
+
+    // activity_id is `on delete set null`, so a delete won't error from
+    // referenced reports — warn the admin instead and suggest deactivating.
+    const { count } = await supabase
+      .from("incident_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("activity_id", id)
+    if ((count ?? 0) > 0) {
+      return {
+        ok: false,
+        error: `Cannot delete; in use by ${count} report${count === 1 ? "" : "s"}. Deactivate instead.`,
+      }
+    }
+
+    const { error } = await supabase
+      .from("incident_activities")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to delete activity.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Facility Spaces (shared facility-wide list; writes require facility admin)
+// ============================================================================
+
+export async function createFacilitySpace(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const rawSlug = nonEmpty(formData.get("slug"))
+    const slug = rawSlug ?? slugify(name)
+    if (!SPACE_SLUG_RE.test(slug)) {
+      return {
+        ok: false,
+        error:
+          "Slug must be lowercase letters, digits, hyphens, or underscores (e.g. main-rink).",
+      }
+    }
+    const sort_order = asInt(formData.get("sort_order")) ?? 0
+
+    const supabase = await createClient()
+    const { error } = await supabase.from("facility_spaces").insert({
+      facility_id: facility.facilityId,
+      name,
+      slug,
+      sort_order,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to create space.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, message: "Facility space created." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateFacilitySpace(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing space id." }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const rawSlug = nonEmpty(formData.get("slug"))
+    const slug = rawSlug ?? slugify(name)
+    if (!SPACE_SLUG_RE.test(slug)) {
+      return {
+        ok: false,
+        error:
+          "Slug must be lowercase letters, digits, hyphens, or underscores (e.g. main-rink).",
+      }
+    }
+    const sort_order = asInt(formData.get("sort_order"))
+    const is_active = formData.get("is_active") === "on"
+
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("facility_spaces")
+      .update({
+        name,
+        slug,
+        ...(sort_order !== null ? { sort_order } : {}),
+        is_active,
+      })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update space.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, message: "Facility space updated." }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setFacilitySpaceActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing space id." }
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("facility_spaces")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update space.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteFacilitySpace(id: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing space id." }
+    const supabase = await createClient()
+
+    // incident_report_spaces.space_id is `on delete restrict`, so a delete
+    // would error if any report references it. Count first for a clear message.
+    const { count } = await supabase
+      .from("incident_report_spaces")
+      .select("id", { count: "exact", head: true })
+      .eq("space_id", id)
+    if ((count ?? 0) > 0) {
+      return {
+        ok: false,
+        error: `Cannot delete; in use by ${count} report${count === 1 ? "" : "s"}. Deactivate instead.`,
+      }
+    }
+
+    const { error } = await supabase
+      .from("facility_spaces")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      if (error.code === "23503") {
+        return {
+          ok: false,
+          error:
+            "Cannot delete; in use by existing reports. Deactivate instead.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to delete space.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Seed defaults — activities & facility spaces
+//
+// Mirrors seedIncidentDefaults: the DB SECURITY DEFINER seeders are
+// service_role-only, so we replicate their inserts inline under the admin's
+// session. Idempotent via the same unique constraints.
+// ============================================================================
+
+const DEFAULT_ACTIVITIES: ReadonlyArray<{
+  key: string
+  display_name: string
+  sort_order: number
+}> = [
+  { key: "public_skating", display_name: "Public Skating", sort_order: 1 },
+  { key: "hockey", display_name: "Hockey", sort_order: 2 },
+  { key: "figure_skating", display_name: "Figure Skating", sort_order: 3 },
+  { key: "learn_to_skate", display_name: "Learn to Skate", sort_order: 4 },
+  { key: "maintenance", display_name: "Maintenance", sort_order: 5 },
+]
+
+const DEFAULT_SPACES: ReadonlyArray<{
+  name: string
+  slug: string
+  sort_order: number
+}> = [
+  { name: "Main Rink", slug: "main_rink", sort_order: 1 },
+  { name: "Lobby", slug: "lobby", sort_order: 2 },
+  { name: "Locker Room", slug: "locker_room", sort_order: 3 },
+  { name: "Pro Shop", slug: "pro_shop", sort_order: 4 },
+  { name: "Parking Lot", slug: "parking_lot", sort_order: 5 },
+]
+
+export async function seedIncidentActivities(): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const supabase = await createClient()
+    const rows = DEFAULT_ACTIVITIES.map((a) => ({
+      facility_id: facility.facilityId,
+      key: a.key,
+      display_name: a.display_name,
+      sort_order: a.sort_order,
+      is_active: true,
+    }))
+    const { error } = await supabase
+      .from("incident_activities")
+      .upsert(rows, { onConflict: "facility_id,key", ignoreDuplicates: true })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to seed activities.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function seedFacilitySpaces(): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const supabase = await createClient()
+    const rows = DEFAULT_SPACES.map((s) => ({
+      facility_id: facility.facilityId,
+      name: s.name,
+      slug: s.slug,
+      sort_order: s.sort_order,
+      is_active: true,
+    }))
+    const { error } = await supabase
+      .from("facility_spaces")
+      .upsert(rows, { onConflict: "facility_id,slug", ignoreDuplicates: true })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to seed spaces.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
