@@ -18,11 +18,10 @@ type SubmissionRow = {
   id: string
   submitted_at: string
   occurred_at: string
-  location: string | null
+  location_other: string | null
   status: string
   facility_id: string
   reporter_name: string
-  incident_types: { name: string } | null
   incident_severity_levels: { display_name: string } | null
 }
 
@@ -69,7 +68,7 @@ export default async function IncidentDonePage({
   const { data: submissionRaw } = await supabase
     .from("incident_reports")
     .select(
-      "id, submitted_at, occurred_at, location, status, facility_id, reporter_name, incident_types(name), incident_severity_levels(display_name)"
+      "id, submitted_at, occurred_at, location_other, status, facility_id, reporter_name, incident_severity_levels(display_name)"
     )
     .eq("id", idParam)
     .maybeSingle()
@@ -87,7 +86,6 @@ export default async function IncidentDonePage({
     .maybeSingle()
 
   const tz = facility?.timezone ?? null
-  const typeName = submission.incident_types?.name ?? "—"
   const severityName = submission.incident_severity_levels?.display_name ?? "—"
 
   return (
@@ -125,7 +123,6 @@ export default async function IncidentDonePage({
             label="Status"
             value={statusLabel(submission.status)}
           />
-          <DetailRow label="Type" value={typeName} />
           <DetailRow label="Severity" value={severityName} />
           <DetailRow
             label="When it happened"
@@ -135,8 +132,8 @@ export default async function IncidentDonePage({
             label="Submitted"
             value={formatTimestamp(submission.submitted_at, tz)}
           />
-          {submission.location ? (
-            <DetailRow label="Location" value={submission.location} />
+          {submission.location_other ? (
+            <DetailRow label="Other space" value={submission.location_other} />
           ) : null}
         </CardContent>
       </Card>

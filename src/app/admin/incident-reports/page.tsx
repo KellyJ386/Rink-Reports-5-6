@@ -18,7 +18,6 @@ import { ActivitiesTab } from "./_components/activities-tab"
 import { HistoryTab } from "./_components/history-tab"
 import { SeveritiesTab } from "./_components/severities-tab"
 import { SpacesTab } from "./_components/spaces-tab"
-import { TypesTab } from "./_components/types-tab"
 import type {
   ActivityRow,
   ChangeLogRow,
@@ -105,8 +104,6 @@ export default async function IncidentReportsAdminPage({
         <HistoryTabLoader facilityId={facilityId} params={params} />
       )}
 
-      {tab === "types" && <TypesTabLoader facilityId={facilityId} />}
-
       {tab === "severities" && (
         <SeveritiesTabLoader facilityId={facilityId} />
       )}
@@ -143,26 +140,6 @@ function TabBar({ active }: { active: Tab }) {
 // ---------------------------------------------------------------------------
 // Per-tab loaders
 // ---------------------------------------------------------------------------
-
-async function TypesTabLoader({ facilityId }: { facilityId: string }) {
-  const supabase = await createClient()
-  const [typesRes, severitiesRes] = await Promise.all([
-    supabase
-      .from("incident_types")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("incident_severity_levels")
-      .select("id")
-      .eq("facility_id", facilityId)
-      .limit(1),
-  ])
-  const types = (typesRes.data ?? []) as IncidentTypeRow[]
-  const hasAnySeverities = (severitiesRes.data ?? []).length > 0
-  return <TypesTab types={types} hasAnySeverities={hasAnySeverities} />
-}
 
 async function SeveritiesTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
