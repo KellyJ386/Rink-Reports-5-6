@@ -1292,6 +1292,28 @@ select pg_temp.expect_count(
     where incident_id = 'aaaa1111-1c01-aaaa-aaaa-aaaa11110041'$$,
   0, 'INC: staff alice CANNOT read incident_change_log (admin-only)');
 
+-- facility_spaces write broadening (migration 105): an Incident Reports module
+-- admin may manage spaces. Granted at the very end so it doesn't affect the
+-- admin-denied assertions above. Cross-facility isolation must still hold.
+set local role postgres;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'incident_reports', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'Admin Space', 'admin-space')$$,
+  'INC: incident-module admin CAN insert a facility_space in own facility');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'Cross Admin', 'cross-admin')$$,
+  'INC: incident-module admin still CANNOT insert a facility_space in facility B');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
