@@ -2492,6 +2492,47 @@ export type Database = {
           },
         ]
       }
+      facility_spaces: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_spaces_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ice_depth_change_log: {
         Row: {
           after: Json
@@ -3551,6 +3592,105 @@ export type Database = {
           },
         ]
       }
+      incident_activities: {
+        Row: {
+          color: string | null
+          created_at: string
+          display_name: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          key: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          display_name: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          key: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          display_name?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_activities_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_change_log: {
+        Row: {
+          action: string
+          after: Json | null
+          before: Json | null
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          incident_id: string
+        }
+        Insert: {
+          action: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          incident_id: string
+        }
+        Update: {
+          action?: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          incident_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_change_log_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_change_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_change_log_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incident_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incident_followup_notes: {
         Row: {
           body: string
@@ -3600,16 +3740,67 @@ export type Database = {
           },
         ]
       }
+      incident_report_spaces: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          incident_id: string
+          space_id: string
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          incident_id: string
+          space_id: string
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          incident_id?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_report_spaces_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_report_spaces_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incident_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_report_spaces_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "facility_spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incident_reports: {
         Row: {
+          activity_id: string | null
+          activity_other: string | null
           archived_at: string | null
           created_at: string
           description: string
+          edit_window_ends_at: string
           employee_id: string | null
           facility_id: string
           id: string
+          immediate_actions: string | null
           incident_type_id: string | null
           location: string | null
+          location_other: string | null
           occurred_at: string
           reporter_name: string
           reporter_phone: string
@@ -3621,14 +3812,19 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          activity_id?: string | null
+          activity_other?: string | null
           archived_at?: string | null
           created_at?: string
           description: string
+          edit_window_ends_at?: string
           employee_id?: string | null
           facility_id: string
           id?: string
+          immediate_actions?: string | null
           incident_type_id?: string | null
           location?: string | null
+          location_other?: string | null
           occurred_at?: string
           reporter_name: string
           reporter_phone: string
@@ -3640,14 +3836,19 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          activity_id?: string | null
+          activity_other?: string | null
           archived_at?: string | null
           created_at?: string
           description?: string
+          edit_window_ends_at?: string
           employee_id?: string | null
           facility_id?: string
           id?: string
+          immediate_actions?: string | null
           incident_type_id?: string | null
           location?: string | null
+          location_other?: string | null
           occurred_at?: string
           reporter_name?: string
           reporter_phone?: string
@@ -3659,6 +3860,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "incident_reports_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "incident_activities"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "incident_reports_employee_id_fkey"
             columns: ["employee_id"]
@@ -3773,6 +3981,60 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_witnesses: {
+        Row: {
+          created_at: string
+          email: string | null
+          facility_id: string
+          id: string
+          incident_id: string
+          name: string
+          phone: string | null
+          sort_order: number
+          statement: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          facility_id: string
+          id?: string
+          incident_id: string
+          name: string
+          phone?: string | null
+          sort_order?: number
+          statement?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          facility_id?: string
+          id?: string
+          incident_id?: string
+          name?: string
+          phone?: string | null
+          sort_order?: number
+          statement?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_witnesses_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_witnesses_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incident_reports"
             referencedColumns: ["id"]
           },
         ]
@@ -4014,6 +4276,55 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profile_audit_log: {
+        Row: {
+          changed_fields: Json
+          created_at: string
+          edited_by: string
+          facility_id: string | null
+          id: string
+          target_user_id: string
+        }
+        Insert: {
+          changed_fields: Json
+          created_at?: string
+          edited_by: string
+          facility_id?: string | null
+          id?: string
+          target_user_id: string
+        }
+        Update: {
+          changed_fields?: Json
+          created_at?: string
+          edited_by?: string
+          facility_id?: string | null
+          id?: string
+          target_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_audit_log_edited_by_fkey"
+            columns: ["edited_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profile_audit_log_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profile_audit_log_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -5681,6 +5992,10 @@ export type Database = {
         Args: { p_facility_id: string; p_role_id: string; p_user_id: string }
         Returns: undefined
       }
+      can_edit_user_profile: {
+        Args: { p_target_user_id: string }
+        Returns: boolean
+      }
       canonical_role_permission_grants: {
         Args: never
         Returns: {
@@ -5749,8 +6064,14 @@ export type Database = {
       current_user_record: {
         Args: never
         Returns: {
+          address_line1: string | null
+          address_line2: string | null
+          city: string | null
+          country: string | null
           created_at: string
           email: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
           facility_id: string | null
           full_name: string | null
           id: string
@@ -5758,6 +6079,9 @@ export type Database = {
           is_super_admin: boolean
           last_seen_at: string | null
           phone: string | null
+          postal_code: string | null
+          sms_opt_in: boolean
+          state_province: string | null
           updated_at: string | null
         }
         SetofOptions: {
@@ -5862,11 +6186,19 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: undefined
       }
+      seed_default_facility_spaces: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_ice_depth_settings: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
       seed_default_ice_operations_config: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_incident_activities: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
