@@ -29,8 +29,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 
-import { submitIncidentReport, type SubmissionFormState } from "../actions"
+import { submitIncidentReport } from "../actions"
+import type { SubmissionFormState } from "../_lib/submit"
 
 type Option = { id: string; display_name: string }
 type SpaceOption = { id: string; name: string }
@@ -83,6 +85,13 @@ function nowForDateTimeLocal(): string {
 
 function emptyWitness(): Witness {
   return { name: "", phone: "", email: "", statement: "" }
+}
+
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 export function SubmissionForm({
@@ -138,6 +147,12 @@ export function SubmissionForm({
   const [witnesses, setWitnesses] = useState<Witness[]>(
     initial?.witnesses ?? [],
   )
+
+  // Offline support (create mode only): when there's no connection we queue the
+  // submission in the service worker instead of running the server action.
+  const { isOnline } = useSyncQueue()
+  const [localId, setLocalId] = useState(genLocalId)
+  const [queued, setQueued] = useState(false)
 
   useEffect(() => {
     if (state.error) toast.error(state.error)
@@ -230,9 +245,102 @@ export function SubmissionForm({
     setConfirmOpen(true)
   }
 
+  function buildPayload() {
+    return {
+      reporter_name: reporterName.trim(),
+      reporter_phone: reporterPhone.trim(),
+      description: description.trim(),
+      occurred_at: occurredAt,
+      severity_level_id: severityLevelId,
+      activity_id: activityId,
+      activity_other: activityValue === ACTIVITY_OTHER ? activityOther.trim() : "",
+      location_other: otherSpace ? locationOther.trim() : "",
+      immediate_actions: immediateActions.trim(),
+      space_ids: selectedSpaceIds,
+      witnesses: activeWitnesses.map((w) => ({
+        name: w.name.trim(),
+        phone: w.phone.trim(),
+        email: w.email.trim(),
+        statement: w.statement.trim(),
+      })),
+    }
+  }
+
+  function resetForNextOfflineEntry() {
+    setOccurredAt(nowForDateTimeLocal())
+    setSeverityLevelId("")
+    setActivityValue("")
+    setActivityOther("")
+    setDescription("")
+    setImmediateActions("")
+    setSpaceSearch("")
+    setSelectedSpaceIds([])
+    setOtherSpace(false)
+    setLocationOther("")
+    setWitnesses([])
+    setLocalId(genLocalId())
+    setQueued(false)
+  }
+
   function handleConfirm() {
     setConfirmOpen(false)
+    // Offline create: queue in the service worker; it replays to
+    // /api/offline-sync (which persists the report) once back online.
+    if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
+      const ok = enqueueSubmission({
+        localId,
+        moduleKey: "incident_reports",
+        action: "submit",
+        payload: buildPayload(),
+      })
+      if (ok) {
+        setQueued(true)
+        return
+      }
+      // Service worker not controlling this page yet — fall through and let the
+      // normal submit attempt surface a connection error.
+    }
     formRef.current?.requestSubmit()
+  }
+
+  if (queued) {
+    return (
+      <Card className="gap-4 py-8">
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
+          <div
+            aria-hidden
+            className="bg-primary/10 text-primary flex h-14 w-14 items-center justify-center rounded-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-7 w-7"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Saved on this device
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            You&apos;re offline, so this report is queued and will submit
+            automatically once you&apos;re back online. You can keep working.
+          </p>
+          <Button
+            type="button"
+            onClick={resetForNextOfflineEntry}
+            className="h-12 w-full max-w-xs text-base"
+          >
+            Submit another report
+          </Button>
+        </div>
+      </Card>
+    )
   }
 
   return (
@@ -638,6 +746,13 @@ export function SubmissionForm({
             : "You can edit this report for 24 hours after submitting; after that it becomes read-only. A manager will review it."}
         </p>
 
+        {!isEdit && !isOnline && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+            You&apos;re offline. This report will be saved on your device and
+            submitted automatically when you reconnect.
+          </p>
+        )}
+
         <Button
           type="button"
           size="lg"
@@ -651,7 +766,9 @@ export function SubmissionForm({
               : "Submitting…"
             : isEdit
               ? "Save changes"
-              : "Submit incident report"}
+              : !isOnline
+                ? "Save offline"
+                : "Submit incident report"}
         </Button>
       </form>
 
