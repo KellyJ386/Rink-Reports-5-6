@@ -3,7 +3,14 @@ import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import type { Json } from "@/types/database"
+import {
+  buildInputFromPayload,
+  persistIncident,
+  resolveIncidentRefs,
+  validateIncidentInput,
+} from "@/app/reports/incidents/_lib/submit"
 
 // Validate the queued submission shape before it touches the DB, so a bad
 // payload surfaces as a 400 here rather than an opaque RLS/insert failure.
@@ -58,6 +65,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No active employee" }, { status: 403 })
   }
 
+  const startedAtIso = startedAt
+    ? new Date(startedAt).toISOString()
+    : new Date().toISOString()
+
+  // Modules with a real replay handler actually persist their rows here. Other
+  // modules keep the legacy behaviour (log to the queue only).
+  if (moduleKey === "incident_reports") {
+    return handleIncidentReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
   // Upsert into the sync queue (ON CONFLICT local_id = no-op for dedup).
   const { error } = await supabase
     .from("offline_sync_queue")
@@ -70,7 +95,7 @@ export async function POST(request: NextRequest) {
         action,
         payload: payload as Json,
         sync_status: "synced",
-        started_at: startedAt ? new Date(startedAt).toISOString() : new Date().toISOString(),
+        started_at: startedAtIso,
         synced_at: new Date().toISOString(),
       },
       { onConflict: "local_id", ignoreDuplicates: true }
@@ -81,4 +106,94 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true })
+}
+
+type IncidentReplayArgs = {
+  supabase: Awaited<ReturnType<typeof createClient>>
+  localId: string
+  action: string
+  payload: Record<string, unknown>
+  startedAtIso: string
+  facilityId: string
+  employeeId: string
+}
+
+/**
+ * Replay a queued incident submission into the real tables. Idempotent: the
+ * `offline_sync_queue.local_id` unique key acts as a claim token — a duplicate
+ * replay (the SW retrying after a lost response) is a no-op. On a persist
+ * failure the claim is released so a later retry re-attempts.
+ */
+async function handleIncidentReplay({
+  supabase,
+  localId,
+  action,
+  payload,
+  startedAtIso,
+  facilityId,
+  employeeId,
+}: IncidentReplayArgs): Promise<NextResponse> {
+  const input = buildInputFromPayload(payload)
+  if (!input) {
+    return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
+  }
+  const { fieldErrors, error: validationError } = validateIncidentInput(input)
+  if (Object.keys(fieldErrors).length > 0 || validationError) {
+    return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
+  }
+
+  if (!(await currentUserCan(supabase, "incident_reports", "submit"))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const refs = await resolveIncidentRefs(supabase, facilityId, input)
+  if (!refs.ok) {
+    return NextResponse.json({ error: refs.error }, { status: 409 })
+  }
+
+  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
+  // local_id returns no rows → the submission was already processed.
+  const { data: claimRows, error: claimErr } = await supabase
+    .from("offline_sync_queue")
+    .upsert(
+      {
+        local_id: localId,
+        facility_id: facilityId,
+        employee_id: employeeId,
+        module_key: "incident_reports",
+        action,
+        payload: payload as Json,
+        sync_status: "pending",
+        started_at: startedAtIso,
+      },
+      { onConflict: "local_id", ignoreDuplicates: true }
+    )
+    .select("local_id")
+
+  if (claimErr) {
+    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  }
+  if (!claimRows || claimRows.length === 0) {
+    return NextResponse.json({ ok: true, duplicate: true })
+  }
+
+  const result = await persistIncident(supabase, {
+    employeeId,
+    facilityId,
+    input,
+    refs,
+  })
+
+  if (!result.ok) {
+    // Release the claim so a future retry re-attempts the persist.
+    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    return NextResponse.json({ error: result.error }, { status: 500 })
+  }
+
+  await supabase
+    .from("offline_sync_queue")
+    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
+    .eq("local_id", localId)
+
+  return NextResponse.json({ ok: true, reportId: result.reportId })
 }

@@ -5,22 +5,32 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
-import { deleteIncidentType, setIncidentTypeActive } from "../actions"
-import type { IncidentTypeRow } from "../types"
+import {
+  deleteFacilitySpace,
+  seedFacilitySpaces,
+  setFacilitySpaceActive,
+} from "../actions"
+import type { FacilitySpaceRow } from "../types"
 
-import { IncidentTypeForm } from "./incident-type-form"
-import { SeedDefaultsCard } from "./seed-defaults-card"
+import { SpaceForm } from "./space-form"
 
 type Props = {
-  types: IncidentTypeRow[]
-  hasAnySeverities: boolean
+  spaces: FacilitySpaceRow[]
 }
 
-export function TypesTab({ types, hasAnySeverities }: Props) {
+export function SpacesTab({ spaces }: Props) {
   const [formOpen, setFormOpen] = useState(false)
-  const [editing, setEditing] = useState<IncidentTypeRow | null>(null)
+  const [editing, setEditing] = useState<FacilitySpaceRow | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const [seedPending, startSeed] = useTransition()
   const [, startTransition] = useTransition()
 
   function openCreate() {
@@ -28,8 +38,8 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
     setFormOpen(true)
   }
 
-  function openEdit(t: IncidentTypeRow) {
-    setEditing(t)
+  function openEdit(s: FacilitySpaceRow) {
+    setEditing(s)
     setFormOpen(true)
   }
 
@@ -45,24 +55,40 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
     })
   }
 
-  if (types.length === 0) {
+  function onSeed() {
+    startSeed(async () => {
+      const r = await seedFacilitySpaces()
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Default facility spaces seeded.")
+    })
+  }
+
+  if (spaces.length === 0) {
     return (
       <>
         <div className="flex flex-col gap-4">
-          <SeedDefaultsCard scope="types" />
-          {!hasAnySeverities && (
-            <p className="text-muted-foreground text-xs">
-              Tip: Seeding will install both default types and severities at
-              once.
-            </p>
-          )}
+          <Card>
+            <CardHeader>
+              <CardTitle>No facility spaces yet</CardTitle>
+              <CardDescription>
+                Seed a generic starter set (Main Rink, Lobby, Locker Room, Pro
+                Shop, Parking Lot) or create your own below. This list is shared
+                facility-wide and feeds the incident report&apos;s space picker.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={onSeed} disabled={seedPending}>
+                {seedPending ? "Seeding…" : "Seed defaults"}
+              </Button>
+            </CardContent>
+          </Card>
           <div>
             <Button onClick={openCreate} variant="outline">
-              Add type manually
+              Add space manually
             </Button>
           </div>
         </div>
-        <IncidentTypeForm
+        <SpaceForm
           open={formOpen}
           onOpenChange={setFormOpen}
           editing={editing}
@@ -71,7 +97,7 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
     )
   }
 
-  const activeCount = types.filter((t) => t.is_active).length
+  const activeCount = spaces.filter((s) => s.is_active).length
 
   return (
     <div className="flex flex-col gap-4">
@@ -79,10 +105,10 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
         <div className="flex items-center gap-3">
           <Badge variant="secondary">{activeCount} active</Badge>
           <span className="text-muted-foreground text-sm">
-            {types.length} total
+            {spaces.length} total
           </span>
         </div>
-        <Button onClick={openCreate}>Add type</Button>
+        <Button onClick={openCreate}>Add space</Button>
       </div>
 
       <div className="overflow-auto rounded-md border">
@@ -91,9 +117,7 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
             <tr>
               <th className="border-b px-3 py-2 text-left font-medium">Name</th>
               <th className="border-b px-3 py-2 text-left font-medium">Slug</th>
-              <th className="border-b px-3 py-2 text-left font-medium">
-                Order
-              </th>
+              <th className="border-b px-3 py-2 text-left font-medium">Order</th>
               <th className="border-b px-3 py-2 text-left font-medium">
                 Status
               </th>
@@ -103,30 +127,21 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
             </tr>
           </thead>
           <tbody>
-            {types.map((t) => {
-              const isPending = pendingId === t.id
+            {spaces.map((s) => {
+              const isPending = pendingId === s.id
               return (
-                <tr key={t.id} className="hover:bg-muted/30">
-                  <td className="border-b px-3 py-2 align-middle">
-                    <div className="flex items-center gap-2">
-                      {t.color && (
-                        <span
-                          aria-hidden
-                          className="inline-block size-3 rounded-full"
-                          style={{ backgroundColor: t.color }}
-                        />
-                      )}
-                      <span className="font-medium">{t.name}</span>
-                    </div>
+                <tr key={s.id} className="hover:bg-muted/30">
+                  <td className="border-b px-3 py-2 align-middle font-medium">
+                    {s.name}
                   </td>
                   <td className="border-b px-3 py-2 align-middle font-mono text-xs">
-                    {t.slug}
+                    {s.slug}
                   </td>
                   <td className="text-muted-foreground border-b px-3 py-2 align-middle tabular-nums">
-                    {t.sort_order}
+                    {s.sort_order}
                   </td>
                   <td className="border-b px-3 py-2 align-middle">
-                    {t.is_active ? (
+                    {s.is_active ? (
                       <Badge variant="success">Active</Badge>
                     ) : (
                       <Badge variant="secondary">Inactive</Badge>
@@ -138,19 +153,19 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => openEdit(t)}
+                        onClick={() => openEdit(s)}
                         disabled={isPending}
                       >
                         Edit
                       </Button>
-                      {t.is_active ? (
+                      {s.is_active ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            runRowAction(t.id, () =>
-                              setIncidentTypeActive(t.id, false),
+                            runRowAction(s.id, () =>
+                              setFacilitySpaceActive(s.id, false),
                             )
                           }
                           disabled={isPending}
@@ -163,8 +178,8 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            runRowAction(t.id, () =>
-                              setIncidentTypeActive(t.id, true),
+                            runRowAction(s.id, () =>
+                              setFacilitySpaceActive(s.id, true),
                             )
                           }
                           disabled={isPending}
@@ -179,10 +194,10 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
                         onClick={() => {
                           if (
                             window.confirm(
-                              `Delete type "${t.name}"? This cannot be undone.`,
+                              `Delete space "${s.name}"? This cannot be undone.`,
                             )
                           ) {
-                            runRowAction(t.id, () => deleteIncidentType(t.id))
+                            runRowAction(s.id, () => deleteFacilitySpace(s.id))
                           }
                         }}
                         disabled={isPending}
@@ -198,11 +213,7 @@ export function TypesTab({ types, hasAnySeverities }: Props) {
         </table>
       </div>
 
-      <IncidentTypeForm
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        editing={editing}
-      />
+      <SpaceForm open={formOpen} onOpenChange={setFormOpen} editing={editing} />
     </div>
   )
 }

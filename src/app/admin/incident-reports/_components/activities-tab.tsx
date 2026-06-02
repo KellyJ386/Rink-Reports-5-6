@@ -5,21 +5,32 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
-import { deleteSeverityLevel, setSeverityLevelActive } from "../actions"
-import type { SeverityRow } from "../types"
+import {
+  deleteIncidentActivity,
+  seedIncidentActivities,
+  setIncidentActivityActive,
+} from "../actions"
+import type { ActivityRow } from "../types"
 
-import { SeedDefaultsCard } from "./seed-defaults-card"
-import { SeverityForm } from "./severity-form"
+import { ActivityForm } from "./activity-form"
 
 type Props = {
-  severities: SeverityRow[]
+  activities: ActivityRow[]
 }
 
-export function SeveritiesTab({ severities }: Props) {
+export function ActivitiesTab({ activities }: Props) {
   const [formOpen, setFormOpen] = useState(false)
-  const [editing, setEditing] = useState<SeverityRow | null>(null)
+  const [editing, setEditing] = useState<ActivityRow | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const [seedPending, startSeed] = useTransition()
   const [, startTransition] = useTransition()
 
   function openCreate() {
@@ -27,8 +38,8 @@ export function SeveritiesTab({ severities }: Props) {
     setFormOpen(true)
   }
 
-  function openEdit(s: SeverityRow) {
-    setEditing(s)
+  function openEdit(a: ActivityRow) {
+    setEditing(a)
     setFormOpen(true)
   }
 
@@ -44,18 +55,40 @@ export function SeveritiesTab({ severities }: Props) {
     })
   }
 
-  if (severities.length === 0) {
+  function onSeed() {
+    startSeed(async () => {
+      const r = await seedIncidentActivities()
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Default activities seeded.")
+    })
+  }
+
+  if (activities.length === 0) {
     return (
       <>
         <div className="flex flex-col gap-4">
-          <SeedDefaultsCard />
+          <Card>
+            <CardHeader>
+              <CardTitle>No activities yet</CardTitle>
+              <CardDescription>
+                Seed the standard activities (Public Skating, Hockey, Figure
+                Skating, Learn to Skate, Maintenance) or create your own below.
+                Reporters can always pick &quot;Other&quot;.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={onSeed} disabled={seedPending}>
+                {seedPending ? "Seeding…" : "Seed defaults"}
+              </Button>
+            </CardContent>
+          </Card>
           <div>
             <Button onClick={openCreate} variant="outline">
-              Add severity manually
+              Add activity manually
             </Button>
           </div>
         </div>
-        <SeverityForm
+        <ActivityForm
           open={formOpen}
           onOpenChange={setFormOpen}
           editing={editing}
@@ -64,7 +97,7 @@ export function SeveritiesTab({ severities }: Props) {
     )
   }
 
-  const activeCount = severities.filter((s) => s.is_active).length
+  const activeCount = activities.filter((a) => a.is_active).length
 
   return (
     <div className="flex flex-col gap-4">
@@ -72,10 +105,10 @@ export function SeveritiesTab({ severities }: Props) {
         <div className="flex items-center gap-3">
           <Badge variant="secondary">{activeCount} active</Badge>
           <span className="text-muted-foreground text-sm">
-            {severities.length} total
+            {activities.length} total
           </span>
         </div>
-        <Button onClick={openCreate}>Add severity</Button>
+        <Button onClick={openCreate}>Add activity</Button>
       </div>
 
       <div className="overflow-auto rounded-md border">
@@ -86,9 +119,7 @@ export function SeveritiesTab({ severities }: Props) {
                 Display name
               </th>
               <th className="border-b px-3 py-2 text-left font-medium">Key</th>
-              <th className="border-b px-3 py-2 text-left font-medium">
-                Order
-              </th>
+              <th className="border-b px-3 py-2 text-left font-medium">Order</th>
               <th className="border-b px-3 py-2 text-left font-medium">
                 Status
               </th>
@@ -98,30 +129,30 @@ export function SeveritiesTab({ severities }: Props) {
             </tr>
           </thead>
           <tbody>
-            {severities.map((s) => {
-              const isPending = pendingId === s.id
+            {activities.map((a) => {
+              const isPending = pendingId === a.id
               return (
-                <tr key={s.id} className="hover:bg-muted/30">
+                <tr key={a.id} className="hover:bg-muted/30">
                   <td className="border-b px-3 py-2 align-middle">
                     <div className="flex items-center gap-2">
-                      {s.color && (
+                      {a.color && (
                         <span
                           aria-hidden
                           className="inline-block size-3 rounded-full"
-                          style={{ backgroundColor: s.color }}
+                          style={{ backgroundColor: a.color }}
                         />
                       )}
-                      <span className="font-medium">{s.display_name}</span>
+                      <span className="font-medium">{a.display_name}</span>
                     </div>
                   </td>
                   <td className="border-b px-3 py-2 align-middle font-mono text-xs">
-                    {s.key}
+                    {a.key}
                   </td>
                   <td className="text-muted-foreground border-b px-3 py-2 align-middle tabular-nums">
-                    {s.sort_order}
+                    {a.sort_order}
                   </td>
                   <td className="border-b px-3 py-2 align-middle">
-                    {s.is_active ? (
+                    {a.is_active ? (
                       <Badge variant="success">Active</Badge>
                     ) : (
                       <Badge variant="secondary">Inactive</Badge>
@@ -133,19 +164,19 @@ export function SeveritiesTab({ severities }: Props) {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => openEdit(s)}
+                        onClick={() => openEdit(a)}
                         disabled={isPending}
                       >
                         Edit
                       </Button>
-                      {s.is_active ? (
+                      {a.is_active ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            runRowAction(s.id, () =>
-                              setSeverityLevelActive(s.id, false),
+                            runRowAction(a.id, () =>
+                              setIncidentActivityActive(a.id, false),
                             )
                           }
                           disabled={isPending}
@@ -158,8 +189,8 @@ export function SeveritiesTab({ severities }: Props) {
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            runRowAction(s.id, () =>
-                              setSeverityLevelActive(s.id, true),
+                            runRowAction(a.id, () =>
+                              setIncidentActivityActive(a.id, true),
                             )
                           }
                           disabled={isPending}
@@ -174,12 +205,10 @@ export function SeveritiesTab({ severities }: Props) {
                         onClick={() => {
                           if (
                             window.confirm(
-                              `Delete severity "${s.display_name}"? This cannot be undone.`,
+                              `Delete activity "${a.display_name}"? This cannot be undone.`,
                             )
                           ) {
-                            runRowAction(s.id, () =>
-                              deleteSeverityLevel(s.id),
-                            )
+                            runRowAction(a.id, () => deleteIncidentActivity(a.id))
                           }
                         }}
                         disabled={isPending}
@@ -195,7 +224,7 @@ export function SeveritiesTab({ severities }: Props) {
         </table>
       </div>
 
-      <SeverityForm
+      <ActivityForm
         open={formOpen}
         onOpenChange={setFormOpen}
         editing={editing}

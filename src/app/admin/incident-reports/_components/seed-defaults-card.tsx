@@ -14,11 +14,7 @@ import {
 
 import { seedIncidentDefaults } from "../actions"
 
-type Props = {
-  scope: "types" | "severities"
-}
-
-export function SeedDefaultsCard({ scope }: Props) {
+export function SeedDefaultsCard() {
   const [pending, startTransition] = useTransition()
 
   function onSeed() {
@@ -27,25 +23,19 @@ export function SeedDefaultsCard({ scope }: Props) {
       if (!r.ok) {
         toast.error(r.error)
       } else {
-        toast.success("Default types and severities seeded.")
+        toast.success("Default severities seeded.")
       }
     })
   }
 
-  const title =
-    scope === "types"
-      ? "No incident types yet"
-      : "No severity levels yet"
-  const description =
-    scope === "types"
-      ? "Seed the four standard types (Theft, Vandalism, Safety Concern, Other) or create your own below. Seeding also installs the four default severities if they don't already exist."
-      : "Seed the four standard severities (Critical, High, Medium, Low) or create your own below. Seeding also installs the four default types if they don't already exist."
-
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardTitle>No severity levels yet</CardTitle>
+        <CardDescription>
+          Seed the four standard severities (Critical, High, Medium, Low) or
+          create your own below.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Button onClick={onSeed} disabled={pending}>

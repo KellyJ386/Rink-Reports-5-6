@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge, type BadgeProps } from "@/components/ui/badge"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
@@ -26,8 +28,7 @@ type RecentRow = {
   occurred_at: string
   status: string
   description: string
-  location: string | null
-  incident_types: { name: string } | null
+  location_other: string | null
   incident_severity_levels: {
     display_name: string
     color: string | null
@@ -133,18 +134,12 @@ export default async function IncidentsHomePage() {
   }
 
   const [
-    { data: incidentTypes },
     { data: severityLevels },
+    { data: activityRows },
+    { data: spaceRows },
     { data: userRow },
     { data: facility },
   ] = await Promise.all([
-    supabase
-      .from("incident_types")
-      .select("id, name, sort_order, is_active")
-      .eq("facility_id", employeeRow.facility_id)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
     supabase
       .from("incident_severity_levels")
       .select("id, display_name, sort_order, is_active")
@@ -152,6 +147,20 @@ export default async function IncidentsHomePage() {
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("display_name", { ascending: true }),
+    supabase
+      .from("incident_activities")
+      .select("id, display_name, sort_order, is_active")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("display_name", { ascending: true }),
+    supabase
+      .from("facility_spaces")
+      .select("id, name, sort_order, is_active")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
     supabase
       .from("users")
       .select("full_name, phone")
@@ -164,14 +173,15 @@ export default async function IncidentsHomePage() {
       .maybeSingle(),
   ])
 
-  const types = incidentTypes ?? []
   const severities = severityLevels ?? []
+  const activities = activityRows ?? []
+  const spaces = spaceRows ?? []
 
-  if (types.length === 0 || severities.length === 0) {
+  if (severities.length === 0) {
     return (
       <NotAvailable
         title="Not configured yet"
-        description="Incident reporting isn't configured yet for this facility. Talk to your administrator."
+        description="Incident reporting isn't configured yet for this facility. Add at least one severity level in the admin console."
       />
     )
   }
@@ -182,7 +192,7 @@ export default async function IncidentsHomePage() {
   const { data: recentRaw } = await supabase
     .from("incident_reports")
     .select(
-      "id, submitted_at, occurred_at, status, description, location, incident_types(name), incident_severity_levels(display_name, color)"
+      "id, submitted_at, occurred_at, status, description, location_other, incident_severity_levels(display_name, color)"
     )
     .eq("employee_id", employeeRow.id)
     .gte("submitted_at", since.toISOString())
@@ -209,13 +219,17 @@ export default async function IncidentsHomePage() {
       />
 
       <SubmissionForm
-        defaultReporterName=""
+        defaultReporterName={userRow?.full_name ?? ""}
         defaultReporterPhone={userRow?.phone ?? ""}
-        incidentTypes={types.map((t) => ({ id: t.id, name: t.name }))}
         severityLevels={severities.map((s) => ({
           id: s.id,
           display_name: s.display_name,
         }))}
+        activities={activities.map((a) => ({
+          id: a.id,
+          display_name: a.display_name,
+        }))}
+        spaces={spaces.map((s) => ({ id: s.id, name: s.name }))}
       />
 
       {recent.length > 0 ? (
@@ -226,7 +240,6 @@ export default async function IncidentsHomePage() {
           <p className="text-xs text-muted-foreground">Last 30 days</p>
           <DataList>
             {recent.map((r) => {
-              const typeName = r.incident_types?.name ?? "Incident"
               const severityName =
                 r.incident_severity_levels?.display_name ?? null
               const severityColor = r.incident_severity_levels?.color ?? null
@@ -237,7 +250,12 @@ export default async function IncidentsHomePage() {
               return (
                 <DataListRow key={r.id} as="div" className="flex-col items-stretch gap-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{typeName}</span>
+                    <Link
+                      href={`/reports/incidents/${r.id}`}
+                      className="font-medium underline-offset-4 hover:underline"
+                    >
+                      Incident
+                    </Link>
                     <span className="text-xs text-muted-foreground">
                       {formatTimestamp(r.submitted_at, tz)}
                     </span>
@@ -251,9 +269,9 @@ export default async function IncidentsHomePage() {
                     <Badge variant={statusBadgeVariant(r.status)}>
                       {statusLabel(r.status)}
                     </Badge>
-                    {r.location ? (
+                    {r.location_other ? (
                       <span className="text-xs text-muted-foreground">
-                        @ {r.location}
+                        @ {r.location_other}
                       </span>
                     ) : null}
                   </div>

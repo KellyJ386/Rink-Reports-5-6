@@ -1097,6 +1097,223 @@ select pg_temp.expect_error(
     where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
   'profile: manager CANNOT escalate staff is_super_admin');
 
+-- ---------------------------------------------------------------------------
+-- INC: Incident Report redesign isolation (migrations 101-104).
+--
+-- Covers the new tenant-isolation surfaces:
+--   facility_spaces       (shared list; SELECT for any same-facility user,
+--                          writes for facility admins only)
+--   incident_activities   (module-gated like incident_types)
+--   incident_reports      (submitter ownership + 24h edit window)
+--   incident_report_spaces / incident_witnesses (parent-window gated)
+--   incident_change_log   (admin-only read; append-only)
+--
+-- Self-contained: seeds its own fixtures and grants Alice VIEW-only on
+-- incident_reports. Submit stays withheld, so the H4 dispatch negative above
+-- (which already ran) is unaffected; admin stays withheld, so admin-only
+-- writes/reads remain denied.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- VIEW-only grant: enables has_module_access('incident_reports') for Alice
+-- without granting submit (H4) or admin (write gates).
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'incident_reports', 'view'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- Facility spaces: two in A, one in B.
+insert into public.facility_spaces (id, facility_id, name, slug, sort_order, is_active)
+values
+  ('aaaa1111-0a01-aaaa-aaaa-aaaa11110021',
+   '11111111-1111-1111-1111-111111111111', 'Space A1', 'space-a1', 1, true),
+  ('aaaa1111-0a02-aaaa-aaaa-aaaa11110022',
+   '11111111-1111-1111-1111-111111111111', 'Space A2', 'space-a2', 2, true),
+  ('bbbb2222-0b01-bbbb-bbbb-bbbb22220021',
+   '22222222-2222-2222-2222-222222222222', 'Space B1', 'space-b1', 1, true)
+on conflict (id) do nothing;
+
+-- Incident activities: one in each facility.
+insert into public.incident_activities (id, facility_id, key, display_name, sort_order, is_active)
+values
+  ('aaaa1111-0ac1-aaaa-aaaa-aaaa11110031',
+   '11111111-1111-1111-1111-111111111111', 'act-a', 'Activity A', 1, true),
+  ('bbbb2222-0bc1-bbbb-bbbb-bbbb22220031',
+   '22222222-2222-2222-2222-222222222222', 'act-b', 'Activity B', 1, true)
+on conflict (id) do nothing;
+
+-- One incident report per facility, owned by that facility's staff member.
+insert into public.incident_reports
+  (id, facility_id, employee_id, reporter_name, reporter_phone, description)
+values
+  ('aaaa1111-1c01-aaaa-aaaa-aaaa11110041',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'Alice Anderson', '555-0001', 'Incident in facility A'),
+  ('bbbb2222-1c01-bbbb-bbbb-bbbb22220041',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   'Bob Baker', '555-0002', 'Incident in facility B')
+on conflict (id) do nothing;
+
+-- Link each report to a space in its own facility.
+insert into public.incident_report_spaces (facility_id, incident_id, space_id)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1c01-aaaa-aaaa-aaaa11110041',
+   'aaaa1111-0a01-aaaa-aaaa-aaaa11110021'),
+  ('22222222-2222-2222-2222-222222222222',
+   'bbbb2222-1c01-bbbb-bbbb-bbbb22220041',
+   'bbbb2222-0b01-bbbb-bbbb-bbbb22220021')
+on conflict (incident_id, space_id) do nothing;
+
+-- One witness per report (name + at least one contact).
+insert into public.incident_witnesses
+  (id, facility_id, incident_id, name, phone, sort_order)
+values
+  ('aaaa1111-1d01-aaaa-aaaa-aaaa11110051',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1c01-aaaa-aaaa-aaaa11110041', 'Wanda Witness', '555-1111', 0),
+  ('bbbb2222-1d01-bbbb-bbbb-bbbb22220051',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-1c01-bbbb-bbbb-bbbb22220041', 'Walt Witness', '555-2222', 0)
+on conflict (id) do nothing;
+
+-- One change-log entry per report.
+insert into public.incident_change_log (facility_id, incident_id, employee_id, action)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1c01-aaaa-aaaa-aaaa11110041',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'create'),
+  ('22222222-2222-2222-2222-222222222222',
+   'bbbb2222-1c01-bbbb-bbbb-bbbb22220041',
+   'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'create');
+
+-- Re-impersonate Alice (Facility A staff, now with incident VIEW).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- facility_spaces: shared list — readable within facility, not across.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_spaces
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  2, 'INC: alice CAN SELECT facility_spaces in her facility');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_spaces
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'INC: alice CANNOT SELECT facility_spaces in facility B');
+-- Writes are facility-admin only; staff alice is denied even in her own facility.
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'Sneaky', 'sneaky')$$,
+  'INC: staff alice (no admin) CANNOT INSERT a facility_space in her facility');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'Cross', 'cross')$$,
+  'INC: alice CANNOT INSERT a facility_space into facility B');
+
+-- incident_activities: module-gated read; admin-gated write.
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_activities
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'INC: alice CAN SELECT incident_activities in her facility (via view)');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_activities
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'INC: alice CANNOT SELECT incident_activities in facility B');
+select pg_temp.expect_error(
+  $$insert into public.incident_activities (facility_id, key, display_name)
+    values ('11111111-1111-1111-1111-111111111111', 'x', 'X')$$,
+  'INC: staff alice (no admin) CANNOT INSERT incident_activities');
+
+-- incident_reports: submitter sees own row, not the foreign facility's.
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_reports
+    where id = 'aaaa1111-1c01-aaaa-aaaa-aaaa11110041'$$,
+  1, 'INC: alice CAN SELECT her own incident_report');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_reports
+    where id = 'bbbb2222-1c01-bbbb-bbbb-bbbb22220041'$$,
+  0, 'INC: alice CANNOT SELECT facility B incident_report');
+
+-- incident_report_spaces: read + write gated on the parent report.
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_report_spaces
+    where incident_id = 'aaaa1111-1c01-aaaa-aaaa-aaaa11110041'$$,
+  1, 'INC: alice CAN SELECT spaces on her own report');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_report_spaces
+    where incident_id = 'bbbb2222-1c01-bbbb-bbbb-bbbb22220041'$$,
+  0, 'INC: alice CANNOT SELECT spaces on facility B report');
+-- Within her 24h window, alice may add a space to her own report.
+select pg_temp.expect_ok(
+  $$insert into public.incident_report_spaces (facility_id, incident_id, space_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-1c01-aaaa-aaaa-aaaa11110041',
+            'aaaa1111-0a02-aaaa-aaaa-aaaa11110022')$$,
+  'INC: alice CAN add a space to her own report within the edit window');
+-- She cannot attach anything to facility B's report.
+select pg_temp.expect_error(
+  $$insert into public.incident_report_spaces (facility_id, incident_id, space_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'bbbb2222-1c01-bbbb-bbbb-bbbb22220041',
+            'aaaa1111-0a02-aaaa-aaaa-aaaa11110022')$$,
+  'INC: alice CANNOT add a space to facility B''s report');
+
+-- incident_witnesses: read + write gated on the parent report.
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_witnesses
+    where incident_id = 'aaaa1111-1c01-aaaa-aaaa-aaaa11110041'$$,
+  1, 'INC: alice CAN SELECT witnesses on her own report');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_witnesses
+    where incident_id = 'bbbb2222-1c01-bbbb-bbbb-bbbb22220041'$$,
+  0, 'INC: alice CANNOT SELECT witnesses on facility B report');
+select pg_temp.expect_ok(
+  $$insert into public.incident_witnesses
+      (facility_id, incident_id, name, email, sort_order)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-1c01-aaaa-aaaa-aaaa11110041',
+            'Second Witness', 'sw@example.com', 1)$$,
+  'INC: alice CAN add a witness to her own report within the edit window');
+select pg_temp.expect_error(
+  $$insert into public.incident_witnesses
+      (facility_id, incident_id, name, phone, sort_order)
+    values ('11111111-1111-1111-1111-111111111111',
+            'bbbb2222-1c01-bbbb-bbbb-bbbb22220041',
+            'Forged Witness', '555-9999', 1)$$,
+  'INC: alice CANNOT add a witness to facility B''s report');
+
+-- incident_change_log: admin-only read — staff submitter sees nothing.
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_change_log
+    where incident_id = 'aaaa1111-1c01-aaaa-aaaa-aaaa11110041'$$,
+  0, 'INC: staff alice CANNOT read incident_change_log (admin-only)');
+
+-- facility_spaces write broadening (migration 105): an Incident Reports module
+-- admin may manage spaces. Granted at the very end so it doesn't affect the
+-- admin-denied assertions above. Cross-facility isolation must still hold.
+set local role postgres;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'incident_reports', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'Admin Space', 'admin-space')$$,
+  'INC: incident-module admin CAN insert a facility_space in own facility');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'Cross Admin', 'cross-admin')$$,
+  'INC: incident-module admin still CANNOT insert a facility_space in facility B');
+
 reset role;
 
 -- ---------------------------------------------------------------------------

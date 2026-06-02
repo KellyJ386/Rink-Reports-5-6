@@ -14,18 +14,18 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 
-import { createIncidentType, updateIncidentType } from "../actions"
-import type { ActionState, IncidentTypeRow } from "../types"
+import { createIncidentActivity, updateIncidentActivity } from "../actions"
+import type { ActionState, ActivityRow } from "../types"
 
 const INITIAL: ActionState = { ok: null }
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  editing: IncidentTypeRow | null
+  editing: ActivityRow | null
 }
 
-export function IncidentTypeForm(props: Props) {
+export function ActivityForm(props: Props) {
   const formKey = props.editing ? `edit:${props.editing.id}` : "new"
   return (
     <Sheet open={props.open} onOpenChange={props.onOpenChange}>
@@ -33,20 +33,20 @@ export function IncidentTypeForm(props: Props) {
         side="right"
         className="w-full max-w-md overflow-y-auto sm:max-w-md"
       >
-        <IncidentTypeFormBody key={formKey} {...props} />
+        <ActivityFormBody key={formKey} {...props} />
       </SheetContent>
     </Sheet>
   )
 }
 
-function IncidentTypeFormBody({ onOpenChange, editing }: Props) {
+function ActivityFormBody({ onOpenChange, editing }: Props) {
   const isEdit = editing !== null
   const [createState, createAction, createPending] = useActionState(
-    createIncidentType,
+    createIncidentActivity,
     INITIAL,
   )
   const [updateState, updateAction, updatePending] = useActionState(
-    updateIncidentType,
+    updateIncidentActivity,
     INITIAL,
   )
 
@@ -66,11 +66,11 @@ function IncidentTypeFormBody({ onOpenChange, editing }: Props) {
   return (
     <>
       <SheetHeader>
-        <SheetTitle>{isEdit ? "Edit incident type" : "New incident type"}</SheetTitle>
+        <SheetTitle>{isEdit ? "Edit activity" : "New activity"}</SheetTitle>
         <SheetDescription>
           {isEdit
-            ? "Update the type's name, slug, color, sort order, or activation."
-            : "Categories shown on the staff incident report form."}
+            ? "Update the activity's key, label, color, sort order, or activation."
+            : 'Activities describe what was happening (e.g. Public Skating, Hockey). Reporters can also pick "Other".'}
         </SheetDescription>
       </SheetHeader>
 
@@ -80,28 +80,30 @@ function IncidentTypeFormBody({ onOpenChange, editing }: Props) {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="name">Name<RequiredMark /></Label>
+          <Label htmlFor="key">Key<RequiredMark /></Label>
           <Input
-            id="name"
-            name="name"
+            id="key"
+            name="key"
             required
-            defaultValue={editing?.name ?? ""}
-            placeholder="Safety Concern"
+            defaultValue={editing?.key ?? ""}
+            placeholder="public_skating"
+            pattern="^[a-z0-9_]+$"
           />
+          <p className="text-muted-foreground text-xs">
+            Lowercase letters, digits, and underscores. Used internally; can&apos;t
+            collide with another activity in this facility.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="slug">Slug</Label>
+          <Label htmlFor="display_name">Display name<RequiredMark /></Label>
           <Input
-            id="slug"
-            name="slug"
-            defaultValue={editing?.slug ?? ""}
-            placeholder="auto-generated from name if blank"
-            pattern="^[a-z0-9]+(-[a-z0-9]+)*$"
+            id="display_name"
+            name="display_name"
+            required
+            defaultValue={editing?.display_name ?? ""}
+            placeholder="Public Skating"
           />
-          <p className="text-muted-foreground text-xs">
-            Lowercase letters, digits, and hyphens.
-          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -111,7 +113,7 @@ function IncidentTypeFormBody({ onOpenChange, editing }: Props) {
               id="color"
               name="color"
               type="color"
-              defaultValue={editing?.color ?? "#6366f1"}
+              defaultValue={editing?.color ?? "#3b82f6"}
               className="h-9 p-1"
             />
           </div>
@@ -160,7 +162,7 @@ function IncidentTypeFormBody({ onOpenChange, editing }: Props) {
                 : "Creating…"
               : isEdit
                 ? "Save changes"
-                : "Create type"}
+                : "Create activity"}
           </Button>
         </div>
       </form>

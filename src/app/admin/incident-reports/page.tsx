@@ -14,11 +14,15 @@ import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { ActivitiesTab } from "./_components/activities-tab"
 import { HistoryTab } from "./_components/history-tab"
 import { SeveritiesTab } from "./_components/severities-tab"
-import { TypesTab } from "./_components/types-tab"
+import { SpacesTab } from "./_components/spaces-tab"
 import type {
+  ActivityRow,
+  ChangeLogRow,
   EmployeeLite,
+  FacilitySpaceRow,
   FollowupNoteRow,
   IncidentReportDetail,
   IncidentReportListItem,
@@ -26,6 +30,7 @@ import type {
   IncidentTypeRow,
   SeverityRow,
   Tab,
+  WitnessRow,
 } from "./types"
 import { TABS } from "./types"
 
@@ -99,11 +104,15 @@ export default async function IncidentReportsAdminPage({
         <HistoryTabLoader facilityId={facilityId} params={params} />
       )}
 
-      {tab === "types" && <TypesTabLoader facilityId={facilityId} />}
-
       {tab === "severities" && (
         <SeveritiesTabLoader facilityId={facilityId} />
       )}
+
+      {tab === "activities" && (
+        <ActivitiesTabLoader facilityId={facilityId} />
+      )}
+
+      {tab === "spaces" && <SpacesTabLoader facilityId={facilityId} />}
     </div>
   )
 }
@@ -132,44 +141,40 @@ function TabBar({ active }: { active: Tab }) {
 // Per-tab loaders
 // ---------------------------------------------------------------------------
 
-async function TypesTabLoader({ facilityId }: { facilityId: string }) {
-  const supabase = await createClient()
-  const [typesRes, severitiesRes] = await Promise.all([
-    supabase
-      .from("incident_types")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("incident_severity_levels")
-      .select("id")
-      .eq("facility_id", facilityId)
-      .limit(1),
-  ])
-  const types = (typesRes.data ?? []) as IncidentTypeRow[]
-  const hasAnySeverities = (severitiesRes.data ?? []).length > 0
-  return <TypesTab types={types} hasAnySeverities={hasAnySeverities} />
-}
-
 async function SeveritiesTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [sevRes, typesRes] = await Promise.all([
-    supabase
-      .from("incident_severity_levels")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true })
-      .order("display_name", { ascending: true }),
-    supabase
-      .from("incident_types")
-      .select("id")
-      .eq("facility_id", facilityId)
-      .limit(1),
-  ])
-  const severities = (sevRes.data ?? []) as SeverityRow[]
-  const hasAnyTypes = (typesRes.data ?? []).length > 0
-  return <SeveritiesTab severities={severities} hasAnyTypes={hasAnyTypes} />
+  const { data } = await supabase
+    .from("incident_severity_levels")
+    .select("*")
+    .eq("facility_id", facilityId)
+    .order("sort_order", { ascending: true })
+    .order("display_name", { ascending: true })
+  const severities = (data ?? []) as SeverityRow[]
+  return <SeveritiesTab severities={severities} />
+}
+
+async function ActivitiesTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("incident_activities")
+    .select("*")
+    .eq("facility_id", facilityId)
+    .order("sort_order", { ascending: true })
+    .order("display_name", { ascending: true })
+  const activities = (data ?? []) as ActivityRow[]
+  return <ActivitiesTab activities={activities} />
+}
+
+async function SpacesTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("facility_spaces")
+    .select("*")
+    .eq("facility_id", facilityId)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true })
+  const spaces = (data ?? []) as FacilitySpaceRow[]
+  return <SpacesTab spaces={spaces} />
 }
 
 async function HistoryTabLoader({
@@ -282,35 +287,86 @@ async function HistoryTabLoader({
       baseReport = (data ?? null) as IncidentReportRow | null
     }
     if (baseReport) {
-      const [notesRes, reporterRes] = await Promise.all([
-        supabase
-          .from("incident_followup_notes")
-          .select("*")
-          .eq("incident_id", baseReport.id)
-          .order("created_at", { ascending: true }),
-        baseReport.employee_id
-          ? supabase
-              .from("employees")
-              .select("id, first_name, last_name")
-              .eq("id", baseReport.employee_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
-      ])
+      const [notesRes, reporterRes, spaceLinksRes, witnessesRes, changeLogRes] =
+        await Promise.all([
+          supabase
+            .from("incident_followup_notes")
+            .select("*")
+            .eq("incident_id", baseReport.id)
+            .order("created_at", { ascending: true }),
+          baseReport.employee_id
+            ? supabase
+                .from("employees")
+                .select("id, first_name, last_name")
+                .eq("id", baseReport.employee_id)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+          supabase
+            .from("incident_report_spaces")
+            .select("space_id")
+            .eq("incident_id", baseReport.id),
+          supabase
+            .from("incident_witnesses")
+            .select("*")
+            .eq("incident_id", baseReport.id)
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("incident_change_log")
+            .select("*")
+            .eq("incident_id", baseReport.id)
+            .order("created_at", { ascending: true }),
+        ])
+
       const noteRows = (notesRes.data ?? []) as FollowupNoteRow[]
-      const noteEmpIds = Array.from(
+      const witnesses = (witnessesRes.data ?? []) as WitnessRow[]
+      const changeRows = (changeLogRes.data ?? []) as ChangeLogRow[]
+
+      // Resolve facility-space names for the linked spaces.
+      const spaceIds = (
+        (spaceLinksRes.data ?? []) as Array<{ space_id: string }>
+      ).map((r) => r.space_id)
+      let spaces: Array<Pick<FacilitySpaceRow, "id" | "name">> = []
+      if (spaceIds.length > 0) {
+        const { data } = await supabase
+          .from("facility_spaces")
+          .select("id, name")
+          .in("id", spaceIds)
+        spaces = (data ?? []) as Array<Pick<FacilitySpaceRow, "id" | "name">>
+      }
+
+      // Resolve the activity row, if any.
+      let activity: Pick<ActivityRow, "id" | "display_name" | "color"> | null =
+        null
+      if (baseReport.activity_id) {
+        const { data } = await supabase
+          .from("incident_activities")
+          .select("id, display_name, color")
+          .eq("id", baseReport.activity_id)
+          .maybeSingle()
+        activity = (data ?? null) as Pick<
+          ActivityRow,
+          "id" | "display_name" | "color"
+        > | null
+      }
+
+      // Resolve author employees for notes + change log in one round-trip.
+      const authorEmpIds = Array.from(
         new Set(
-          noteRows.map((n) => n.employee_id).filter((x): x is string => !!x),
+          [
+            ...noteRows.map((n) => n.employee_id),
+            ...changeRows.map((c) => c.employee_id),
+          ].filter((x): x is string => !!x),
         ),
       )
-      let noteAuthors: EmployeeLite[] = []
-      if (noteEmpIds.length > 0) {
+      let authors: EmployeeLite[] = []
+      if (authorEmpIds.length > 0) {
         const { data } = await supabase
           .from("employees")
           .select("id, first_name, last_name")
-          .in("id", noteEmpIds)
-        noteAuthors = (data ?? []) as EmployeeLite[]
+          .in("id", authorEmpIds)
+        authors = (data ?? []) as EmployeeLite[]
       }
-      const authorById = new Map(noteAuthors.map((a) => [a.id, a]))
+      const authorById = new Map(authors.map((a) => [a.id, a]))
 
       detail = {
         report: baseReport,
@@ -320,11 +376,20 @@ async function HistoryTabLoader({
         severity: baseReport.severity_level_id
           ? (sevById.get(baseReport.severity_level_id) ?? null)
           : null,
+        activity,
+        spaces,
+        witnesses,
         employee: (reporterRes.data ?? null) as EmployeeLite | null,
         notes: noteRows.map((n) => ({
           ...n,
           author: n.employee_id
             ? (authorById.get(n.employee_id) ?? null)
+            : null,
+        })),
+        changeLog: changeRows.map((c) => ({
+          ...c,
+          author: c.employee_id
+            ? (authorById.get(c.employee_id) ?? null)
             : null,
         })),
       }

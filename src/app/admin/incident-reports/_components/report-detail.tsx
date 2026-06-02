@@ -43,7 +43,8 @@ function fmt(ts: string | null): string {
 }
 
 export function ReportDetail({ detail, backHref }: Props) {
-  const { report, type, severity, employee, notes } = detail
+  const { report, type, severity, activity, spaces, witnesses, employee, notes, changeLog } =
+    detail
   const [noteState, noteAction, notePending] = useActionState(
     addFollowupNote,
     NOTE_INITIAL,
@@ -129,15 +130,95 @@ export function ReportDetail({ detail, backHref }: Props) {
                 "—"
               )}
             </Field>
-            <Field label="Location">{report.location || "—"}</Field>
+            <Field label="Activity">
+              {activity ? (
+                <span className="inline-flex items-center gap-1.5">
+                  {activity.color && (
+                    <span
+                      aria-hidden
+                      className="inline-block size-2 rounded-full"
+                      style={{ backgroundColor: activity.color }}
+                    />
+                  )}
+                  {activity.display_name}
+                </span>
+              ) : report.activity_other ? (
+                <span>
+                  {report.activity_other}{" "}
+                  <span className="text-muted-foreground text-xs">(other)</span>
+                </span>
+              ) : (
+                "—"
+              )}
+            </Field>
             <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
             <Field label="Reporter name">{report.reporter_name}</Field>
             <Field label="Reporter phone">{report.reporter_phone}</Field>
+            {report.location && (
+              <Field label="Location (legacy)">{report.location}</Field>
+            )}
           </dl>
+
+          <Field label="Facility spaces">
+            {spaces.length === 0 && !report.location_other ? (
+              "—"
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {spaces.map((s) => (
+                  <span
+                    key={s.id}
+                    className="bg-muted inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                  >
+                    {s.name}
+                  </span>
+                ))}
+                {report.location_other && (
+                  <span className="bg-muted inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
+                    {report.location_other}
+                    <span className="text-muted-foreground ml-1">(other)</span>
+                  </span>
+                )}
+              </div>
+            )}
+          </Field>
+
           <Field label="Description">
             <p className="text-sm whitespace-pre-wrap">{report.description}</p>
           </Field>
+
+          {report.immediate_actions && (
+            <Field label="Immediate actions taken">
+              <p className="text-sm whitespace-pre-wrap">
+                {report.immediate_actions}
+              </p>
+            </Field>
+          )}
         </section>
+
+        {witnesses.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-sm font-semibold">
+              Witnesses ({witnesses.length})
+            </h3>
+            <ul className="flex flex-col gap-2">
+              {witnesses.map((w) => (
+                <li
+                  key={w.id}
+                  className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3"
+                >
+                  <span className="text-sm font-medium">{w.name}</span>
+                  <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+                    {w.phone && <span>Phone: {w.phone}</span>}
+                    {w.email && <span>Email: {w.email}</span>}
+                  </div>
+                  {w.statement && (
+                    <p className="text-sm whitespace-pre-wrap">{w.statement}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Status timeline + transition controls */}
         <section className="flex flex-col gap-3">
@@ -244,6 +325,40 @@ export function ReportDetail({ detail, backHref }: Props) {
               </Button>
             </div>
           </form>
+        </section>
+
+        {/* Append-only audit trail */}
+        <section className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold">
+            Change log ({changeLog.length})
+          </h3>
+          <p className="text-muted-foreground text-xs">
+            Audit trail of edits to this report. Visible to admins only.
+          </p>
+          {changeLog.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No changes recorded.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {changeLog.map((c) => (
+                <li
+                  key={c.id}
+                  className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3"
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-medium">{c.action}</span>
+                    <span className="text-muted-foreground">
+                      {fmt(c.created_at)}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground text-xs">
+                    {c.author
+                      ? `${c.author.first_name} ${c.author.last_name}`
+                      : "System"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </CardContent>
     </Card>
