@@ -66,6 +66,15 @@ admin audit-log/report list queries for any that select ordered-by-time with no 
 > (`phase5-partitioning-plan.md`): monthly range partitions on `created_at` would additionally
 > prune the global-created_at scan path by time window.
 
+### Codebase audit outcome (follow-up)
+Audited every `audit_logs` read in `src/` for the missing-facility-predicate pattern:
+
+| Query | Location | Verdict |
+|---|---|---|
+| Audit-log list (admin) | `src/app/admin/audit-log/page.tsx:108` | **OK** — adds `.eq("facility_id", …)` when facility-scoped; the only unfiltered branch is the super-admin *global* view, where RLS short-circuits via `is_super_admin()` and `order by created_at desc limit 300` is the optimal top-N use of `idx_audit_logs_created_at`. |
+| Single audit entry | `src/app/admin/audit-log/page.tsx:207` | **OK** — lookup by PK `id`. |
+| Employee detail audit history | `src/app/admin/employees/[id]/page.tsx:75` | **Fixed** — had no facility predicate; a facility admin hitting it triggered the needle-in-haystack. Added `.eq("facility_id", emp.facility_id)` (result-preserving; all of an employee's audit rows are in their own facility). |
+
 ## What this does NOT cover
 - Only `audit_logs` was volume-tested (highest-growth, pure-append, leaf table). The change-log
   tables share its shape; expect similar results but they were not separately seeded.
