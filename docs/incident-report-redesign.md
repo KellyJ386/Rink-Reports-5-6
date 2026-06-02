@@ -1,6 +1,10 @@
 # Incident Report Redesign — Spec
 
-Status: **Draft for review** · Owner: Kelly Johnson · Branch: `claude/elegant-wright-LuGGo`
+Status: **Implemented** (all of §7 shipped on `claude/elegant-wright-LuGGo`) ·
+Owner: Kelly Johnson
+
+See §8 (As-built notes) for the decisions and deviations that landed during
+implementation.
 
 This document specifies the redesigned **Incident Report** (staff submission +
 admin management). It is the agreed output of the requirements conversation; no
@@ -219,11 +223,53 @@ Add assertions to `supabase/tests/rls_isolation.sql` for the new tables
 
 ## 7. Implementation order (once decisions are settled)
 
-1. Migration(s): `facility_spaces` (+ seed), `incident_activities` (+ seed),
+1. ✅ Migration(s): `facility_spaces` (+ seed), `incident_activities` (+ seed),
    `incident_report_spaces`, `incident_witnesses` (+ cap trigger),
    `incident_change_log`; alter `incident_reports`; update RLS.
-2. `rls_isolation.sql` assertions.
-3. Regenerate DB types.
-4. Admin: Facility Spaces + Activities management; extend report detail.
-5. Staff form rebuild + server action + offline-sync wiring.
-6. Submitter within-window edit view.
+2. ✅ `rls_isolation.sql` assertions (the `INC:` block).
+3. ✅ Regenerate DB types.
+4. ✅ Admin: Facility Spaces + Activities management; extend report detail.
+5. ✅ Staff form rebuild + server action (see As-built note on offline).
+6. ✅ Submitter within-window edit view.
+
+---
+
+## 8. As-built notes & deviations
+
+- **Offline submission → server action, not the SW queue.** §5 originally said
+  "offline-sync wiring," but `/api/offline-sync` only *logs* to
+  `offline_sync_queue` (it never writes module tables), and no comparable form
+  (daily, accidents, refrigeration) uses it — they all submit via server
+  actions. The incident submit/update therefore mirror the **accidents server
+  action** (insert report → batch-insert spaces + witnesses → `create`
+  change-log entry, with cleanup-on-failure). True offline capture is a
+  separate, app-wide concern (only ice-depth implements a bespoke version) and
+  remains a future enhancement.
+
+- **Witness cap = 3** (form, `incident_witnesses.sort_order 0..2`, and the cap
+  trigger), per the final requirements call.
+
+- **Facility-space picker** is built as searchable selectable chips (+ an
+  "Other → free text" chip), since the repo has no combobox/command primitive.
+  Functionally a searchable multi-select.
+
+- **Incident Types retired and pruned.** The staff form no longer collects a
+  type; the admin tab, its form/CRUD actions, and default-type seeding were
+  removed. The `incident_type_id` column and the History tab's type
+  display/filter are kept for legacy reports (OPEN-3).
+
+- **Facility-space writes require facility-admin** (`is_super_admin()` OR
+  `is_facility_admin()`), by design (OPEN-2 — spaces are a shared facility-wide
+  resource managed under Facility admin, surfaced as a tab in Incident admin).
+  A module-only admin who lacks `admin/admin` will get a permission error on
+  create/edit; super-admins and facility admins can manage them.
+
+- **Migration version ledger.** Migrations 101–104 were applied to the live
+  "Rink Reports 5-6" project via MCP to regenerate authoritative types, so the
+  project recorded them under timestamp versions (`20260602100344`–`100443`)
+  while the repo keeps the convention-required sequential prefixes
+  (`00000000000101`–`104`). This is benign: every statement is idempotent
+  (`create … if not exists`, `add column if not exists`, `create or replace`,
+  `drop policy if exists … create`), so a normal `supabase db push` re-applies
+  them safely. Optionally tidy with `supabase migration repair`. CI
+  (`rls-isolation.yml`) is unaffected — it applies the repo files on a fresh DB.
