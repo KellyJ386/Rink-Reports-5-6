@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge, type BadgeProps } from "@/components/ui/badge"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
@@ -248,7 +250,12 @@ export default async function IncidentsHomePage() {
               return (
                 <DataListRow key={r.id} as="div" className="flex-col items-stretch gap-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">Incident</span>
+                    <Link
+                      href={`/reports/incidents/${r.id}`}
+                      className="font-medium underline-offset-4 hover:underline"
+                    >
+                      Incident
+                    </Link>
                     <span className="text-xs text-muted-foreground">
                       {formatTimestamp(r.submitted_at, tz)}
                     </span>

@@ -36,18 +36,41 @@ type Option = { id: string; display_name: string }
 type SpaceOption = { id: string; name: string }
 type Witness = { name: string; phone: string; email: string; statement: string }
 
+export type IncidentFormInitial = {
+  reporterName: string
+  reporterPhone: string
+  occurredAtLocal: string
+  severityLevelId: string
+  activityValue: string
+  activityOther: string
+  selectedSpaceIds: string[]
+  otherSpace: boolean
+  locationOther: string
+  description: string
+  immediateActions: string
+  witnesses: Witness[]
+}
+
+type FormAction = (
+  state: SubmissionFormState,
+  formData: FormData,
+) => Promise<SubmissionFormState> | SubmissionFormState
+
 type Props = {
   defaultReporterName: string
   defaultReporterPhone: string
   severityLevels: Option[]
   activities: Option[]
   spaces: SpaceOption[]
+  mode?: "create" | "edit"
+  action?: FormAction
+  initial?: IncidentFormInitial
 }
 
 const initialState: SubmissionFormState = {}
 const DESCRIPTION_MAX = 500
 const MAX_WITNESSES = 3
-const ACTIVITY_OTHER = "__other__"
+export const ACTIVITY_OTHER = "__other__"
 
 function nowForDateTimeLocal(): string {
   const d = new Date()
@@ -68,32 +91,53 @@ export function SubmissionForm({
   severityLevels,
   activities,
   spaces,
+  mode = "create",
+  action = submitIncidentReport,
+  initial,
 }: Props) {
-  const [state, formAction, isPending] = useActionState(
-    submitIncidentReport,
-    initialState,
-  )
+  const isEdit = mode === "edit"
+  const [state, formAction, isPending] = useActionState(action, initialState)
 
   const formRef = useRef<HTMLFormElement>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [clientError, setClientError] = useState<string | null>(null)
 
   const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
-  const [reporterName, setReporterName] = useState(defaultReporterName)
-  const [reporterPhone, setReporterPhone] = useState(defaultReporterPhone)
-  const [severityLevelId, setSeverityLevelId] = useState("")
-  const [activityValue, setActivityValue] = useState("")
-  const [activityOther, setActivityOther] = useState("")
-  const [description, setDescription] = useState("")
-  const [immediateActions, setImmediateActions] = useState("")
+  const [occurredAt, setOccurredAt] = useState(
+    initial?.occurredAtLocal ?? defaultOccurredAt,
+  )
+  const [reporterName, setReporterName] = useState(
+    initial?.reporterName ?? defaultReporterName,
+  )
+  const [reporterPhone, setReporterPhone] = useState(
+    initial?.reporterPhone ?? defaultReporterPhone,
+  )
+  const [severityLevelId, setSeverityLevelId] = useState(
+    initial?.severityLevelId ?? "",
+  )
+  const [activityValue, setActivityValue] = useState(
+    initial?.activityValue ?? "",
+  )
+  const [activityOther, setActivityOther] = useState(
+    initial?.activityOther ?? "",
+  )
+  const [description, setDescription] = useState(initial?.description ?? "")
+  const [immediateActions, setImmediateActions] = useState(
+    initial?.immediateActions ?? "",
+  )
 
   const [spaceSearch, setSpaceSearch] = useState("")
-  const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>([])
-  const [otherSpace, setOtherSpace] = useState(false)
-  const [locationOther, setLocationOther] = useState("")
+  const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>(
+    initial?.selectedSpaceIds ?? [],
+  )
+  const [otherSpace, setOtherSpace] = useState(initial?.otherSpace ?? false)
+  const [locationOther, setLocationOther] = useState(
+    initial?.locationOther ?? "",
+  )
 
-  const [witnesses, setWitnesses] = useState<Witness[]>([])
+  const [witnesses, setWitnesses] = useState<Witness[]>(
+    initial?.witnesses ?? [],
+  )
 
   useEffect(() => {
     if (state.error) toast.error(state.error)
@@ -589,8 +633,9 @@ export function SubmissionForm({
         </Card>
 
         <p className="text-muted-foreground px-1 text-sm">
-          Once submitted you will not be able to edit this report after the
-          24-hour window closes. A manager will review it.
+          {isEdit
+            ? "You can edit this report until the 24-hour window closes. Every change is recorded."
+            : "You can edit this report for 24 hours after submitting; after that it becomes read-only. A manager will review it."}
         </p>
 
         <Button
@@ -600,17 +645,28 @@ export function SubmissionForm({
           onClick={handleSubmitClick}
           className="h-12 w-full text-base"
         >
-          {isPending ? "Submitting…" : "Submit incident report"}
+          {isPending
+            ? isEdit
+              ? "Saving…"
+              : "Submitting…"
+            : isEdit
+              ? "Save changes"
+              : "Submit incident report"}
         </Button>
       </form>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Submit this incident report?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {isEdit
+                ? "Save changes to this report?"
+                : "Submit this incident report?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              You can edit this report for 24 hours after submitting; after that
-              it becomes read-only. Make sure the details are accurate.
+              {isEdit
+                ? "Your changes will be recorded in the report's audit trail. Make sure the details are accurate."
+                : "You can edit this report for 24 hours after submitting; after that it becomes read-only. Make sure the details are accurate."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -618,7 +674,13 @@ export function SubmissionForm({
               Go back
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirm} disabled={isPending}>
-              {isPending ? "Submitting…" : "Confirm & submit"}
+              {isPending
+                ? isEdit
+                  ? "Saving…"
+                  : "Submitting…"
+                : isEdit
+                  ? "Save changes"
+                  : "Confirm & submit"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

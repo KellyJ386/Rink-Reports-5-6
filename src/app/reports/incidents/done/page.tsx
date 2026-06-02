@@ -138,8 +138,20 @@ export default async function IncidentDonePage({
         </CardContent>
       </Card>
 
+      <p className="text-center text-xs text-muted-foreground">
+        Need to fix something? You can edit this report for 24 hours.
+      </p>
+
       <div className="flex flex-col gap-3 sm:flex-row">
         <Button asChild size="lg" className="h-12 w-full text-base sm:flex-1">
+          <Link href={`/reports/incidents/${submission.id}`}>Edit report</Link>
+        </Button>
+        <Button
+          asChild
+          size="lg"
+          variant="outline"
+          className="h-12 w-full text-base sm:flex-1"
+        >
           <Link href="/reports/incidents">Submit another</Link>
         </Button>
         <Button
