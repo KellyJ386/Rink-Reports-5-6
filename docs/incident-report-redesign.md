@@ -236,15 +236,24 @@ Add assertions to `supabase/tests/rls_isolation.sql` for the new tables
 
 ## 8. As-built notes & deviations
 
-- **Offline submission → server action, not the SW queue.** §5 originally said
-  "offline-sync wiring," but `/api/offline-sync` only *logs* to
-  `offline_sync_queue` (it never writes module tables), and no comparable form
-  (daily, accidents, refrigeration) uses it — they all submit via server
-  actions. The incident submit/update therefore mirror the **accidents server
-  action** (insert report → batch-insert spaces + witnesses → `create`
-  change-log entry, with cleanup-on-failure). True offline capture is a
-  separate, app-wide concern (only ice-depth implements a bespoke version) and
-  remains a future enhancement.
+- **Offline submission — now actually works (incidents only).** Originally the
+  app's offline story was inert: `/api/offline-sync` only *logged* to
+  `offline_sync_queue`, nothing drained it into module tables, and no form even
+  enqueued (ice-depth's "offline" was a server action that silently fails
+  offline). Incidents now implement **both halves**:
+  - `_lib/submit.ts` is a shared parse → validate → resolve → persist pipeline
+    used by both the online server action and the offline replay route, so an
+    offline report lands the same rows with the same checks.
+  - For `moduleKey: "incident_reports"`, `/api/offline-sync` actually inserts the
+    report (+ spaces + witnesses + change log + dispatch) on replay. Idempotent
+    via the queue's unique `local_id` as a **claim token** (duplicate replay =
+    no-op; a persist failure releases the claim so a later retry re-attempts).
+    No new column was needed. Other modules keep the legacy log-only behaviour.
+  - The form, when offline (create mode), enqueues the payload to the service
+    worker and shows an inline "saved on this device" confirmation; online still
+    uses the server action. Online submit/update mirror the **accidents server
+    action** (report → spaces + witnesses → `create` change log, with
+    cleanup-on-failure).
 
 - **Witness cap = 3** (form, `incident_witnesses.sort_order 0..2`, and the cap
   trigger), per the final requirements call.
@@ -258,11 +267,11 @@ Add assertions to `supabase/tests/rls_isolation.sql` for the new tables
   removed. The `incident_type_id` column and the History tab's type
   display/filter are kept for legacy reports (OPEN-3).
 
-- **Facility-space writes require facility-admin** (`is_super_admin()` OR
-  `is_facility_admin()`), by design (OPEN-2 — spaces are a shared facility-wide
-  resource managed under Facility admin, surfaced as a tab in Incident admin).
-  A module-only admin who lacks `admin/admin` will get a permission error on
-  create/edit; super-admins and facility admins can manage them.
+- **Facility-space writes** (migration 105) allow `is_super_admin()` OR
+  `is_facility_admin()` OR `has_module_admin_access('incident_reports')`, so an
+  Incident Reports module admin can manage the spaces surfaced in the Incident
+  admin tab. Cross-facility isolation is unchanged (writes still require
+  `facility_id = current_facility_id()`); the SELECT policy is unchanged.
 
 - **Migration version ledger.** Migrations 101–104 were applied to the live
   "Rink Reports 5-6" project via MCP to regenerate authoritative types, so the
