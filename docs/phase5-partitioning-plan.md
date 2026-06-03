@@ -66,6 +66,47 @@ FK children and are edited (not pure append), so they carry higher risk.
 4. **Replace `purge_old_*` with `pg_partman` retention** once everything's
    partitioned.
 
+## Considered & rejected: offload to facility custody
+
+**The idea.** Generate a yearly export file per facility (PDF/CSV), send it to
+the facility representative to hold for 7 years, then purge those years from the
+DB. Goal: minimize stored data.
+
+**Why rejected as the *system of record*.** It diminishes precisely the
+evidentiary value the 7-year retention exists to protect:
+
+- **Chain of custody inverts.** Today the operator controls the record with RLS
+  + audit triggers. Handing the only copy to the *subject* of the record makes
+  them its custodian. For incident/accident reports especially, "the facility
+  can't find their 2026 file" is not a defensible answer to a year-6 injury
+  claim or subpoena. Liability/insurance/regulatory regimes generally expect
+  the operator to **retain and produce**, not delegate.
+- **Tamper evidence evaporates.** A DB row with an audit trail is far more
+  defensible than an emailed PDF a rep can lose, edit, or re-create.
+- **Queryability dies.** Structured rows → flat file means no cross-facility
+  trend analysis, threshold-breach search, refrigeration anomaly detection, or
+  ice-depth/air-quality severity history for archived years.
+- **Availability becomes N×fragile.** One backed-up DB vs. 1,000 reps each
+  reliably keeping a file for 7 years — the latter's fleet-wide failure rate is
+  effectively 100%.
+
+**Premise check.** Structured report rows are tiny; 7 years across 1,000
+facilities is plausibly low-tens of GB — cents of Postgres storage. The real
+pain is purge bloat and scan cost, which partitioning already fixes more
+cheaply. Measure before optimizing; the heavy offender is
+`ice_depth_measurements` (per-point granularity), not the report tables.
+
+**The version that works (keep custody, flip the offload):**
+
+- **Tiered cold-storage archive, not offload.** Instead of `DROP`ping old
+  partitions, `DETACH` and dump them to operator-owned cold object storage
+  (Supabase Storage / S3), compressed. Cheap, still ours, still RLS-gated, still
+  retrievable. Shrinks the hot DB without surrendering the record.
+- **Yearly file as a value-add, not the backstop.** Generating a yearly
+  PDF/CSV per facility for *their* convenience is fine — give it to reps freely,
+  but keep the authoritative copy. Same generation logic, opposite conclusion
+  about who is the system of record.
+
 ## The one decision blocking step 1
 
 **Per-facility `keep_days` vs whole-partition retention.** If facilities must
