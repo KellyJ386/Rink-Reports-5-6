@@ -158,7 +158,12 @@ export function EmployeesClient({
             {filtered.length} of {employees.length}
           </span>
         </div>
-        <Button onClick={openCreate}>Add employee</Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <a href={`/admin/employees/bulk?facility=${facilityId}`}>Bulk add</a>
+          </Button>
+          <Button onClick={openCreate}>Add employee</Button>
+        </div>
       </div>
 
       {rowError && (
