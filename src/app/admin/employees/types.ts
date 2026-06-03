@@ -35,6 +35,15 @@ export type EmployeeFormInput = {
   emergency_contact_name: string | null
   emergency_contact_phone: string | null
   hire_date: string | null
+  // Job-area assignments (Employee Scheduling). Complete desired set (max 4);
+  // primary must be one of job_area_ids or it's ignored. Empty when the form
+  // doesn't submit areas yet.
+  job_area_ids: string[]
+  primary_job_area_id: string | null
+  // True only when the form actually rendered/submitted the job-area control
+  // (hidden marker "job_areas_present"). Guards the edit path from wiping
+  // existing assignments when the field is absent (e.g. UI not wired yet).
+  job_areas_submitted: boolean
   // When true (create flow only), provision a login + seed role-default
   // permissions. Unchecked = schedule-only employee (role, no user_permissions).
   needs_login: boolean

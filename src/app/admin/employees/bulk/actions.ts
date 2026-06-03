@@ -7,6 +7,7 @@ import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
 import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createClient } from "@/lib/supabase/server"
 
+import { createEmployeeComplete } from "../_lib/job-areas"
 import {
   buildBatchEmailCounts,
   normalizeHireDate,
@@ -22,16 +23,6 @@ import type {
 // Hard cap so a runaway paste can't fan out into hundreds of invite emails /
 // DB round-trips in one request.
 const MAX_ROWS = 100
-
-type SupabaseError = { code?: string; message?: string } | null
-
-function dbError(err: SupabaseError, fallback: string): string {
-  if (!err) return fallback
-  if (err.code === "23505") {
-    return "Duplicate — that email or employee code already exists."
-  }
-  return err.message?.trim() || fallback
-}
 
 /**
  * Resolve the facility the bulk insert targets.
@@ -140,38 +131,45 @@ export async function bulkCreateEmployees(args: {
       })
       if (Object.keys(errors).length > 0) {
         const firstField = Object.keys(errors)[0] as keyof typeof errors
+        const message = `${firstField}: ${errors[firstField]}`
         results.push({
           index: i,
-          ok: false,
           name,
-          error: `${firstField}: ${errors[firstField]}`,
+          status: "failed",
+          reason: { code: "VALIDATION", message },
+          ok: false,
+          error: message,
         })
         continue
       }
 
       const hireDate = normalizeHireDate(row.hireDate)
 
-      // Atomic insert via the same RPC the single-add flow uses. RLS +
-      // SECURITY DEFINER authz inside the function enforce facility isolation.
-      const { data: employeeId, error: rpcErr } = await supabase.rpc(
-        "create_employee_complete",
-        {
-          p_facility_id: facilityId,
-          p_role_id: row.roleId,
-          p_first_name: row.firstName.trim(),
-          p_last_name: row.lastName.trim(),
-          p_email: row.email.trim(),
-          p_hire_date: hireDate ?? undefined,
-          p_created_by: createdBy ?? undefined,
-        }
-      )
+      // Atomic insert (employee row + job-area links in one transaction) via
+      // the shared helper the single-add flow also uses. Job-area facility
+      // ownership + the 4-area cap are validated in app code first, so a bad
+      // area set fails this row cleanly without leaving a half-created
+      // employee. RLS + SECURITY DEFINER authz enforce facility isolation.
+      const created = await createEmployeeComplete(supabase, {
+        facilityId,
+        roleId: row.roleId,
+        firstName: row.firstName.trim(),
+        lastName: row.lastName.trim(),
+        email: row.email.trim(),
+        hireDate: hireDate ?? undefined,
+        createdBy: createdBy ?? undefined,
+        jobAreaIds: row.jobAreaIds,
+        primaryJobAreaId: row.primaryJobAreaId ?? undefined,
+      })
 
-      if (rpcErr || !employeeId) {
+      if (!created.ok) {
         results.push({
           index: i,
-          ok: false,
           name,
-          error: dbError(rpcErr, "Failed to create employee."),
+          status: "failed",
+          reason: { code: created.code, message: created.error },
+          ok: false,
+          error: created.error,
         })
         continue
       }
@@ -181,12 +179,12 @@ export async function bulkCreateEmployees(args: {
       existingEmails.add(row.email.trim().toLowerCase())
 
       // Optionally provision a login + seed the role's default permissions.
-      // Mirrors createEmployee: invite/seed failures are soft warnings, never
-      // a rollback of the created employee.
+      // Mirrors createEmployee: invite/seed failures are soft (the employee +
+      // areas ARE created) -> reported as a `partial` row, never a rollback.
       let warning: string | undefined
       if (args.sendInvites) {
         const invite = await inviteEmployeeByEmail({
-          employeeId: employeeId as string,
+          employeeId: created.employeeId,
           facilityId,
           email: row.email.trim(),
           fullName: name,
@@ -205,7 +203,18 @@ export async function bulkCreateEmployees(args: {
         }
       }
 
-      results.push({ index: i, ok: true, name, warning })
+      if (warning) {
+        results.push({
+          index: i,
+          name,
+          status: "partial",
+          reason: { code: "INVITE", message: warning },
+          ok: true,
+          warning,
+        })
+      } else {
+        results.push({ index: i, name, status: "succeeded", ok: true })
+      }
     }
 
     revalidatePath("/admin/employees")

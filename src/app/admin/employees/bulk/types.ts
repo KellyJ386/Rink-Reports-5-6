@@ -27,17 +27,43 @@ export type BulkEmployeeInput = {
   email: string
   hireDate: string
   roleId: string
+  /** Optional job-area ids to assign (max 4). Validated server-side. */
+  jobAreaIds?: string[]
+  /** Optional id (must be within jobAreaIds) to flag as the primary area. */
+  primaryJobAreaId?: string | null
+}
+
+/** Outcome bucket for one row. */
+export type BulkRowStatus =
+  | "succeeded" // employee + areas created cleanly
+  | "failed" // nothing persisted (validation / duplicate / foreign area / cap / db)
+  | "partial" // employee + areas created, but a soft follow-up (invite/seed) failed
+
+/** Machine-readable reason for a failed/partial row, so the caller can tell
+ *  exactly WHY a row didn't import cleanly (no silent drops). */
+export type BulkRowReason = {
+  code:
+    | "VALIDATION" // bad/missing field (name, email, role, hire date)
+    | "DUPLICATE" // email / employee_code already exists
+    | "FOREIGN_AREA" // a job-area id isn't in this facility
+    | "OVER_CAP" // more than 4 job areas
+    | "DB_ERROR" // other database failure
+    | "INVITE" // login invite / permission seeding failed (partial only)
+  message: string
 }
 
 /** Per-row outcome returned by the server, indexed against the sent rows. */
 export type BulkRowResult = {
   index: number
-  ok: boolean
   name: string
-  /** Hard failure — the employee was NOT created. */
+  status: BulkRowStatus
+  /** Structured reason for a `failed` or `partial` row. */
+  reason?: BulkRowReason
+  /** Back-compat convenience: true unless the row `failed`. */
+  ok: boolean
+  /** Back-compat: set when `failed` (mirrors reason.message). */
   error?: string
-  /** Soft failure — the employee WAS created, but a follow-up step (invite
-   *  / permission seeding) didn't fully succeed. */
+  /** Back-compat: set when `partial` (mirrors reason.message). */
   warning?: string
 }
 
