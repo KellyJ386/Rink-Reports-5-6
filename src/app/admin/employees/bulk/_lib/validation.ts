@@ -141,11 +141,39 @@ function pasteRowId(): string {
   return `paste-${Date.now().toString(36)}-${pasteRowSeq}`
 }
 
+// Cells (lowercased) that mark the first line as a spreadsheet header rather
+// than data — so pasting straight from the downloadable template (which keeps
+// its header row) doesn't turn "First name / Email / …" into a bad employee.
+const HEADER_CELLS = new Set([
+  "first name",
+  "last name",
+  "first",
+  "last",
+  "name",
+  "email",
+  "e-mail",
+  "hire date",
+  "start date",
+  "role",
+])
+
+function splitCells(line: string): string[] {
+  return (line.includes("\t") ? line.split("\t") : line.split(",")).map((c) =>
+    c.trim()
+  )
+}
+
+function looksLikeHeader(cells: string[]): boolean {
+  const matches = cells.filter((c) => HEADER_CELLS.has(c.toLowerCase())).length
+  return matches >= 2
+}
+
 /**
  * Parse spreadsheet-pasted text into rows. Expected column order matches the
  * grid: First name, Last name, Email, Hire date, Role. Cells may be tab- or
  * comma-separated; the role cell is matched against each role's display name
- * or key (case-insensitive) and resolved to its id when possible.
+ * or key (case-insensitive) and resolved to its id when possible. A leading
+ * header row (e.g. from the CSV template) is detected and skipped.
  */
 export function parsePastedRows(text: string, roles: RoleRow[]): BulkRow[] {
   const roleLookup = new Map<string, string>()
@@ -154,11 +182,12 @@ export function parsePastedRows(text: string, roles: RoleRow[]): BulkRow[] {
     roleLookup.set(r.key.trim().toLowerCase(), r.id)
   }
 
+  const lines = text.split(/\r?\n/).filter((l) => l.trim())
   const out: BulkRow[] = []
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue
-    const cells = (line.includes("\t") ? line.split("\t") : line.split(","))
-      .map((c) => c.trim())
+  for (let i = 0; i < lines.length; i++) {
+    const cells = splitCells(lines[i])
+    // Skip a header row only if it's the first non-blank line.
+    if (i === 0 && looksLikeHeader(cells)) continue
     const [firstName = "", lastName = "", email = "", hireRaw = "", roleRaw = ""] =
       cells
     const normalizedDate = normalizeHireDate(hireRaw)

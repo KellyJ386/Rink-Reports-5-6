@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo, useState, useTransition } from "react"
-import { ClipboardPaste, Plus, Trash2, X } from "lucide-react"
+import { ClipboardPaste, Download, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -165,6 +165,11 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
             onClick={() => setPasteOpen(true)}
           >
             <ClipboardPaste className="size-4" /> Paste from spreadsheet
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <a href="/templates/bulk-employees-template.csv" download>
+              <Download className="size-4" /> Download template
+            </a>
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={clear}>
             <Trash2 className="size-4" /> Clear all
@@ -472,7 +477,16 @@ function PasteSheet({
             <strong>First name, Last name, Email, Hire date, Role</strong>.
             Tab- or comma-separated. Hire date accepts{" "}
             <code>YYYY-MM-DD</code> or <code>M/D/YYYY</code>. Role matches the
-            role name (e.g. &ldquo;Staff&rdquo;).
+            role name (e.g. &ldquo;Staff&rdquo;). A header row is detected and
+            skipped, so you can paste straight from the{" "}
+            <a
+              href="/templates/bulk-employees-template.csv"
+              download
+              className="underline"
+            >
+              CSV template
+            </a>
+            .
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-4 px-4 pb-4">
