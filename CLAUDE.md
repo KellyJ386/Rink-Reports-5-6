@@ -92,11 +92,11 @@ When adding a new submission flow, route writes through the SW queue + this endp
 - shadcn/ui, "new-york" style, slate base, Lucide icons (`components.json`).
 - Path aliases: `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils`, `@/hooks` (configured in both `tsconfig.json` and `components.json`).
 - Shared shell components live in `src/components/app` (staff shell), `src/components/admin` (admin shell), `src/components/auth`, `src/components/staff`, `src/components/offline`.
-- Root layout (`src/app/layout.tsx`) forces `dark` class on `<html>` and loads Geist + Anton fonts; don't add a theme toggle without checking what depends on permanent dark mode.
+- Root layout (`src/app/layout.tsx`) applies a `light` or `dark` class to `<html>` via a pre-paint inline script that reads `localStorage['rr-theme']`, then falls back to the OS `prefers-color-scheme` (and to `light` if that fails). `ThemeToggle` (`src/components/app/theme-toggle.tsx`) flips and persists the choice. Loads Geist + Anton fonts. **Both themes are supported** — never hardcode colors; use the semantic tokens in `globals.css`, which defines `:root`/`.light` and `.dark` variants so components adapt automatically.
 
 ### Report form design pattern
 
-Report submission forms (refrigeration, daily, incidents, etc.) follow a metadata-driven, token-themed convention built on the shared `Card` / `SectionCard` / `PageHeader` primitives. Never introduce a parallel styling system or hardcode colors (the app is permanent dark mode; always use the semantic tokens in `src/app/globals.css`).
+Report submission forms (refrigeration, daily, incidents, etc.) follow a metadata-driven, token-themed convention built on the shared `Card` / `SectionCard` / `PageHeader` primitives. Never introduce a parallel styling system or hardcode colors (the app supports both light and dark mode; always use the semantic tokens in `src/app/globals.css` so components render correctly in either theme).
 
 **The "Logbook" reference — `src/app/reports/refrigeration/_components/submission-form.tsx`.** This is the canonical, fully-implemented layout; mirror it when building or upgrading a form:
 

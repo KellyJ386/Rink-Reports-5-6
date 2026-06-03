@@ -1,14 +1,22 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import {
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
+import { Building2, Calendar, Clock, User } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
+import { SectionCard } from "@/components/ui/section-card"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -26,20 +34,47 @@ type ChecklistItem = {
 type Props = {
   areaSlug: string
   areaName: string
+  areaColor: string | null
   templateId: string
   templateName: string
   areaId: string
+  userName: string
+  facilityName: string
   items: ChecklistItem[]
 }
 
 const initialState: SubmissionFormState = {}
 
+function formatDate(d: Date): string {
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })
+}
+
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+function subscribeClock(cb: () => void) {
+  const id = setInterval(cb, 1000)
+  return () => clearInterval(id)
+}
+
 export function SubmissionForm({
   areaSlug,
   areaName,
+  areaColor,
   templateId,
   templateName,
   areaId,
+  userName,
+  facilityName,
   items,
 }: Props) {
   const [state, formAction] = useActionState(
@@ -51,6 +86,17 @@ export function SubmissionForm({
     Object.fromEntries(items.map((i) => [i.id, false]))
   )
   const [note, setNote] = useState("")
+
+  // Area color (e.g. "#6366f1") accents this page so each area reads distinct.
+  // Null/blank => fall back to the neutral token styles.
+  const accent = areaColor?.trim() || null
+
+  const nowMs = useSyncExternalStore(
+    subscribeClock,
+    () => Date.now(),
+    () => null
+  )
+  const now = nowMs == null ? null : new Date(nowMs)
 
   useEffect(() => {
     if (state.error) {
@@ -68,6 +114,13 @@ export function SubmissionForm({
     )
   }, [items, checked])
 
+  const checkedCount = useMemo(
+    () => items.reduce((n, i) => n + (checked[i.id] ? 1 : 0), 0),
+    [items, checked]
+  )
+  const pct =
+    items.length === 0 ? 0 : Math.round((checkedCount / items.length) * 100)
+
   return (
     <form action={formAction} className="flex flex-col gap-5">
       <input type="hidden" name="template_id" value={templateId} />
@@ -83,10 +136,53 @@ export function SubmissionForm({
         description={areaName}
       />
 
+      <SectionCard
+        as="div"
+        className="flex-row flex-wrap items-center gap-x-3 gap-y-2 p-4 text-sm"
+      >
+        <MetaChip icon={<User className="h-4 w-4" aria-hidden />}>
+          {userName}
+        </MetaChip>
+        <MetaChip icon={<Building2 className="h-4 w-4" aria-hidden />}>
+          {facilityName}
+        </MetaChip>
+        <MetaChip icon={<Calendar className="h-4 w-4" aria-hidden />}>
+          {now ? formatDate(now) : "—"}
+        </MetaChip>
+        <MetaChip icon={<Clock className="h-4 w-4" aria-hidden />}>
+          {now ? formatTime(now) : "—"}
+        </MetaChip>
+      </SectionCard>
+
       <FormError message={state.error} />
 
-      <Card className="gap-4 py-5">
-        <h2 className="px-6 text-lg font-semibold tracking-tight">Checklist</h2>
+      <Card
+        className="gap-4 py-5"
+        style={
+          accent ? { borderLeftColor: accent, borderLeftWidth: 4 } : undefined
+        }
+      >
+        <div className="flex flex-col gap-3 px-6">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold tracking-tight">Checklist</h2>
+            {items.length > 0 ? (
+              <span className="text-sm font-medium tabular-nums text-muted-foreground">
+                {checkedCount} / {items.length} complete
+              </span>
+            ) : null}
+          </div>
+          {items.length > 0 ? (
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: accent ?? "var(--primary)",
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
         <div className="px-6">
           {items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -101,8 +197,13 @@ export function SubmissionForm({
                     <label
                       className={cn(
                         "flex cursor-pointer items-start gap-4 px-4 py-4 transition-colors",
-                        isChecked && "bg-accent/40"
+                        isChecked && !accent && "bg-accent/40"
                       )}
+                      style={
+                        isChecked && accent
+                          ? { backgroundColor: `${accent}14` }
+                          : undefined
+                      }
                     >
                       <input
                         type="checkbox"
@@ -113,7 +214,11 @@ export function SubmissionForm({
                             [item.id]: e.target.checked,
                           }))
                         }
-                        className="mt-1 size-6 shrink-0 cursor-pointer rounded border-input accent-primary"
+                        className={cn(
+                          "mt-1 size-6 shrink-0 cursor-pointer rounded border-input",
+                          !accent && "accent-primary"
+                        )}
+                        style={accent ? { accentColor: accent } : undefined}
                       />
                       <span className="flex flex-col gap-1">
                         <span className="text-base font-medium leading-tight">
@@ -154,6 +259,23 @@ export function SubmissionForm({
 
       <SubmitBar />
     </form>
+  )
+}
+
+function MetaChip({
+  icon,
+  children,
+}: {
+  icon: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <span className="flex items-center gap-2 text-muted-foreground">
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        {icon}
+      </span>
+      <span className="font-medium text-foreground">{children}</span>
+    </span>
   )
 }
 
