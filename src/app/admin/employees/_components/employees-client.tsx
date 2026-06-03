@@ -28,6 +28,7 @@ import { inviteEmployee } from "../actions"
 import type {
   DepartmentRow,
   EmployeeListItem,
+  JobAreaOption,
   RoleDefaultsMap,
   RoleRow,
 } from "../types"
@@ -38,6 +39,7 @@ type Props = {
   employees: EmployeeListItem[]
   roles: RoleRow[]
   departments: DepartmentRow[]
+  jobAreas: JobAreaOption[]
   roleDefaults: RoleDefaultsMap
   canDelete: boolean
 }
@@ -61,6 +63,7 @@ export function EmployeesClient({
   employees,
   roles,
   departments,
+  jobAreas,
   roleDefaults,
   canDelete,
 }: Props) {
@@ -382,6 +385,7 @@ export function EmployeesClient({
         facilityId={facilityId}
         roles={roles}
         departments={departments}
+        jobAreas={jobAreas}
         roleDefaults={roleDefaults}
         editing={editing}
       />
