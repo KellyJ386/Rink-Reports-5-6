@@ -75,6 +75,12 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
     supabase
       .from("audit_logs")
       .select("id, action, entity_type, entity_id, created_at, actor_user_id")
+      // Explicit facility_id predicate so the planner can prune via the
+      // (facility_id, created_at) composite index instead of scanning the
+      // global created_at index and filtering by the function-based RLS check.
+      // This employee's audit rows all live in their own facility, so the
+      // filter is result-preserving. See docs/phase5-load-test-results.md.
+      .eq("facility_id", emp.facility_id)
       .or(`actor_employee_id.eq.${emp.id},entity_id.eq.${emp.id}`)
       .order("created_at", { ascending: false })
       .limit(25),
