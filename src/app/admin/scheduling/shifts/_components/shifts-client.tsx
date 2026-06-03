@@ -1,11 +1,13 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState, useTransition } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -14,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+
+import { createDepartmentInline } from "../../../departments/actions"
 
 import {
   formatDateTime,
@@ -63,6 +67,32 @@ export function ShiftsClient(props: Props) {
   const [view, setView] = useState<"table" | "week">("table")
   const [defaultDate, setDefaultDate] = useState<string | null>(null)
 
+  // Departments can be created inline from this screen; keep any freshly
+  // created ones in local state so they appear in the filter + form
+  // immediately. Once a server refresh includes them, the dedupe drops the
+  // local copy.
+  const [createdDepartments, setCreatedDepartments] = useState<DepartmentLite[]>(
+    []
+  )
+  const departments = useMemo(() => {
+    const ids = new Set(props.departments.map((d) => d.id))
+    return [...props.departments, ...createdDepartments.filter((d) => !ids.has(d.id))]
+  }, [props.departments, createdDepartments])
+
+  const handleCreateDepartment = useCallback(
+    async (name: string): Promise<DepartmentLite | null> => {
+      const res = await createDepartmentInline({ name })
+      if (!res.ok) {
+        toast.error(res.error)
+        return null
+      }
+      setCreatedDepartments((prev) => [...prev, res.department])
+      toast.success(`Created “${res.department.name}”.`)
+      return res.department
+    },
+    []
+  )
+
   const buildHref = useCallback(
     (overrides: Record<string, string | null | undefined>): string => {
       const sp = new URLSearchParams(searchParams.toString())
@@ -101,11 +131,12 @@ export function ShiftsClient(props: Props) {
   return (
     <div className="flex flex-col gap-4">
       <FilterBar
-        departments={props.departments}
+        departments={departments}
         currentDept={props.filters.dept}
         currentStatus={props.filters.status}
         anchorIsoDate={props.anchorIsoDate}
         buildHref={buildHref}
+        onCreateDepartment={handleCreateDepartment}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -145,7 +176,7 @@ export function ShiftsClient(props: Props) {
 
       {panel === "new" && (
         <ShiftForm
-          departments={props.departments}
+          departments={departments}
           employees={props.employees}
           editing={null}
           defaultStartsAt={defaultDate}
@@ -275,7 +306,7 @@ export function ShiftsClient(props: Props) {
       {props.selectedShift && panel === "edit" && (
         <ShiftForm
           departments={departmentsForEditing(
-            props.departments,
+            departments,
             props.selectedShift,
           )}
           employees={props.employees}
@@ -428,12 +459,14 @@ function FilterBar({
   currentStatus,
   anchorIsoDate,
   buildHref,
+  onCreateDepartment,
 }: {
   departments: DepartmentLite[]
   currentDept: string | null
   currentStatus: ShiftStatus | null
   anchorIsoDate: string
   buildHref: (overrides: Record<string, string | null | undefined>) => string
+  onCreateDepartment: (name: string) => Promise<DepartmentLite | null>
 }) {
   const router = useRouter()
 
@@ -446,23 +479,34 @@ function FilterBar({
         >
           Department
         </label>
-        <Select
-          value={currentDept || undefined}
-          onValueChange={(v) => {
-            router.replace(buildHref({ dept: v || null }), { scroll: false })
-          }}
-        >
-          <SelectTrigger id="filter-dept" className="min-w-44">
-            <SelectValue placeholder="All departments" />
-          </SelectTrigger>
-          <SelectContent>
-            {departments.map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select
+            value={currentDept || undefined}
+            onValueChange={(v) => {
+              router.replace(buildHref({ dept: v || null }), { scroll: false })
+            }}
+          >
+            <SelectTrigger id="filter-dept" className="min-w-44">
+              <SelectValue placeholder="All departments" />
+            </SelectTrigger>
+            <SelectContent>
+              {departments.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <NewDepartmentInline
+            onCreate={async (name) => {
+              const dept = await onCreateDepartment(name)
+              if (dept) {
+                router.replace(buildHref({ dept: dept.id }), { scroll: false })
+              }
+              return dept
+            }}
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -521,6 +565,84 @@ function departmentsForEditing(
   const current = shift.department
   if (!current || active.some((d) => d.id === current.id)) return active
   return [...active, current]
+}
+
+function NewDepartmentInline({
+  onCreate,
+}: {
+  onCreate: (name: string) => Promise<DepartmentLite | null>
+}) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState("")
+  const [pending, startTransition] = useTransition()
+
+  function submit() {
+    const name = draft.trim()
+    if (!name) return
+    startTransition(async () => {
+      const dept = await onCreate(name)
+      if (dept) {
+        setDraft("")
+        setOpen(false)
+      }
+    })
+  }
+
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        title="Create a new department for this facility"
+      >
+        + New
+      </Button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            submit()
+          } else if (e.key === "Escape") {
+            setOpen(false)
+            setDraft("")
+          }
+        }}
+        placeholder="Department name"
+        className="h-9 w-44"
+        disabled={pending}
+      />
+      <Button
+        type="button"
+        size="sm"
+        onClick={submit}
+        disabled={pending || !draft.trim()}
+      >
+        {pending ? "Adding…" : "Add"}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setOpen(false)
+          setDraft("")
+        }}
+        disabled={pending}
+      >
+        Cancel
+      </Button>
+    </div>
+  )
 }
 
 function EmptyState() {
