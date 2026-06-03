@@ -274,7 +274,10 @@ export function ShiftsClient(props: Props) {
 
       {props.selectedShift && panel === "edit" && (
         <ShiftForm
-          departments={props.departments}
+          departments={departmentsForEditing(
+            props.departments,
+            props.selectedShift,
+          )}
           employees={props.employees}
           editing={props.selectedShift}
           onClose={closePanel}
@@ -506,6 +509,18 @@ function FilterBar({
       </div>
     </div>
   )
+}
+
+// When editing a shift whose department has since been deactivated, that
+// department is absent from the active-only list. Add it back (just for this
+// form) so the select still shows the current value rather than going blank.
+function departmentsForEditing(
+  active: DepartmentLite[],
+  shift: ShiftWithRefs,
+): DepartmentLite[] {
+  const current = shift.department
+  if (!current || active.some((d) => d.id === current.id)) return active
+  return [...active, current]
 }
 
 function EmptyState() {
