@@ -184,7 +184,6 @@ export default async function AccidentsHomePage() {
   const [
     dropdownRowsRaw,
     { data: workersCompRow },
-    { data: userRow },
     { data: facility },
   ] = await Promise.all([
     getAccidentDropdowns(employeeRow.facility_id),
@@ -193,11 +192,6 @@ export default async function AccidentsHomePage() {
       .select("instructions, is_active")
       .eq("facility_id", employeeRow.facility_id)
       .eq("is_active", true)
-      .maybeSingle(),
-    supabase
-      .from("users")
-      .select("full_name, phone")
-      .eq("id", current.authUser.id)
       .maybeSingle(),
     supabase
       .from("facilities")
@@ -263,7 +257,7 @@ export default async function AccidentsHomePage() {
 
       <SubmissionForm
         defaultInjuredName=""
-        defaultInjuredContact={userRow?.phone ?? ""}
+        defaultInjuredContact=""
         locations={locations}
         activities={activities}
         severities={severities}
