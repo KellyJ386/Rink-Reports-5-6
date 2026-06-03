@@ -10,6 +10,7 @@ import {
   FileText,
   FolderOpen,
   MessageSquare,
+  Network,
   ScrollText,
   Shield,
   Snowflake,
@@ -36,6 +37,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     items: [
       { label: "Facility", href: "/admin/facility", icon: Building2 },
       { label: "People", href: "/admin/employees", icon: Users },
+      { label: "Departments", href: "/admin/departments", icon: Network },
       { label: "Permissions", href: "/admin/permissions", icon: Shield },
     ],
   },

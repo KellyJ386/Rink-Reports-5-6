@@ -135,7 +135,11 @@ export default async function ShiftsPage({
   const shifts = (shiftsRaw ?? []) as ShiftRow[]
 
   const empById = new Map(employees.map((e) => [e.id, e]))
+  // Build the display lookup from ALL departments so shifts that reference a
+  // since-deactivated department still render its name. Only *active*
+  // departments are offered for filtering / new assignment (below).
   const deptById = new Map(departments.map((d) => [d.id, d]))
+  const activeDepartments = departments.filter((d) => d.is_active)
 
   // If the selected shift isn't in the window, fetch it directly so the panel
   // can display detail.
@@ -173,7 +177,7 @@ export default async function ShiftsPage({
       <ShiftsClient
         facilityId={facilityId}
         shifts={list}
-        departments={departments}
+        departments={activeDepartments}
         employees={employees}
         templates={templates}
         selectedShift={selected}
