@@ -18,28 +18,28 @@
 -- -----------------------------------------------------------------------------
 -- 1. Areas (categories). One row per category; admins may rename/reorder/disable.
 -- -----------------------------------------------------------------------------
-with cat(slug, name, sort_order) as (
+with cat(slug, name, sort_order, color) as (
   values
-    ('front-desk', 'Front Desk', 0),
-    ('operations', 'Operations', 1),
-    ('custodial-services', 'Custodial Services', 2),
-    ('pro-shop', 'Pro Shop', 3),
-    ('concessions', 'Concessions', 4),
-    ('learn-to-skate', 'Learn to Skate', 5),
-    ('public-sessions', 'Public Sessions', 6),
-    ('safety-emergency', 'Safety & Emergency', 7),
-    ('general-facility', 'General Facility', 8),
-    ('locker-rooms', 'Locker Rooms', 9),
-    ('parking-exterior', 'Parking / Exterior', 10),
-    ('hvac-building-systems', 'HVAC / Building Systems', 11),
-    ('event-setup', 'Event Setup', 12),
-    ('rental-equipment', 'Rental Equipment', 13),
-    ('skating-aids', 'Skating Aids', 14),
-    ('custom-reserved', 'Custom / Reserved', 15),
-    ('financials', 'Financials', 16)
+    ('front-desk', 'Front Desk', 0, '#6366f1'),
+    ('operations', 'Operations', 1, '#0ea5e9'),
+    ('custodial-services', 'Custodial Services', 2, '#14b8a6'),
+    ('pro-shop', 'Pro Shop', 3, '#8b5cf6'),
+    ('concessions', 'Concessions', 4, '#f59e0b'),
+    ('learn-to-skate', 'Learn to Skate', 5, '#ec4899'),
+    ('public-sessions', 'Public Sessions', 6, '#22c55e'),
+    ('safety-emergency', 'Safety & Emergency', 7, '#ef4444'),
+    ('general-facility', 'General Facility', 8, '#64748b'),
+    ('locker-rooms', 'Locker Rooms', 9, '#06b6d4'),
+    ('parking-exterior', 'Parking / Exterior', 10, '#84cc16'),
+    ('hvac-building-systems', 'HVAC / Building Systems', 11, '#3b82f6'),
+    ('event-setup', 'Event Setup', 12, '#a855f7'),
+    ('rental-equipment', 'Rental Equipment', 13, '#f97316'),
+    ('skating-aids', 'Skating Aids', 14, '#10b981'),
+    ('custom-reserved', 'Custom / Reserved', 15, '#94a3b8'),
+    ('financials', 'Financials', 16, '#eab308')
 )
-insert into public.daily_report_areas (facility_id, name, slug, sort_order, is_active)
-select f.id, c.name, c.slug, c.sort_order, true
+insert into public.daily_report_areas (facility_id, name, slug, sort_order, color, is_active)
+select f.id, c.name, c.slug, c.sort_order, c.color, true
 from public.facilities f
 cross join cat c
 where f.id = '4490bad7-ef1b-4544-8d7f-7aea49884550'::uuid

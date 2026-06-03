@@ -45,7 +45,7 @@ export default async function DailyReportSubmitPage({
 
   const { data: area } = await supabase
     .from("daily_report_areas")
-    .select("id, name, slug, facility_id, is_active")
+    .select("id, name, slug, color, facility_id, is_active")
     .eq("facility_id", employeeRow.facility_id)
     .eq("slug", areaSlug)
     .maybeSingle()
@@ -107,6 +107,18 @@ export default async function DailyReportSubmitPage({
     description: it.description,
   }))
 
+  const { data: facility } = await supabase
+    .from("facilities")
+    .select("name")
+    .eq("id", employeeRow.facility_id)
+    .maybeSingle()
+
+  const userName =
+    current.profile?.full_name ??
+    current.profile?.email ??
+    current.authUser.email ??
+    "Staff"
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
       <Breadcrumb
@@ -121,8 +133,11 @@ export default async function DailyReportSubmitPage({
         areaId={area.id}
         areaSlug={area.slug}
         areaName={area.name}
+        areaColor={area.color}
         templateId={template.id}
         templateName={template.name}
+        userName={userName}
+        facilityName={facility?.name ?? "Facility"}
         items={checklist}
       />
     </div>

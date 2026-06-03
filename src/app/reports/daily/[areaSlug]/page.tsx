@@ -127,7 +127,7 @@ export default async function DailyReportTemplatePickerPage({
         eyebrow={area.name}
         title="Pick a template"
       />
-      <TemplatesList areaSlug={area.slug} templates={active} />
+      <TemplatesList areaSlug={area.slug} areaColor={area.color} templates={active} />
     </div>
   )
 }
