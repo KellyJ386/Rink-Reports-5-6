@@ -2,7 +2,7 @@
 
 import { create } from "zustand"
 
-import type { BulkRow, BulkRowResult } from "../types"
+import type { BulkRow, BulkRowResult, BulkTextField } from "../types"
 
 let rowSeq = 0
 function newRowId(): string {
@@ -18,10 +18,11 @@ function emptyRow(roleId = ""): BulkRow {
     email: "",
     hireDate: "",
     roleId,
+    jobAreaIds: [],
+    jobAreaUnmatched: [],
+    jobAreaDuplicates: [],
   }
 }
-
-type EditableField = Exclude<keyof BulkRow, "id">
 
 type BulkState = {
   rows: BulkRow[]
@@ -32,7 +33,10 @@ type BulkState = {
   addRow: () => void
   addRows: (count: number) => void
   appendRows: (rows: BulkRow[]) => void
-  updateCell: (id: string, field: EditableField, value: string) => void
+  updateCell: (id: string, field: BulkTextField, value: string) => void
+  /** Set a row's job-area selection. Clears paste-time unmatched/duplicate
+   *  markers since a manual edit supersedes them. */
+  setJobAreaIds: (id: string, ids: string[]) => void
   removeRow: (id: string) => void
   clear: () => void
   /** Drop only the rows that succeeded on the last submit, keeping failures
@@ -78,6 +82,16 @@ export const useBulkStore = create<BulkState>((set) => ({
   updateCell: (id, field, value) =>
     set((s) => ({
       rows: s.rows.map((r) => (r.id === id ? { ...r, [field]: value } : r)),
+      results: {},
+    })),
+
+  setJobAreaIds: (id, ids) =>
+    set((s) => ({
+      rows: s.rows.map((r) =>
+        r.id === id
+          ? { ...r, jobAreaIds: ids, jobAreaUnmatched: [], jobAreaDuplicates: [] }
+          : r
+      ),
       results: {},
     })),
 

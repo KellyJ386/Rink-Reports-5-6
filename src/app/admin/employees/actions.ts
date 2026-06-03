@@ -9,6 +9,11 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { checkSiteUrlEnv } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
+import {
+  createEmployeeComplete,
+  reconcileJobAreaAssignments,
+  resolveJobAreaAssignments,
+} from "./_lib/job-areas"
 import type { ActionState, EmployeeFormInput } from "./types"
 
 type ActionResult = { ok: true } | { ok: false; error: string }
@@ -91,6 +96,29 @@ function parseFormInput(
     department_ids.push(primary_department_id)
   }
 
+  // Job areas: multi-value field "job_area_ids" (+ optional primary). Dedupe
+  // and cap here so the form gets a clean error; the shared helper + DB trigger
+  // are the authoritative backstops.
+  const job_area_ids = Array.from(
+    new Set(
+      formData
+        .getAll("job_area_ids")
+        .filter((v): v is string => typeof v === "string")
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
+    )
+  )
+  if (job_area_ids.length > 4) {
+    return { ok: false, error: "An employee can be assigned at most 4 job areas." }
+  }
+  let primary_job_area_id = nonEmpty(formData.get("primary_job_area_id"))
+  if (primary_job_area_id && !job_area_ids.includes(primary_job_area_id)) {
+    primary_job_area_id = null
+  }
+  // Hidden marker the job-area control emits so the edit path can tell an
+  // intentional empty set apart from "the form didn't include this field".
+  const job_areas_submitted = formData.has("job_areas_present")
+
   const emergency_name = nonEmpty(formData.get("emergency_contact_name"))
   const emergency_phone = nonEmpty(formData.get("emergency_contact_phone"))
 
@@ -119,6 +147,9 @@ function parseFormInput(
       emergency_contact_name: emergency_name,
       emergency_contact_phone: emergency_phone,
       hire_date: nonEmpty(formData.get("hire_date")),
+      job_area_ids,
+      primary_job_area_id,
+      job_areas_submitted,
       needs_login: needsLogin,
     },
   }
@@ -177,34 +208,33 @@ export async function createEmployee(
     const current = await getCurrentUser()
     const createdBy = current?.profile?.id ?? null
 
-    // Atomically creates the employee row and department links in one DB
-    // transaction, eliminating the previous best-effort rollback pattern.
-    const { data: employeeId, error: rpcErr } = await supabase.rpc(
-      "create_employee_complete",
-      {
-        p_facility_id: facility.facilityId,
-        p_role_id: input.role_id,
-        p_first_name: input.first_name,
-        p_last_name: input.last_name,
-        p_email: input.email ?? undefined,
-        p_phone: input.phone ?? undefined,
-        p_employee_code: input.employee_code ?? undefined,
-        p_is_minor: input.is_minor,
-        p_emergency_contact_name: input.emergency_contact_name ?? undefined,
-        p_emergency_contact_phone: input.emergency_contact_phone ?? undefined,
-        p_hire_date: input.hire_date ?? undefined,
-        p_created_by: createdBy ?? undefined,
-        p_department_ids: input.department_ids.length > 0 ? input.department_ids : undefined,
-        p_primary_department_id: input.primary_department_id ?? undefined,
-      },
-    )
+    // Atomically creates the employee row + department links + job-area links
+    // in one DB transaction (shared with the bulk-add path), eliminating the
+    // previous best-effort rollback pattern. Job areas are validated in app
+    // code first so a foreign id / over-cap set yields a clean error.
+    const created = await createEmployeeComplete(supabase, {
+      facilityId: facility.facilityId,
+      roleId: input.role_id,
+      firstName: input.first_name,
+      lastName: input.last_name,
+      email: input.email ?? undefined,
+      phone: input.phone ?? undefined,
+      employeeCode: input.employee_code ?? undefined,
+      isMinor: input.is_minor,
+      emergencyContactName: input.emergency_contact_name ?? undefined,
+      emergencyContactPhone: input.emergency_contact_phone ?? undefined,
+      hireDate: input.hire_date ?? undefined,
+      createdBy: createdBy ?? undefined,
+      departmentIds: input.department_ids,
+      primaryDepartmentId: input.primary_department_id ?? undefined,
+      jobAreaIds: input.job_area_ids,
+      primaryJobAreaId: input.primary_job_area_id ?? undefined,
+    })
 
-    if (rpcErr || !employeeId) {
-      return {
-        ok: false,
-        error: dbError(rpcErr, "Failed to create employee."),
-      }
+    if (!created.ok) {
+      return { ok: false, error: created.error }
     }
+    const employeeId = created.employeeId
 
     // Provision a login only when the admin opted in ("Needs system login").
     // On success we link employees.user_id and seed this role's default
@@ -394,6 +424,33 @@ export async function updateEmployee(
             error: dbError(setErr, "Failed to set primary department."),
           }
         }
+      }
+    }
+
+    // Reconcile job-area assignments (Employee Scheduling) — but ONLY when the
+    // form actually submitted the control, so an edit from a form that doesn't
+    // render job areas doesn't silently wipe existing assignments. Validate the
+    // desired set in app code (facility ownership + 4-area cap) BEFORE writing,
+    // then diff-apply via the shared helper so this path can't diverge from
+    // create/bulk.
+    if (input.job_areas_submitted) {
+      const resolvedAreas = await resolveJobAreaAssignments(
+        supabase,
+        facility.facilityId,
+        input.job_area_ids,
+        input.primary_job_area_id
+      )
+      if (!resolvedAreas.ok) {
+        return { ok: false, error: resolvedAreas.error }
+      }
+      const reconciled = await reconcileJobAreaAssignments(
+        supabase,
+        id,
+        facility.facilityId,
+        resolvedAreas.assignments
+      )
+      if (!reconciled.ok) {
+        return { ok: false, error: reconciled.error }
       }
     }
 

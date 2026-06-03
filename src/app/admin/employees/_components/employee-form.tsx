@@ -1,6 +1,8 @@
 "use client"
 
 import { useActionState, useEffect, useState } from "react"
+import { Plus } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { FieldError } from "@/components/ui/field-error"
@@ -23,15 +25,27 @@ import {
 } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 
+import { createJobArea } from "../../scheduling/job-areas/actions"
 import { createEmployee, updateEmployee } from "../actions"
 import type {
   ActionState,
   DepartmentRow,
   EmployeeListItem,
+  JobAreaOption,
   RoleDefaultsMap,
   RoleRow,
 } from "../types"
 import { RolePermissionPreview } from "./role-permission-preview"
+
+const MAX_JOB_AREAS = 4
+
+/** Merge two area lists by id (base first), keeping any assigned-but-inactive
+ *  areas visible so editing never silently drops them. */
+function mergeAreas(base: JobAreaOption[], extra: JobAreaOption[]): JobAreaOption[] {
+  const map = new Map(base.map((a) => [a.id, a]))
+  for (const a of extra) if (!map.has(a.id)) map.set(a.id, a)
+  return Array.from(map.values())
+}
 
 type Props = {
   open: boolean
@@ -39,6 +53,7 @@ type Props = {
   facilityId: string
   roles: RoleRow[]
   departments: DepartmentRow[]
+  jobAreas: JobAreaOption[]
   roleDefaults: RoleDefaultsMap
   editing: EmployeeListItem | null
 }
@@ -67,6 +82,7 @@ function EmployeeFormBody({
   facilityId,
   roles,
   departments,
+  jobAreas,
   roleDefaults,
   editing,
 }: Props) {
@@ -98,6 +114,19 @@ function EmployeeFormBody({
   )
   const [roleId, setRoleId] = useState(editing?.role?.id ?? "")
   const [roleError, setRoleError] = useState<string | null>(null)
+
+  // Job-area assignment (max 4). Options include any assigned-but-inactive
+  // areas so an edit doesn't silently drop them.
+  const [areas, setAreas] = useState<JobAreaOption[]>(() =>
+    mergeAreas(jobAreas, editing?.job_areas ?? [])
+  )
+  const [areaIds, setAreaIds] = useState<string[]>(editing?.job_area_ids ?? [])
+  const [primaryAreaId, setPrimaryAreaId] = useState<string | null>(
+    editing?.primary_job_area?.id ?? null
+  )
+  const [newAreaName, setNewAreaName] = useState("")
+  const [creatingArea, setCreatingArea] = useState(false)
+  const atAreaCap = areaIds.length >= MAX_JOB_AREAS
   // Create flow only: provision a login + seed role permissions. Default on so
   // the common "new staff member who logs in" path is one click.
   const [needsLogin, setNeedsLogin] = useState<boolean>(!isEdit)
@@ -120,6 +149,39 @@ function EmployeeFormBody({
       }
       return [...prev, id]
     })
+  }
+
+  function toggleArea(id: string) {
+    setAreaIds((prev) => {
+      if (prev.includes(id)) {
+        if (primaryAreaId === id) setPrimaryAreaId(null)
+        return prev.filter((x) => x !== id)
+      }
+      if (prev.length >= MAX_JOB_AREAS) return prev // cap
+      return [...prev, id]
+    })
+  }
+
+  async function handleCreateArea() {
+    const name = newAreaName.trim()
+    if (!name || creatingArea) return
+    setCreatingArea(true)
+    const res = await createJobArea({ facilityId, name })
+    setCreatingArea(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    setAreas((prev) =>
+      prev.some((a) => a.id === res.area.id) ? prev : [...prev, res.area]
+    )
+    setNewAreaName("")
+    setAreaIds((prev) =>
+      prev.includes(res.area.id) || prev.length >= MAX_JOB_AREAS
+        ? prev
+        : [...prev, res.area.id]
+    )
+    toast.success(`Created “${res.area.name}”.`)
   }
 
   const errorMsg =
@@ -167,6 +229,18 @@ function EmployeeFormBody({
             type="hidden"
             name="primary_department_id"
             value={primaryDeptId ?? ""}
+          />
+          {/* Job-area hidden inputs. The marker tells updateEmployee this form
+              submitted job areas (so the reconcile runs and an empty set really
+              means "clear"), distinct from a form that omits the control. */}
+          <input type="hidden" name="job_areas_present" value="1" />
+          {areaIds.map((id) => (
+            <input key={id} type="hidden" name="job_area_ids" value={id} />
+          ))}
+          <input
+            type="hidden"
+            name="primary_job_area_id"
+            value={primaryAreaId ?? ""}
           />
 
           <div className="grid grid-cols-2 gap-3">
@@ -317,6 +391,108 @@ function EmployeeFormBody({
               </div>
             </>
           )}
+
+          {/* Job areas (Employee Scheduling) — up to 4, cross-trained. */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label>Job areas</Label>
+              <span className="text-muted-foreground text-xs">
+                {areaIds.length}/{MAX_JOB_AREAS} selected
+              </span>
+            </div>
+
+            {areas.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {areas.map((a) => {
+                  const active = areaIds.includes(a.id)
+                  const isPrimary = primaryAreaId === a.id
+                  const disabled = !active && atAreaCap
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => toggleArea(a.id)}
+                      disabled={disabled}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                        active
+                          ? "bg-primary text-primary-foreground border-transparent"
+                          : "bg-background text-foreground hover:bg-accent",
+                        disabled && "cursor-not-allowed opacity-40"
+                      )}
+                    >
+                      {a.name}
+                      {isPrimary && <span className="ml-1 opacity-80">(primary)</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                No job areas yet — create one below.
+              </p>
+            )}
+
+            {areaIds.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="primary_job_area_select" className="text-xs">
+                  Primary job area
+                </Label>
+                <Select
+                  value={primaryAreaId || undefined}
+                  onValueChange={(v) => setPrimaryAreaId(v || null)}
+                >
+                  <SelectTrigger id="primary_job_area_select" className="h-9">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {areaIds.map((id) => {
+                      const a = areas.find((x) => x.id === id)
+                      if (!a) return null
+                      return (
+                        <SelectItem key={id} value={id}>
+                          {a.name}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Inline create — same action as the management page + bulk add. */}
+            <div className="flex items-end gap-2">
+              <div className="flex flex-1 flex-col gap-1">
+                <Label htmlFor="new_job_area" className="text-xs">
+                  Add a new area
+                </Label>
+                <Input
+                  id="new_job_area"
+                  value={newAreaName}
+                  maxLength={60}
+                  placeholder="e.g. Skate Rental"
+                  disabled={creatingArea}
+                  className="h-9"
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void handleCreateArea()
+                    }
+                  }}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9"
+                disabled={creatingArea || !newAreaName.trim()}
+                onClick={() => void handleCreateArea()}
+              >
+                <Plus className="size-4" /> Add
+              </Button>
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">

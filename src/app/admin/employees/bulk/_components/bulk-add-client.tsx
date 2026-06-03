@@ -3,11 +3,25 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo, useState, useTransition } from "react"
-import { ClipboardPaste, Download, Plus, Trash2, X } from "lucide-react"
+import {
+  Check,
+  ChevronsUpDown,
+  ClipboardPaste,
+  Download,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -28,6 +42,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+import { createJobArea } from "../../../scheduling/job-areas/actions"
 import type { RoleRow } from "../../types"
 import { bulkCreateEmployees } from "../actions"
 import {
@@ -37,22 +52,36 @@ import {
   validateRows,
 } from "../_lib/validation"
 import { useBulkStore } from "../_lib/store"
-import type { BulkEmployeeInput, BulkRow, RowErrors } from "../types"
+import type {
+  BulkEmployeeInput,
+  BulkRow,
+  BulkRowResult,
+  JobAreaOption,
+  RowErrors,
+} from "../types"
 
 type Props = {
   facilityId: string
   roles: RoleRow[]
   /** Lowercased emails already in use in this facility. */
   existingEmails: string[]
+  /** Active job areas for this facility (manual multi-select + paste mapping). */
+  jobAreas: JobAreaOption[]
 }
 
-export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
+export function BulkAddClient({
+  facilityId,
+  roles,
+  existingEmails,
+  jobAreas,
+}: Props) {
   const router = useRouter()
   const rows = useBulkStore((s) => s.rows)
   const results = useBulkStore((s) => s.results)
   const addRow = useBulkStore((s) => s.addRow)
   const appendRows = useBulkStore((s) => s.appendRows)
   const updateCell = useBulkStore((s) => s.updateCell)
+  const setJobAreaIds = useBulkStore((s) => s.setJobAreaIds)
   const removeRow = useBulkStore((s) => s.removeRow)
   const clear = useBulkStore((s) => s.clear)
   const removeSucceeded = useBulkStore((s) => s.removeSucceeded)
@@ -62,12 +91,32 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
   const [showErrors, setShowErrors] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pending, startTransition] = useTransition()
+  // Job areas can be created inline; keep a live copy so a new area shows up in
+  // every row's picker (and in paste matching) immediately.
+  const [areas, setAreas] = useState<JobAreaOption[]>(jobAreas)
 
   const roleIds = useMemo(() => new Set(roles.map((r) => r.id)), [roles])
   const existingSet = useMemo(
     () => new Set(existingEmails.map((e) => e.toLowerCase())),
     [existingEmails]
   )
+  const areaNameById = useMemo(
+    () => new Map(areas.map((a) => [a.id, a.name])),
+    [areas]
+  )
+
+  async function handleCreateArea(name: string): Promise<JobAreaOption | null> {
+    const res = await createJobArea({ facilityId, name })
+    if (!res.ok) {
+      toast.error(res.error)
+      return null
+    }
+    setAreas((prev) =>
+      prev.some((a) => a.id === res.area.id) ? prev : [...prev, res.area]
+    )
+    toast.success(`Created “${res.area.name}”.`)
+    return res.area
+  }
 
   const errorsById = useMemo(() => {
     const batchEmailCounts = buildBatchEmailCounts(rows)
@@ -105,6 +154,7 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
       email: r.email,
       hireDate: r.hireDate,
       roleId: r.roleId,
+      jobAreaIds: r.jobAreaIds,
     }))
 
     startTransition(async () => {
@@ -126,19 +176,27 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
       }
       setResults(byId)
 
-      const ok = res.results.filter((r) => r.ok).length
-      const failed = res.results.length - ok
-      if (failed === 0) {
-        toast.success(`Added ${ok} employee${ok === 1 ? "" : "s"}.`)
+      const failed = res.results.filter((r) => r.status === "failed").length
+      const partial = res.results.filter((r) => r.status === "partial").length
+      const added = res.results.length - failed // succeeded + partial were created
+      if (failed > 0) {
+        // Never a blanket success when any row failed.
+        toast.warning(
+          `Added ${added}, ${failed} failed. Review the rows below.`
+        )
+      } else if (partial > 0) {
+        toast.success(
+          `Added ${added} employee${added === 1 ? "" : "s"} — ${partial} need a follow-up (see status).`
+        )
       } else {
-        toast.warning(`Added ${ok}, ${failed} failed. Review the rows below.`)
+        toast.success(`Added ${added} employee${added === 1 ? "" : "s"}.`)
       }
       router.refresh()
     })
   }
 
   function handlePaste(text: string) {
-    const parsed = parsePastedRows(text, roles)
+    const parsed = parsePastedRows(text, roles, areas)
     if (parsed.length === 0) {
       toast.error("Nothing to import — paste rows first.")
       return
@@ -194,6 +252,12 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
               <th className="border-b px-3 py-2 text-left font-medium">Email</th>
               <th className="border-b px-3 py-2 text-left font-medium">Hire date</th>
               <th className="border-b px-3 py-2 text-left font-medium">Role</th>
+              <th className="border-b px-3 py-2 text-left font-medium">
+                Job areas
+                <span className="text-muted-foreground ml-1 font-normal">
+                  (max 4)
+                </span>
+              </th>
               <th className="border-b px-3 py-2 text-left font-medium">Status</th>
               <th className="border-b px-3 py-2 text-right font-medium" />
             </tr>
@@ -204,10 +268,14 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
                 key={row.id}
                 row={row}
                 roles={roles}
+                jobAreas={areas}
+                areaNameById={areaNameById}
                 errors={showErrors ? errorsById.get(row.id) : undefined}
                 result={results[row.id]}
                 disabled={pending}
                 onChange={(field, value) => updateCell(row.id, field, value)}
+                onJobAreasChange={(ids) => setJobAreaIds(row.id, ids)}
+                onCreateArea={handleCreateArea}
                 onRemove={() => removeRow(row.id)}
               />
             ))}
@@ -271,33 +339,45 @@ export function BulkAddClient({ facilityId, roles, existingEmails }: Props) {
 type GridRowProps = {
   row: BulkRow
   roles: RoleRow[]
+  jobAreas: JobAreaOption[]
+  areaNameById: Map<string, string>
   errors: RowErrors | undefined
-  result: { ok: boolean; error?: string; warning?: string } | undefined
+  result: BulkRowResult | undefined
   disabled: boolean
-  onChange: (field: Exclude<keyof BulkRow, "id">, value: string) => void
+  onChange: (field: "firstName" | "lastName" | "email" | "hireDate" | "roleId", value: string) => void
+  onJobAreasChange: (ids: string[]) => void
+  onCreateArea: (name: string) => Promise<JobAreaOption | null>
   onRemove: () => void
 }
 
 function GridRow({
   row,
   roles,
+  jobAreas,
+  areaNameById,
   errors,
   result,
   disabled,
   onChange,
+  onJobAreasChange,
+  onCreateArea,
   onRemove,
 }: GridRowProps) {
-  const rowState = result?.ok
-    ? "ok"
-    : result && !result.ok
+  const rowState =
+    result?.status === "failed"
       ? "failed"
-      : undefined
+      : result?.status === "partial"
+        ? "partial"
+        : result?.status === "succeeded"
+          ? "ok"
+          : undefined
 
   return (
     <tr
       className={cn(
         "align-top hover:bg-muted/30",
         rowState === "ok" && "bg-success/5",
+        rowState === "partial" && "bg-warning/5",
         rowState === "failed" && "bg-destructive/5"
       )}
     >
@@ -363,6 +443,17 @@ function GridRow({
         )}
       </Cell>
       <Cell>
+        <JobAreaCell
+          selectedIds={row.jobAreaIds}
+          options={jobAreas}
+          areaNameById={areaNameById}
+          error={errors?.jobAreas}
+          disabled={disabled}
+          onChange={onJobAreasChange}
+          onCreateArea={onCreateArea}
+        />
+      </Cell>
+      <Cell>
         <RowStatus result={result} />
       </Cell>
       <Cell className="text-right">
@@ -425,29 +516,198 @@ function CellInput({
   )
 }
 
-function RowStatus({
-  result,
+/** Per-row job-area multi-select (capped at 4), backed by a dropdown of the
+ *  facility's areas. Selected areas render as green chips; paste-time unmatched
+ *  / duplicate names surface via `error`. */
+function JobAreaCell({
+  selectedIds,
+  options,
+  areaNameById,
+  error,
+  disabled,
+  onChange,
+  onCreateArea,
 }: {
-  result: { ok: boolean; error?: string; warning?: string } | undefined
+  selectedIds: string[]
+  options: JobAreaOption[]
+  areaNameById: Map<string, string>
+  error?: string
+  disabled?: boolean
+  onChange: (ids: string[]) => void
+  onCreateArea: (name: string) => Promise<JobAreaOption | null>
 }) {
-  if (!result) return <span className="text-muted-foreground text-xs">—</span>
-  if (!result.ok) {
-    return (
-      <span className="text-destructive text-xs" title={result.error}>
-        {result.error ?? "Failed"}
-      </span>
-    )
+  const atCap = selectedIds.length >= 4
+  const [draft, setDraft] = useState("")
+  const [creating, setCreating] = useState(false)
+
+  function toggle(id: string) {
+    if (selectedIds.includes(id)) {
+      onChange(selectedIds.filter((x) => x !== id))
+    } else if (!atCap) {
+      onChange([...selectedIds, id])
+    }
   }
-  if (result.warning) {
+
+  async function submitCreate() {
+    const name = draft.trim()
+    if (!name || creating) return
+    setCreating(true)
+    const area = await onCreateArea(name)
+    setCreating(false)
+    if (area) {
+      setDraft("")
+      // Auto-select the new area when there's room.
+      if (!selectedIds.includes(area.id) && selectedIds.length < 4) {
+        onChange([...selectedIds, area.id])
+      }
+    }
+  }
+
+  return (
+    <div className="min-w-[12rem]">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={disabled || options.length === 0}>
+          <button
+            type="button"
+            className={cn(
+              "border-input bg-background ring-offset-background flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border px-2 py-1 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+              error && "border-destructive"
+            )}
+          >
+            {selectedIds.length === 0 ? (
+              <span className="text-muted-foreground">
+                {options.length === 0 ? "No areas configured" : "Select areas…"}
+              </span>
+            ) : (
+              selectedIds.map((id) => (
+                <Badge key={id} variant="success" className="gap-1">
+                  {areaNameById.get(id) ?? "Unknown"}
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={`Remove ${areaNameById.get(id) ?? "area"}`}
+                    className="hover:text-destructive cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (!disabled) toggle(id)
+                    }}
+                  >
+                    <X className="size-3" />
+                  </span>
+                </Badge>
+              ))
+            )}
+            <ChevronsUpDown className="text-muted-foreground ml-auto size-4 shrink-0 opacity-60" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="max-h-72 w-[--radix-dropdown-menu-trigger-width] overflow-auto"
+        >
+          {options.length === 0 && (
+            <p className="text-muted-foreground px-2 py-1.5 text-xs">
+              No areas yet — create one below.
+            </p>
+          )}
+          {options.map((o) => {
+            const checked = selectedIds.includes(o.id)
+            const disabledItem = !checked && atCap
+            return (
+              <DropdownMenuItem
+                key={o.id}
+                disabled={disabledItem}
+                onSelect={(e) => {
+                  // Keep the menu open for multi-pick.
+                  e.preventDefault()
+                  toggle(o.id)
+                }}
+              >
+                <Check
+                  className={cn("size-4", checked ? "opacity-100" : "opacity-0")}
+                />
+                {o.name}
+              </DropdownMenuItem>
+            )
+          })}
+
+          {/* Inline create. Kept out of the menu's keyboard nav: stop key
+              propagation so the menu's typeahead doesn't hijack typing. */}
+          <div
+            className="border-border mt-1 border-t p-1.5"
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-1">
+              <Input
+                value={draft}
+                maxLength={60}
+                placeholder="New area…"
+                disabled={creating}
+                className="h-8 text-sm"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    void submitCreate()
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                className="h-8"
+                disabled={creating || !draft.trim()}
+                onClick={(e) => {
+                  e.preventDefault()
+                  void submitCreate()
+                }}
+              >
+                <Plus className="size-4" />
+                {creating ? "…" : "Add"}
+              </Button>
+            </div>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error ? (
+        <p className="text-destructive mt-1 text-xs">{error}</p>
+      ) : (
+        atCap && (
+          <p className="text-muted-foreground mt-1 text-xs">Max 4 reached</p>
+        )
+      )}
+    </div>
+  )
+}
+
+function RowStatus({ result }: { result: BulkRowResult | undefined }) {
+  if (!result) return <span className="text-muted-foreground text-xs">—</span>
+
+  if (result.status === "failed") {
+    const msg = result.reason?.message ?? result.error ?? "Failed"
     return (
       <span className="flex flex-col gap-0.5">
-        <Badge variant="secondary">Added</Badge>
-        <span className="text-muted-foreground text-xs" title={result.warning}>
-          {result.warning}
+        <Badge variant="error">Failed</Badge>
+        <span className="text-destructive text-xs" title={msg}>
+          {msg}
         </span>
       </span>
     )
   }
+
+  if (result.status === "partial") {
+    const msg = result.reason?.message ?? result.warning
+    return (
+      <span className="flex flex-col gap-0.5">
+        <Badge variant="warning">Partial</Badge>
+        {msg && (
+          <span className="text-muted-foreground text-xs" title={msg}>
+            {msg}
+          </span>
+        )}
+      </span>
+    )
+  }
+
   return <Badge variant="success">Added</Badge>
 }
 
@@ -474,11 +734,16 @@ function PasteSheet({
           <SheetTitle>Paste from a spreadsheet</SheetTitle>
           <SheetDescription>
             One employee per line. Columns, in order:{" "}
-            <strong>First name, Last name, Email, Hire date, Role</strong>.
-            Tab- or comma-separated. Hire date accepts{" "}
+            <strong>
+              First name, Last name, Email, Hire date, Role, Job areas
+            </strong>
+            . Tab- or comma-separated. Hire date accepts{" "}
             <code>YYYY-MM-DD</code> or <code>M/D/YYYY</code>. Role matches the
-            role name (e.g. &ldquo;Staff&rdquo;). A header row is detected and
-            skipped, so you can paste straight from the{" "}
+            role name (e.g. &ldquo;Staff&rdquo;). Job areas is optional — up to
+            four area names separated by a pipe (e.g.{" "}
+            <code>Front Desk|Concessions</code>); names must match existing
+            facility areas. A header row is detected and skipped, so you can
+            paste straight from the{" "}
             <a
               href="/templates/bulk-employees-template.csv"
               download
@@ -498,7 +763,7 @@ function PasteSheet({
               onChange={(e) => setText(e.target.value)}
               rows={12}
               placeholder={
-                "Jane\tDoe\tjane@example.com\t2026-01-15\tStaff\nJohn\tSmith\tjohn@example.com\t2026-02-01\tSupervisor"
+                "Jane\tDoe\tjane@example.com\t2026-01-15\tStaff\tFront Desk|Concessions\nJohn\tSmith\tjohn@example.com\t2026-02-01\tSupervisor\tOperations"
               }
               className="font-mono text-xs"
             />

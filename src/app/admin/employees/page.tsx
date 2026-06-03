@@ -24,6 +24,7 @@ import type {
   DepartmentRow,
   EmployeeListItem,
   EmployeeRow,
+  JobAreaOption,
   RoleDefaultsMap,
   RoleRow,
 } from "./types"
@@ -35,6 +36,14 @@ type EmployeeDeptJoinRow = {
   department_id: string
   is_primary: boolean
 }
+
+type EmployeeJobAreaJoinRow = {
+  employee_id: string
+  job_area_id: string
+  is_primary: boolean
+}
+
+type JobAreaRow = { id: string; name: string; is_active: boolean; sort_order: number }
 
 type FacilityOption = {
   id: string
@@ -156,6 +165,8 @@ export default async function EmployeesPage({
     { data: employeesRaw },
     { data: edRaw },
     { data: roleDefaultsRaw },
+    { data: jobAreasRaw },
+    { data: ejaRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -182,6 +193,19 @@ export default async function EmployeesPage({
     supabase
       .from("role_permission_defaults")
       .select("role_id, module_name, action, enabled")
+      .eq("facility_id", facilityId),
+    // employee_job_areas / _assignments aren't in the generated types yet
+    // (see CLAUDE.md); cast through any, matching offline_sync_queue.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("employee_job_areas")
+      .select("id, name, is_active, sort_order")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("employee_job_area_assignments")
+      .select("employee_id, job_area_id, is_primary")
       .eq("facility_id", facilityId),
   ])
 
@@ -227,6 +251,35 @@ export default async function EmployeesPage({
 
   const edRows = (edRaw ?? []) as EmployeeDeptJoinRow[]
 
+  // Job areas: selectable list (active only) + a name lookup over ALL areas so
+  // an assignment to a later-deactivated area still renders its name.
+  const allJobAreas = (jobAreasRaw ?? []) as JobAreaRow[]
+  const jobAreas: JobAreaOption[] = allJobAreas
+    .filter((a) => a.is_active)
+    .map((a) => ({ id: a.id, name: a.name }))
+  const jobAreaNameById = new Map(allJobAreas.map((a) => [a.id, a.name]))
+  const ejaRows = (ejaRaw ?? []) as EmployeeJobAreaJoinRow[]
+
+  const jobAreasByEmployee = new Map<
+    string,
+    { areas: JobAreaOption[]; ids: string[]; primary: JobAreaOption | null }
+  >()
+  for (const row of ejaRows) {
+    const bucket = jobAreasByEmployee.get(row.employee_id) ?? {
+      areas: [] as JobAreaOption[],
+      ids: [] as string[],
+      primary: null as JobAreaOption | null,
+    }
+    const option = {
+      id: row.job_area_id,
+      name: jobAreaNameById.get(row.job_area_id) ?? "Unknown area",
+    }
+    bucket.areas.push(option)
+    bucket.ids.push(row.job_area_id)
+    if (row.is_primary) bucket.primary = option
+    jobAreasByEmployee.set(row.employee_id, bucket)
+  }
+
   const roleById = new Map(roles.map((r) => [r.id, r]))
   const deptById = new Map(departments.map((d) => [d.id, d]))
 
@@ -249,6 +302,7 @@ export default async function EmployeesPage({
   const list: EmployeeListItem[] = employees.map((e) => {
     const role = roleById.get(e.role_id) ?? null
     const bucket = deptsByEmployee.get(e.id)
+    const areaBucket = jobAreasByEmployee.get(e.id)
     return {
       ...e,
       role: role
@@ -262,6 +316,9 @@ export default async function EmployeesPage({
           }
         : null,
       department_ids: bucket?.ids ?? [],
+      job_areas: areaBucket?.areas ?? [],
+      job_area_ids: areaBucket?.ids ?? [],
+      primary_job_area: areaBucket?.primary ?? null,
     }
   })
 
@@ -273,6 +330,7 @@ export default async function EmployeesPage({
         employees={list}
         roles={roles}
         departments={departments}
+        jobAreas={jobAreas}
         roleDefaults={roleDefaults}
         canDelete={profile?.is_super_admin === true}
       />
