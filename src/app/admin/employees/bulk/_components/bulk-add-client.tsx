@@ -42,6 +42,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+import { createJobArea } from "../../../scheduling/job-areas/actions"
 import type { RoleRow } from "../../types"
 import { bulkCreateEmployees } from "../actions"
 import {
@@ -90,6 +91,9 @@ export function BulkAddClient({
   const [showErrors, setShowErrors] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pending, startTransition] = useTransition()
+  // Job areas can be created inline; keep a live copy so a new area shows up in
+  // every row's picker (and in paste matching) immediately.
+  const [areas, setAreas] = useState<JobAreaOption[]>(jobAreas)
 
   const roleIds = useMemo(() => new Set(roles.map((r) => r.id)), [roles])
   const existingSet = useMemo(
@@ -97,9 +101,22 @@ export function BulkAddClient({
     [existingEmails]
   )
   const areaNameById = useMemo(
-    () => new Map(jobAreas.map((a) => [a.id, a.name])),
-    [jobAreas]
+    () => new Map(areas.map((a) => [a.id, a.name])),
+    [areas]
   )
+
+  async function handleCreateArea(name: string): Promise<JobAreaOption | null> {
+    const res = await createJobArea({ facilityId, name })
+    if (!res.ok) {
+      toast.error(res.error)
+      return null
+    }
+    setAreas((prev) =>
+      prev.some((a) => a.id === res.area.id) ? prev : [...prev, res.area]
+    )
+    toast.success(`Created “${res.area.name}”.`)
+    return res.area
+  }
 
   const errorsById = useMemo(() => {
     const batchEmailCounts = buildBatchEmailCounts(rows)
@@ -179,7 +196,7 @@ export function BulkAddClient({
   }
 
   function handlePaste(text: string) {
-    const parsed = parsePastedRows(text, roles, jobAreas)
+    const parsed = parsePastedRows(text, roles, areas)
     if (parsed.length === 0) {
       toast.error("Nothing to import — paste rows first.")
       return
@@ -251,13 +268,14 @@ export function BulkAddClient({
                 key={row.id}
                 row={row}
                 roles={roles}
-                jobAreas={jobAreas}
+                jobAreas={areas}
                 areaNameById={areaNameById}
                 errors={showErrors ? errorsById.get(row.id) : undefined}
                 result={results[row.id]}
                 disabled={pending}
                 onChange={(field, value) => updateCell(row.id, field, value)}
                 onJobAreasChange={(ids) => setJobAreaIds(row.id, ids)}
+                onCreateArea={handleCreateArea}
                 onRemove={() => removeRow(row.id)}
               />
             ))}
@@ -328,6 +346,7 @@ type GridRowProps = {
   disabled: boolean
   onChange: (field: "firstName" | "lastName" | "email" | "hireDate" | "roleId", value: string) => void
   onJobAreasChange: (ids: string[]) => void
+  onCreateArea: (name: string) => Promise<JobAreaOption | null>
   onRemove: () => void
 }
 
@@ -341,6 +360,7 @@ function GridRow({
   disabled,
   onChange,
   onJobAreasChange,
+  onCreateArea,
   onRemove,
 }: GridRowProps) {
   const rowState =
@@ -430,6 +450,7 @@ function GridRow({
           error={errors?.jobAreas}
           disabled={disabled}
           onChange={onJobAreasChange}
+          onCreateArea={onCreateArea}
         />
       </Cell>
       <Cell>
@@ -505,6 +526,7 @@ function JobAreaCell({
   error,
   disabled,
   onChange,
+  onCreateArea,
 }: {
   selectedIds: string[]
   options: JobAreaOption[]
@@ -512,14 +534,32 @@ function JobAreaCell({
   error?: string
   disabled?: boolean
   onChange: (ids: string[]) => void
+  onCreateArea: (name: string) => Promise<JobAreaOption | null>
 }) {
   const atCap = selectedIds.length >= 4
+  const [draft, setDraft] = useState("")
+  const [creating, setCreating] = useState(false)
 
   function toggle(id: string) {
     if (selectedIds.includes(id)) {
       onChange(selectedIds.filter((x) => x !== id))
     } else if (!atCap) {
       onChange([...selectedIds, id])
+    }
+  }
+
+  async function submitCreate() {
+    const name = draft.trim()
+    if (!name || creating) return
+    setCreating(true)
+    const area = await onCreateArea(name)
+    setCreating(false)
+    if (area) {
+      setDraft("")
+      // Auto-select the new area when there's room.
+      if (!selectedIds.includes(area.id) && selectedIds.length < 4) {
+        onChange([...selectedIds, area.id])
+      }
     }
   }
 
@@ -562,8 +602,13 @@ function JobAreaCell({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="max-h-64 w-[--radix-dropdown-menu-trigger-width] overflow-auto"
+          className="max-h-72 w-[--radix-dropdown-menu-trigger-width] overflow-auto"
         >
+          {options.length === 0 && (
+            <p className="text-muted-foreground px-2 py-1.5 text-xs">
+              No areas yet — create one below.
+            </p>
+          )}
           {options.map((o) => {
             const checked = selectedIds.includes(o.id)
             const disabledItem = !checked && atCap
@@ -584,6 +629,43 @@ function JobAreaCell({
               </DropdownMenuItem>
             )
           })}
+
+          {/* Inline create. Kept out of the menu's keyboard nav: stop key
+              propagation so the menu's typeahead doesn't hijack typing. */}
+          <div
+            className="border-border mt-1 border-t p-1.5"
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-1">
+              <Input
+                value={draft}
+                maxLength={60}
+                placeholder="New area…"
+                disabled={creating}
+                className="h-8 text-sm"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    void submitCreate()
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                className="h-8"
+                disabled={creating || !draft.trim()}
+                onClick={(e) => {
+                  e.preventDefault()
+                  void submitCreate()
+                }}
+              >
+                <Plus className="size-4" />
+                {creating ? "…" : "Add"}
+              </Button>
+            </div>
+          </div>
         </DropdownMenuContent>
       </DropdownMenu>
       {error ? (
