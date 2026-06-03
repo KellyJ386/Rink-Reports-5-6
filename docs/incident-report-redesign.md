@@ -39,10 +39,11 @@ Standard `PageHeader` meta-chip row: logged-in **name**, **facility**, current
 record temperature).
 
 ### Reporter
-| Field | Type | Rules |
-|---|---|---|
-| **Name** | text | Auto-filled from the logged-in user; editable. **Required.** |
-| **Phone** | tel | **Required.** |
+There is **no Reporter box** in the form. The reporter is the **logged-in
+user** (their name already appears in the app header): `reporter_name` is
+derived server-side from the employee's first/last name on submit. **No phone
+is collected** — `reporter_phone` is dropped from the form and stored `null`
+(migration 106 made the column nullable; retained for legacy rows). See §8.
 
 ### When & Where
 | Field | Type | Rules |
@@ -273,11 +274,17 @@ Add assertions to `supabase/tests/rls_isolation.sql` for the new tables
   admin tab. Cross-facility isolation is unchanged (writes still require
   `facility_id = current_facility_id()`); the SELECT policy is unchanged.
 
-- **Migration version ledger.** Migrations 101–104 were applied to the live
+- **Reporter box removed (post-review change).** The form no longer collects a
+  reporter name or phone. `reporter_name` is derived server-side from the
+  logged-in employee (online action and offline replay both pass it to
+  `persistIncident`); `reporter_phone` is dropped (migration 106 made the column
+  nullable; admin/detail/read-only views no longer show it).
+
+- **Migration version ledger.** Migrations 101–106 were applied to the live
   "Rink Reports 5-6" project via MCP to regenerate authoritative types, so the
-  project recorded them under timestamp versions (`20260602100344`–`100443`)
-  while the repo keeps the convention-required sequential prefixes
-  (`00000000000101`–`104`). This is benign: every statement is idempotent
+  project recorded them under timestamp versions while the repo keeps the
+  convention-required sequential prefixes (`00000000000101`–`106`). This is
+  benign: every statement is idempotent
   (`create … if not exists`, `add column if not exists`, `create or replace`,
   `drop policy if exists … create`), so a normal `supabase db push` re-applies
   them safely. Optionally tidy with `supabase migration repair`. CI

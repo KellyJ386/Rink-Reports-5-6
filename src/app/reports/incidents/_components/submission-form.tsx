@@ -39,8 +39,6 @@ type SpaceOption = { id: string; name: string }
 type Witness = { name: string; phone: string; email: string; statement: string }
 
 export type IncidentFormInitial = {
-  reporterName: string
-  reporterPhone: string
   occurredAtLocal: string
   severityLevelId: string
   activityValue: string
@@ -59,8 +57,6 @@ type FormAction = (
 ) => Promise<SubmissionFormState> | SubmissionFormState
 
 type Props = {
-  defaultReporterName: string
-  defaultReporterPhone: string
   severityLevels: Option[]
   activities: Option[]
   spaces: SpaceOption[]
@@ -95,8 +91,6 @@ function genLocalId(): string {
 }
 
 export function SubmissionForm({
-  defaultReporterName,
-  defaultReporterPhone,
   severityLevels,
   activities,
   spaces,
@@ -114,12 +108,6 @@ export function SubmissionForm({
   const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [occurredAt, setOccurredAt] = useState(
     initial?.occurredAtLocal ?? defaultOccurredAt,
-  )
-  const [reporterName, setReporterName] = useState(
-    initial?.reporterName ?? defaultReporterName,
-  )
-  const [reporterPhone, setReporterPhone] = useState(
-    initial?.reporterPhone ?? defaultReporterPhone,
   )
   const [severityLevelId, setSeverityLevelId] = useState(
     initial?.severityLevelId ?? "",
@@ -247,8 +235,6 @@ export function SubmissionForm({
 
   function buildPayload() {
     return {
-      reporter_name: reporterName.trim(),
-      reporter_phone: reporterPhone.trim(),
       description: description.trim(),
       occurred_at: occurredAt,
       severity_level_id: severityLevelId,
@@ -378,50 +364,6 @@ export function SubmissionForm({
         />
 
         <FormError message={state.error ?? clientError ?? undefined} />
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Reporter */}
-        {/* ---------------------------------------------------------------- */}
-        <Card className="gap-4 py-5">
-          <h2 className="px-6 text-lg font-semibold tracking-tight">Reporter</h2>
-          <div className="grid gap-4 px-6 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="reporter_name">Your name<RequiredMark /></Label>
-              <Input
-                id="reporter_name"
-                name="reporter_name"
-                required
-                aria-invalid={state.fieldErrors?.reporter_name ? "true" : undefined}
-                aria-describedby={state.fieldErrors?.reporter_name ? "reporter_name-error" : undefined}
-                autoComplete="name"
-                enterKeyHint="next"
-                value={reporterName}
-                onChange={(e) => setReporterName(e.target.value)}
-                className="h-12 text-base"
-              />
-              <FieldError id="reporter_name-error" message={state.fieldErrors?.reporter_name} />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="reporter_phone">Phone number<RequiredMark /></Label>
-              <Input
-                id="reporter_phone"
-                name="reporter_phone"
-                required
-                aria-invalid={state.fieldErrors?.reporter_phone ? "true" : undefined}
-                aria-describedby={state.fieldErrors?.reporter_phone ? "reporter_phone-error" : undefined}
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                enterKeyHint="next"
-                value={reporterPhone}
-                onChange={(e) => setReporterPhone(e.target.value)}
-                className="h-12 text-base"
-              />
-              <FieldError id="reporter_phone-error" message={state.fieldErrors?.reporter_phone} />
-            </div>
-          </div>
-        </Card>
 
         {/* ---------------------------------------------------------------- */}
         {/* When & Where */}

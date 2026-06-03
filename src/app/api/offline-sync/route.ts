@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   // Resolve active employee
   const { data: employee } = await supabase
     .from("employees")
-    .select("id")
+    .select("id, first_name, last_name")
     .eq("user_id", profile.id)
     .eq("facility_id", profile.facility_id)
     .eq("is_active", true)
@@ -64,6 +64,12 @@ export async function POST(request: NextRequest) {
   if (!employee) {
     return NextResponse.json({ error: "No active employee" }, { status: 403 })
   }
+
+  const reporterName =
+    [employee.first_name, employee.last_name]
+      .filter((s) => s && s.trim())
+      .join(" ")
+      .trim() || "Unknown"
 
   const startedAtIso = startedAt
     ? new Date(startedAt).toISOString()
@@ -80,6 +86,7 @@ export async function POST(request: NextRequest) {
       startedAtIso,
       facilityId: profile.facility_id,
       employeeId: employee.id,
+      reporterName,
     })
   }
 
@@ -116,6 +123,7 @@ type IncidentReplayArgs = {
   startedAtIso: string
   facilityId: string
   employeeId: string
+  reporterName: string
 }
 
 /**
@@ -132,6 +140,7 @@ async function handleIncidentReplay({
   startedAtIso,
   facilityId,
   employeeId,
+  reporterName,
 }: IncidentReplayArgs): Promise<NextResponse> {
   const input = buildInputFromPayload(payload)
   if (!input) {
@@ -180,6 +189,7 @@ async function handleIncidentReplay({
   const result = await persistIncident(supabase, {
     employeeId,
     facilityId,
+    reporterName,
     input,
     refs,
   })

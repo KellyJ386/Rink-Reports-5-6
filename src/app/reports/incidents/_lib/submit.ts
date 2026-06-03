@@ -16,8 +16,6 @@ export const DESCRIPTION_MAX = 500
 export const MAX_WITNESSES = 3
 
 export type IncidentFieldName =
-  | "reporter_name"
-  | "reporter_phone"
   | "occurred_at"
   | "severity_level_id"
   | "description"
@@ -30,8 +28,6 @@ export type WitnessInput = {
 }
 
 export type IncidentInput = {
-  reporter_name: string
-  reporter_phone: string
   description: string
   occurred_at: string // raw datetime-local string
   severity_level_id: string
@@ -123,8 +119,6 @@ export function buildInputFromForm(formData: FormData): IncidentInput {
   }
   const { rows, missingContact } = normalizeWitnesses(witnessesRaw)
   return {
-    reporter_name: get("reporter_name"),
-    reporter_phone: get("reporter_phone"),
     description: get("description"),
     occurred_at: get("occurred_at"),
     severity_level_id: get("severity_level_id"),
@@ -144,8 +138,6 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
   const obj = raw as Record<string, unknown>
   const { rows, missingContact } = normalizeWitnesses(obj.witnesses)
   return {
-    reporter_name: str(obj.reporter_name),
-    reporter_phone: str(obj.reporter_phone),
     description: str(obj.description),
     occurred_at: str(obj.occurred_at),
     severity_level_id: str(obj.severity_level_id),
@@ -165,9 +157,6 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
 
 export function validateIncidentInput(input: IncidentInput): IncidentValidation {
   const fieldErrors: Partial<Record<IncidentFieldName, string>> = {}
-  if (!input.reporter_name) fieldErrors.reporter_name = "Please enter your name."
-  if (!input.reporter_phone)
-    fieldErrors.reporter_phone = "Please enter a phone number."
   if (!input.occurred_at) {
     fieldErrors.occurred_at = "Please choose when the incident happened."
   } else if (Number.isNaN(new Date(input.occurred_at).getTime())) {
@@ -264,11 +253,12 @@ export async function persistIncident(
   args: {
     employeeId: string
     facilityId: string
+    reporterName: string
     input: IncidentInput
     refs: { resolvedActivityId: string | null; validSpaceIds: string[] }
   },
 ): Promise<PersistResult> {
-  const { employeeId, facilityId, input, refs } = args
+  const { employeeId, facilityId, reporterName, input, refs } = args
   const occurredAtIso = new Date(input.occurred_at).toISOString()
   const activityOther = refs.resolvedActivityId
     ? null
@@ -285,8 +275,7 @@ export async function persistIncident(
       location_other: input.location_other || null,
       immediate_actions: input.immediate_actions || null,
       occurred_at: occurredAtIso,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
+      reporter_name: reporterName,
       description: input.description,
       status: "submitted",
       submitted_at: new Date().toISOString(),
@@ -352,8 +341,7 @@ export async function persistIncident(
       occurred_at: inserted.occurred_at,
       submitted_at: inserted.submitted_at,
       edit_window_ends_at: inserted.edit_window_ends_at,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
+      reporter_name: reporterName,
       description: input.description,
       space_ids: refs.validSpaceIds,
       witnesses: input.witnesses,
@@ -368,7 +356,7 @@ export async function persistIncident(
     facilityId,
     sourceModule: "incident_reports",
     sourceRecordId: reportId,
-    subject: `Incident report submitted by ${input.reporter_name}`,
+    subject: `Incident report submitted by ${reporterName}`,
     body: input.description,
   })
 

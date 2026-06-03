@@ -78,7 +78,7 @@ export default async function IncidentReportPage({
   const { data: report } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, occurred_at, submitted_at, status, severity_level_id, activity_id, activity_other, location_other, immediate_actions, reporter_name, reporter_phone, description",
+      "id, facility_id, employee_id, edit_window_ends_at, occurred_at, submitted_at, status, severity_level_id, activity_id, activity_other, location_other, immediate_actions, reporter_name, description",
     )
     .eq("id", id)
     .maybeSingle()
@@ -196,7 +196,6 @@ export default async function IncidentReportPage({
             <Row label="When it happened" value={fmt(report.occurred_at)} />
             <Row label="Reported at" value={fmt(report.submitted_at)} />
             <Row label="Reporter" value={report.reporter_name} />
-            <Row label="Phone" value={report.reporter_phone} />
             <div className="flex flex-col gap-1 border-b border-border pb-2">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
                 Description
@@ -241,8 +240,6 @@ export default async function IncidentReportPage({
   }
 
   const initial: IncidentFormInitial = {
-    reporterName: report.reporter_name,
-    reporterPhone: report.reporter_phone,
     occurredAtLocal: isoToDateTimeLocal(report.occurred_at),
     severityLevelId: report.severity_level_id ?? "",
     activityValue: report.activity_id
@@ -288,8 +285,6 @@ export default async function IncidentReportPage({
         mode="edit"
         action={updateAction}
         initial={initial}
-        defaultReporterName={report.reporter_name}
-        defaultReporterPhone={report.reporter_phone}
         severityLevels={severities}
         activities={activities}
         spaces={spaces}

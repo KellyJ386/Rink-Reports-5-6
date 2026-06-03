@@ -40,7 +40,7 @@ export async function submitIncidentReport(
 
   const { data: employeeRow, error: empErr } = await supabase
     .from("employees")
-    .select("id, facility_id")
+    .select("id, facility_id, first_name, last_name")
     .eq("user_id", current.authUser.id)
     .eq("is_active", true)
     .limit(1)
@@ -60,9 +60,16 @@ export async function submitIncidentReport(
   const refs = await resolveIncidentRefs(supabase, employeeRow.facility_id, input)
   if (!refs.ok) return { error: refs.error }
 
+  const reporterName =
+    [employeeRow.first_name, employeeRow.last_name]
+      .filter((s) => s && s.trim())
+      .join(" ")
+      .trim() || "Unknown"
+
   const result = await persistIncident(supabase, {
     employeeId: employeeRow.id,
     facilityId: employeeRow.facility_id,
+    reporterName,
     input,
     refs,
   })
@@ -104,7 +111,7 @@ export async function updateIncidentReport(
   const { data: existing, error: fetchErr } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, reporter_name, reporter_phone, description",
+      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, description",
     )
     .eq("id", reportId)
     .maybeSingle()
@@ -148,8 +155,6 @@ export async function updateIncidentReport(
       location_other: input.location_other || null,
       immediate_actions: input.immediate_actions || null,
       occurred_at: occurredAtIso,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
       description: input.description,
     })
     .eq("id", reportId)
@@ -217,8 +222,6 @@ export async function updateIncidentReport(
       location_other: existing.location_other,
       immediate_actions: existing.immediate_actions,
       occurred_at: existing.occurred_at,
-      reporter_name: existing.reporter_name,
-      reporter_phone: existing.reporter_phone,
       description: existing.description,
       space_ids: (existingSpaceRows ?? []).map((s) => s.space_id),
       witnesses: existingWitnessRows ?? [],
@@ -230,8 +233,6 @@ export async function updateIncidentReport(
       location_other: input.location_other || null,
       immediate_actions: input.immediate_actions || null,
       occurred_at: occurredAtIso,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
       description: input.description,
       space_ids: refs.validSpaceIds,
       witnesses: input.witnesses,

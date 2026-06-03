@@ -3803,7 +3803,7 @@ export type Database = {
           location_other: string | null
           occurred_at: string
           reporter_name: string
-          reporter_phone: string
+          reporter_phone: string | null
           resolved_at: string | null
           reviewed_at: string | null
           severity_level_id: string | null
@@ -3827,7 +3827,7 @@ export type Database = {
           location_other?: string | null
           occurred_at?: string
           reporter_name: string
-          reporter_phone: string
+          reporter_phone?: string | null
           resolved_at?: string | null
           reviewed_at?: string | null
           severity_level_id?: string | null
@@ -3851,7 +3851,7 @@ export type Database = {
           location_other?: string | null
           occurred_at?: string
           reporter_name?: string
-          reporter_phone?: string
+          reporter_phone?: string | null
           resolved_at?: string | null
           reviewed_at?: string | null
           severity_level_id?: string | null

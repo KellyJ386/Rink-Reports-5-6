@@ -153,7 +153,6 @@ export function ReportDetail({ detail, backHref }: Props) {
             </Field>
             <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
             <Field label="Reporter name">{report.reporter_name}</Field>
-            <Field label="Reporter phone">{report.reporter_phone}</Field>
             {report.location && (
               <Field label="Location (legacy)">{report.location}</Field>
             )}
