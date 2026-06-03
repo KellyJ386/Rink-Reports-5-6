@@ -112,6 +112,10 @@ export async function bulkCreateEmployees(args: {
       email: r.email ?? "",
       hireDate: r.hireDate ?? "",
       roleId: r.roleId ?? "",
+      // The server receives already-resolved ids; name-based unmatched/duplicate
+      // checks are client-only. Job-area facility ownership + the 4-area cap are
+      // re-enforced authoritatively in createEmployeeComplete / the DB trigger.
+      jobAreaIds: r.jobAreaIds ?? [],
     }))
     const batchEmailCounts = buildBatchEmailCounts(asBulkRows)
 

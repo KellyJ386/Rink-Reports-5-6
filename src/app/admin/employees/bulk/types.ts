@@ -5,6 +5,14 @@
 // date, role). Everything else (departments, emergency contacts, employee
 // code) stays on the single-add form / per-employee edit screen.
 
+/** A facility job-area option (from employee_job_areas) for the manual
+ *  multi-select and the paste name→id mapping. */
+export type JobAreaOption = { id: string; name: string }
+
+/** Free-text grid columns the user types into (array fields are edited via
+ *  dedicated handlers, not the generic string `updateCell`). */
+export type BulkTextField = "firstName" | "lastName" | "email" | "hireDate" | "roleId"
+
 /** One editable row in the bulk grid. `id` is a client-only React key. */
 export type BulkRow = {
   id: string
@@ -13,11 +21,20 @@ export type BulkRow = {
   email: string
   hireDate: string // yyyy-mm-dd
   roleId: string
+  /** Resolved job-area ids (manual selection or paste-matched). Max 4. */
+  jobAreaIds: string[]
+  /** Pasted area names that didn't match any facility area (validation error). */
+  jobAreaUnmatched?: string[]
+  /** Pasted area names that appeared more than once on this row (validation error). */
+  jobAreaDuplicates?: string[]
 }
 
 /** Field-keyed validation errors for a single row. */
 export type RowErrors = Partial<
-  Record<"firstName" | "lastName" | "email" | "hireDate" | "roleId", string>
+  Record<
+    "firstName" | "lastName" | "email" | "hireDate" | "roleId" | "jobAreas",
+    string
+  >
 >
 
 /** Serializable payload for one employee sent to the server action. */

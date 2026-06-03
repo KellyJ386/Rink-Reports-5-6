@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/server"
 
 import type { RoleRow } from "../types"
 import { BulkAddClient } from "./_components/bulk-add-client"
+import type { JobAreaOption } from "./types"
 
 export const dynamic = "force-dynamic"
 
@@ -43,19 +44,30 @@ export default async function BulkAddEmployeesPage({
   }
 
   const supabase = await createClient()
-  const [{ data: rolesRaw }, { data: emailRaw }] = await Promise.all([
-    supabase
-      .from("roles")
-      .select("id, facility_id, key, display_name, hierarchy_level, is_system")
-      .eq("facility_id", facilityId)
-      .order("hierarchy_level", { ascending: true }),
-    supabase.from("employees").select("email").eq("facility_id", facilityId),
-  ])
+  const [{ data: rolesRaw }, { data: emailRaw }, { data: jobAreasRaw }] =
+    await Promise.all([
+      supabase
+        .from("roles")
+        .select("id, facility_id, key, display_name, hierarchy_level, is_system")
+        .eq("facility_id", facilityId)
+        .order("hierarchy_level", { ascending: true }),
+      supabase.from("employees").select("email").eq("facility_id", facilityId),
+      // employee_job_areas isn't in the generated types yet (see CLAUDE.md);
+      // cast through any, matching the offline_sync_queue convention.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any)
+        .from("employee_job_areas")
+        .select("id, name")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+    ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
   const existingEmails = (emailRaw ?? [])
     .map((r) => (r.email as string | null)?.trim().toLowerCase())
     .filter((e): e is string => !!e)
+  const jobAreas = (jobAreasRaw ?? []) as JobAreaOption[]
 
   const backHref = profile?.is_super_admin
     ? `/admin/employees?facility=${facilityId}`
@@ -90,6 +102,7 @@ export default async function BulkAddEmployeesPage({
         facilityId={facilityId}
         roles={roles}
         existingEmails={existingEmails}
+        jobAreas={jobAreas}
       />
     </div>
   )

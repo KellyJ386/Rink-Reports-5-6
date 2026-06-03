@@ -5,7 +5,52 @@
 // authoritative gate. Never trust the client copy alone.
 
 import type { RoleRow } from "../../types"
-import type { BulkRow, RowErrors } from "../types"
+import type { BulkRow, JobAreaOption, RowErrors } from "../types"
+
+/** Delimiter for the single pasted "Job Areas" column (e.g. "Front Desk|Pro Shop"). */
+export const JOB_AREA_DELIMITER = "|"
+/** Hard cap, mirrors the DB constraint trigger + server-side check. */
+export const MAX_JOB_AREAS = 4
+
+/** Build a case-insensitive area-name → id lookup for this facility. */
+export function buildJobAreaLookup(areas: JobAreaOption[]): Map<string, string> {
+  const lookup = new Map<string, string>()
+  for (const a of areas) lookup.set(a.name.trim().toLowerCase(), a.id)
+  return lookup
+}
+
+/**
+ * Resolve a pipe-delimited list of area NAMES to facility area ids.
+ * Names that don't match are returned in `unmatched`; names appearing more
+ * than once (case-insensitive) in `duplicates`. We never auto-create areas.
+ */
+export function resolveJobAreaNames(
+  raw: string,
+  lookup: Map<string, string>
+): { ids: string[]; unmatched: string[]; duplicates: string[] } {
+  const tokens = raw
+    .split(JOB_AREA_DELIMITER)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+
+  const seen = new Set<string>()
+  const ids: string[] = []
+  const unmatched: string[] = []
+  const duplicates: string[] = []
+
+  for (const token of tokens) {
+    const key = token.toLowerCase()
+    if (seen.has(key)) {
+      duplicates.push(token)
+      continue
+    }
+    seen.add(key)
+    const id = lookup.get(key)
+    if (!id) unmatched.push(token)
+    else ids.push(id)
+  }
+  return { ids, unmatched, duplicates }
+}
 
 // Pragmatic email shape check. Mirrors what `<input type="email">` accepts
 // closely enough for a roster import; the real source of truth is delivery.
@@ -118,6 +163,19 @@ export function validateRow(row: BulkRow, ctx: ValidateContext): RowErrors {
   if (!row.roleId) errors.roleId = "Required"
   else if (!ctx.roleIds.has(row.roleId)) errors.roleId = "Unknown role"
 
+  // Job areas (optional). Surface paste-time problems first (clearest fix),
+  // then the cap. Matched ids are validated for facility ownership server-side.
+  const unmatched = row.jobAreaUnmatched ?? []
+  const duplicates = row.jobAreaDuplicates ?? []
+  const areaCount = (row.jobAreaIds ?? []).length
+  if (unmatched.length > 0) {
+    errors.jobAreas = `Unknown area: ${unmatched.join(", ")}`
+  } else if (duplicates.length > 0) {
+    errors.jobAreas = `Duplicate area: ${duplicates.join(", ")}`
+  } else if (areaCount > MAX_JOB_AREAS) {
+    errors.jobAreas = `Max ${MAX_JOB_AREAS} job areas`
+  }
+
   return errors
 }
 
@@ -155,6 +213,9 @@ const HEADER_CELLS = new Set([
   "hire date",
   "start date",
   "role",
+  "job areas",
+  "job area",
+  "areas",
 ])
 
 function splitCells(line: string): string[] {
@@ -170,17 +231,25 @@ function looksLikeHeader(cells: string[]): boolean {
 
 /**
  * Parse spreadsheet-pasted text into rows. Expected column order matches the
- * grid: First name, Last name, Email, Hire date, Role. Cells may be tab- or
- * comma-separated; the role cell is matched against each role's display name
- * or key (case-insensitive) and resolved to its id when possible. A leading
- * header row (e.g. from the CSV template) is detected and skipped.
+ * grid: First name, Last name, Email, Hire date, Role, Job areas. Cells may be
+ * tab- or comma-separated; the role cell is matched against each role's display
+ * name or key (case-insensitive). The optional "Job areas" cell is a single
+ * pipe-delimited list of area names (e.g. "Front Desk|Concessions"), resolved
+ * to facility area ids — unmatched / duplicate names are recorded on the row as
+ * validation errors. A leading header row (e.g. from the CSV template) is
+ * detected and skipped.
  */
-export function parsePastedRows(text: string, roles: RoleRow[]): BulkRow[] {
+export function parsePastedRows(
+  text: string,
+  roles: RoleRow[],
+  jobAreas: JobAreaOption[] = []
+): BulkRow[] {
   const roleLookup = new Map<string, string>()
   for (const r of roles) {
     roleLookup.set(r.display_name.trim().toLowerCase(), r.id)
     roleLookup.set(r.key.trim().toLowerCase(), r.id)
   }
+  const areaLookup = buildJobAreaLookup(jobAreas)
 
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
   const out: BulkRow[] = []
@@ -188,9 +257,16 @@ export function parsePastedRows(text: string, roles: RoleRow[]): BulkRow[] {
     const cells = splitCells(lines[i])
     // Skip a header row only if it's the first non-blank line.
     if (i === 0 && looksLikeHeader(cells)) continue
-    const [firstName = "", lastName = "", email = "", hireRaw = "", roleRaw = ""] =
-      cells
+    const [
+      firstName = "",
+      lastName = "",
+      email = "",
+      hireRaw = "",
+      roleRaw = "",
+      areasRaw = "",
+    ] = cells
     const normalizedDate = normalizeHireDate(hireRaw)
+    const { ids, unmatched, duplicates } = resolveJobAreaNames(areasRaw, areaLookup)
     out.push({
       id: pasteRowId(),
       firstName,
@@ -198,6 +274,9 @@ export function parsePastedRows(text: string, roles: RoleRow[]): BulkRow[] {
       email,
       hireDate: normalizedDate ?? hireRaw,
       roleId: roleLookup.get(roleRaw.toLowerCase()) ?? "",
+      jobAreaIds: ids,
+      jobAreaUnmatched: unmatched,
+      jobAreaDuplicates: duplicates,
     })
   }
   return out
