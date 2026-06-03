@@ -101,6 +101,82 @@ export async function createDepartment(
   }
 }
 
+export type DepartmentOption = {
+  id: string
+  name: string
+  slug: string
+  color: string | null
+  is_active: boolean
+}
+
+export type CreateDepartmentInlineResult =
+  | { ok: true; department: DepartmentOption }
+  | { ok: false; error: string }
+
+/**
+ * Create a department and return the created row, for the Scheduling Admin
+ * inline "+ New department" control (mirrors job-areas' createJobArea). New
+ * departments append to the end of the sort order and start active.
+ */
+export async function createDepartmentInline(args: {
+  name: string
+}): Promise<CreateDepartmentInlineResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const name = (args.name ?? "").trim()
+    if (!name) return { ok: false, error: "Name is required." }
+    const slug = slugify(name)
+    if (!SLUG_RE.test(slug)) {
+      return { ok: false, error: "Enter a name with letters or numbers." }
+    }
+
+    const supabase = await createClient()
+
+    // Append to the end of the current order.
+    const { data: last } = await supabase
+      .from("departments")
+      .select("sort_order")
+      .eq("facility_id", facility.facilityId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const sort_order = (last?.sort_order ?? 0) + 1
+
+    const { data, error } = await supabase
+      .from("departments")
+      .insert({
+        facility_id: facility.facilityId,
+        name,
+        slug,
+        sort_order,
+        is_active: true,
+      })
+      .select("id, name, slug, color, is_active")
+      .single()
+
+    if (error || !data) {
+      return { ok: false, error: dbError(error, "Failed to create department.") }
+    }
+    revalidatePath("/admin/departments")
+    revalidatePath("/admin/scheduling/shifts")
+    return {
+      ok: true,
+      department: {
+        id: data.id,
+        name: data.name,
+        slug: data.slug,
+        color: data.color,
+        is_active: data.is_active,
+      },
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
 export async function updateDepartment(
   _prev: ActionState,
   formData: FormData,
