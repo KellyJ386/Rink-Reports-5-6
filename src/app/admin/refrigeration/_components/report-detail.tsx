@@ -98,6 +98,20 @@ export function ReportDetail({ detail, backHref }: Props) {
                 ? `${employee.first_name} ${employee.last_name}`
                 : "Unknown"}
             </p>
+            {(() => {
+              // reading_at/shift/round_no added in migration 110; not in the
+              // generated types yet — cast matches the project's pattern.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const r = report as any
+              if (!r.reading_at) return null
+              return (
+                <p className="text-muted-foreground text-xs">
+                  Reading taken {fmt(r.reading_at)}
+                  {r.shift ? ` · ${r.shift}` : ""}
+                  {r.round_no != null ? ` · round ${r.round_no}` : ""}
+                </p>
+              )
+            })()}
           </div>
           <Button asChild variant="outline" size="sm">
             <Link href={backHref}>Back to list</Link>

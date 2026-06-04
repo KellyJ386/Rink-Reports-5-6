@@ -77,7 +77,13 @@ function parseFieldOptions(value: unknown): RefrigerationFieldOption[] {
 }
 
 function isFieldType(t: string): t is RefrigerationFieldType {
-  return t === "numeric" || t === "text" || t === "boolean" || t === "select"
+  return (
+    t === "numeric" ||
+    t === "text" ||
+    t === "boolean" ||
+    t === "select" ||
+    t === "computed"
+  )
 }
 
 export default async function RefrigerationHomePage() {
@@ -229,10 +235,10 @@ export default async function RefrigerationHomePage() {
 
   const thresholds = (thresholdsRaw ?? []) as Pick<
     RefrigerationThreshold,
-    "field_id" | "equipment_id" | "min_value" | "max_value"
+    "field_id" | "equipment_id" | "min_value" | "max_value" | "severity"
   >[]
 
-  // Same precedence as the server matcher (actions.ts lookupThreshold):
+  // Same precedence as the server matcher (_lib/submit lookupThreshold):
   // an equipment-specific threshold wins, otherwise the section-level one.
   function resolveRange(fieldId: string, equipmentId: string | null) {
     const t =
@@ -245,6 +251,9 @@ export default async function RefrigerationHomePage() {
     return {
       normalMin: t?.min_value ?? null,
       normalMax: t?.max_value ?? null,
+      // Surfaced so the form can require a corrective-action note when a
+      // critical-severity threshold is breached (server re-validates).
+      severity: (t?.severity ?? null) as "warn" | "high" | "critical" | null,
     }
   }
 
