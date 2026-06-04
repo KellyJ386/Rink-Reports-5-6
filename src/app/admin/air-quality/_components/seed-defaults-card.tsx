@@ -33,11 +33,12 @@ export function SeedDefaultsCard() {
       <CardHeader>
         <CardTitle>Get started</CardTitle>
         <CardDescription>
-          Seed the standard CO and CO2 reading types with their default
-          alert/compliance thresholds (CO alert 25 ppm / compliance 50 ppm; CO2
-          alert 1000 ppm / compliance 5000 ppm) plus a default settings row
-          (alerts on, default jurisdiction <code>us_federal</code>). Add your
-          own locations, equipment, and custom reading types after.
+          Seed the standard ice-rink reading types — CO, NO2, and CO2 — with
+          MN/NY-style thresholds (CO acceptable 20 ppm / evacuate above 83 ppm;
+          NO2 acceptable 0.3 ppm / evacuate above 2.0 ppm), a default settings
+          row (alerts on, jurisdiction <code>MN</code>), and the matching
+          MN compliance / required-action rules. Add your own locations,
+          equipment, and custom reading types after.
         </CardDescription>
       </CardHeader>
       <CardContent>

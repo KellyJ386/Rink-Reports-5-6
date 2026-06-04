@@ -1221,6 +1221,11 @@ export async function updateAirQualitySettings(
 // indexes on thresholds, plus settings is upserted on facility_id.
 // ============================================================================
 
+// MN/NY-style ice-rink defaults. The severity engine treats `alert_max` as the
+// exceedance (evacuation) cutoff and snapshots `compliance_max` as the
+// acceptable ceiling; `warn_max` drives the live "correction zone" badge on the
+// form (acceptable < value <= alert_max). CO is whole-ppm (decimals 0); NO2 is
+// reported to one decimal. CO2 is retained as an optional building-air metric.
 const DEFAULT_READING_TYPES: ReadonlyArray<{
   key: string
   label: string
@@ -1229,6 +1234,7 @@ const DEFAULT_READING_TYPES: ReadonlyArray<{
   is_required: boolean
   sort_order: number
   threshold: {
+    warn_max: number | null
     alert_max: number
     compliance_max: number
     severity: Severity
@@ -1238,19 +1244,87 @@ const DEFAULT_READING_TYPES: ReadonlyArray<{
     key: "co_ppm",
     label: "Carbon Monoxide (CO)",
     unit: "ppm",
-    decimals: 1,
+    decimals: 0,
     is_required: true,
     sort_order: 1,
-    threshold: { alert_max: 25, compliance_max: 50, severity: "high" },
+    threshold: {
+      warn_max: 20,
+      alert_max: 83,
+      compliance_max: 20,
+      severity: "critical",
+    },
+  },
+  {
+    key: "no2_ppm",
+    label: "Nitrogen Dioxide (NO2)",
+    unit: "ppm",
+    decimals: 1,
+    is_required: true,
+    sort_order: 2,
+    threshold: {
+      warn_max: 0.3,
+      alert_max: 2.0,
+      compliance_max: 0.3,
+      severity: "critical",
+    },
   },
   {
     key: "co2_ppm",
     label: "Carbon Dioxide (CO2)",
     unit: "ppm",
     decimals: 0,
-    is_required: true,
+    is_required: false,
+    sort_order: 3,
+    threshold: {
+      warn_max: 1000,
+      alert_max: 5000,
+      compliance_max: 1000,
+      severity: "warn",
+    },
+  },
+]
+
+// Human-readable required-action text seeded alongside the thresholds. Stored in
+// air_quality_compliance_rules; the report form shows the rules whose
+// `jurisdiction` matches the facility's settings.default_jurisdiction (MN below).
+// The sustained/consecutive evacuation logic that the banded thresholds can't
+// encode lives as structured JSON in a rule_body for a future engine pass.
+const DEFAULT_COMPLIANCE_JURISDICTION = "MN"
+
+const DEFAULT_COMPLIANCE_RULES: ReadonlyArray<{
+  rule_name: string
+  rule_body: string
+  sort_order: number
+}> = [
+  {
+    rule_name: "Acceptable air quality",
+    rule_body:
+      "CO <= 20 ppm and NO2 <= 0.3 ppm (one-hour average). Maintain whenever open to the public.",
+    sort_order: 1,
+  },
+  {
+    rule_name: "Correction (warn)",
+    rule_body:
+      "Any reading above acceptable: immediately increase ventilation; suspend internal-combustion equipment; retest every 20 min until acceptable; then test 20 min after each of the next 5 equipment uses; then >=1x/day for 3 days.",
     sort_order: 2,
-    threshold: { alert_max: 1000, compliance_max: 5000, severity: "warn" },
+  },
+  {
+    rule_name: "Evacuation (critical) — single sample",
+    rule_body:
+      "Evacuate immediately if CO > 83 ppm or NO2 > 2.0 ppm. Contact the local fire department; notify the state health department.",
+    sort_order: 3,
+  },
+  {
+    rule_name: "Evacuation (critical) — sustained [engine/v2]",
+    rule_body:
+      '{"sustained":[{"co":40,"minutes":60},{"co":20,"minutes":120},{"no2":0.6,"minutes":60},{"no2":0.3,"minutes":120}]}',
+    sort_order: 4,
+  },
+  {
+    rule_name: "Reoccupancy",
+    rule_body:
+      "Re-occupy only after acceptable readings are confirmed, corrective measures have been taken, and fire/health verification is complete.",
+    sort_order: 5,
   },
 ]
 
@@ -1327,6 +1401,7 @@ export async function seedDefaultAirQualityConfig(): Promise<SimpleResult> {
           facility_id: facility.facilityId,
           reading_type_id: readingTypeId,
           location_id: null,
+          warn_max: rt.threshold.warn_max,
           alert_max: rt.threshold.alert_max,
           compliance_max: rt.threshold.compliance_max,
           severity: rt.threshold.severity,
@@ -1345,13 +1420,46 @@ export async function seedDefaultAirQualityConfig(): Promise<SimpleResult> {
       {
         facility_id: facility.facilityId,
         alerts_enabled: true,
-        default_jurisdiction: "us_federal",
+        default_jurisdiction: DEFAULT_COMPLIANCE_JURISDICTION,
         default_alert_severity: "warn",
       },
       { onConflict: "facility_id", ignoreDuplicates: true },
     )
     if (setErr) {
       return { ok: false, error: dbError(setErr, "Failed to seed settings.") }
+    }
+
+    // 5) Compliance rules — only seed if the facility has none yet, so an
+    // admin's own edits are never clobbered on a re-seed.
+    const { data: existingRules, error: ruleCheckErr } = await supabase
+      .from("air_quality_compliance_rules")
+      .select("id")
+      .eq("facility_id", facility.facilityId)
+      .limit(1)
+    if (ruleCheckErr) {
+      return {
+        ok: false,
+        error: dbError(ruleCheckErr, "Failed to check compliance rules."),
+      }
+    }
+    if (!existingRules || existingRules.length === 0) {
+      const ruleRows = DEFAULT_COMPLIANCE_RULES.map((r) => ({
+        facility_id: facility.facilityId,
+        jurisdiction: DEFAULT_COMPLIANCE_JURISDICTION,
+        rule_name: r.rule_name,
+        rule_body: r.rule_body,
+        sort_order: r.sort_order,
+        is_active: true,
+      }))
+      const { error: ruleErr } = await supabase
+        .from("air_quality_compliance_rules")
+        .insert(ruleRows)
+      if (ruleErr) {
+        return {
+          ok: false,
+          error: dbError(ruleErr, "Failed to seed compliance rules."),
+        }
+      }
     }
 
     revalidatePath("/admin/air-quality")

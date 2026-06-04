@@ -101,8 +101,24 @@ export function HistoryTab({
     return <ReportDetail detail={detail} backHref={backHref} />
   }
 
+  const logHref = (() => {
+    const sp = new URLSearchParams()
+    if (params.from) sp.set("from", params.from)
+    if (params.to) sp.set("to", params.to)
+    const qs = sp.toString()
+    return qs ? `/admin/air-quality/log?${qs}` : "/admin/air-quality/log"
+  })()
+
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <Link
+          href={logHref}
+          className="text-primary text-sm font-medium underline"
+        >
+          Printable monitoring log →
+        </Link>
+      </div>
       <HistoryFilters
         employees={employees}
         locations={locations}

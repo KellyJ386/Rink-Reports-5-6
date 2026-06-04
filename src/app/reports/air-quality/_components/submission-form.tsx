@@ -4,8 +4,10 @@ import {
   useActionState,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
+  type FormEvent,
   type ReactNode,
   type SetStateAction,
 } from "react"
@@ -15,9 +17,11 @@ import { toast } from "sonner"
 import { FormError } from "@/components/auth/form-error"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import {
   Select,
   SelectContent,
@@ -59,6 +63,13 @@ type Props = {
 }
 
 const initialState: SubmissionFormState = {}
+
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `aq-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 type RangeBadge = "ok" | "warn" | "alert" | "none"
 
@@ -114,6 +125,11 @@ export function SubmissionForm({
     initialState
   )
 
+  const { isOnline } = useSyncQueue()
+  const formRef = useRef<HTMLFormElement>(null)
+  const [localId] = useState<string>(genLocalId)
+  const [queued, setQueued] = useState(false)
+
   const [values, setValues] = useState<Record<string, string>>({})
   const [equipmentId, setEquipmentId] = useState<string>(
     equipment[0]?.id ?? ""
@@ -164,7 +180,7 @@ export function SubmissionForm({
     return true
   }, [sortedReadingTypes, parsedByType])
 
-  const readingsJson = useMemo(() => {
+  const readingsArray = useMemo(() => {
     const rows: SubmittedReading[] = []
     for (const rt of sortedReadingTypes) {
       const v = parsedByType.get(rt.id)
@@ -172,11 +188,84 @@ export function SubmissionForm({
         rows.push({ reading_type_id: rt.id, value: v })
       }
     }
-    return JSON.stringify(rows)
+    return rows
   }, [sortedReadingTypes, parsedByType])
 
+  const readingsJson = useMemo(
+    () => JSON.stringify(readingsArray),
+    [readingsArray]
+  )
+
+  function buildPayload(): Record<string, unknown> {
+    return {
+      location_id: locationId,
+      equipment_id: equipmentId || null,
+      notes: notes.trim() || null,
+      readings: readingsArray,
+      form_data: formData,
+    }
+  }
+
+  // Offline submit: queue in the service worker; it replays to /api/offline-sync
+  // (which runs the same severity engine) once back online. If the SW isn't
+  // controlling the page yet, fall through to the normal action so the network
+  // error surfaces instead of silently dropping the report.
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const ok = enqueueSubmission({
+        localId,
+        moduleKey: "air_quality",
+        action: "submit",
+        payload: buildPayload(),
+      })
+      if (ok) {
+        e.preventDefault()
+        setQueued(true)
+      }
+    }
+  }
+
+  if (queued) {
+    return (
+      <Card className="gap-4 py-8">
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
+          <div
+            aria-hidden
+            className="bg-primary/10 text-primary flex h-14 w-14 items-center justify-center rounded-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-7 w-7"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Saved on this device
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            You&apos;re offline, so these readings are queued and will submit
+            automatically once you&apos;re back online — the same exceedance
+            checks run then. You can keep working.
+          </p>
+        </div>
+      </Card>
+    )
+  }
+
   return (
-    <form action={formAction} className="flex flex-col gap-5">
+    <form
+      ref={formRef}
+      action={formAction}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
       <FormError message={state.error} />
 
       {complianceRules.length > 0 ? (
@@ -335,7 +424,11 @@ export function SubmissionForm({
       <input type="hidden" name="readings_json" value={readingsJson} />
       <input type="hidden" name="form_data" value={formDataJson} />
 
-      <SubmitBar disabled={!allRequiredFilled} locationName={locationName} />
+      <SubmitBar
+        disabled={!allRequiredFilled}
+        locationName={locationName}
+        isOnline={isOnline}
+      />
     </form>
   )
 }
@@ -1017,11 +1110,16 @@ function RangeBadgePill({ badge }: { badge: Exclude<RangeBadge, "none"> }) {
 function SubmitBar({
   disabled,
   locationName,
+  isOnline,
 }: {
   disabled: boolean
   locationName: string
+  isOnline: boolean
 }) {
   const { pending } = useFormStatus()
+  const submitLabel = isOnline
+    ? `Submit readings for ${locationName}`
+    : "Save offline"
   return (
     <div className="flex flex-col gap-2">
       <Button
@@ -1030,11 +1128,17 @@ function SubmitBar({
         disabled={pending || disabled}
         className="h-12 w-full text-base"
       >
-        {pending ? "Submitting…" : `Submit readings for ${locationName}`}
+        {pending ? "Submitting…" : submitLabel}
       </Button>
       {disabled && !pending ? (
         <p className="text-center text-xs text-muted-foreground">
           Fill in every required reading to submit.
+        </p>
+      ) : null}
+      {!isOnline && !disabled ? (
+        <p className="text-muted-foreground text-center text-xs">
+          You&apos;re offline. These readings will be saved on your device and
+          submitted automatically when you reconnect.
         </p>
       ) : null}
     </div>
