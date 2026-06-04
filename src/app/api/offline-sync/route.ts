@@ -16,6 +16,7 @@ import {
   persistRefrigeration,
   prepareRows as prepareRefrigerationRows,
 } from "@/app/reports/refrigeration/_lib/submit"
+import {
   buildInputFromPayload as buildAirQualityInput,
   persistAirQuality,
 } from "@/app/reports/air-quality/_lib/submit"
@@ -93,6 +94,16 @@ export async function POST(request: NextRequest) {
 
   if (moduleKey === "refrigeration") {
     return handleRefrigerationReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
   if (moduleKey === "air_quality") {
     return handleAirQualityReplay({
       supabase,
@@ -221,7 +232,6 @@ async function handleIncidentReplay({
 }
 
 type RefrigerationReplayArgs = {
-type AirQualityReplayArgs = {
   supabase: Awaited<ReturnType<typeof createClient>>
   localId: string
   action: string
@@ -239,12 +249,6 @@ type AirQualityReplayArgs = {
  * the service worker marks it failed — mirroring the online server action.
  */
 async function handleRefrigerationReplay({
- * Replay a queued air-quality submission into the real tables. Idempotent via
- * the `offline_sync_queue.local_id` claim token, mirroring the incident path:
- * the same severity engine runs, so an offline reading lands the same
- * exceedance/severity rollup as an online one.
- */
-async function handleAirQualityReplay({
   supabase,
   localId,
   action,
@@ -254,8 +258,6 @@ async function handleAirQualityReplay({
   employeeId,
 }: RefrigerationReplayArgs): Promise<NextResponse> {
   const input = buildRefrigerationInput(payload)
-}: AirQualityReplayArgs): Promise<NextResponse> {
-  const input = buildAirQualityInput(payload)
   if (!input) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
   }
@@ -276,12 +278,6 @@ async function handleAirQualityReplay({
   }
 
   // Claim the queue slot (idempotency token). No rows ⇒ already processed.
-  if (!(await currentUserCan(supabase, "air_quality", "submit"))) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-
-  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
-  // local_id returns no rows → the submission was already processed.
   const { data: claimRows, error: claimErr } = await supabase
     .from("offline_sync_queue")
     .upsert(
@@ -290,7 +286,6 @@ async function handleAirQualityReplay({
         facility_id: facilityId,
         employee_id: employeeId,
         module_key: "refrigeration",
-        module_key: "air_quality",
         action,
         payload: payload as Json,
         sync_status: "pending",
@@ -308,6 +303,85 @@ async function handleAirQualityReplay({
   }
 
   const result = await persistRefrigeration(supabase, {
+    employeeId,
+    facilityId,
+    input,
+  })
+
+  if (!result.ok) {
+    // Release the claim so a future retry re-attempts the persist.
+    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    return NextResponse.json({ error: result.error }, { status: 500 })
+  }
+
+  await supabase
+    .from("offline_sync_queue")
+    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
+    .eq("local_id", localId)
+
+  return NextResponse.json({ ok: true, reportId: result.reportId })
+}
+
+type AirQualityReplayArgs = {
+  supabase: Awaited<ReturnType<typeof createClient>>
+  localId: string
+  action: string
+  payload: Record<string, unknown>
+  startedAtIso: string
+  facilityId: string
+  employeeId: string
+}
+
+/**
+ * Replay a queued air-quality submission into the real tables. Idempotent via
+ * the `offline_sync_queue.local_id` claim token, mirroring the incident path:
+ * the same severity engine runs, so an offline reading lands the same
+ * exceedance/severity rollup as an online one.
+ */
+async function handleAirQualityReplay({
+  supabase,
+  localId,
+  action,
+  payload,
+  startedAtIso,
+  facilityId,
+  employeeId,
+}: AirQualityReplayArgs): Promise<NextResponse> {
+  const input = buildAirQualityInput(payload)
+  if (!input) {
+    return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
+  }
+
+  if (!(await currentUserCan(supabase, "air_quality", "submit"))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
+  // local_id returns no rows → the submission was already processed.
+  const { data: claimRows, error: claimErr } = await supabase
+    .from("offline_sync_queue")
+    .upsert(
+      {
+        local_id: localId,
+        facility_id: facilityId,
+        employee_id: employeeId,
+        module_key: "air_quality",
+        action,
+        payload: payload as Json,
+        sync_status: "pending",
+        started_at: startedAtIso,
+      },
+      { onConflict: "local_id", ignoreDuplicates: true }
+    )
+    .select("local_id")
+
+  if (claimErr) {
+    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  }
+  if (!claimRows || claimRows.length === 0) {
+    return NextResponse.json({ ok: true, duplicate: true })
+  }
+
   const result = await persistAirQuality(supabase, {
     employeeId,
     facilityId,
