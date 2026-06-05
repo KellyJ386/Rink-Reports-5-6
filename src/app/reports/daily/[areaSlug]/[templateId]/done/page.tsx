@@ -9,11 +9,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-type Params = {
-  areaSlug: string
-  templateId: string
-}
-
 type SearchParams = {
   id?: string | string[]
 }
@@ -31,14 +26,11 @@ function formatTimestamp(iso: string, timezone: string | null): string {
 }
 
 export default async function DailyReportDonePage({
-  params,
   searchParams,
 }: {
-  params: Promise<Params>
   searchParams: Promise<SearchParams>
 }) {
   await requireUser()
-  const { areaSlug } = await params
   const sp = await searchParams
   const idParam = Array.isArray(sp.id) ? sp.id[0] : sp.id
 
@@ -122,7 +114,7 @@ export default async function DailyReportDonePage({
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <Button asChild size="lg" className="h-12 w-full text-base sm:flex-1">
-          <Link href={`/reports/daily/${areaSlug}`}>Submit another</Link>
+          <Link href="/reports/daily">Submit another</Link>
         </Button>
         <SignOutButton className="sm:flex-1" />
       </div>
