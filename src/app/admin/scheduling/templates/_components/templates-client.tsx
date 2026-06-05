@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { DAY_NAMES, DAY_SHORT } from "../../_lib/datetime"
 import type {
   DepartmentLite,
+  JobAreaLite,
   TemplateRow,
   TemplateShiftRow,
 } from "../../_lib/types"
@@ -24,6 +25,7 @@ import { toast } from "sonner"
 type Props = {
   templates: TemplateRow[]
   departments: DepartmentLite[]
+  jobAreas: JobAreaLite[]
   selected: TemplateRow | null
   selectedShifts: TemplateShiftRow[]
 }
@@ -230,6 +232,7 @@ export function TemplatesClient(props: Props) {
                 <TemplateShiftForm
                   templateId={props.selected.id}
                   departments={props.departments}
+                  jobAreas={props.jobAreas}
                   editing={null}
                   onClose={() => setEditingShiftId(null)}
                   onSaved={onShiftSaved}
@@ -240,6 +243,7 @@ export function TemplatesClient(props: Props) {
                 <TemplateShiftForm
                   templateId={props.selected.id}
                   departments={props.departments}
+                  jobAreas={props.jobAreas}
                   editing={selectedShift}
                   onClose={() => setEditingShiftId(null)}
                   onSaved={onShiftSaved}

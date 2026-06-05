@@ -250,3 +250,71 @@ export async function deleteJobArea(id: string): Promise<SimpleResult> {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Per-job-area certification requirements (job_area_certification_requirements)
+// Enforced at assignment time by scheduling_assignment_violations().
+// ---------------------------------------------------------------------------
+
+const MAX_CERT_NAME = 200
+
+/** Add a required certification (by name) to a job area. */
+export async function addJobAreaCertRequirement(args: {
+  jobAreaId: string
+  certName: string
+}): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacilityId(null)
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const jobAreaId = (args.jobAreaId ?? "").trim()
+    const certName = (args.certName ?? "").trim()
+    if (!jobAreaId) return { ok: false, error: "Missing job area." }
+    if (!certName) return { ok: false, error: "Enter a certification name." }
+    if (certName.length > MAX_CERT_NAME) {
+      return { ok: false, error: `Name is too long (max ${MAX_CERT_NAME}).` }
+    }
+
+    const supabase = (await createClient()) as AnySupabase
+    const { error } = await supabase
+      .from("job_area_certification_requirements")
+      .insert({
+        facility_id: facility.facilityId,
+        job_area_id: jobAreaId,
+        cert_name: certName,
+        is_active: true,
+      })
+    if (error) {
+      if (error.code === "23505") {
+        return { ok: false, error: "That certification is already required here." }
+      }
+      return { ok: false, error: dbError(error, "Failed to add requirement.") }
+    }
+    revalidate()
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/** Remove a certification requirement by id. */
+export async function removeJobAreaCertRequirement(
+  id: string
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    if (!id) return { ok: false, error: "Missing requirement id." }
+    const supabase = (await createClient()) as AnySupabase
+    const { error } = await supabase
+      .from("job_area_certification_requirements")
+      .delete()
+      .eq("id", id)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to remove requirement.") }
+    }
+    revalidate()
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}

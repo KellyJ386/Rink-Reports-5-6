@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/server"
 
 import type {
   DepartmentLite,
+  JobAreaLite,
   TemplateRow,
   TemplateShiftRow,
 } from "../_lib/types"
@@ -20,6 +21,10 @@ import type {
 import { TemplatesClient } from "./_components/templates-client"
 
 export const dynamic = "force-dynamic"
+
+// employee_job_areas isn't in the generated DB types yet (see CLAUDE.md).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any
 
 type SearchParams = Promise<{ template?: string }>
 
@@ -58,7 +63,7 @@ export default async function TemplatesPage({
 
   const supabase = await createClient()
 
-  const [templatesRes, deptsRes] = await Promise.all([
+  const [templatesRes, deptsRes, jobAreasRes] = await Promise.all([
     supabase
       .from("schedule_templates")
       .select("*")
@@ -69,10 +74,17 @@ export default async function TemplatesPage({
       .select("id, name, slug, color, is_active")
       .eq("facility_id", facilityId)
       .order("sort_order", { ascending: true }),
+    (supabase as AnySupabase)
+      .from("employee_job_areas")
+      .select("id, name, slug, is_active")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
   ])
 
   const templates = (templatesRes.data ?? []) as TemplateRow[]
   const departments = (deptsRes.data ?? []) as DepartmentLite[]
+  const jobAreas = (jobAreasRes.data ?? []) as JobAreaLite[]
 
   let selectedShifts: TemplateShiftRow[] = []
   const selected = params.template
@@ -95,6 +107,7 @@ export default async function TemplatesPage({
       <TemplatesClient
         templates={templates}
         departments={departments}
+        jobAreas={jobAreas}
         selected={selected}
         selectedShifts={selectedShifts}
       />

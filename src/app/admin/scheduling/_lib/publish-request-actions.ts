@@ -5,7 +5,13 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { checkAssignmentViolations } from "./enforcement"
 import type { ActionState } from "./types"
+
+// New schedule_shifts.job_area_id + the violations RPC aren't in the generated
+// DB types yet (see CLAUDE.md); cast through `any` at those sites.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any
 
 // ---------------------------------------------------------------------------
 // Shared admin context
@@ -116,7 +122,7 @@ export async function approveAndPublishRequest(
   if (!ctx.ok) return { ok: false, error: ctx.error }
   if (!requestId) return { ok: false, error: "Request id required." }
 
-  const supabase = await createClient()
+  const supabase = (await createClient()) as AnySupabase
 
   const { data: reqRaw, error: reqErr } = await supabase
     .from("schedule_publish_requests")
@@ -145,7 +151,7 @@ export async function approveAndPublishRequest(
   // -- publish side effects (mirror publishShiftsInRange) --
   const { data: draftsRaw, error: selErr } = await supabase
     .from("schedule_shifts")
-    .select("id, employee_id")
+    .select("id, employee_id, starts_at, ends_at, break_minutes, job_area_id")
     .eq("facility_id", ctx.facilityId)
     .eq("status", "draft")
     .gte("starts_at", request.range_starts_at)
@@ -155,11 +161,39 @@ export async function approveAndPublishRequest(
   const drafts = (draftsRaw ?? []) as Array<{
     id: string
     employee_id: string | null
+    starts_at: string
+    ends_at: string
+    break_minutes: number | null
+    job_area_id: string | null
   }>
   if (drafts.length === 0) {
     return {
       ok: false,
       error: "No draft shifts remain in range. Reject this request instead.",
+    }
+  }
+
+  // Hard block: re-validate every assigned draft before publishing. A shift may
+  // have become non-compliant (new time-off, availability, etc.) since it was
+  // drafted; publishing such a schedule is refused.
+  let blockedCount = 0
+  for (const d of drafts) {
+    if (!d.employee_id) continue
+    const codes = await checkAssignmentViolations(supabase, {
+      facilityId: ctx.facilityId,
+      employeeId: d.employee_id,
+      startsAt: d.starts_at,
+      endsAt: d.ends_at,
+      breakMinutes: d.break_minutes,
+      jobAreaId: d.job_area_id,
+      excludeShiftId: d.id,
+    })
+    if (codes.length > 0) blockedCount += 1
+  }
+  if (blockedCount > 0) {
+    return {
+      ok: false,
+      error: `Cannot publish: ${blockedCount} assigned shift${blockedCount === 1 ? "" : "s"} in this range now violate a scheduling rule. Resolve them (reassign, adjust time-off/availability, or fix the shift) and try again.`,
     }
   }
 
@@ -188,7 +222,7 @@ export async function approveAndPublishRequest(
       shift_count: drafts.length,
     })
     .select("id")
-    .maybeSingle<{ id: string }>()
+    .maybeSingle()
 
   if (eventErr) {
     // Shifts were already moved; surface the error but don't roll back.
@@ -201,7 +235,8 @@ export async function approveAndPublishRequest(
   // Per-employee notifications.
   const recipients = drafts
     .filter(
-      (d): d is { id: string; employee_id: string } => d.employee_id !== null,
+      (d): d is (typeof drafts)[number] & { employee_id: string } =>
+        d.employee_id !== null,
     )
     .map((d) => ({
       facility_id: ctx.facilityId,

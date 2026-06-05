@@ -72,6 +72,17 @@ export function SettingsForm({ settings }: { settings: Settings }) {
   const [notifyOnOvertime, setNotifyOnOvertime] = useState<boolean>(
     settings.notify_on_overtime
   )
+  // New columns (migration 117) aren't in the generated Settings type yet.
+  const [availabilitySubmissionEnabled, setAvailabilitySubmissionEnabled] =
+    useState<boolean>(
+      (settings as { availability_submission_enabled?: boolean })
+        .availability_submission_enabled ?? true
+    )
+  const [requireJobAreaQualification, setRequireJobAreaQualification] =
+    useState<boolean>(
+      (settings as { require_job_area_qualification?: boolean })
+        .require_job_area_qualification ?? false
+    )
   const [pending, startTransition] = useTransition()
 
   function submit() {
@@ -92,6 +103,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         open_shift_first_come: openShiftFirstCome,
         notify_on_publish: notifyOnPublish,
         notify_on_overtime: notifyOnOvertime,
+        availability_submission_enabled: availabilitySubmissionEnabled,
+        require_job_area_qualification: requireJobAreaQualification,
       })
       if (r.ok === true) toast.success(r.message ?? "Saved.")
       else if (r.ok === false) toast.error(r.error)
@@ -185,6 +198,16 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           label="Notify on overtime warnings"
           value={notifyOnOvertime}
           onChange={setNotifyOnOvertime}
+        />
+        <ToggleField
+          label="Allow staff to submit weekly availability"
+          value={availabilitySubmissionEnabled}
+          onChange={setAvailabilitySubmissionEnabled}
+        />
+        <ToggleField
+          label="Require employees to be assigned to a shift's job area"
+          value={requireJobAreaQualification}
+          onChange={setRequireJobAreaQualification}
         />
       </div>
 

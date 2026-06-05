@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { assertAssignable } from "./enforcement"
 import type {
   ActionState,
   CreateShiftInput,
@@ -17,6 +18,12 @@ import type {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// New columns (schedule_shifts.job_area_id) and the assignment-violations RPC
+// aren't in the generated DB types yet (see CLAUDE.md); cast through `any` at
+// those call sites, matching the employee_job_areas convention.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -222,6 +229,7 @@ function parseShiftInput(
     ok: true,
     value: {
       department_id,
+      job_area_id: nonEmpty(formData.get("job_area_id")),
       employee_id,
       starts_at,
       ends_at,
@@ -260,10 +268,26 @@ export async function createShift(
       null
     )
 
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
+
+    // Hard block: refuse to create a shift that violates an active rule,
+    // availability, approved time-off, double-booking, qualification, or a
+    // required certification.
+    const gate = await assertAssignable(supabase, {
+      facilityId: ctx.facilityId,
+      employeeId: input.employee_id,
+      startsAt: input.starts_at,
+      endsAt: input.ends_at,
+      breakMinutes: input.break_minutes,
+      jobAreaId: input.job_area_id,
+      excludeShiftId: null,
+    })
+    if (!gate.ok) return { ok: false, error: gate.error }
+
     const { error } = await supabase.from("schedule_shifts").insert({
       facility_id: ctx.facilityId,
       department_id: input.department_id,
+      job_area_id: input.job_area_id,
       employee_id: input.employee_id,
       starts_at: input.starts_at,
       ends_at: input.ends_at,
@@ -315,11 +339,25 @@ export async function updateShift(
       id
     )
 
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
+
+    // Hard block (exclude this shift from its own weekly-hours total).
+    const gate = await assertAssignable(supabase, {
+      facilityId: ctx.facilityId,
+      employeeId: input.employee_id,
+      startsAt: input.starts_at,
+      endsAt: input.ends_at,
+      breakMinutes: input.break_minutes,
+      jobAreaId: input.job_area_id,
+      excludeShiftId: id,
+    })
+    if (!gate.ok) return { ok: false, error: gate.error }
+
     const { error } = await supabase
       .from("schedule_shifts")
       .update({
         department_id: input.department_id,
+        job_area_id: input.job_area_id,
         employee_id: input.employee_id,
         starts_at: input.starts_at,
         ends_at: input.ends_at,
@@ -382,13 +420,13 @@ export async function assignOpenShift(
     if (!openShiftId) return { ok: false, error: "Missing open shift id." }
     if (!employeeId) return { ok: false, error: "Pick an employee." }
 
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
     const { data: openRow, error: openErr } = await supabase
       .from("schedule_open_shifts")
       .select("id, shift_id, claim_status")
       .eq("id", openShiftId)
       .eq("facility_id", ctx.facilityId)
-      .maybeSingle<{ id: string; shift_id: string; claim_status: string }>()
+      .maybeSingle()
     if (openErr) {
       return { ok: false, error: dbError(openErr, "Failed to load open shift.") }
     }
@@ -396,6 +434,28 @@ export async function assignOpenShift(
     if (openRow.claim_status !== "open" && openRow.claim_status !== "claimed") {
       return { ok: false, error: "Open shift is no longer available." }
     }
+
+    // Load the parent shift so we can hard-block an ineligible assignment.
+    const { data: shiftRow, error: shiftSelErr } = await supabase
+      .from("schedule_shifts")
+      .select("id, starts_at, ends_at, break_minutes, job_area_id")
+      .eq("id", openRow.shift_id)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (shiftSelErr || !shiftRow) {
+      return { ok: false, error: dbError(shiftSelErr, "Failed to load shift.") }
+    }
+
+    const gate = await assertAssignable(supabase, {
+      facilityId: ctx.facilityId,
+      employeeId,
+      startsAt: shiftRow.starts_at,
+      endsAt: shiftRow.ends_at,
+      breakMinutes: shiftRow.break_minutes,
+      jobAreaId: shiftRow.job_area_id,
+      excludeShiftId: shiftRow.id,
+    })
+    if (!gate.ok) return { ok: false, error: gate.error }
 
     const nowIso = new Date().toISOString()
     const { error: shiftErr } = await supabase
@@ -622,6 +682,7 @@ function parseTemplateShiftInput(
     value: {
       template_id,
       department_id,
+      job_area_id: nonEmpty(formData.get("job_area_id")),
       day_of_week: dowRaw,
       start_time,
       end_time,
@@ -642,11 +703,12 @@ export async function createTemplateShift(
     const parsed = parseTemplateShiftInput(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
     const { error } = await supabase.from("schedule_template_shifts").insert({
       facility_id: ctx.facilityId,
       template_id: input.template_id,
       department_id: input.department_id,
+      job_area_id: input.job_area_id,
       day_of_week: input.day_of_week,
       start_time: input.start_time,
       end_time: input.end_time,
@@ -679,11 +741,12 @@ export async function updateTemplateShift(
     const parsed = parseTemplateShiftInput(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
     const { error } = await supabase
       .from("schedule_template_shifts")
       .update({
         department_id: input.department_id,
+        job_area_id: input.job_area_id,
         day_of_week: input.day_of_week,
         start_time: input.start_time,
         end_time: input.end_time,
@@ -769,11 +832,11 @@ export async function applyTemplateToWeek(
       Date.UTC(ws.getUTCFullYear(), ws.getUTCMonth(), ws.getUTCDate())
     )
 
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
       .select(
-        "id, department_id, day_of_week, start_time, end_time, break_minutes, role_label, staff_count"
+        "id, department_id, job_area_id, day_of_week, start_time, end_time, break_minutes, role_label, staff_count"
       )
       .eq("template_id", templateId)
       .eq("facility_id", ctx.facilityId)
@@ -785,6 +848,7 @@ export async function applyTemplateToWeek(
     const slots = (slotsRaw ?? []) as Array<{
       id: string
       department_id: string
+      job_area_id: string | null
       day_of_week: number
       start_time: string
       end_time: string
@@ -800,6 +864,7 @@ export async function applyTemplateToWeek(
     const rows: Array<{
       facility_id: string
       department_id: string
+      job_area_id: string | null
       employee_id: null
       starts_at: string
       ends_at: string
@@ -824,6 +889,7 @@ export async function applyTemplateToWeek(
         rows.push({
           facility_id: ctx.facilityId,
           department_id: slot.department_id,
+          job_area_id: slot.job_area_id,
           employee_id: null,
           starts_at,
           ends_at,

@@ -24,14 +24,19 @@ import { DAY_NAMES } from "../../_lib/datetime"
 import type {
   ActionState,
   DepartmentLite,
+  JobAreaLite,
   TemplateShiftRow,
 } from "../../_lib/types"
 
 const INITIAL_STATE: ActionState = { ok: null }
 
+// Sentinel for "no job area" — Radix Select disallows an empty-string value.
+const NO_JOB_AREA = "__none__"
+
 type Props = {
   templateId: string
   departments: DepartmentLite[]
+  jobAreas: JobAreaLite[]
   editing: TemplateShiftRow | null
   onClose: () => void
   onSaved: () => void
@@ -50,6 +55,10 @@ export function TemplateShiftForm(props: Props) {
   )
   const [deletePending, startDelete] = useTransition()
   const [departmentId, setDepartmentId] = useState(editing?.department_id ?? "")
+  const [jobAreaId, setJobAreaId] = useState(
+    (editing as { job_area_id?: string | null } | null)?.job_area_id ??
+      NO_JOB_AREA
+  )
   const [dayOfWeek, setDayOfWeek] = useState(
     editing ? String(editing.day_of_week) : "1",
   )
@@ -163,13 +172,36 @@ export function TemplateShiftForm(props: Props) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="ts_role">Role label</Label>
-        <Input
-          id="ts_role"
-          name="role_label"
-          defaultValue={editing?.role_label ?? ""}
-        />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ts_job_area">Job area (role)</Label>
+          <input
+            type="hidden"
+            name="job_area_id"
+            value={jobAreaId === NO_JOB_AREA ? "" : jobAreaId}
+          />
+          <Select value={jobAreaId} onValueChange={(v) => setJobAreaId(v)}>
+            <SelectTrigger id="ts_job_area">
+              <SelectValue placeholder="Select job area…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_JOB_AREA}>None</SelectItem>
+              {props.jobAreas.map((j) => (
+                <SelectItem key={j.id} value={j.id}>
+                  {j.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ts_role">Role note (optional)</Label>
+          <Input
+            id="ts_role"
+            name="role_label"
+            defaultValue={editing?.role_label ?? ""}
+          />
+        </div>
       </div>
 
       {errorMsg && (

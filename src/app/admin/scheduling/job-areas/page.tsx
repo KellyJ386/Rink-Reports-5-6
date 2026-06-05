@@ -11,7 +11,11 @@ import {
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
-import { JobAreasClient, type JobAreaRow } from "./_components/job-areas-client"
+import {
+  JobAreasClient,
+  type CertRequirementRow,
+  type JobAreaRow,
+} from "./_components/job-areas-client"
 
 export const dynamic = "force-dynamic"
 
@@ -43,20 +47,35 @@ export default async function JobAreasPage() {
   }
 
   const supabase = await createClient()
-  // employee_job_areas isn't in the generated types yet (see CLAUDE.md).
+  // employee_job_areas / job_area_certification_requirements aren't in the
+  // generated types yet (see CLAUDE.md).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any)
-    .from("employee_job_areas")
-    .select("id, name, is_active, sort_order")
-    .eq("facility_id", facilityId)
-    .order("sort_order", { ascending: true })
+  const sb = supabase as any
+  const [{ data }, { data: reqData }] = await Promise.all([
+    sb
+      .from("employee_job_areas")
+      .select("id, name, is_active, sort_order")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true }),
+    sb
+      .from("job_area_certification_requirements")
+      .select("id, job_area_id, cert_name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("cert_name", { ascending: true }),
+  ])
 
   const areas = (data ?? []) as JobAreaRow[]
+  const requirements = (reqData ?? []) as CertRequirementRow[]
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <Header />
-      <JobAreasClient facilityId={facilityId} initialAreas={areas} />
+      <JobAreasClient
+        facilityId={facilityId}
+        initialAreas={areas}
+        initialRequirements={requirements}
+      />
     </div>
   )
 }

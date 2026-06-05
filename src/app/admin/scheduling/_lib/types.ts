@@ -30,9 +30,20 @@ export type DepartmentLite = {
   is_active: boolean
 }
 
+export type JobAreaLite = {
+  id: string
+  name: string
+  slug: string
+  is_active: boolean
+}
+
 export type ShiftWithRefs = ShiftRow & {
+  // job_area_id isn't in the generated ShiftRow type yet (added by migration
+  // 115); declare it here so components can read it type-safely.
+  job_area_id: string | null
   employee: EmployeeLite | null
   department: DepartmentLite | null
+  job_area: JobAreaLite | null
 }
 
 export const SHIFT_STATUSES = ["draft", "published", "cancelled"] as const
@@ -58,6 +69,7 @@ export type SimpleResult = { ok: true } | { ok: false; error: string }
 
 export type CreateShiftInput = {
   department_id: string
+  job_area_id: string | null
   employee_id: string | null
   starts_at: string // ISO
   ends_at: string // ISO
@@ -79,6 +91,7 @@ export type CreateTemplateInput = {
 export type CreateTemplateShiftInput = {
   template_id: string
   department_id: string
+  job_area_id: string | null
   day_of_week: number
   start_time: string // HH:MM[:SS]
   end_time: string // HH:MM[:SS]
