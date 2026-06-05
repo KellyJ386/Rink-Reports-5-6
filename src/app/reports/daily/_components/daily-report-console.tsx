@@ -77,9 +77,25 @@ function formatTime(d: Date): string {
   })
 }
 
+// Live clock via useSyncExternalStore. The snapshot must be CACHED — returning a
+// fresh Date.now() on every getSnapshot call makes the store look perpetually
+// changed and sends React into an infinite render loop. We mutate `clockNow`
+// only inside the interval (alongside the notify callback), so getClockSnapshot
+// is stable between ticks. getServerSnapshot is null so SSR shows "—" and there
+// is no hydration mismatch.
+let clockNow = Date.now()
 function subscribeClock(cb: () => void) {
-  const id = setInterval(cb, 1000)
+  const id = setInterval(() => {
+    clockNow = Date.now()
+    cb()
+  }, 1000)
   return () => clearInterval(id)
+}
+function getClockSnapshot(): number {
+  return clockNow
+}
+function getClockServerSnapshot(): number | null {
+  return null
 }
 
 // Auto-select a shift when the area has exactly one template (mirrors the old
@@ -115,8 +131,8 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
 
   const nowMs = useSyncExternalStore(
     subscribeClock,
-    () => Date.now(),
-    () => null
+    getClockSnapshot,
+    getClockServerSnapshot
   )
   const now = nowMs == null ? null : new Date(nowMs)
 
@@ -133,6 +149,9 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   }
 
   function handleTemplateChange(templateId: string) {
+    // Ignore the spurious empty callback Radix Select fires when its item set
+    // changes on area switch — it would otherwise clobber an auto-selected shift.
+    if (!templateId) return
     setSelectedTemplateId(templateId)
     setChecked({})
   }
@@ -244,6 +263,7 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
         </h2>
         <div className="px-6">
           <Select
+            key={selectedArea?.id ?? "none"}
             value={selectedTemplateId}
             onValueChange={handleTemplateChange}
             disabled={templates.length === 0}
