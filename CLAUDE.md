@@ -18,9 +18,18 @@ pnpm dev          # next dev
 pnpm build        # next build
 pnpm start        # next start
 pnpm lint         # eslint (flat config)
+pnpm test         # vitest run (unit tests, *.test.ts)
 ```
 
-There is no JS/TS test runner configured. Do not invent one.
+The JS/TS test runner is **vitest** (`pnpm test` / `pnpm test:watch`), added for
+the refrigeration submission helpers. It is intentionally scoped to **pure,
+dependency-free logic** — `vitest.config.ts` runs in a plain Node environment with
+no jsdom/React setup. Do not import `server-only` modules (e.g. anything pulling
+`@/lib/supabase/server` or `@/lib/notifications/dispatch`) into a test; keep
+testable logic in a pure module and unit-test that (see
+`src/app/reports/refrigeration/_lib/compute.ts` + `compute.test.ts`, split out
+from the server-only `submit.ts`). Cross-tenant / RLS behavior is still covered by
+the SQL harness below, not vitest.
 
 For the database, **`supabase/tests/rls_isolation.sql`** is the
 single regression-coverage script for cross-facility isolation

@@ -19,12 +19,13 @@ export type EmployeeLite = {
   last_name: string
 }
 
-export type FieldType = "numeric" | "text" | "boolean" | "select"
+export type FieldType = "numeric" | "text" | "boolean" | "select" | "computed"
 export const FIELD_TYPES: readonly FieldType[] = [
   "numeric",
   "text",
   "boolean",
   "select",
+  "computed",
 ] as const
 export function isFieldType(v: string): v is FieldType {
   return (FIELD_TYPES as readonly string[]).includes(v)

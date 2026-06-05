@@ -8,7 +8,12 @@ export type RefrigerationSettings = Tables<"refrigeration_settings">
 export type RefrigerationReport = Tables<"refrigeration_reports">
 export type RefrigerationReportValue = Tables<"refrigeration_report_values">
 
-export type RefrigerationFieldType = "numeric" | "text" | "boolean" | "select"
+export type RefrigerationFieldType =
+  | "numeric"
+  | "text"
+  | "boolean"
+  | "select"
+  | "computed"
 
 export type RefrigerationFieldOption = {
   key: string

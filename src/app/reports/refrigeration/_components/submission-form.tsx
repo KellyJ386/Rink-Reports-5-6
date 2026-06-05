@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Building2,
   Calendar,
+  CheckCircle2,
   Clock,
   LayoutDashboard,
   Thermometer,
@@ -35,6 +36,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import {
   cToF,
   fToC,
@@ -51,6 +53,7 @@ import type {
   RefrigerationFieldOption,
   RefrigerationFieldType,
   SubmittedFieldValue,
+  ThresholdSeverity,
 } from "../types"
 
 type FieldDef = {
@@ -63,6 +66,7 @@ type FieldDef = {
   options: RefrigerationFieldOption[]
   normalMin: number | null
   normalMax: number | null
+  severity: ThresholdSeverity | null
 }
 
 type EquipmentGroup = {
@@ -98,6 +102,26 @@ function fieldKey(fieldId: string, equipmentId: string | null): string {
   return equipmentId ? `${fieldId}::${equipmentId}` : `${fieldId}::null`
 }
 
+function noteErrorKey(key: string): string {
+  return `note:${key}`
+}
+
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** Local datetime string (yyyy-MM-ddThh:mm) for a datetime-local input default. */
+function nowForDateTimeLocal(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`
+}
+
 function formatDate(d: Date): string {
   return d.toLocaleDateString(undefined, {
     weekday: "long",
@@ -119,6 +143,40 @@ function subscribeClock(cb: () => void) {
   return () => clearInterval(id)
 }
 
+/** Convert a numeric field's displayed value to its canonical (°F) base unit. */
+function toCanonical(field: FieldDef, n: number, displayUnit: TempUnit): number {
+  return displayUnit === "C" && isTempUnit(field.unit) ? cToF(n) : n
+}
+
+/** True when a numeric field's entered value breaches a CRITICAL threshold. */
+function isCriticalOutOfRange(
+  field: FieldDef,
+  raw: RawValue | undefined,
+  displayUnit: TempUnit
+): boolean {
+  if (field.field_type !== "numeric" || field.severity !== "critical") {
+    return false
+  }
+  if (field.normalMin === null && field.normalMax === null) return false
+  const text = raw?.text?.trim() ?? ""
+  if (text === "") return false
+  const n = Number(text)
+  if (!Number.isFinite(n)) return false
+  const v = toCanonical(field, n, displayUnit)
+  const minOut = field.normalMin !== null && v < field.normalMin
+  const maxOut = field.normalMax !== null && v > field.normalMax
+  return minOut || maxOut
+}
+
+function allFieldsOf(section: SectionDef): Array<[FieldDef, string]> {
+  const out: Array<[FieldDef, string]> = []
+  for (const f of section.sectionLevelFields) out.push([f, section.name])
+  for (const eq of section.equipment) {
+    for (const f of eq.fields) out.push([f, eq.name])
+  }
+  return out
+}
+
 export function SubmissionForm({
   sections,
   oorAlertsEnabled,
@@ -135,10 +193,19 @@ export function SubmissionForm({
 
   const [values, setValues] = useState<Record<string, RawValue>>({})
   const [notes, setNotes] = useState("")
+  const [followupNotes, setFollowupNotes] = useState<Record<string, string>>({})
+  const [readingAt, setReadingAt] = useState<string>(nowForDateTimeLocal)
+  const [shift, setShift] = useState("")
+  const [roundNo, setRoundNo] = useState("")
   const [displayUnit, setDisplayUnit] = useState<TempUnit>("F")
-  // Per-field client-side validation messages, keyed by fieldKey(). Populated
-  // on submit; cleared for a field as soon as the user edits it.
+  // Per-field client-side validation messages, keyed by fieldKey() (and
+  // noteErrorKey() for corrective-action notes). Populated on submit; cleared
+  // for a field as soon as the user edits it.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  const [localId, setLocalId] = useState<string>(genLocalId)
+  const [queued, setQueued] = useState(false)
+  const { isOnline } = useSyncQueue()
 
   const nowMs = useSyncExternalStore(
     subscribeClock,
@@ -176,33 +243,37 @@ export function SubmissionForm({
     }))
   }
 
-  // Lightweight client-side gate: required fields must be non-empty and
-  // numeric fields must parse as a finite number. Returns the error map so
-  // the caller can both store it and decide whether to block submission.
-  // The server action remains the source of truth — this only improves UX.
+  const updateNote = (key: string, body: string) => {
+    clearFieldError(noteErrorKey(key))
+    setFollowupNotes((prev) => ({ ...prev, [key]: body }))
+  }
+
+  // Lightweight client-side gate (server remains source of truth): required
+  // fields non-empty, numeric fields parse, and any CRITICAL out-of-range
+  // reading carries a corrective-action note.
   const validate = (): Record<string, string> => {
     const errors: Record<string, string> = {}
     for (const section of sections) {
-      const groups: Array<[FieldDef[], string | null]> = [
-        [section.sectionLevelFields, null],
-        ...section.equipment.map(
-          (eq) => [eq.fields, eq.id] as [FieldDef[], string]
-        ),
-      ]
-      for (const [fields] of groups) {
-        for (const field of fields) {
-          // Booleans (checkboxes) can't be "empty" in a meaningful way here.
-          if (field.field_type === "boolean") continue
-          const key = fieldKey(field.id, field.equipment_id)
-          const text = values[key]?.text?.trim() ?? ""
-          if (field.is_required && text === "") {
-            errors[key] = "This field is required."
+      for (const [field] of allFieldsOf(section)) {
+        if (field.field_type === "computed") continue
+        const key = fieldKey(field.id, field.equipment_id)
+        if (field.field_type === "boolean") continue
+        const raw = values[key]
+        const text = raw?.text?.trim() ?? ""
+        if (field.is_required && text === "") {
+          errors[key] = "This field is required."
+          continue
+        }
+        if (field.field_type === "numeric" && text !== "") {
+          if (!Number.isFinite(Number(text))) {
+            errors[key] = "Enter a valid number."
             continue
           }
-          if (field.field_type === "numeric" && text !== "") {
-            if (!Number.isFinite(Number(text))) {
-              errors[key] = "Enter a valid number."
-            }
+        }
+        if (isCriticalOutOfRange(field, raw, displayUnit)) {
+          if ((followupNotes[key] ?? "").trim() === "") {
+            errors[noteErrorKey(key)] =
+              "A corrective-action note is required for this critical reading."
           }
         }
       }
@@ -210,19 +281,12 @@ export function SubmissionForm({
     return errors
   }
 
-  // Toggle is display-only. Per-field text state always lives in the field's
-  // canonical base unit (°F). Flipping the toggle converts the visible text of
-  // every temperature field once, so there is no per-keystroke round-tripping.
   const setUnit = (next: TempUnit) => {
     if (next === displayUnit) return
     setValues((prev) => {
       const out: Record<string, RawValue> = { ...prev }
       for (const section of sections) {
-        const allFields = [
-          ...section.sectionLevelFields,
-          ...section.equipment.flatMap((eq) => eq.fields),
-        ]
-        for (const field of allFields) {
+        for (const [field] of allFieldsOf(section)) {
           if (field.field_type !== "numeric" || !isTempUnit(field.unit)) continue
           const key = fieldKey(field.id, field.equipment_id)
           const raw = out[key]
@@ -238,29 +302,82 @@ export function SubmissionForm({
     setDisplayUnit(next)
   }
 
-  const valuesJson = useMemo(() => {
+  // The payload object shared by the online hidden input and the offline queue.
+  const buildPayload = (): Record<string, unknown> => {
     const rows: SubmittedFieldValue[] = []
+    const followups: Array<{
+      field_id: string
+      equipment_id: string | null
+      body: string
+    }> = []
     for (const section of sections) {
-      for (const field of section.sectionLevelFields) {
-        const key = fieldKey(field.id, null)
-        const row = buildRow(field, section.name, values[key], displayUnit)
+      for (const [field, name] of allFieldsOf(section)) {
+        const key = fieldKey(field.id, field.equipment_id)
+        const row = buildRow(field, name, values[key], displayUnit)
         if (row) rows.push(row)
-      }
-      for (const eq of section.equipment) {
-        for (const field of eq.fields) {
-          const key = fieldKey(field.id, eq.id)
-          const row = buildRow(field, eq.name, values[key], displayUnit)
-          if (row) rows.push(row)
+        if (isCriticalOutOfRange(field, values[key], displayUnit)) {
+          const body = (followupNotes[key] ?? "").trim()
+          if (body) {
+            followups.push({
+              field_id: field.id,
+              equipment_id: field.equipment_id,
+              body,
+            })
+          }
         }
       }
     }
-    return JSON.stringify({ notes: notes.trim() || undefined, values: rows })
-  }, [sections, values, notes, displayUnit])
+    let readingAtIso: string | null = null
+    if (readingAt) {
+      const d = new Date(readingAt)
+      if (!Number.isNaN(d.getTime())) readingAtIso = d.toISOString()
+    }
+    const round = roundNo.trim() === "" ? null : Number(roundNo)
+    return {
+      notes: notes.trim() || undefined,
+      reading_at: readingAtIso,
+      shift: shift.trim() || null,
+      round_no: Number.isInteger(round) ? round : null,
+      values: rows,
+      followups,
+    }
+  }
+
+  const valuesJson = useMemo(
+    () => JSON.stringify(buildPayload()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sections, values, notes, followupNotes, readingAt, shift, roundNo, displayUnit]
+  )
 
   const tempLabel =
     typeof tempF === "number"
       ? `${Math.round(tempF)}°F${tempLocation ? ` · ${tempLocation}` : ""}`
       : "Temp unavailable"
+
+  if (queued) {
+    return (
+      <Card className="gap-4 py-8">
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
+          <div
+            aria-hidden
+            className="bg-primary/10 text-primary flex h-14 w-14 items-center justify-center rounded-full"
+          >
+            <CheckCircle2 className="h-7 w-7" />
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Saved on this device
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            You&apos;re offline. This refrigeration report is queued and will
+            submit automatically once you&apos;re back online.
+          </p>
+          <Button asChild variant="outline">
+            <Link href="/dashboard">Back to dashboard</Link>
+          </Button>
+        </div>
+      </Card>
+    )
+  }
 
   return (
     <form
@@ -270,12 +387,29 @@ export function SubmissionForm({
         setFieldErrors(errors)
         if (Object.keys(errors).length > 0) {
           e.preventDefault()
-          // Focus the first invalid field so keyboard/AT users land on it.
           const firstKey = Object.keys(errors)[0]
           const focusTarget = document.querySelector<HTMLElement>(
             `[aria-describedby="fe-${firstKey}"]`
           )
           focusTarget?.focus()
+          return
+        }
+        // Offline: queue in the service worker; it replays to /api/offline-sync
+        // (which persists the report with the same checks) once back online.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          const ok = enqueueSubmission({
+            localId,
+            moduleKey: "refrigeration",
+            action: "submit",
+            payload: buildPayload(),
+          })
+          if (ok) {
+            e.preventDefault()
+            setLocalId(genLocalId())
+            setQueued(true)
+            return
+          }
+          // SW not controlling this page yet — fall through to a normal submit.
         }
       }}
       className="flex flex-col gap-5"
@@ -336,6 +470,13 @@ export function SubmissionForm({
 
       <FormError message={state.error} />
 
+      {!isOnline ? (
+        <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+          You&apos;re offline. Your report will be saved on this device and
+          submitted automatically when you reconnect.
+        </p>
+      ) : null}
+
       {oorAlertsEnabled ? (
         <p className="rounded-md border border-warning bg-warning-soft px-3 py-2 text-xs text-warning-soft-foreground">
           Out-of-range readings will trigger an alert to managers.
@@ -353,10 +494,39 @@ export function SubmissionForm({
         <div className="grid gap-4 px-6 sm:grid-cols-2 lg:grid-cols-3">
           <ReadOnlyField label="Facility" value={facilityName} />
           <ReadOnlyField label="Employee" value={userName} />
-          <ReadOnlyField
-            label="Date & Time"
-            value={now ? `${formatDate(now)} · ${formatTime(now)}` : "—"}
-          />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="reading_at">Reading time</Label>
+            <Input
+              id="reading_at"
+              type="datetime-local"
+              value={readingAt}
+              onChange={(e) => setReadingAt(e.target.value)}
+              className="h-12 text-base"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="shift">Shift (optional)</Label>
+            <Input
+              id="shift"
+              type="text"
+              value={shift}
+              onChange={(e) => setShift(e.target.value)}
+              placeholder="e.g. AM / PM / Overnight"
+              className="h-12 text-base"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="round_no">Round # (optional)</Label>
+            <Input
+              id="round_no"
+              type="text"
+              inputMode="numeric"
+              value={roundNo}
+              onChange={(e) => setRoundNo(e.target.value)}
+              placeholder="e.g. 1"
+              className="h-12 text-base"
+            />
+          </div>
         </div>
       </Card>
 
@@ -373,17 +543,28 @@ export function SubmissionForm({
             <div className="flex flex-col gap-5 px-6">
               {section.sectionLevelFields.length > 0 ? (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {section.sectionLevelFields.map((field) => (
-                    <FieldInput
-                      key={fieldKey(field.id, null)}
-                      field={field}
-                      value={values[fieldKey(field.id, null)]}
-                      error={fieldErrors[fieldKey(field.id, null)]}
-                      displayUnit={displayUnit}
-                      onText={(t) => updateText(fieldKey(field.id, null), t)}
-                      onBool={(b) => updateBool(fieldKey(field.id, null), b)}
-                    />
-                  ))}
+                  {section.sectionLevelFields.map((field) => {
+                    const key = fieldKey(field.id, null)
+                    return (
+                      <FieldInput
+                        key={key}
+                        field={field}
+                        value={values[key]}
+                        error={fieldErrors[key]}
+                        requireNote={isCriticalOutOfRange(
+                          field,
+                          values[key],
+                          displayUnit
+                        )}
+                        note={followupNotes[key] ?? ""}
+                        noteError={fieldErrors[noteErrorKey(key)]}
+                        displayUnit={displayUnit}
+                        onText={(t) => updateText(key, t)}
+                        onBool={(b) => updateBool(key, b)}
+                        onNote={(n) => updateNote(key, n)}
+                      />
+                    )
+                  })}
                 </div>
               ) : null}
 
@@ -394,21 +575,28 @@ export function SubmissionForm({
                       {eq.name}
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
-                      {eq.fields.map((field) => (
-                        <FieldInput
-                          key={fieldKey(field.id, eq.id)}
-                          field={field}
-                          value={values[fieldKey(field.id, eq.id)]}
-                          error={fieldErrors[fieldKey(field.id, eq.id)]}
-                          displayUnit={displayUnit}
-                          onText={(t) =>
-                            updateText(fieldKey(field.id, eq.id), t)
-                          }
-                          onBool={(b) =>
-                            updateBool(fieldKey(field.id, eq.id), b)
-                          }
-                        />
-                      ))}
+                      {eq.fields.map((field) => {
+                        const key = fieldKey(field.id, eq.id)
+                        return (
+                          <FieldInput
+                            key={key}
+                            field={field}
+                            value={values[key]}
+                            error={fieldErrors[key]}
+                            requireNote={isCriticalOutOfRange(
+                              field,
+                              values[key],
+                              displayUnit
+                            )}
+                            note={followupNotes[key] ?? ""}
+                            noteError={fieldErrors[noteErrorKey(key)]}
+                            displayUnit={displayUnit}
+                            onText={(t) => updateText(key, t)}
+                            onBool={(b) => updateBool(key, b)}
+                            onNote={(n) => updateNote(key, n)}
+                          />
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -443,7 +631,7 @@ export function SubmissionForm({
 
       <input type="hidden" name="values_json" value={valuesJson} />
 
-      <SubmitBar />
+      <SubmitBar isOnline={isOnline} />
     </form>
   )
 }
@@ -516,6 +704,9 @@ function buildRow(
   raw: RawValue | undefined,
   displayUnit: TempUnit
 ): SubmittedFieldValue | null {
+  // Computed values are derived server-side and are never submitted.
+  if (field.field_type === "computed") return null
+
   const text = raw?.text ?? ""
   const bool = raw?.bool ?? false
 
@@ -524,19 +715,14 @@ function buildRow(
   let value_boolean: boolean | null = null
 
   if (field.field_type === "boolean") {
-    // Always emit the boolean value the user toggled (default false). Booleans
-    // are never "skipped" by emptiness alone — if the user touched it, send it.
     if (raw === undefined) return null
     value_boolean = bool
   } else if (field.field_type === "numeric") {
     if (text.trim() === "") return null
     const n = Number(text)
     if (!Number.isFinite(n)) {
-      // Send as text so server can flag, but server uses value_numeric for OOR.
       value_text = text.trim()
     } else {
-      // Values are entered/displayed in `displayUnit` but stored canonically in
-      // the field's base unit (°F) so server thresholds (in °F) still match.
       value_numeric =
         displayUnit === "C" && isTempUnit(field.unit) ? cToF(n) : n
     }
@@ -565,27 +751,46 @@ function FieldInput({
   field,
   value,
   error,
+  requireNote,
+  note,
+  noteError,
   displayUnit,
   onText,
   onBool,
+  onNote,
 }: {
   field: FieldDef
   value: RawValue | undefined
   error: string | undefined
+  requireNote: boolean
+  note: string
+  noteError: string | undefined
   displayUnit: TempUnit
   onText: (text: string) => void
   onBool: (bool: boolean) => void
+  onNote: (note: string) => void
 }) {
   const inputId = `f-${field.id}-${field.equipment_id ?? "section"}`
-  // Must match the form-level error map key (fieldKey) so aria-describedby and
-  // first-invalid focus resolve correctly.
   const errorId = `fe-${fieldKey(field.id, field.equipment_id)}`
+  const noteId = `fe-${noteErrorKey(fieldKey(field.id, field.equipment_id))}`
   const isTemp = isTempUnit(field.unit)
   const activeUnit = isTemp ? `°${displayUnit}` : field.unit
   const labelText = activeUnit ? `${field.label} (${activeUnit})` : field.label
   const reqMark = field.is_required ? <RequiredMark /> : null
   const invalid = Boolean(error)
   const describedBy = invalid ? errorId : undefined
+
+  // Computed fields are read-only; the value is derived server-side at submit.
+  if (field.field_type === "computed") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Label>{labelText}</Label>
+        <div className="flex h-12 items-center rounded-md border border-dashed border-input bg-input-bg px-3 text-sm text-muted-foreground">
+          Calculated automatically on submit
+        </div>
+      </div>
+    )
+  }
 
   if (field.field_type === "boolean") {
     return (
@@ -668,6 +873,24 @@ function FieldInput({
         </div>
         <FieldError id={errorId} message={error} />
         <NormalRangeHint field={field} displayUnit={displayUnit} />
+        {requireNote ? (
+          <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+            <Label htmlFor={`${inputId}-note`} className="text-xs">
+              Corrective action <RequiredMark />
+            </Label>
+            <Textarea
+              id={`${inputId}-note`}
+              rows={2}
+              value={note}
+              onChange={(e) => onNote(e.target.value)}
+              aria-invalid={Boolean(noteError) || undefined}
+              aria-describedby={noteError ? noteId : undefined}
+              placeholder="This reading is critically out of range. Describe the action taken."
+              className="text-sm"
+            />
+            <FieldError id={noteId} message={noteError} />
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -727,7 +950,7 @@ function NormalRangeHint({
   )
 }
 
-function SubmitBar() {
+function SubmitBar({ isOnline }: { isOnline: boolean }) {
   const { pending } = useFormStatus()
   return (
     <Button
@@ -736,7 +959,11 @@ function SubmitBar() {
       disabled={pending}
       className="h-12 w-full text-base"
     >
-      {pending ? "Submitting…" : "Submit refrigeration report"}
+      {pending
+        ? "Submitting…"
+        : isOnline
+          ? "Submit refrigeration report"
+          : "Save on this device"}
     </Button>
   )
 }

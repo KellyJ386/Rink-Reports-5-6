@@ -1353,6 +1353,148 @@ select pg_temp.expect_error(
     values ('22222222-2222-2222-2222-222222222222', 'Cross Admin', 'cross-admin')$$,
   'INC: incident-module admin still CANNOT insert a facility_space in facility B');
 
+-- ---------------------------------------------------------------------------
+-- REFRIG: Refrigeration hardening (migrations 110-114).
+--
+-- Covers:
+--   * report_values INSERT now requires >= submit (migration 114): a view-only
+--     user can no longer write child value rows, while a submit user can.
+--   * followup_notes INSERT relaxed to >= submit (migration 114): submit-level
+--     operators can record corrective actions (previously admin-only).
+--   * duplicate active threshold / field rejection via the partial unique
+--     indexes from migration 11 (item 5 invariant). Run as postgres so the
+--     failure is the unique index, not RLS.
+--
+-- Self-contained: seeds its own section/field/threshold/reports plus a
+-- VIEW-only user (Dave) in facility A. Alice already holds refrigeration
+-- view+submit from the top-of-file grant.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- VIEW-only user in facility A (refrigeration view, NO submit).
+insert into auth.users (id, email)
+values ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dave@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+        '11111111-1111-1111-1111-111111111111', 'dave@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'dddd4444-dddd-dddd-dddd-dddddddddddd'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid,
+       r.id, 'Dave', 'Davis', 'dave@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+        '11111111-1111-1111-1111-111111111111',
+        'refrigeration', 'view'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- Config: one section + numeric field + active threshold in facility A.
+insert into public.refrigeration_sections (id, facility_id, name, slug, sort_order, is_active)
+values ('aaaa1111-5ec0-aaaa-aaaa-aaaa11110060',
+        '11111111-1111-1111-1111-111111111111', 'Compressors Test', 'compressors-test', 1, true)
+on conflict (id) do nothing;
+insert into public.refrigeration_fields
+  (id, facility_id, section_id, equipment_id, key, label, field_type, unit, sort_order, is_active)
+values ('aaaa1111-f1d0-aaaa-aaaa-aaaa11110061',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-5ec0-aaaa-aaaa-aaaa11110060', null,
+        'suction_pressure', 'Suction pressure', 'numeric', 'psig', 1, true)
+on conflict (id) do nothing;
+insert into public.refrigeration_thresholds
+  (id, facility_id, field_id, equipment_id, min_value, max_value, severity, is_active)
+values ('aaaa1111-7780-aaaa-aaaa-aaaa11110062',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-f1d0-aaaa-aaaa-aaaa11110061', null, 10, 20, 'warn', true)
+on conflict (id) do nothing;
+
+-- One report per facility to attach value rows / notes to.
+insert into public.refrigeration_reports (id, facility_id, employee_id)
+values
+  ('aaaa1111-7e00-aaaa-aaaa-aaaa11110063',
+   '11111111-1111-1111-1111-111111111111', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('bbbb2222-7e00-bbbb-bbbb-bbbb22220063',
+   '22222222-2222-2222-2222-222222222222', 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+on conflict (id) do nothing;
+
+-- Duplicate-rejection (item 5 invariant) — as postgres so the unique index,
+-- not RLS, is what raises.
+select pg_temp.expect_error(
+  $$insert into public.refrigeration_fields
+      (facility_id, section_id, equipment_id, key, label, field_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-5ec0-aaaa-aaaa-aaaa11110060', null,
+            'suction_pressure', 'Dup key', 'numeric')$$,
+  'REFRIG: duplicate active field key in a section is rejected (unique index)');
+select pg_temp.expect_error(
+  $$insert into public.refrigeration_thresholds
+      (facility_id, field_id, equipment_id, min_value, max_value, severity)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-f1d0-aaaa-aaaa-aaaa11110061', null, 5, 9, 'high')$$,
+  'REFRIG: second active threshold for one field/equipment is rejected (unique index)');
+
+-- Alice (Facility A staff, refrigeration submit).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.refrigeration_reports (facility_id, employee_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'REFRIG: alice (submit) CAN INSERT a report in her facility');
+select pg_temp.expect_ok(
+  $$insert into public.refrigeration_report_values
+      (facility_id, report_id, label_snapshot, field_type_snapshot, value_numeric)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-7e00-aaaa-aaaa-aaaa11110063',
+            'Suction pressure', 'numeric', 15)$$,
+  'REFRIG: alice (submit) CAN INSERT report values (>= submit, migration 114)');
+select pg_temp.expect_ok(
+  $$insert into public.refrigeration_followup_notes
+      (facility_id, report_id, body, is_admin_note)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-7e00-aaaa-aaaa-aaaa11110063',
+            'Corrective action taken', false)$$,
+  'REFRIG: alice (submit) CAN INSERT a follow-up note (relaxed to submit, migration 114)');
+select pg_temp.expect_error(
+  $$insert into public.refrigeration_report_values
+      (facility_id, report_id, label_snapshot, field_type_snapshot, value_numeric)
+    values ('22222222-2222-2222-2222-222222222222',
+            'bbbb2222-7e00-bbbb-bbbb-bbbb22220063',
+            'Cross tenant', 'numeric', 15)$$,
+  'REFRIG: alice CANNOT INSERT report values tagged facility B');
+
+-- Dave (Facility A, refrigeration VIEW only).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.refrigeration_fields
+    where id = 'aaaa1111-f1d0-aaaa-aaaa-aaaa11110061'$$,
+  1, 'REFRIG: view-only dave CAN SELECT refrigeration config (view retained)');
+select pg_temp.expect_error(
+  $$insert into public.refrigeration_report_values
+      (facility_id, report_id, label_snapshot, field_type_snapshot, value_numeric)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-7e00-aaaa-aaaa-aaaa11110063',
+            'View only', 'numeric', 15)$$,
+  'REFRIG: view-only dave CANNOT INSERT report values (migration 114 tightening)');
+select pg_temp.expect_error(
+  $$insert into public.refrigeration_followup_notes
+      (facility_id, report_id, body)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-7e00-aaaa-aaaa-aaaa11110063', 'No permission')$$,
+  'REFRIG: view-only dave CANNOT INSERT a follow-up note (requires submit)');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
