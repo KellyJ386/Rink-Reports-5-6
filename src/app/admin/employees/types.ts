@@ -12,8 +12,6 @@ export type RoleDefaultsMap = Record<string, PermissionMatrix>
 
 export type DepartmentRow = Tables<"departments">
 
-export type EmployeeDepartmentRow = Tables<"employee_departments">
-
 export type EmployeeRow = Tables<"employees">
 
 /** A selectable job area (employee_job_areas) for the assignment control. */
@@ -21,8 +19,6 @@ export type JobAreaOption = { id: string; name: string }
 
 export type EmployeeListItem = EmployeeRow & {
   role: Pick<RoleRow, "id" | "key" | "display_name"> | null
-  primary_department: Pick<DepartmentRow, "id" | "name" | "color"> | null
-  department_ids: string[]
   /** Currently-assigned job areas (with names; may include inactive ones so
    *  editing never silently drops them). */
   job_areas: JobAreaOption[]
@@ -34,8 +30,6 @@ export type EmployeeFormInput = {
   first_name: string
   last_name: string
   role_id: string
-  primary_department_id: string | null
-  department_ids: string[]
   employee_code: string | null
   email: string | null
   phone: string | null

@@ -16,9 +16,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
 
 import { upsertAvailability } from "../actions"
 import { DAY_NAMES, INITIAL_ACTION_STATE } from "../types"
+
+function genLocalId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 type Props = {
   initial?: {
@@ -71,6 +78,7 @@ export function AvailabilityForm({ initial, onClose }: Props) {
   const [from, setFrom] = useState(initial?.effective_from ?? "")
   const [to, setTo] = useState(initial?.effective_to ?? "")
   const [notes, setNotes] = useState(initial?.notes ?? "")
+  const [localId, setLocalId] = useState(genLocalId)
 
   useEffect(() => {
     if (state.status === "error") {
@@ -84,6 +92,33 @@ export function AvailabilityForm({ initial, onClose }: Props) {
   return (
     <form
       action={formAction}
+      onSubmit={(e) => {
+        // Offline: queue in the service worker; it replays to /api/offline-sync
+        // (which re-validates + persists) once back online.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          const ok = enqueueSubmission({
+            localId,
+            moduleKey: "scheduling",
+            action: "submit_availability",
+            payload: {
+              id: initial?.id ?? "",
+              day_of_week: Number(day),
+              start_time: startTime,
+              end_time: endTime,
+              availability_type: type,
+              effective_from: from,
+              effective_to: to,
+              notes,
+            },
+          })
+          if (ok) {
+            e.preventDefault()
+            setLocalId(genLocalId())
+            toast.success("Saved offline — will sync when you're back online.")
+            if (onClose) onClose()
+          }
+        }
+      }}
       className="flex flex-col gap-4 rounded-xl border bg-card p-4"
     >
       {initial?.id ? (

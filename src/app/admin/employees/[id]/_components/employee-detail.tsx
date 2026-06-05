@@ -50,8 +50,6 @@ export type EmployeeDetailData = {
       hierarchy_level: number
     } | null
   }
-  departments: Array<{ id: string; name: string; color: string | null }>
-  employeeDepartments: Array<{ department_id: string; is_primary: boolean }>
   groups: Array<{ id: string; name: string }>
   memberships: Array<{ id: string; group_id: string }>
   moduleAccess: Array<{
@@ -95,7 +93,6 @@ export function EmployeeDetail({ data }: { data: EmployeeDetailData }) {
     <Tabs defaultValue="profile" className="w-full">
       <TabsList className="flex flex-wrap">
         <TabsTrigger value="profile">Profile</TabsTrigger>
-        <TabsTrigger value="departments">Departments</TabsTrigger>
         <TabsTrigger value="certifications">Certifications</TabsTrigger>
         <TabsTrigger value="access">Module Access</TabsTrigger>
         <TabsTrigger value="groups">Communication Groups</TabsTrigger>
@@ -104,9 +101,6 @@ export function EmployeeDetail({ data }: { data: EmployeeDetailData }) {
 
       <TabsContent value="profile">
         <ProfileTab data={data} />
-      </TabsContent>
-      <TabsContent value="departments">
-        <DepartmentsTab data={data} />
       </TabsContent>
       <TabsContent value="certifications">
         <CertificationsTab data={data} />
@@ -196,55 +190,6 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
       <span className="text-muted-foreground text-xs uppercase">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
-  )
-}
-
-function DepartmentsTab({ data }: { data: EmployeeDetailData }) {
-  const assigned = new Map(
-    data.employeeDepartments.map((r) => [r.department_id, r.is_primary]),
-  )
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-2 p-6">
-        {data.departments.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No departments defined for this facility yet.
-          </p>
-        ) : (
-          data.departments.map((d) => {
-            const isMember = assigned.has(d.id)
-            const isPrimary = assigned.get(d.id) === true
-            return (
-              <div
-                key={d.id}
-                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="inline-block h-3 w-3 rounded-full"
-                    style={{ backgroundColor: d.color ?? "#888" }}
-                  />
-                  <span className="font-medium">{d.name}</span>
-                  {isMember ? (
-                    <Badge variant="secondary" className="text-[10px]">
-                      member
-                    </Badge>
-                  ) : null}
-                  {isPrimary ? (
-                    <Badge className="text-[10px]">primary</Badge>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })
-        )}
-        <p className="text-muted-foreground mt-2 text-xs">
-          Department assignments are edited on the Employees list (the edit
-          panel). This view is read-only.
-        </p>
-      </CardContent>
-    </Card>
   )
 }
 

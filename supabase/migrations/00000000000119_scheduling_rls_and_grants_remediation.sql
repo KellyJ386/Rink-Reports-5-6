@@ -69,10 +69,11 @@ create policy employee_certifications_delete on public.employee_certifications
     )
   );
 
--- ---- L3: departments + employee_departments write gating ------------------
+-- ---- L3: departments write gating ----------------------------------------
 -- SELECT policies are left untouched (facility-scoped read). Only the write
 -- side is realigned so DELETE matches INSERT/UPDATE (module-admin), instead of
--- DELETE being super-admin-only.
+-- DELETE being super-admin-only. (employee_departments is retired in migration
+-- 121, so its policies are intentionally not touched here.)
 drop policy if exists departments_insert on public.departments;
 drop policy if exists departments_update on public.departments;
 drop policy if exists departments_delete on public.departments;
@@ -96,35 +97,6 @@ create policy departments_update on public.departments
   );
 
 create policy departments_delete on public.departments
-  for delete to authenticated
-  using (
-    public.is_super_admin()
-    or (facility_id = public.current_facility_id() and public.has_module_admin_access('scheduling'))
-  );
-
-drop policy if exists employee_departments_insert on public.employee_departments;
-drop policy if exists employee_departments_update on public.employee_departments;
-drop policy if exists employee_departments_delete on public.employee_departments;
-
-create policy employee_departments_insert on public.employee_departments
-  for insert to authenticated
-  with check (
-    public.is_super_admin()
-    or (facility_id = public.current_facility_id() and public.has_module_admin_access('scheduling'))
-  );
-
-create policy employee_departments_update on public.employee_departments
-  for update to authenticated
-  using (
-    public.is_super_admin()
-    or (facility_id = public.current_facility_id() and public.has_module_admin_access('scheduling'))
-  )
-  with check (
-    public.is_super_admin()
-    or (facility_id = public.current_facility_id() and public.has_module_admin_access('scheduling'))
-  );
-
-create policy employee_departments_delete on public.employee_departments
   for delete to authenticated
   using (
     public.is_super_admin()
