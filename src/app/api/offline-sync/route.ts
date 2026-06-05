@@ -116,6 +116,18 @@ export async function POST(request: NextRequest) {
     })
   }
 
+  if (moduleKey === "scheduling") {
+    return handleSchedulingReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
   // Upsert into the sync queue (ON CONFLICT local_id = no-op for dedup).
   const { error } = await supabase
     .from("offline_sync_queue")
@@ -320,6 +332,174 @@ async function handleRefrigerationReplay({
     .eq("local_id", localId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
+}
+
+type SchedulingReplayArgs = {
+  supabase: Awaited<ReturnType<typeof createClient>>
+  localId: string
+  action: string
+  payload: Record<string, unknown>
+  startedAtIso: string
+  facilityId: string
+  employeeId: string
+}
+
+function asString(v: unknown): string {
+  return typeof v === "string" ? v.trim() : ""
+}
+
+function parseHHMM(raw: string): string | null {
+  const m = raw.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/)
+  if (!m) return null
+  const h = Number(m[1])
+  const mm = Number(m[2])
+  if (h < 0 || h > 23 || mm < 0 || mm > 59) return null
+  return `${m[1]}:${m[2]}:${m[3] ?? "00"}`
+}
+
+/**
+ * Replay a queued scheduling self-service write. Only the append-style flows are
+ * offline-capable: `submit_availability` and `request_time_off`. Shift claiming
+ * is intentionally NOT offline (it depends on live shift state and must run
+ * online). Idempotent via the offline_sync_queue.local_id claim token.
+ */
+async function handleSchedulingReplay({
+  supabase,
+  localId,
+  action,
+  payload,
+  startedAtIso,
+  facilityId,
+  employeeId,
+}: SchedulingReplayArgs): Promise<NextResponse> {
+  if (!(await currentUserCan(supabase, "scheduling", "submit"))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Build the row to persist, validating the same way the server actions do.
+  let table: "schedule_availability" | "schedule_time_off_requests"
+  let row: Record<string, unknown>
+  let updateId: string | null = null
+
+  if (action === "submit_availability") {
+    const day = Number(payload.day_of_week)
+    const startTime = parseHHMM(asString(payload.start_time))
+    const endTime = parseHHMM(asString(payload.end_time))
+    const type = asString(payload.availability_type) || "available"
+    if (!Number.isInteger(day) || day < 0 || day > 6) {
+      return NextResponse.json({ error: "Invalid day of week" }, { status: 400 })
+    }
+    if (!startTime || !endTime || endTime <= startTime) {
+      return NextResponse.json({ error: "Invalid time range" }, { status: 400 })
+    }
+    if (!["available", "unavailable", "preferred"].includes(type)) {
+      return NextResponse.json({ error: "Invalid availability type" }, { status: 400 })
+    }
+
+    // Respect the facility availability-submission toggle (migration 117).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: settingsRow } = await (supabase as any)
+      .from("schedule_settings")
+      .select("availability_submission_enabled")
+      .eq("facility_id", facilityId)
+      .maybeSingle()
+    if (settingsRow && settingsRow.availability_submission_enabled === false) {
+      return NextResponse.json(
+        { error: "Availability submission is turned off" },
+        { status: 403 }
+      )
+    }
+
+    const from = asString(payload.effective_from)
+    const to = asString(payload.effective_to)
+    const notes = asString(payload.notes)
+    table = "schedule_availability"
+    updateId = asString(payload.id) || null
+    row = {
+      facility_id: facilityId,
+      employee_id: employeeId,
+      day_of_week: day,
+      start_time: startTime,
+      end_time: endTime,
+      availability_type: type,
+      effective_from: from.length > 0 ? from : null,
+      effective_to: to.length > 0 ? to : null,
+      notes: notes.length > 0 ? notes : null,
+    }
+  } else if (action === "request_time_off") {
+    const startsAt = new Date(asString(payload.starts_at))
+    const endsAt = new Date(asString(payload.ends_at))
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      return NextResponse.json({ error: "Invalid dates" }, { status: 400 })
+    }
+    if (endsAt <= startsAt) {
+      return NextResponse.json({ error: "End must be after start" }, { status: 400 })
+    }
+    const reason = asString(payload.reason)
+    table = "schedule_time_off_requests"
+    row = {
+      facility_id: facilityId,
+      employee_id: employeeId,
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      reason: reason.length > 0 ? reason : null,
+      status: "pending",
+    }
+  } else {
+    return NextResponse.json({ error: "Unsupported scheduling action" }, { status: 400 })
+  }
+
+  // Claim the queue slot (idempotency token). No rows ⇒ already processed.
+  const { data: claimRows, error: claimErr } = await supabase
+    .from("offline_sync_queue")
+    .upsert(
+      {
+        local_id: localId,
+        facility_id: facilityId,
+        employee_id: employeeId,
+        module_key: "scheduling",
+        action,
+        payload: payload as Json,
+        sync_status: "pending",
+        started_at: startedAtIso,
+      },
+      { onConflict: "local_id", ignoreDuplicates: true }
+    )
+    .select("local_id")
+
+  if (claimErr) {
+    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  }
+  if (!claimRows || claimRows.length === 0) {
+    return NextResponse.json({ ok: true, duplicate: true })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+  const writeError =
+    updateId !== null
+      ? (
+          await sb
+            .from(table)
+            .update(row)
+            .eq("id", updateId)
+            .eq("facility_id", facilityId)
+            .eq("employee_id", employeeId)
+        ).error
+      : (await sb.from(table).insert(row)).error
+
+  if (writeError) {
+    // Release the claim so a future retry re-attempts the persist.
+    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    return NextResponse.json({ error: writeError.message }, { status: 500 })
+  }
+
+  await supabase
+    .from("offline_sync_queue")
+    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
+    .eq("local_id", localId)
+
+  return NextResponse.json({ ok: true })
 }
 
 type AirQualityReplayArgs = {

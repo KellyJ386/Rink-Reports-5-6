@@ -25,14 +25,19 @@ import type {
   ActionState,
   DepartmentLite,
   EmployeeLite,
+  JobAreaLite,
   ShiftWithRefs,
 } from "../../_lib/types"
 
 const INITIAL_STATE: ActionState = { ok: null }
 
+// Sentinel for "no job area" — Radix Select disallows an empty-string value.
+const NO_JOB_AREA = "__none__"
+
 type Props = {
   departments: DepartmentLite[]
   employees: EmployeeLite[]
+  jobAreas: JobAreaLite[]
   editing: ShiftWithRefs | null
   defaultStartsAt?: string | null
   onClose: () => void
@@ -62,6 +67,7 @@ export function ShiftForm(props: Props) {
   )
   const [deletePending, startDelete] = useTransition()
   const [departmentId, setDepartmentId] = useState(editing?.department_id ?? "")
+  const [jobAreaId, setJobAreaId] = useState(editing?.job_area_id ?? NO_JOB_AREA)
   const [employeeId, setEmployeeId] = useState(editing?.employee_id ?? "__open__")
   const [status, setStatus] = useState(editing?.status ?? "draft")
 
@@ -167,13 +173,25 @@ export function ShiftForm(props: Props) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="role_label">Role label</Label>
-          <Input
-            id="role_label"
-            name="role_label"
-            defaultValue={editing?.role_label ?? ""}
-            placeholder="e.g. Lead operator"
+          <Label htmlFor="job_area_id">Job area (role)</Label>
+          <input
+            type="hidden"
+            name="job_area_id"
+            value={jobAreaId === NO_JOB_AREA ? "" : jobAreaId}
           />
+          <Select value={jobAreaId} onValueChange={(v) => setJobAreaId(v)}>
+            <SelectTrigger id="job_area_id">
+              <SelectValue placeholder="Select job area…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_JOB_AREA}>None</SelectItem>
+              {props.jobAreas.map((j) => (
+                <SelectItem key={j.id} value={j.id}>
+                  {j.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="status">Status</Label>
@@ -189,6 +207,16 @@ export function ShiftForm(props: Props) {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="role_label">Role note (optional)</Label>
+        <Input
+          id="role_label"
+          name="role_label"
+          defaultValue={editing?.role_label ?? ""}
+          placeholder="e.g. Lead operator"
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">

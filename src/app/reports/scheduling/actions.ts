@@ -175,6 +175,21 @@ export async function upsertAvailability(
   if (!auth.ok) return { status: "error", error: auth.error }
   const supabase = await createClient()
 
+  // Respect the facility-level toggle (migration 117). availability_submission_
+  // enabled isn't in the generated types yet (see CLAUDE.md); read via `any`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: settingsRow } = await (supabase as any)
+    .from("schedule_settings")
+    .select("availability_submission_enabled")
+    .eq("facility_id", auth.employee.facility_id)
+    .maybeSingle()
+  if (settingsRow && settingsRow.availability_submission_enabled === false) {
+    return {
+      status: "error",
+      error: "Availability submission is currently turned off by your facility.",
+    }
+  }
+
   const id = String(formData.get("id") ?? "").trim()
   const dayRaw = String(formData.get("day_of_week") ?? "").trim()
   const startTime = parseTime(String(formData.get("start_time") ?? ""))

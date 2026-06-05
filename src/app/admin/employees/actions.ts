@@ -82,20 +82,6 @@ function parseFormInput(
     return { ok: false, error: "An email is required to create a login for this employee." }
   }
 
-  // Departments: multi-value field "department_ids"
-  const department_ids = formData
-    .getAll("department_ids")
-    .filter((v): v is string => typeof v === "string")
-  const primary_department_id = nonEmpty(formData.get("primary_department_id"))
-
-  // Validate primary is included in selected departments
-  if (
-    primary_department_id &&
-    !department_ids.includes(primary_department_id)
-  ) {
-    department_ids.push(primary_department_id)
-  }
-
   // Job areas: multi-value field "job_area_ids" (+ optional primary). Dedupe
   // and cap here so the form gets a clean error; the shared helper + DB trigger
   // are the authoritative backstops.
@@ -138,8 +124,6 @@ function parseFormInput(
       first_name: first.value,
       last_name: last.value,
       role_id: role.value,
-      primary_department_id,
-      department_ids,
       employee_code: nonEmpty(formData.get("employee_code")),
       email: nonEmpty(formData.get("email")),
       phone: nonEmpty(formData.get("phone")),
@@ -225,8 +209,6 @@ export async function createEmployee(
       emergencyContactPhone: input.emergency_contact_phone ?? undefined,
       hireDate: input.hire_date ?? undefined,
       createdBy: createdBy ?? undefined,
-      departmentIds: input.department_ids,
-      primaryDepartmentId: input.primary_department_id ?? undefined,
       jobAreaIds: input.job_area_ids,
       primaryJobAreaId: input.primary_job_area_id ?? undefined,
     })
@@ -327,104 +309,6 @@ export async function updateEmployee(
 
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to update employee.") }
-    }
-
-    // Reconcile employee_departments.
-    const { data: existingRaw, error: selErr } = await supabase
-      .from("employee_departments")
-      .select("id, department_id, is_primary")
-      .eq("employee_id", id)
-
-    if (selErr) {
-      return { ok: false, error: dbError(selErr, "Failed to load departments.") }
-    }
-
-    const existing = (existingRaw ?? []) as Array<{
-      id: string
-      department_id: string
-      is_primary: boolean
-    }>
-
-    const desired = new Set(input.department_ids)
-    const existingMap = new Map(existing.map((r) => [r.department_id, r]))
-
-    const toDelete = existing
-      .filter((r) => !desired.has(r.department_id))
-      .map((r) => r.id)
-
-    const toInsert = input.department_ids
-      .filter((d) => !existingMap.has(d))
-      .map((deptId) => ({
-        facility_id: facility.facilityId,
-        employee_id: id,
-        department_id: deptId,
-        is_primary: deptId === input.primary_department_id,
-      }))
-
-    if (toDelete.length > 0) {
-      const { error: delErr } = await supabase
-        .from("employee_departments")
-        .delete()
-        .in("id", toDelete)
-      if (delErr) {
-        return {
-          ok: false,
-          error: dbError(delErr, "Failed to remove departments."),
-        }
-      }
-    }
-
-    // Clear is_primary on rows that should no longer be primary, BEFORE we
-    // set the new primary — the partial unique index forbids two primaries.
-    const rowsToUnsetPrimary = existing
-      .filter(
-        (r) =>
-          desired.has(r.department_id) &&
-          r.is_primary &&
-          r.department_id !== input.primary_department_id
-      )
-      .map((r) => r.id)
-
-    if (rowsToUnsetPrimary.length > 0) {
-      const { error: unsetErr } = await supabase
-        .from("employee_departments")
-        .update({ is_primary: false })
-        .in("id", rowsToUnsetPrimary)
-      if (unsetErr) {
-        return {
-          ok: false,
-          error: dbError(unsetErr, "Failed to update primary department."),
-        }
-      }
-    }
-
-    if (toInsert.length > 0) {
-      const { error: insErr } = await supabase
-        .from("employee_departments")
-        .insert(toInsert)
-      if (insErr) {
-        return {
-          ok: false,
-          error: dbError(insErr, "Failed to assign departments."),
-        }
-      }
-    }
-
-    // Set is_primary on the chosen primary if it's an existing row that wasn't primary.
-    if (input.primary_department_id) {
-      const existingRow = existingMap.get(input.primary_department_id)
-      if (existingRow && !existingRow.is_primary) {
-        const { error: setErr } = await supabase
-          .from("employee_departments")
-          .update({ is_primary: true })
-          .eq("id", existingRow.id)
-        if (setErr) {
-          return {
-            ok: false,
-            error: dbError(setErr, "Failed to set primary department."),
-          }
-        }
-      }
     }
 
     // Reconcile job-area assignments (Employee Scheduling) — but ONLY when the

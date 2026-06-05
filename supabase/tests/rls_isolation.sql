@@ -363,6 +363,28 @@ values
    '22222222-2222-2222-2222-222222222222', 'Ice Crew B', 'ice-crew-b', 0, true)
 on conflict (id) do nothing;
 
+-- Job areas + per-area certification requirements (scheduling remediation):
+-- one of each per facility so the cross-facility isolation assertions below
+-- have non-empty targets. Seeded as postgres (BYPASSRLS).
+insert into public.employee_job_areas (id, facility_id, name, slug, sort_order, is_active)
+values
+  ('aaaa1111-30b0-aaaa-aaaa-aaaa11110002',
+   '11111111-1111-1111-1111-111111111111', 'Front Desk A', 'front-desk-a', 0, true),
+  ('bbbb2222-30b0-bbbb-bbbb-bbbb22220002',
+   '22222222-2222-2222-2222-222222222222', 'Front Desk B', 'front-desk-b', 0, true)
+on conflict (id) do nothing;
+
+insert into public.job_area_certification_requirements
+  (id, facility_id, job_area_id, cert_name, is_active)
+values
+  ('aaaa1111-ce70-aaaa-aaaa-aaaa11110003',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'CPR', true),
+  ('bbbb2222-ce70-bbbb-bbbb-bbbb22220003',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-30b0-bbbb-bbbb-bbbb22220002', 'CPR', true)
+on conflict (id) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -477,6 +499,27 @@ select pg_temp.expect_count(
       where id = 'aaaa1111-de70-aaaa-aaaa-aaaa11110001' returning 1
     ) select count(*) from up$$,
   0, 'departments: staff alice CANNOT UPDATE a department (admin-gated, 0 rows)');
+
+-- Job-area certification requirements (scheduling remediation): SELECT is
+-- gated on scheduling module access (Alice has it) AND same-facility.
+select pg_temp.expect_count(
+  $$select count(*) from public.job_area_certification_requirements
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'cert requirements: alice can SELECT her own facility''s requirements');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.job_area_certification_requirements
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'cert requirements: alice CANNOT SELECT requirements in facility B');
+
+-- Admin-write gate: staff Alice (scheduling view/submit, not admin) cannot add
+-- a requirement even in her own facility.
+select pg_temp.expect_error(
+  $$insert into public.job_area_certification_requirements
+      (facility_id, job_area_id, cert_name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'Sneaky Cert')$$,
+  'cert requirements: staff alice CANNOT INSERT a requirement');
 
 -- Employee invites + certifications: empty for now, but RLS must scope.
 select pg_temp.expect_count(

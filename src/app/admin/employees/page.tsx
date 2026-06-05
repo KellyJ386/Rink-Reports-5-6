@@ -21,7 +21,6 @@ import { createClient } from "@/lib/supabase/server"
 import { EmployeesClient } from "./_components/employees-client"
 import { SeedRolesButton } from "./_components/seed-roles-button"
 import type {
-  DepartmentRow,
   EmployeeListItem,
   EmployeeRow,
   JobAreaOption,
@@ -30,12 +29,6 @@ import type {
 } from "./types"
 
 export const dynamic = "force-dynamic"
-
-type EmployeeDeptJoinRow = {
-  employee_id: string
-  department_id: string
-  is_primary: boolean
-}
 
 type EmployeeJobAreaJoinRow = {
   employee_id: string
@@ -161,9 +154,7 @@ export default async function EmployeesPage({
 
   const [
     { data: rolesRaw },
-    { data: deptsRaw },
     { data: employeesRaw },
-    { data: edRaw },
     { data: roleDefaultsRaw },
     { data: jobAreasRaw },
     { data: ejaRaw },
@@ -174,11 +165,6 @@ export default async function EmployeesPage({
       .eq("facility_id", facilityId)
       .order("hierarchy_level", { ascending: true }),
     supabase
-      .from("departments")
-      .select("id, facility_id, name, slug, color, sort_order, is_active")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true }),
-    supabase
       .from("employees")
       .select(
         "id, facility_id, user_id, role_id, employee_code, first_name, last_name, email, phone, is_minor, emergency_contact_name, emergency_contact_phone, hire_date, is_active, deactivated_at, created_at"
@@ -186,10 +172,6 @@ export default async function EmployeesPage({
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true })
       .limit(500),
-    supabase
-      .from("employee_departments")
-      .select("employee_id, department_id, is_primary")
-      .eq("facility_id", facilityId),
     supabase
       .from("role_permission_defaults")
       .select("role_id, module_name, action, enabled")
@@ -210,7 +192,6 @@ export default async function EmployeesPage({
   ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
-  const departments = (deptsRaw ?? []) as DepartmentRow[]
   const employees = (employeesRaw ?? []) as EmployeeRow[]
 
   // Build roleId -> default permission matrix for the form preview.
@@ -249,8 +230,6 @@ export default async function EmployeesPage({
     )
   }
 
-  const edRows = (edRaw ?? []) as EmployeeDeptJoinRow[]
-
   // Job areas: selectable list (active only) + a name lookup over ALL areas so
   // an assignment to a later-deactivated area still renders its name.
   const allJobAreas = (jobAreasRaw ?? []) as JobAreaRow[]
@@ -281,41 +260,15 @@ export default async function EmployeesPage({
   }
 
   const roleById = new Map(roles.map((r) => [r.id, r]))
-  const deptById = new Map(departments.map((d) => [d.id, d]))
-
-  const deptsByEmployee = new Map<
-    string,
-    { ids: string[]; primary: DepartmentRow | null }
-  >()
-  for (const row of edRows) {
-    const bucket = deptsByEmployee.get(row.employee_id) ?? {
-      ids: [],
-      primary: null as DepartmentRow | null,
-    }
-    bucket.ids.push(row.department_id)
-    if (row.is_primary) {
-      bucket.primary = deptById.get(row.department_id) ?? null
-    }
-    deptsByEmployee.set(row.employee_id, bucket)
-  }
 
   const list: EmployeeListItem[] = employees.map((e) => {
     const role = roleById.get(e.role_id) ?? null
-    const bucket = deptsByEmployee.get(e.id)
     const areaBucket = jobAreasByEmployee.get(e.id)
     return {
       ...e,
       role: role
         ? { id: role.id, key: role.key, display_name: role.display_name }
         : null,
-      primary_department: bucket?.primary
-        ? {
-            id: bucket.primary.id,
-            name: bucket.primary.name,
-            color: bucket.primary.color,
-          }
-        : null,
-      department_ids: bucket?.ids ?? [],
       job_areas: areaBucket?.areas ?? [],
       job_area_ids: areaBucket?.ids ?? [],
       primary_job_area: areaBucket?.primary ?? null,
@@ -329,7 +282,6 @@ export default async function EmployeesPage({
         facilityId={facilityId}
         employees={list}
         roles={roles}
-        departments={departments}
         jobAreas={jobAreas}
         roleDefaults={roleDefaults}
         canDelete={profile?.is_super_admin === true}
@@ -342,7 +294,7 @@ function Header() {
   return (
     <PageHeader
       title="Employee / User Setup"
-      description="Add staff, assign roles and departments, manage activation."
+      description="Add staff, assign roles and job areas, manage activation."
     />
   )
 }

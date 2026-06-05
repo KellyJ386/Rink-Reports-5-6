@@ -6,6 +6,7 @@ import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import type { Json } from "@/types/database"
 
+import { assertAssignable } from "./enforcement"
 import {
   isComplianceRuleType,
   type CreateComplianceRuleInput,
@@ -13,6 +14,11 @@ import {
   type UpdateComplianceRulePatch,
 } from "./governance-types"
 import type { ActionState } from "./types"
+
+// New schedule_settings columns aren't in the generated DB types yet (see
+// CLAUDE.md); cast through `any` at those write sites.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -281,12 +287,13 @@ export async function approveSwap(
       }
     }
 
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
 
-    // Read both shifts to confirm they exist and capture employee_ids.
+    // Read both shifts to confirm they exist and capture the fields the
+    // assignment-eligibility check needs.
     const { data: shifts, error: shiftErr } = await supabase
       .from("schedule_shifts")
-      .select("id, employee_id, facility_id")
+      .select("id, employee_id, facility_id, starts_at, ends_at, break_minutes, job_area_id")
       .in("id", [swap.row.requester_shift_id, swap.row.target_shift_id])
 
     if (shiftErr) {
@@ -296,6 +303,10 @@ export async function approveSwap(
       id: string
       employee_id: string | null
       facility_id: string
+      starts_at: string
+      ends_at: string
+      break_minutes: number | null
+      job_area_id: string | null
     }>
     const requesterShift = list.find(
       (s) => s.id === swap.row.requester_shift_id
@@ -309,6 +320,33 @@ export async function approveSwap(
       targetShift.facility_id !== ctx.facilityId
     ) {
       return { ok: false, error: "Shifts do not belong to this facility." }
+    }
+
+    // Hard block: each employee must be eligible for the shift they're moving
+    // onto. Exclude the shift itself so its current occupant doesn't count.
+    const gateTargetOntoRequester = await assertAssignable(supabase, {
+      facilityId: ctx.facilityId,
+      employeeId: swap.row.target_employee_id,
+      startsAt: requesterShift.starts_at,
+      endsAt: requesterShift.ends_at,
+      breakMinutes: requesterShift.break_minutes,
+      jobAreaId: requesterShift.job_area_id,
+      excludeShiftId: requesterShift.id,
+    })
+    if (!gateTargetOntoRequester.ok) {
+      return { ok: false, error: gateTargetOntoRequester.error }
+    }
+    const gateRequesterOntoTarget = await assertAssignable(supabase, {
+      facilityId: ctx.facilityId,
+      employeeId: swap.row.requester_employee_id,
+      startsAt: targetShift.starts_at,
+      endsAt: targetShift.ends_at,
+      breakMinutes: targetShift.break_minutes,
+      jobAreaId: targetShift.job_area_id,
+      excludeShiftId: targetShift.id,
+    })
+    if (!gateRequesterOntoTarget.ok) {
+      return { ok: false, error: gateRequesterOntoTarget.error }
     }
 
     // Apply the swap: swap employee_ids on both shifts.
@@ -723,7 +761,7 @@ export async function updateSchedulingSettings(
       return { ok: false, error: "Default shift minutes must be positive." }
     }
 
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
     const { error } = await supabase
       .from("schedule_settings")
       .upsert(
@@ -739,6 +777,8 @@ export async function updateSchedulingSettings(
           open_shift_first_come: values.open_shift_first_come,
           notify_on_publish: values.notify_on_publish,
           notify_on_overtime: values.notify_on_overtime,
+          availability_submission_enabled: values.availability_submission_enabled,
+          require_job_area_qualification: values.require_job_area_qualification,
         },
         { onConflict: "facility_id" }
       )
@@ -759,7 +799,7 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
   try {
     const ctx = await resolveAdminContext()
     if (!ctx.ok) return { ok: false, error: ctx.error }
-    const supabase = await createClient()
+    const supabase = (await createClient()) as AnySupabase
 
     const { error: settingsErr } = await supabase
       .from("schedule_settings")
@@ -776,6 +816,8 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
           open_shift_first_come: true,
           notify_on_publish: true,
           notify_on_overtime: true,
+          availability_submission_enabled: true,
+          require_job_area_qualification: false,
         },
         { onConflict: "facility_id" }
       )

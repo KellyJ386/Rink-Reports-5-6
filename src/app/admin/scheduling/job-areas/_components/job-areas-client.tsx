@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -13,9 +13,11 @@ import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
 import {
+  addJobAreaCertRequirement,
   createJobArea,
   deleteJobArea,
   moveJobArea,
+  removeJobAreaCertRequirement,
   renameJobArea,
   setJobAreaActive,
 } from "../actions"
@@ -27,15 +29,33 @@ export type JobAreaRow = {
   sort_order: number
 }
 
+export type CertRequirementRow = {
+  id: string
+  job_area_id: string
+  cert_name: string
+}
+
 type Props = {
   facilityId: string
   initialAreas: JobAreaRow[]
+  initialRequirements: CertRequirementRow[]
 }
 
-export function JobAreasClient({ facilityId, initialAreas }: Props) {
+export function JobAreasClient({
+  facilityId,
+  initialAreas,
+  initialRequirements,
+}: Props) {
   const router = useRouter()
   const [newName, setNewName] = useState("")
   const [pending, startTransition] = useTransition()
+
+  const reqByArea = new Map<string, CertRequirementRow[]>()
+  for (const r of initialRequirements) {
+    const arr = reqByArea.get(r.job_area_id) ?? []
+    arr.push(r)
+    reqByArea.set(r.job_area_id, arr)
+  }
 
   function run(action: () => Promise<{ ok: boolean; error?: string }>, success?: string) {
     startTransition(async () => {
@@ -126,10 +146,11 @@ export function JobAreasClient({ facilityId, initialAreas }: Props) {
               <div
                 key={area.id}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2",
+                  "flex flex-col gap-2 px-3 py-2",
                   !area.is_active && "opacity-60"
                 )}
               >
+                <div className="flex items-center gap-2">
                 <div className="flex flex-col">
                   <Button
                     type="button"
@@ -196,6 +217,14 @@ export function JobAreasClient({ facilityId, initialAreas }: Props) {
                 >
                   <Trash2 className="size-4" />
                 </Button>
+                </div>
+
+                <CertRequirements
+                  areaId={area.id}
+                  requirements={reqByArea.get(area.id) ?? []}
+                  pending={pending}
+                  run={run}
+                />
               </div>
             ))}
           </CardContent>
@@ -205,7 +234,96 @@ export function JobAreasClient({ facilityId, initialAreas }: Props) {
       <p className="text-muted-foreground text-xs">
         Deactivating hides an area from new assignments without affecting people
         already assigned. Deleting is only possible when no one is assigned.
+        Required certifications block assigning anyone who lacks a current
+        matching certification to a shift in that area.
       </p>
+    </div>
+  )
+}
+
+function CertRequirements({
+  areaId,
+  requirements,
+  pending,
+  run,
+}: {
+  areaId: string
+  requirements: CertRequirementRow[]
+  pending: boolean
+  run: (
+    action: () => Promise<{ ok: boolean; error?: string }>,
+    success?: string
+  ) => void
+}) {
+  const [draft, setDraft] = useState("")
+
+  function add() {
+    const certName = draft.trim()
+    if (!certName) return
+    run(
+      () => addJobAreaCertRequirement({ jobAreaId: areaId, certName }),
+      "Requirement added."
+    )
+    setDraft("")
+  }
+
+  return (
+    <div className="ml-8 flex flex-col gap-1.5">
+      <span className="text-muted-foreground text-xs font-medium">
+        Required certifications
+      </span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {requirements.length === 0 && (
+          <span className="text-muted-foreground text-xs">None</span>
+        )}
+        {requirements.map((r) => (
+          <span
+            key={r.id}
+            className="bg-muted inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
+          >
+            {r.cert_name}
+            <button
+              type="button"
+              aria-label={`Remove ${r.cert_name}`}
+              disabled={pending}
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() =>
+                run(
+                  () => removeJobAreaCertRequirement(r.id),
+                  "Requirement removed."
+                )
+              }
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex items-center gap-1">
+        <Input
+          value={draft}
+          maxLength={200}
+          placeholder="e.g. CPR"
+          disabled={pending}
+          className="h-8 w-44 text-xs"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              add()
+            }
+          }}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={pending || !draft.trim()}
+          onClick={add}
+        >
+          Add
+        </Button>
+      </div>
     </div>
   )
 }

@@ -9,9 +9,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
 
 import { submitTimeOffRequest } from "../actions"
 import { INITIAL_ACTION_STATE } from "../types"
+
+function genLocalId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 function nowForDateTimeLocal(offsetHours = 0): string {
   const d = new Date()
@@ -49,6 +56,7 @@ export function TimeOffForm() {
   const [endsAt, setEndsAt] = useState(defaultEnd)
   const [reason, setReason] = useState("")
   const [open, setOpen] = useState(false)
+  const [localId, setLocalId] = useState(genLocalId)
 
   useEffect(() => {
     if (state.status === "error") {
@@ -78,6 +86,25 @@ export function TimeOffForm() {
   return (
     <form
       action={formAction}
+      onSubmit={(e) => {
+        // Offline: queue in the service worker; it replays to /api/offline-sync
+        // (which re-validates + persists) once back online.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          const ok = enqueueSubmission({
+            localId,
+            moduleKey: "scheduling",
+            action: "request_time_off",
+            payload: { starts_at: startsAt, ends_at: endsAt, reason },
+          })
+          if (ok) {
+            e.preventDefault()
+            setLocalId(genLocalId())
+            toast.success("Saved offline — will sync when you're back online.")
+            setOpen(false)
+            setReason("")
+          }
+        }
+      }}
       className="flex flex-col gap-4 rounded-xl border bg-card p-4"
     >
       <div className="flex items-center justify-between gap-3">

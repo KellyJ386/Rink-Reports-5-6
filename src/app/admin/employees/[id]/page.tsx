@@ -40,8 +40,6 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
 
   const [
     { data: rolesRaw },
-    { data: deptsRaw },
-    { data: empDeptsRaw },
     { data: groupsRaw },
     { data: memberRaw },
     { data: auditRaw },
@@ -52,15 +50,6 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       .select("id, key, display_name, hierarchy_level")
       .eq("facility_id", emp.facility_id)
       .order("hierarchy_level", { ascending: true }),
-    supabase
-      .from("departments")
-      .select("id, name, color")
-      .eq("facility_id", emp.facility_id)
-      .order("name", { ascending: true }),
-    supabase
-      .from("employee_departments")
-      .select("department_id, is_primary")
-      .eq("employee_id", emp.id),
     supabase
       .from("communication_groups")
       .select("id, name")
@@ -120,15 +109,6 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       user_id: emp.user_id,
       role,
     },
-    departments: (deptsRaw ?? []).map((d) => ({
-      id: d.id,
-      name: d.name,
-      color: d.color,
-    })),
-    employeeDepartments: (empDeptsRaw ?? []).map((r) => ({
-      department_id: r.department_id,
-      is_primary: r.is_primary,
-    })),
     groups: (groupsRaw ?? []).map((g) => ({ id: g.id, name: g.name })),
     memberships: (memberRaw ?? []).map((m) => ({
       id: m.id,

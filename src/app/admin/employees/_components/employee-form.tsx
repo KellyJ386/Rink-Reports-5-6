@@ -29,7 +29,6 @@ import { createJobArea } from "../../scheduling/job-areas/actions"
 import { createEmployee, updateEmployee } from "../actions"
 import type {
   ActionState,
-  DepartmentRow,
   EmployeeListItem,
   JobAreaOption,
   RoleDefaultsMap,
@@ -52,7 +51,6 @@ type Props = {
   onOpenChange: (open: boolean) => void
   facilityId: string
   roles: RoleRow[]
-  departments: DepartmentRow[]
   jobAreas: JobAreaOption[]
   roleDefaults: RoleDefaultsMap
   editing: EmployeeListItem | null
@@ -81,7 +79,6 @@ function EmployeeFormBody({
   onOpenChange,
   facilityId,
   roles,
-  departments,
   jobAreas,
   roleDefaults,
   editing,
@@ -103,15 +100,9 @@ function EmployeeFormBody({
   const action = isEdit ? updateAction : createAction
 
   // Local controlled state for fields that need cross-field logic (is_minor)
-  // and chip toggles (department_ids, primary). Initial values come straight
-  // from props because this component remounts when editing target changes.
+  // and chip toggles. Initial values come straight from props because this
+  // component remounts when editing target changes.
   const [isMinor, setIsMinor] = useState<boolean>(editing?.is_minor ?? false)
-  const [deptIds, setDeptIds] = useState<string[]>(
-    editing?.department_ids ?? []
-  )
-  const [primaryDeptId, setPrimaryDeptId] = useState<string | null>(
-    editing?.primary_department?.id ?? null
-  )
   const [roleId, setRoleId] = useState(editing?.role?.id ?? "")
   const [roleError, setRoleError] = useState<string | null>(null)
 
@@ -139,17 +130,6 @@ function EmployeeFormBody({
       onOpenChange(false)
     }
   }, [state, onOpenChange])
-
-  function toggleDept(id: string) {
-    setDeptIds((prev) => {
-      if (prev.includes(id)) {
-        // Removing — also clear primary if needed.
-        if (primaryDeptId === id) setPrimaryDeptId(null)
-        return prev.filter((x) => x !== id)
-      }
-      return [...prev, id]
-    })
-  }
 
   function toggleArea(id: string) {
     setAreaIds((prev) => {
@@ -195,7 +175,7 @@ function EmployeeFormBody({
           </SheetTitle>
           <SheetDescription>
             {isEdit
-              ? "Update employee details, role, and department assignments."
+              ? "Update employee details, role, and job-area assignments."
               : "Create a new employee record for this facility."}
           </SheetDescription>
         </SheetHeader>
@@ -216,20 +196,6 @@ function EmployeeFormBody({
           {isEdit && editing && (
             <input type="hidden" name="id" value={editing.id} />
           )}
-          {/* Hidden inputs reflect chip-state for departments + primary. */}
-          {deptIds.map((id) => (
-            <input
-              key={id}
-              type="hidden"
-              name="department_ids"
-              value={id}
-            />
-          ))}
-          <input
-            type="hidden"
-            name="primary_department_id"
-            value={primaryDeptId ?? ""}
-          />
           {/* Job-area hidden inputs. The marker tells updateEmployee this form
               submitted job areas (so the reconcile runs and an empty set really
               means "clear"), distinct from a form that omits the control. */}
@@ -327,70 +293,6 @@ function EmployeeFormBody({
               </p>
             )}
           </div>
-
-          {departments.length > 0 && (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="primary_dept_select">Primary department</Label>
-                <Select
-                  value={primaryDeptId || undefined}
-                  onValueChange={(v) => {
-                    const next = v || null
-                    setPrimaryDeptId(next)
-                    if (next && !deptIds.includes(next)) {
-                      setDeptIds((prev) => [...prev, next])
-                    }
-                  }}
-                >
-                  <SelectTrigger id="primary_dept_select">
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label>Additional departments</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {departments.map((d) => {
-                    const active = deptIds.includes(d.id)
-                    const isPrimary = primaryDeptId === d.id
-                    return (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => toggleDept(d.id)}
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                          active
-                            ? "bg-primary text-primary-foreground border-transparent"
-                            : "bg-background text-foreground hover:bg-accent"
-                        )}
-                      >
-                        {d.color && (
-                          <span
-                            aria-hidden
-                            className="inline-block size-2 rounded-full"
-                            style={{ backgroundColor: d.color }}
-                          />
-                        )}
-                        {d.name}
-                        {isPrimary && (
-                          <span className="ml-1 opacity-80">(primary)</span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </>
-          )}
 
           {/* Job areas (Employee Scheduling) — up to 4, cross-trained. */}
           <div className="flex flex-col gap-2">

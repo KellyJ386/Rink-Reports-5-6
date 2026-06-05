@@ -48,4 +48,6 @@ export type SchedulingSettingsInput = {
   open_shift_first_come: boolean
   notify_on_publish: boolean
   notify_on_overtime: boolean
+  availability_submission_enabled: boolean
+  require_job_area_qualification: boolean
 }

@@ -30,6 +30,7 @@ import {
 import type {
   DepartmentLite,
   EmployeeLite,
+  JobAreaLite,
   ShiftStatus,
   ShiftWithRefs,
   TemplateRow,
@@ -43,6 +44,7 @@ type Props = {
   shifts: ShiftWithRefs[]
   departments: DepartmentLite[]
   employees: EmployeeLite[]
+  jobAreas: JobAreaLite[]
   templates: TemplateRow[]
   selectedShift: ShiftWithRefs | null
   windowStartIso: string
@@ -178,6 +180,7 @@ export function ShiftsClient(props: Props) {
         <ShiftForm
           departments={departments}
           employees={props.employees}
+          jobAreas={props.jobAreas}
           editing={null}
           defaultStartsAt={defaultDate}
           onClose={closePanel}
@@ -267,7 +270,7 @@ export function ShiftsClient(props: Props) {
                         )}
                       </td>
                       <td className="border-b px-3 py-2 text-muted-foreground">
-                        {shift.role_label ?? "—"}
+                        {shift.job_area?.name ?? shift.role_label ?? "—"}
                       </td>
                       <td className="border-b px-3 py-2">
                         <StatusBadge status={shift.status} />
@@ -310,6 +313,7 @@ export function ShiftsClient(props: Props) {
             props.selectedShift,
           )}
           employees={props.employees}
+          jobAreas={props.jobAreas}
           editing={props.selectedShift}
           onClose={closePanel}
           onSaved={onSaved}

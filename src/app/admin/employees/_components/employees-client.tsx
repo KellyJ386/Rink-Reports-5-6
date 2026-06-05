@@ -26,7 +26,6 @@ import {
 } from "../actions"
 import { inviteEmployee } from "../actions"
 import type {
-  DepartmentRow,
   EmployeeListItem,
   JobAreaOption,
   RoleDefaultsMap,
@@ -38,7 +37,6 @@ type Props = {
   facilityId: string
   employees: EmployeeListItem[]
   roles: RoleRow[]
-  departments: DepartmentRow[]
   jobAreas: JobAreaOption[]
   roleDefaults: RoleDefaultsMap
   canDelete: boolean
@@ -62,7 +60,6 @@ export function EmployeesClient({
   facilityId,
   employees,
   roles,
-  departments,
   jobAreas,
   roleDefaults,
   canDelete,
@@ -96,7 +93,6 @@ export function EmployeesClient({
         e.phone ?? "",
         e.role?.display_name ?? "",
         e.role?.key ?? "",
-        e.primary_department?.name ?? "",
         e.employee_code ?? "",
       ]
         .join(" ")
@@ -201,9 +197,6 @@ export function EmployeesClient({
                   Role
                 </th>
                 <th className="border-b px-3 py-2 text-left font-medium">
-                  Department
-                </th>
-                <th className="border-b px-3 py-2 text-left font-medium">
                   Email
                 </th>
                 <th className="border-b px-3 py-2 text-left font-medium">
@@ -247,24 +240,6 @@ export function EmployeesClient({
                     <td className="border-b px-3 py-2 align-middle">
                       {e.role ? (
                         <Badge variant="secondary">{e.role.display_name}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="border-b px-3 py-2 align-middle">
-                      {e.primary_department ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          {e.primary_department.color && (
-                            <span
-                              aria-hidden
-                              className="inline-block size-2 rounded-full"
-                              style={{
-                                backgroundColor: e.primary_department.color,
-                              }}
-                            />
-                          )}
-                          {e.primary_department.name}
-                        </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -384,7 +359,6 @@ export function EmployeesClient({
         onOpenChange={setFormOpen}
         facilityId={facilityId}
         roles={roles}
-        departments={departments}
         jobAreas={jobAreas}
         roleDefaults={roleDefaults}
         editing={editing}

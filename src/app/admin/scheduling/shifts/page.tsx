@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server"
 import type {
   DepartmentLite,
   EmployeeLite,
+  JobAreaLite,
   ShiftRow,
   ShiftStatus,
   ShiftWithRefs,
@@ -24,6 +25,11 @@ import { isShiftStatus } from "../_lib/types"
 import { ShiftsClient } from "./_components/shifts-client"
 
 export const dynamic = "force-dynamic"
+
+// employee_job_areas + schedule_shifts.job_area_id aren't in the generated DB
+// types yet (see CLAUDE.md); cast through `any` at those read sites.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any
 
 type SearchParams = Promise<{
   dept?: string
@@ -95,7 +101,7 @@ export default async function ShiftsPage({
 
   const supabase = await createClient()
 
-  const [deptsRes, employeesRes, templatesRes] = await Promise.all([
+  const [deptsRes, employeesRes, templatesRes, jobAreasRes] = await Promise.all([
     supabase
       .from("departments")
       .select("id, name, slug, color, is_active")
@@ -113,11 +119,19 @@ export default async function ShiftsPage({
       .eq("facility_id", facilityId)
       .eq("is_active", true)
       .order("name", { ascending: true }),
+    (supabase as AnySupabase)
+      .from("employee_job_areas")
+      .select("id, name, slug, is_active")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
   ])
 
   const departments = (deptsRes.data ?? []) as DepartmentLite[]
   const employees = (employeesRes.data ?? []) as EmployeeLite[]
   const templates = (templatesRes.data ?? []) as TemplateRow[]
+  const jobAreas = (jobAreasRes.data ?? []) as JobAreaLite[]
+  const jobAreaById = new Map(jobAreas.map((j) => [j.id, j]))
 
   let shiftQuery = supabase
     .from("schedule_shifts")
@@ -156,19 +170,27 @@ export default async function ShiftsPage({
       row = (directRaw ?? undefined) as ShiftRow | undefined
     }
     if (row) {
+      const jobAreaId = (row as { job_area_id?: string | null }).job_area_id ?? null
       selected = {
         ...row,
+        job_area_id: jobAreaId,
         employee: row.employee_id ? (empById.get(row.employee_id) ?? null) : null,
         department: deptById.get(row.department_id) ?? null,
+        job_area: jobAreaId ? (jobAreaById.get(jobAreaId) ?? null) : null,
       }
     }
   }
 
-  const list: ShiftWithRefs[] = shifts.map((s) => ({
-    ...s,
-    employee: s.employee_id ? (empById.get(s.employee_id) ?? null) : null,
-    department: deptById.get(s.department_id) ?? null,
-  }))
+  const list: ShiftWithRefs[] = shifts.map((s) => {
+    const jobAreaId = (s as { job_area_id?: string | null }).job_area_id ?? null
+    return {
+      ...s,
+      job_area_id: jobAreaId,
+      employee: s.employee_id ? (empById.get(s.employee_id) ?? null) : null,
+      department: deptById.get(s.department_id) ?? null,
+      job_area: jobAreaId ? (jobAreaById.get(jobAreaId) ?? null) : null,
+    }
+  })
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -179,6 +201,7 @@ export default async function ShiftsPage({
         shifts={list}
         departments={activeDepartments}
         employees={employees}
+        jobAreas={jobAreas}
         templates={templates}
         selectedShift={selected}
         windowStartIso={windowStart.toISOString()}
