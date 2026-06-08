@@ -434,6 +434,39 @@ select pg_temp.expect_count(
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
   1, 'M-helpers: alice CAN SELECT ice_operations_fuel_types via user_permissions (view)');
 
+-- Regression (migration 123): has_module_access() grants module READ for ANY
+-- enabled action, not just `view`. A submit-capable operator must be able to
+-- load a module's config to fill in the form; before migration 123 a `submit`
+-- grant without `view` passed the page's submit gate yet read zero config rows
+-- ("Not configured yet"). Temporarily disable alice's refrigeration `view`
+-- grant (leaving `submit` enabled) and confirm the read gate still opens, then
+-- restore it so the remaining assertions are unaffected.
+reset role;
+update public.user_permissions
+   set enabled = false
+ where user_id     = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+   and facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_name = 'refrigeration'
+   and action      = 'view';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from (select 1 where public.has_module_access('refrigeration')) t$$,
+  1, 'M-helpers: submit-only (view disabled) grant STILL opens the module read gate (migration 123)');
+
+reset role;
+update public.user_permissions
+   set enabled = true
+ where user_id     = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+   and facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_name = 'refrigeration'
+   and action      = 'view';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
 -- Negative: Alice has NO admin grant, so has_module_admin_access() stays false
 -- and an admin-only own-facility config write (a rink in her own facility) is
 -- still denied. This pins that migration 90 did not over-grant by reading view.
