@@ -8,7 +8,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
 import { deleteAvailability } from "../actions"
-import { INITIAL_ACTION_STATE } from "../types"
+import { INITIAL_ACTION_STATE, type JobAreaOption } from "../types"
 import { formatTimeOnly } from "./format-utils"
 import { AvailabilityForm } from "./availability-form"
 
@@ -21,6 +21,8 @@ type Row = {
   effective_from: string | null
   effective_to: string | null
   notes: string | null
+  job_area_id?: string | null
+  job_area_name?: string | null
 }
 
 function DeleteSubmit() {
@@ -49,7 +51,13 @@ function typeBadgeVariant(type: string): BadgeProps["variant"] {
   }
 }
 
-export function AvailabilityRow({ row }: { row: Row }) {
+export function AvailabilityRow({
+  row,
+  jobAreas = [],
+}: {
+  row: Row
+  jobAreas?: JobAreaOption[]
+}) {
   const [editing, setEditing] = useState(false)
   const [state, formAction] = useActionState(
     deleteAvailability,
@@ -65,7 +73,14 @@ export function AvailabilityRow({ row }: { row: Row }) {
   }, [state])
 
   if (editing) {
-    return <AvailabilityForm initial={row} onClose={() => setEditing(false)} />
+    return (
+      <AvailabilityForm
+        initial={row}
+        onClose={() => setEditing(false)}
+        jobAreas={jobAreas}
+        fixedDay={row.day_of_week}
+      />
+    )
   }
 
   return (
@@ -78,6 +93,11 @@ export function AvailabilityRow({ row }: { row: Row }) {
           {row.availability_type}
         </Badge>
       </div>
+      {row.job_area_name ? (
+        <p className="text-xs text-muted-foreground">
+          Area: <span className="font-medium">{row.job_area_name}</span>
+        </p>
+      ) : null}
       {row.effective_from || row.effective_to ? (
         <p className="text-xs text-muted-foreground">
           {row.effective_from ?? "any"} → {row.effective_to ?? "any"}

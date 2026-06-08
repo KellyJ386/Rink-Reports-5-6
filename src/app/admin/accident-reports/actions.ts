@@ -388,12 +388,13 @@ const SEED_BODY_PARTS: ReadonlyArray<SeedRow> = [
   { category: "body_part", key: "upper_legs", display_name: "Upper Legs", sort_order: 5 },
   { category: "body_part", key: "hips", display_name: "Hips", sort_order: 6 },
   { category: "body_part", key: "torso", display_name: "Torso", sort_order: 7 },
-  { category: "body_part", key: "arms", display_name: "Arms", sort_order: 8 },
   { category: "body_part", key: "elbows", display_name: "Elbows", sort_order: 9 },
   { category: "body_part", key: "hands", display_name: "Hands", sort_order: 10 },
   { category: "body_part", key: "fingers", display_name: "Fingers", sort_order: 11 },
   { category: "body_part", key: "head_neck", display_name: "Head/Neck", sort_order: 12 },
   { category: "body_part", key: "wrists", display_name: "Wrists", sort_order: 17 },
+  { category: "body_part", key: "upper_arms", display_name: "Upper Arms", sort_order: 18 },
+  { category: "body_part", key: "lower_arms", display_name: "Lower Arms", sort_order: 19 },
 ]
 
 const SEED_SEVERITY: ReadonlyArray<SeedRow> = [

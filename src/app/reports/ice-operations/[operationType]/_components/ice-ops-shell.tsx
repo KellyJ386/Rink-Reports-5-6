@@ -1,23 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import {
-  Activity,
-  ArrowLeft,
-  Building2,
-  Calendar,
-  Clock,
-  Home,
-  Settings,
-  Thermometer,
-  User,
-} from "lucide-react"
-import {
-  useState,
-  useSyncExternalStore,
-  type ComponentType,
-  type ReactNode,
-} from "react"
+import { Activity, ArrowLeft, Home, Settings } from "lucide-react"
+import { useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
@@ -36,50 +21,9 @@ export type RecentActivityItem = {
 }
 
 type Props = {
-  userName: string
-  facilityName: string | null
-  tempF: number | null
-  tempLocation: string | null
   isAdmin: boolean
   configureHref: string
   recent: RecentActivityItem[]
-}
-
-// Live clock via useSyncExternalStore. The snapshot must be CACHED — returning a
-// fresh Date.now() on every getClockSnapshot call makes the store look
-// perpetually changed and sends React into an infinite render loop ("Maximum
-// update depth exceeded"). We mutate `clockNow` only inside the interval, so the
-// snapshot is stable between ticks. getClockServerSnapshot is null so SSR shows
-// "—" with no hydration mismatch.
-let clockNow = Date.now()
-function subscribeClock(cb: () => void) {
-  const id = setInterval(() => {
-    clockNow = Date.now()
-    cb()
-  }, 1000)
-  return () => clearInterval(id)
-}
-function getClockSnapshot(): number {
-  return clockNow
-}
-function getClockServerSnapshot(): number | null {
-  return null
-}
-
-function formatDate(d: Date): string {
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  })
 }
 
 function formatWhen(iso: string): string {
@@ -96,27 +40,11 @@ function formatWhen(iso: string): string {
 }
 
 export function IceOpsShell({
-  userName,
-  facilityName,
-  tempF,
-  tempLocation,
   isAdmin,
   configureHref,
   recent,
 }: Props) {
   const [showFeed, setShowFeed] = useState(false)
-
-  const nowMs = useSyncExternalStore(
-    subscribeClock,
-    getClockSnapshot,
-    getClockServerSnapshot,
-  )
-  const now = nowMs == null ? null : new Date(nowMs)
-
-  const tempLabel =
-    typeof tempF === "number"
-      ? `${Math.round(tempF)}°F${tempLocation ? ` · ${tempLocation}` : ""}`
-      : "Temp unavailable"
 
   return (
     <div className="flex flex-col gap-4">
@@ -168,23 +96,6 @@ export function IceOpsShell({
         }
       />
 
-      <SectionCard
-        as="div"
-        className="flex-row flex-wrap items-center gap-x-6 gap-y-2 p-4 text-sm"
-      >
-        <Chip icon={User}>{userName}</Chip>
-        {facilityName ? <Chip icon={Building2}>{facilityName}</Chip> : null}
-        <Chip icon={Calendar} muted>
-          {now ? formatDate(now) : "—"}
-        </Chip>
-        <Chip icon={Clock} muted>
-          <span className="tabular-nums">{now ? formatTime(now) : "—"}</span>
-        </Chip>
-        <Chip icon={Thermometer} muted>
-          {tempLabel}
-        </Chip>
-      </SectionCard>
-
       {showFeed ? (
         <SectionCard as="div" className="p-4">
           <h2 className="mb-3 text-sm font-semibold">Recent activity</h2>
@@ -217,29 +128,5 @@ export function IceOpsShell({
         </SectionCard>
       ) : null}
     </div>
-  )
-}
-
-function Chip({
-  icon: Icon,
-  muted = false,
-  children,
-}: {
-  icon: ComponentType<{ className?: string }>
-  muted?: boolean
-  children: ReactNode
-}) {
-  return (
-    <span
-      className={
-        "flex items-center gap-2 " +
-        (muted ? "text-muted-foreground" : "font-medium")
-      }
-    >
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Icon className="h-4 w-4" />
-      </span>
-      {children}
-    </span>
   )
 }

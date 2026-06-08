@@ -67,7 +67,16 @@ type FieldOptionShape = {
 function parseFieldOptions(value: unknown): RefrigerationFieldOption[] {
   if (!Array.isArray(value)) return []
   const out: RefrigerationFieldOption[] = []
-  for (const raw of value as FieldOptionShape[]) {
+  for (const raw of value as Array<FieldOptionShape | string>) {
+    // Tolerate the two shapes that exist in the wild: the canonical
+    // `{ key, label }` object written by the admin editor, and the legacy
+    // plain-string form seeded by migration 109 (e.g. "Running"). Treat a
+    // bare string as both its own key and label so the dropdown renders.
+    if (typeof raw === "string") {
+      const s = raw.trim()
+      if (s) out.push({ key: s, label: s })
+      continue
+    }
     if (!raw || typeof raw !== "object") continue
     const k = typeof raw.key === "string" ? raw.key : null
     const l = typeof raw.label === "string" ? raw.label : null

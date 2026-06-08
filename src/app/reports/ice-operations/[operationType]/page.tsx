@@ -13,7 +13,6 @@ import { TabNav } from "@/components/ui/tab-nav"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
-import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
 import { BladeChangeForm } from "./_components/blade-change-form"
 import { CircleCheckForm } from "./_components/circle-check-form"
@@ -39,7 +38,7 @@ export const dynamic = "force-dynamic"
 const CONFIGURE_HREF = "/admin/ice-operations?tab=setup"
 
 const FORM_TITLES: Record<OperationType, string> = {
-  ice_make: "Resurface Activity",
+  ice_make: "Ice Make Activity",
   blade_change: "Blade Change",
   edging: "Edging",
   circle_check: "Digital Circle Check",
@@ -141,7 +140,6 @@ export default async function OperationTypePage({
   const [
     { data: rinksRaw },
     { data: equipmentRaw },
-    { data: facilityRow },
     { data: recentRaw },
     isAdmin,
   ] = await Promise.all([
@@ -163,11 +161,6 @@ export default async function OperationTypePage({
       .eq("equipment_type", equipmentType)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
-    supabase
-      .from("facilities")
-      .select("name, city, state, zip_code")
-      .eq("id", facilityId)
-      .maybeSingle(),
     supabase
       .from("ice_operations_submissions")
       .select(
@@ -195,15 +188,6 @@ export default async function OperationTypePage({
     fuel_type_id: row.fuel_type_id ?? null,
   }))
 
-  const facilityName = facilityRow?.name ?? null
-  const temp = facilityRow
-    ? await getCurrentTempForFacility({
-        city: facilityRow.city,
-        state: facilityRow.state,
-        zip_code: facilityRow.zip_code,
-      })
-    : null
-
   type RecentDbRow = {
     id: string
     operation_type: string
@@ -228,10 +212,6 @@ export default async function OperationTypePage({
 
   const shell = (
     <IceOpsShell
-      userName={current.profile?.full_name ?? current.authUser.email ?? "User"}
-      facilityName={facilityName}
-      tempF={temp?.tempF ?? null}
-      tempLocation={temp?.location ?? null}
       isAdmin={isAdmin}
       configureHref={CONFIGURE_HREF}
       recent={recent}

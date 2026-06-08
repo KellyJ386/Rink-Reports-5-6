@@ -198,6 +198,7 @@ export async function upsertAvailability(
   const effectiveFromRaw = String(formData.get("effective_from") ?? "").trim()
   const effectiveToRaw = String(formData.get("effective_to") ?? "").trim()
   const notesRaw = String(formData.get("notes") ?? "").trim()
+  const jobAreaIdRaw = String(formData.get("job_area_id") ?? "").trim()
 
   const day = Number(dayRaw)
   if (!Number.isInteger(day) || day < 0 || day > 6) {
@@ -213,6 +214,26 @@ export async function upsertAvailability(
     return { status: "error", error: "Pick a valid availability type." }
   }
 
+  // A chosen job area must be one the employee is actually assigned to.
+  let jobAreaId: string | null = null
+  if (jobAreaIdRaw.length > 0) {
+    // employee_job_area_assignments isn't in the generated types; cast.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: assignment } = await (supabase as any)
+      .from("employee_job_area_assignments")
+      .select("job_area_id")
+      .eq("employee_id", auth.employee.id)
+      .eq("job_area_id", jobAreaIdRaw)
+      .maybeSingle()
+    if (!assignment) {
+      return {
+        status: "error",
+        error: "Pick a job area you're assigned to.",
+      }
+    }
+    jobAreaId = jobAreaIdRaw
+  }
+
   const payload = {
     facility_id: auth.employee.facility_id,
     employee_id: auth.employee.id,
@@ -223,6 +244,9 @@ export async function upsertAvailability(
     effective_from: effectiveFromRaw.length > 0 ? effectiveFromRaw : null,
     effective_to: effectiveToRaw.length > 0 ? effectiveToRaw : null,
     notes: notesRaw.length > 0 ? notesRaw : null,
+    // job_area_id isn't in the generated types yet (migration 127); the table
+    // accepts it. Cast at the insert/update call sites.
+    job_area_id: jobAreaId,
   }
 
   if (id) {
@@ -237,7 +261,8 @@ export async function upsertAvailability(
     }
     const { error } = await supabase
       .from("schedule_availability")
-      .update(payload)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .update(payload as any)
       .eq("id", id)
       .eq("facility_id", auth.employee.facility_id)
     if (error) {
@@ -249,7 +274,8 @@ export async function upsertAvailability(
   } else {
     const { error } = await supabase
       .from("schedule_availability")
-      .insert(payload)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .insert(payload as any)
     if (error) {
       return {
         status: "error",

@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
-import type { ActionState, IncidentStatus, SimpleResult } from "./types"
+import type {
+  ActionState,
+  BulkImportResult,
+  IncidentStatus,
+  SimpleResult,
+} from "./types"
 import { isIncidentStatus } from "./types"
 
 type SupabaseError = { code?: string; message?: string } | null
@@ -773,6 +778,174 @@ export async function seedFacilitySpaces(): Promise<SimpleResult> {
     }
     revalidatePath("/admin/incident-reports")
     return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
+// Bulk CSV import (every checklist/config surface gets a matching uploader)
+// ============================================================================
+
+// Minimal CSV: one record per non-empty line, comma-separated columns. A
+// leading header row (whose first cell matches a known column name) is skipped.
+// Names with embedded commas are not supported here — admins use one item per
+// line; richer parsing isn't warranted for these short config lists.
+function parseCsvLines(csv: string): string[][] {
+  return csv
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.split(",").map((cell) => cell.trim()))
+}
+
+function activityKeyFrom(input: string): string {
+  return slugify(input).replace(/-/g, "_").slice(0, 64)
+}
+
+/**
+ * Bulk-import incident activities from CSV. Columns:
+ * `display_name[, key][, color][, sort_order]`. Duplicate keys (existing or
+ * within the file) are skipped, not overwritten.
+ */
+export async function bulkImportIncidentActivities(
+  csv: string,
+): Promise<BulkImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const lines = parseCsvLines(csv)
+    if (lines.length === 0) return { ok: false, error: "No rows found." }
+    if (lines[0]![0]?.toLowerCase() === "display_name") lines.shift()
+
+    const errors: string[] = []
+    const seen = new Set<string>()
+    const rows: Array<{
+      facility_id: string
+      key: string
+      display_name: string
+      color: string | null
+      sort_order: number
+      is_active: boolean
+    }> = []
+
+    lines.forEach((cells, i) => {
+      const lineNo = i + 1
+      const display_name = cells[0] ?? ""
+      if (!display_name) {
+        errors.push(`Row ${lineNo}: display name is required.`)
+        return
+      }
+      const key = cells[1] ? activityKeyFrom(cells[1]) : activityKeyFrom(display_name)
+      if (!ACTIVITY_KEY_RE.test(key)) {
+        errors.push(`Row ${lineNo}: could not derive a valid key from "${display_name}".`)
+        return
+      }
+      if (seen.has(key)) return
+      seen.add(key)
+      const color = cells[2] ? cells[2] : null
+      const sort_order = cells[3] && Number.isFinite(Number(cells[3]))
+        ? Math.trunc(Number(cells[3]))
+        : i
+      rows.push({
+        facility_id: facility.facilityId,
+        key,
+        display_name,
+        color,
+        sort_order,
+        is_active: true,
+      })
+    })
+
+    if (rows.length === 0) {
+      return { ok: false, error: errors[0] ?? "No valid rows to import." }
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from("incident_activities")
+      .upsert(rows, { onConflict: "facility_id,key", ignoreDuplicates: true })
+      .select("id")
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to import activities.") }
+    }
+    const inserted = data?.length ?? 0
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, inserted, skipped: rows.length - inserted, errors }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Bulk-import facility spaces from CSV. Columns: `name[, slug][, sort_order]`.
+ * Duplicate slugs (existing or within the file) are skipped, not overwritten.
+ */
+export async function bulkImportFacilitySpaces(
+  csv: string,
+): Promise<BulkImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const lines = parseCsvLines(csv)
+    if (lines.length === 0) return { ok: false, error: "No rows found." }
+    if (lines[0]![0]?.toLowerCase() === "name") lines.shift()
+
+    const errors: string[] = []
+    const seen = new Set<string>()
+    const rows: Array<{
+      facility_id: string
+      name: string
+      slug: string
+      sort_order: number
+      is_active: boolean
+    }> = []
+
+    lines.forEach((cells, i) => {
+      const lineNo = i + 1
+      const name = cells[0] ?? ""
+      if (!name) {
+        errors.push(`Row ${lineNo}: name is required.`)
+        return
+      }
+      const slug = cells[1] ? slugify(cells[1]) : slugify(name)
+      if (!SPACE_SLUG_RE.test(slug)) {
+        errors.push(`Row ${lineNo}: could not derive a valid slug from "${name}".`)
+        return
+      }
+      if (seen.has(slug)) return
+      seen.add(slug)
+      const sort_order = cells[2] && Number.isFinite(Number(cells[2]))
+        ? Math.trunc(Number(cells[2]))
+        : i
+      rows.push({
+        facility_id: facility.facilityId,
+        name,
+        slug,
+        sort_order,
+        is_active: true,
+      })
+    })
+
+    if (rows.length === 0) {
+      return { ok: false, error: errors[0] ?? "No valid rows to import." }
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from("facility_spaces")
+      .upsert(rows, { onConflict: "facility_id,slug", ignoreDuplicates: true })
+      .select("id")
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to import spaces.") }
+    }
+    const inserted = data?.length ?? 0
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, inserted, skipped: rows.length - inserted, errors }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }

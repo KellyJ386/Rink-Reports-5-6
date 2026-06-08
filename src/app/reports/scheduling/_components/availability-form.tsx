@@ -19,7 +19,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
 
 import { upsertAvailability } from "../actions"
-import { DAY_NAMES, INITIAL_ACTION_STATE } from "../types"
+import {
+  DAY_NAMES,
+  INITIAL_ACTION_STATE,
+  type JobAreaOption,
+} from "../types"
+
+const NO_AREA = "__none__"
 
 function genLocalId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -37,8 +43,14 @@ type Props = {
     effective_from: string | null
     effective_to: string | null
     notes: string | null
+    job_area_id?: string | null
   } | null
   onClose?: () => void
+  // Job areas the employee can pick from. Empty => no area picker.
+  jobAreas?: JobAreaOption[]
+  // When set, the form is locked to this day_of_week (the day-detail view) and
+  // hides the day picker.
+  fixedDay?: number
 }
 
 function Submit({ isEdit }: { isEdit: boolean }) {
@@ -61,13 +73,20 @@ function timeToHHMM(value: string): string {
   return m ? `${m[1]}:${m[2]}` : value
 }
 
-export function AvailabilityForm({ initial, onClose }: Props) {
+export function AvailabilityForm({
+  initial,
+  onClose,
+  jobAreas = [],
+  fixedDay,
+}: Props) {
   const [state, formAction] = useActionState(
     upsertAvailability,
     INITIAL_ACTION_STATE
   )
   const isEdit = Boolean(initial)
-  const [day, setDay] = useState(String(initial?.day_of_week ?? 1))
+  const [day, setDay] = useState(
+    String(fixedDay ?? initial?.day_of_week ?? 1)
+  )
   const [startTime, setStartTime] = useState(
     initial ? timeToHHMM(initial.start_time) : "09:00"
   )
@@ -78,6 +97,7 @@ export function AvailabilityForm({ initial, onClose }: Props) {
   const [from, setFrom] = useState(initial?.effective_from ?? "")
   const [to, setTo] = useState(initial?.effective_to ?? "")
   const [notes, setNotes] = useState(initial?.notes ?? "")
+  const [jobAreaId, setJobAreaId] = useState(initial?.job_area_id ?? "")
   const [localId, setLocalId] = useState(genLocalId)
 
   useEffect(() => {
@@ -109,6 +129,7 @@ export function AvailabilityForm({ initial, onClose }: Props) {
               effective_from: from,
               effective_to: to,
               notes,
+              job_area_id: jobAreaId,
             },
           })
           if (ok) {
@@ -144,22 +165,25 @@ export function AvailabilityForm({ initial, onClose }: Props) {
       />
       <input type="hidden" name="day_of_week" value={day} />
       <input type="hidden" name="availability_type" value={type} />
+      <input type="hidden" name="job_area_id" value={jobAreaId} />
 
-      <div className="flex flex-col gap-2">
-        <Label>Day of week</Label>
-        <Select value={day} onValueChange={setDay}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {DAY_NAMES.map((name, idx) => (
-              <SelectItem key={name} value={String(idx)}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {fixedDay === undefined ? (
+        <div className="flex flex-col gap-2">
+          <Label>Day of week</Label>
+          <Select value={day} onValueChange={setDay}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DAY_NAMES.map((name, idx) => (
+                <SelectItem key={name} value={String(idx)}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
       <div className="flex gap-3">
         <div className="flex flex-1 flex-col gap-2">
           <Label htmlFor="start_time">Start time</Label>
@@ -199,6 +223,27 @@ export function AvailabilityForm({ initial, onClose }: Props) {
           </SelectContent>
         </Select>
       </div>
+      {jobAreas.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <Label>Area / department you want to work</Label>
+          <Select
+            value={jobAreaId === "" ? NO_AREA : jobAreaId}
+            onValueChange={(v) => setJobAreaId(v === NO_AREA ? "" : v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_AREA}>No preference</SelectItem>
+              {jobAreas.map((area) => (
+                <SelectItem key={area.id} value={area.id}>
+                  {area.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
       <div className="flex gap-3">
         <div className="flex flex-1 flex-col gap-2">
           <Label htmlFor="effective_from">Effective from (optional)</Label>

@@ -32,21 +32,21 @@ export const OPERATION_TYPES: readonly OperationType[] = [
 ] as const
 
 /**
- * Tab order shown in the Ice Maintenance Log module nav. Differs from
- * OPERATION_TYPES so the most-used flows lead.
+ * Tab order shown in the Ice Maintenance Log module nav. Canonical order:
+ * Ice Make, Circle Check, Edging, Blade Change.
  */
 export const OPERATION_TAB_ORDER: readonly OperationType[] = [
   "ice_make",
-  "blade_change",
-  "edging",
   "circle_check",
+  "edging",
+  "blade_change",
 ] as const
 
 /** Module shown when the user lands on Ice Operations without picking a tab. */
 export const DEFAULT_OPERATION_TYPE: OperationType = OPERATION_TAB_ORDER[0]
 
 export const OPERATION_LABELS: Record<OperationType, string> = {
-  ice_make: "Resurface",
+  ice_make: "Ice Make",
   circle_check: "Circle Check",
   edging: "Edging",
   blade_change: "Blade Change",

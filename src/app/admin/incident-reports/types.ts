@@ -57,6 +57,10 @@ export type ActionState =
 
 export type SimpleResult = { ok: true } | { ok: false; error: string }
 
+export type BulkImportResult =
+  | { ok: true; inserted: number; skipped: number; errors: string[] }
+  | { ok: false; error: string }
+
 export type Tab = "history" | "severities" | "activities" | "spaces"
 
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [

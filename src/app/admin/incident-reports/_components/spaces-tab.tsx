@@ -14,13 +14,20 @@ import {
 } from "@/components/ui/card"
 
 import {
+  bulkImportFacilitySpaces,
   deleteFacilitySpace,
   seedFacilitySpaces,
   setFacilitySpaceActive,
 } from "../actions"
 import type { FacilitySpaceRow } from "../types"
 
+import { BulkImportCard } from "./bulk-import-card"
 import { SpaceForm } from "./space-form"
+
+const SPACE_CSV_PLACEHOLDER = `name,slug,sort_order
+Rink 2,rink-2,1
+Mezzanine,mezzanine,2
+Snack Bar`
 
 type Props = {
   spaces: FacilitySpaceRow[]
@@ -82,10 +89,16 @@ export function SpacesTab({ spaces }: Props) {
               </Button>
             </CardContent>
           </Card>
-          <div>
+          <div className="flex flex-col items-start gap-2">
             <Button onClick={openCreate} variant="outline">
               Add space manually
             </Button>
+            <BulkImportCard
+              title="Bulk import facility spaces"
+              description="Paste CSV rows: name[, slug][, sort_order]. One space per line. Duplicate slugs are skipped."
+              placeholder={SPACE_CSV_PLACEHOLDER}
+              action={bulkImportFacilitySpaces}
+            />
           </div>
         </div>
         <SpaceForm
@@ -110,6 +123,13 @@ export function SpacesTab({ spaces }: Props) {
         </div>
         <Button onClick={openCreate}>Add space</Button>
       </div>
+
+      <BulkImportCard
+        title="Bulk import facility spaces"
+        description="Paste CSV rows: name[, slug][, sort_order]. One space per line. Duplicate slugs are skipped."
+        placeholder={SPACE_CSV_PLACEHOLDER}
+        action={bulkImportFacilitySpaces}
+      />
 
       <div className="overflow-auto rounded-md border">
         <table className="w-full border-collapse text-sm">
