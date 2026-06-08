@@ -6,6 +6,8 @@ import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geom
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { SendReportButton } from "./_components/send-report-button"
+
 export const dynamic = "force-dynamic"
 
 type SearchParams = { id?: string | string[] }
@@ -575,6 +577,7 @@ function DonePageBody({
 
         {/* CTAs */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 16 }}>
+          <SendReportButton sessionId={session.id} />
           <Link
             href="/reports/ice-depth"
             style={{

@@ -6,7 +6,6 @@
 
 import "server-only"
 
-import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
 
 import type { Severity } from "../types"
@@ -245,13 +244,10 @@ export async function persistIceDepth(
     // Alerts are best-effort; do not fail the submission.
   }
 
-  // 8) Notification fan-out (best-effort).
-  await dispatchRulesForSubmission({
-    facilityId,
-    sourceModule: "ice_depth",
-    sourceRecordId: sessionId,
-    subject: `Ice depth session submitted (${layout.slug})`,
-  })
-
+  // Ice depth does NOT fan out on submit. The report is saved here; the
+  // reviewer explicitly sends it to the configured send list from the
+  // post-submit screen via `sendIceDepthReport` (see ../actions.ts). This keeps
+  // the submitter in control of distribution and avoids sending an unreviewed
+  // report.
   return { ok: true, reportId: sessionId }
 }
