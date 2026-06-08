@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
-import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { Database } from "@/types/database"
@@ -12,22 +11,19 @@ import type { Database } from "@/types/database"
 import type {
   AccidentReportSnapshot,
   BodyPartsPayloadEntry,
-  WitnessPayloadEntry,
 } from "./types"
+import {
+  ALLOWED_SIDES,
+  buildInputFromForm,
+  validateFields,
+  type AccidentFieldName,
+} from "./_lib/compute"
+import { persistAccident } from "./_lib/submit"
 
-type AccidentReportInsert =
-  Database["public"]["Tables"]["accident_reports"]["Insert"]
 type AccidentReportUpdate =
   Database["public"]["Tables"]["accident_reports"]["Update"]
 
-// Names match form input `name` attributes — keep them in sync with
-// the submission-form component.
-export type AccidentFieldName =
-  | "injured_person_name"
-  | "injured_person_contact"
-  | "injured_person_age"
-  | "occurred_at"
-  | "description"
+export type { AccidentFieldName } from "./_lib/compute"
 
 export type AccidentFormState = {
   ok?: boolean
@@ -42,170 +38,6 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
-const MAX_BODY_PARTS = 32
-const ALLOWED_SIDES = new Set(["front", "back", "both", "none"])
-const ALLOWED_LATERALITIES = new Set(["left", "right"])
-const MAX_WITNESSES = 5
-
-function parseBodyParts(raw: string): BodyPartsPayloadEntry[] {
-  if (!raw.trim()) return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(parsed)) return []
-  const out: BodyPartsPayloadEntry[] = []
-  // Dedupe on (body_part_dropdown_id, laterality) since the DB unique key is
-  // (accident_id, body_part_dropdown_id, side, laterality NULLS NOT DISTINCT).
-  // Keep the first occurrence for each (region, laterality) pair.
-  const seen = new Set<string>()
-  for (const item of parsed) {
-    if (out.length >= MAX_BODY_PARTS) break
-    if (!item || typeof item !== "object") continue
-    const obj = item as Record<string, unknown>
-    const id =
-      typeof obj.body_part_dropdown_id === "string"
-        ? obj.body_part_dropdown_id
-        : ""
-    const side = typeof obj.side === "string" ? obj.side : ""
-    if (!id || !ALLOWED_SIDES.has(side)) continue
-    if (side === "none") continue
-    const rawLat = obj.laterality
-    let laterality: "left" | "right" | null = null
-    if (typeof rawLat === "string" && ALLOWED_LATERALITIES.has(rawLat)) {
-      laterality = rawLat as "left" | "right"
-    } else if (rawLat !== null && rawLat !== undefined) {
-      // Unknown laterality string — reject the row.
-      continue
-    }
-    const dedupeKey = `${id}::${laterality ?? ""}`
-    if (seen.has(dedupeKey)) continue
-    seen.add(dedupeKey)
-    out.push({
-      body_part_dropdown_id: id,
-      side: side as BodyPartsPayloadEntry["side"],
-      laterality,
-    })
-  }
-  return out
-}
-
-function parseWitnesses(raw: string): WitnessPayloadEntry[] {
-  if (!raw.trim()) return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(parsed)) return []
-  const out: WitnessPayloadEntry[] = []
-  for (const item of parsed) {
-    if (out.length >= MAX_WITNESSES) break
-    if (!item || typeof item !== "object") continue
-    const obj = item as Record<string, unknown>
-    const name = typeof obj.name === "string" ? obj.name.trim() : ""
-    if (!name) continue
-    const contactRaw = typeof obj.contact === "string" ? obj.contact.trim() : ""
-    const statementRaw =
-      typeof obj.statement === "string" ? obj.statement.trim() : ""
-    out.push({
-      name,
-      contact: contactRaw.length > 0 ? contactRaw : null,
-      statement: statementRaw.length > 0 ? statementRaw : null,
-    })
-  }
-  return out
-}
-
-type FormFields = {
-  injured_person_name: string
-  injured_person_contact: string
-  injured_person_age: number | null
-  description: string
-  occurred_at: string
-  location_dropdown_id: string | null
-  activity_dropdown_id: string | null
-  severity_dropdown_id: string | null
-  medical_attention_dropdown_id: string | null
-  primary_injury_type_dropdown_id: string | null
-  workers_comp: boolean
-  workers_comp_ack: boolean
-  body_parts: BodyPartsPayloadEntry[]
-  witnesses: WitnessPayloadEntry[]
-}
-
-function readFields(formData: FormData): FormFields {
-  const optional = (k: string): string | null => {
-    const v = String(formData.get(k) ?? "").trim()
-    return v.length > 0 ? v : null
-  }
-  const rawAge = String(formData.get("injured_person_age") ?? "").trim()
-  let age: number | null = null
-  if (rawAge.length > 0) {
-    const parsed = Number(rawAge)
-    if (Number.isFinite(parsed)) age = Math.trunc(parsed)
-  }
-  return {
-    injured_person_name: String(formData.get("injured_person_name") ?? "").trim(),
-    injured_person_contact: String(
-      formData.get("injured_person_contact") ?? ""
-    ).trim(),
-    injured_person_age: age,
-    description: String(formData.get("description") ?? "").trim(),
-    occurred_at: String(formData.get("occurred_at") ?? "").trim(),
-    location_dropdown_id: optional("location_dropdown_id"),
-    activity_dropdown_id: optional("activity_dropdown_id"),
-    severity_dropdown_id: optional("severity_dropdown_id"),
-    medical_attention_dropdown_id: optional("medical_attention_dropdown_id"),
-    primary_injury_type_dropdown_id: optional("primary_injury_type_dropdown_id"),
-    workers_comp: String(formData.get("workers_comp") ?? "") === "on",
-    workers_comp_ack: String(formData.get("workers_comp_ack") ?? "") === "on",
-    body_parts: parseBodyParts(String(formData.get("body_parts_json") ?? "")),
-    witnesses: parseWitnesses(String(formData.get("witnesses_json") ?? "")),
-  }
-}
-
-// Collect all per-field validation errors so the user can fix them in
-// one pass. Insertion order matches the visual order of the form so the
-// auto-focus effect picks the topmost invalid field.
-function validateFields(
-  fields: FormFields,
-): Partial<Record<AccidentFieldName, string>> {
-  const errors: Partial<Record<AccidentFieldName, string>> = {}
-  if (!fields.injured_person_name)
-    errors.injured_person_name = "Please enter the injured person's name."
-  if (!fields.injured_person_contact)
-    errors.injured_person_contact = "Please enter a contact for the injured person."
-  if (fields.injured_person_age === null)
-    errors.injured_person_age = "Please enter the injured person's age."
-  else if (fields.injured_person_age < 0 || fields.injured_person_age > 120)
-    errors.injured_person_age = "Age must be between 0 and 120."
-  if (!fields.occurred_at)
-    errors.occurred_at = "Please choose when the accident happened."
-  else if (Number.isNaN(new Date(fields.occurred_at).getTime()))
-    errors.occurred_at = "Invalid date and time."
-  if (!fields.description) errors.description = "Please describe what happened."
-  return errors
-}
-
-function severityKeyToAlertSeverity(key: string | null | undefined): string {
-  switch (key) {
-    case "critical":
-      return "critical"
-    case "high":
-      return "high"
-    case "medium":
-      return "warn"
-    case "low":
-      return "info"
-    default:
-      return "high"
-  }
-}
-
 // =============================================================================
 // Submit
 // =============================================================================
@@ -214,7 +46,7 @@ export async function submitAccidentReport(
   _prev: AccidentFormState,
   formData: FormData
 ): Promise<AccidentFormState> {
-  const fields = readFields(formData)
+  const fields = buildInputFromForm(formData)
   const fieldErrors = validateFields(fields)
   if (Object.keys(fieldErrors).length > 0) return { ok: false, fieldErrors }
 
@@ -246,180 +78,16 @@ export async function submitAccidentReport(
     }
   }
 
-  const occurredIso = new Date(fields.occurred_at).toISOString()
-  const workersCompAckAt =
-    fields.workers_comp && fields.workers_comp_ack
-      ? new Date().toISOString()
-      : null
-
-  const insertPayload: AccidentReportInsert = {
-    facility_id: employeeRow.facility_id,
-    employee_id: employeeRow.id,
-    injured_person_name: fields.injured_person_name,
-    injured_person_contact: fields.injured_person_contact,
-    injured_person_age: fields.injured_person_age,
-    description: fields.description,
-    occurred_at: occurredIso,
-    location_dropdown_id: fields.location_dropdown_id,
-    activity_dropdown_id: fields.activity_dropdown_id,
-    severity_dropdown_id: fields.severity_dropdown_id,
-    medical_attention_dropdown_id: fields.medical_attention_dropdown_id,
-    primary_injury_type_dropdown_id: fields.primary_injury_type_dropdown_id,
-    workers_comp: fields.workers_comp,
-    workers_comp_acknowledged_at: workersCompAckAt,
-  }
-
-  const { data: inserted, error: insertErr } = await supabase
-    .from("accident_reports")
-    .insert(insertPayload)
-    .select(
-      "id, facility_id, employee_id, injured_person_name, injured_person_contact, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
-    )
-    .single()
-
-  if (insertErr || !inserted) {
-    return {
-      ok: false,
-      error: dbError(insertErr, "Failed to submit accident report."),
-    }
-  }
-
-  const reportId = inserted.id
-
-  // Best-effort cleanup wrapper.
-  const cleanupAndFail = async (msg: string): Promise<AccidentFormState> => {
-    await supabase.from("accident_reports").delete().eq("id", reportId)
-    return { ok: false, error: msg }
-  }
-
-  // Insert body part rows in batch. `laterality` lives on the table as of
-  // migration 00000000000092 but is not yet in the generated Database types —
-  // cast through any to attach it, matching the pattern in offline-sync.
-  if (fields.body_parts.length > 0) {
-    const rows = fields.body_parts.map((bp) => ({
-      accident_id: reportId,
-      facility_id: employeeRow.facility_id,
-      body_part_dropdown_id: bp.body_part_dropdown_id,
-      side: bp.side,
-      laterality: bp.laterality,
-    }))
-    const { error: bpErr } = await supabase
-      .from("accident_body_part_selections")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .insert(rows as any)
-    if (bpErr) {
-      return cleanupAndFail(
-        dbError(bpErr, "Failed to save body part selections.")
-      )
-    }
-  }
-
-  // Insert witnesses in batch.
-  if (fields.witnesses.length > 0) {
-    const witnessRows = fields.witnesses.map((w, i) => ({
-      accident_id: reportId,
-      facility_id: employeeRow.facility_id,
-      name: w.name,
-      contact: w.contact,
-      statement: w.statement,
-      sort_order: i,
-    }))
-    const { error: wErr } = await supabase
-      .from("accident_witnesses")
-      .insert(witnessRows)
-    if (wErr) {
-      return cleanupAndFail(dbError(wErr, "Failed to save witnesses."))
-    }
-  }
-
-  // Build snapshot for change log.
-  const snapshot: AccidentReportSnapshot = {
-    id: inserted.id,
-    facility_id: inserted.facility_id,
-    employee_id: inserted.employee_id,
-    injured_person_name: inserted.injured_person_name,
-    injured_person_contact: inserted.injured_person_contact,
-    injured_person_age: fields.injured_person_age,
-    description: inserted.description,
-    occurred_at: inserted.occurred_at,
-    submitted_at: inserted.submitted_at,
-    edit_window_ends_at: inserted.edit_window_ends_at,
-    workers_comp: inserted.workers_comp,
-    workers_comp_acknowledged_at: inserted.workers_comp_acknowledged_at,
-    location_dropdown_id: inserted.location_dropdown_id,
-    activity_dropdown_id: inserted.activity_dropdown_id,
-    severity_dropdown_id: inserted.severity_dropdown_id,
-    medical_attention_dropdown_id: inserted.medical_attention_dropdown_id,
-    primary_injury_type_dropdown_id: inserted.primary_injury_type_dropdown_id,
-    body_parts: fields.body_parts,
-    witnesses: fields.witnesses,
-  }
-
-  const { error: logErr } = await supabase.from("accident_change_log").insert({
-    accident_id: reportId,
-    facility_id: employeeRow.facility_id,
-    employee_id: employeeRow.id,
-    action: "create",
-    before: null,
-    after: snapshot,
-  })
-  if (logErr) {
-    return cleanupAndFail(dbError(logErr, "Failed to record change log."))
-  }
-
-  // Medical-attention alert.
-  if (fields.medical_attention_dropdown_id) {
-    const { data: medRow } = await supabase
-      .from("accident_dropdowns")
-      .select("display_name, metadata, key")
-      .eq("id", fields.medical_attention_dropdown_id)
-      .maybeSingle()
-
-    const triggers =
-      medRow?.metadata &&
-      typeof medRow.metadata === "object" &&
-      !Array.isArray(medRow.metadata) &&
-      (medRow.metadata as Record<string, unknown>).triggers_alert === true
-
-    if (triggers) {
-      let severityKey: string | null = null
-      if (fields.severity_dropdown_id) {
-        const { data: sevRow } = await supabase
-          .from("accident_dropdowns")
-          .select("key")
-          .eq("id", fields.severity_dropdown_id)
-          .maybeSingle()
-        severityKey = sevRow?.key ?? null
-      }
-
-      const summary = `${fields.injured_person_name} — ${
-        medRow?.display_name ?? "medical attention"
-      }. ${fields.description.slice(0, 200)}${
-        fields.description.length > 200 ? "…" : ""
-      }`
-
-      await supabase.from("communication_alerts").insert({
-        facility_id: employeeRow.facility_id,
-        source_module: "accident_reports",
-        source_record_id: reportId,
-        severity: severityKeyToAlertSeverity(severityKey),
-        title: "Accident report requires medical attention follow-up",
-        body: summary,
-        created_by_employee_id: employeeRow.id,
-        requires_acknowledgement: true,
-      })
-      // If alert insert fails, we leave the report intact — the alert is a
-      // best-effort side-effect, not a precondition.
-    }
-  }
-
-  await dispatchRulesForSubmission({
+  const result = await persistAccident(supabase, {
+    employeeId: employeeRow.id,
     facilityId: employeeRow.facility_id,
-    sourceModule: "accident_reports",
-    sourceRecordId: reportId,
-    subject: "Accident report submitted",
+    input: fields,
   })
+  if (!result.ok) {
+    return { ok: false, error: result.error }
+  }
 
+  const reportId = result.reportId
   revalidatePath("/reports/accidents")
   revalidatePath(`/reports/accidents/${reportId}`)
   redirect(`/reports/accidents/${reportId}?submitted=1`)
@@ -434,7 +102,7 @@ export async function updateAccidentReport(
   _prev: AccidentFormState,
   formData: FormData
 ): Promise<AccidentFormState> {
-  const fields = readFields(formData)
+  const fields = buildInputFromForm(formData)
   const fieldErrors = validateFields(fields)
   if (Object.keys(fieldErrors).length > 0) return { ok: false, fieldErrors }
 
