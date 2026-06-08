@@ -22,12 +22,14 @@ import {
   submitIceOperationsReport,
   type SubmissionFormState,
 } from "../../actions"
+import { OfflineQueuedCard } from "./offline-queued-card"
 import {
   equipmentLabel,
   nowForDateTimeLocal,
   type EquipmentOption,
   type RinkOption,
 } from "./shared"
+import { useOfflineSubmit } from "./use-offline-submit"
 
 type Props = {
   rinks: RinkOption[]
@@ -50,12 +52,30 @@ export function IceMakeForm({ rinks, equipment }: Props) {
   const [timeOff, setTimeOff] = useState("")
   const [notes, setNotes] = useState("")
 
+  const { queued, handleSubmit } = useOfflineSubmit("ice_make", () => ({
+    rink_id: rinkId || null,
+    equipment_id: equipmentId || null,
+    occurred_at: occurredAt,
+    notes: notes.trim() || null,
+    water_used_gal: waterUsed,
+    machine_hours: machineHours,
+    snow_taken_pct: snowTaken,
+    time_in: timeOn,
+    time_out: timeOff,
+  }))
+
   useEffect(() => {
     if (state.error) toast.error(state.error)
   }, [state.error])
 
+  if (queued) return <OfflineQueuedCard />
+
   return (
-    <form action={formAction} className="flex flex-col gap-5">
+    <form
+      action={formAction}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
       <FormError message={state.error} />
 
       <input type="hidden" name="occurred_at" value={occurredAt} />

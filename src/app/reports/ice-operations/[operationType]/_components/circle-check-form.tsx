@@ -23,11 +23,13 @@ import {
   submitIceOperationsReport,
   type SubmissionFormState,
 } from "../../actions"
+import { OfflineQueuedCard } from "./offline-queued-card"
 import {
   equipmentLabel,
   nowForDateTimeLocal,
   type EquipmentOption,
 } from "./shared"
+import { useOfflineSubmit } from "./use-offline-submit"
 
 type ChecklistItem = {
   id: string
@@ -168,27 +170,45 @@ export function CircleCheckForm({
     return false
   }, [visibleItems, itemStates])
 
-  const resultsJson = useMemo(() => {
-    return JSON.stringify(
-      visibleItems.map((item) => {
-        const s = itemStates[item.id]
-        const passed = s ? s.passed : true
-        const failed_notes = s && !passed ? s.notes.trim() : null
-        return {
-          // Template items use a separate table than ice_operations_circle_check_items,
-          // so we can't satisfy the results-table FK with their id. Persist null
-          // and rely on label_snapshot for historical context.
-          checklist_item_id: item.isTemplateItem ? null : item.id,
-          label_snapshot: item.label,
-          passed,
-          failed_notes,
-        }
-      })
-    )
+  const resultsArray = useMemo(() => {
+    return visibleItems.map((item) => {
+      const s = itemStates[item.id]
+      const passed = s ? s.passed : true
+      const failed_notes = s && !passed ? s.notes.trim() : null
+      return {
+        // Template items use a separate table than ice_operations_circle_check_items,
+        // so we can't satisfy the results-table FK with their id. Persist null
+        // and rely on label_snapshot for historical context.
+        checklist_item_id: item.isTemplateItem ? null : item.id,
+        label_snapshot: item.label,
+        passed,
+        failed_notes,
+      }
+    })
   }, [visibleItems, itemStates])
 
+  const resultsJson = useMemo(
+    () => JSON.stringify(resultsArray),
+    [resultsArray]
+  )
+
+  const { queued, handleSubmit } = useOfflineSubmit("circle_check", () => ({
+    equipment_id: equipmentId || null,
+    occurred_at: occurredAt,
+    notes: notes.trim() || null,
+    // The offline payload carries the parsed array; `buildInputFromPayload`
+    // accepts either an array or a JSON string here.
+    circle_check_results: resultsArray,
+  }))
+
+  if (queued) return <OfflineQueuedCard />
+
   return (
-    <form action={formAction} className="flex flex-col gap-5">
+    <form
+      action={formAction}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
       <FormError message={state.error} />
 
       <input type="hidden" name="occurred_at" value={occurredAt} />
