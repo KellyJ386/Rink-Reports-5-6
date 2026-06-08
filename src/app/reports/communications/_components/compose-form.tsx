@@ -1,11 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import type { FormEvent } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { Button } from "@/components/ui/button"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
@@ -46,11 +48,22 @@ type Props = {
 
 const initialState: SendMessageFormState = {}
 
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `comm-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export function ComposeForm({ groups, templates }: Props) {
   const [state, formAction] = useActionState(
     sendCommunicationsMessage,
     initialState
   )
+
+  const { isOnline } = useSyncQueue()
+  const [localId] = useState<string>(genLocalId)
+  const [queued, setQueued] = useState(false)
 
   const [templateId, setTemplateId] = useState("")
   const [subject, setSubject] = useState("")
@@ -99,8 +112,80 @@ export function ComposeForm({ groups, templates }: Props) {
     })
   }
 
+  // Shape the payload the same way the server action's FormData parses
+  // (`buildMessageInputFromForm` → `buildMessageInputFromObject`): JSON keys
+  // mirror the form field names so the offline replay rebuilds an identical
+  // MessageInput.
+  function buildPayload(): Record<string, unknown> {
+    return {
+      subject: subject.trim() || null,
+      body: body.trim(),
+      requires_acknowledgement: requiresAck,
+      template_id: templateId || null,
+      group_ids: Array.from(groupIds),
+    }
+  }
+
+  // Offline submit: queue in the service worker; it replays to /api/offline-sync
+  // (which re-runs the same group/permission checks via persistMessage, and
+  // resolves admin status from the session) once back online. If the SW isn't
+  // controlling the page yet, fall through to the normal action so the network
+  // error surfaces instead of silently dropping the message.
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      // Mirror the action's required-field guard so an empty offline compose
+      // still shows inline errors instead of queueing a doomed submission.
+      if (body.trim().length === 0 || groupIds.size === 0) return
+      const ok = enqueueSubmission({
+        localId,
+        moduleKey: "communications",
+        action: "submit",
+        payload: buildPayload(),
+      })
+      if (ok) {
+        e.preventDefault()
+        setQueued(true)
+      }
+    }
+  }
+
+  if (queued) {
+    return (
+      <div className="flex flex-col items-center gap-4 rounded-xl border bg-card px-6 py-8 text-center">
+        <div
+          aria-hidden
+          className="bg-primary/10 text-primary flex h-14 w-14 items-center justify-center rounded-full"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-7 w-7"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h2 className="text-xl font-semibold tracking-tight">
+          Saved on this device
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          You&apos;re offline, so this message is queued and will send
+          automatically once you&apos;re back online. You can keep working.
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <form action={formAction} className="flex flex-col gap-5">
+    <form
+      action={formAction}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
       <FormError message={state.error} />
 
       {templates.length > 0 ? (
@@ -211,21 +296,30 @@ export function ComposeForm({ groups, templates }: Props) {
         </span>
       </label>
 
-      <SubmitBar />
+      <SubmitBar isOnline={isOnline} />
     </form>
   )
 }
 
-function SubmitBar() {
+function SubmitBar({ isOnline }: { isOnline: boolean }) {
   const { pending } = useFormStatus()
+  const submitLabel = isOnline ? "Send message" : "Save offline"
   return (
-    <Button
-      type="submit"
-      size="lg"
-      disabled={pending}
-      className="h-12 w-full text-base"
-    >
-      {pending ? "Sending…" : "Send message"}
-    </Button>
+    <div className="flex flex-col gap-2">
+      <Button
+        type="submit"
+        size="lg"
+        disabled={pending}
+        className="h-12 w-full text-base"
+      >
+        {pending ? "Sending…" : submitLabel}
+      </Button>
+      {!isOnline ? (
+        <p className="text-muted-foreground text-center text-xs">
+          You&apos;re offline. This message will be saved on your device and
+          sent automatically when you reconnect.
+        </p>
+      ) : null}
+    </div>
   )
 }

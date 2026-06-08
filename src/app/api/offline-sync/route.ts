@@ -20,6 +20,11 @@ import {
   buildInputFromPayload as buildAirQualityInput,
   persistAirQuality,
 } from "@/app/reports/air-quality/_lib/submit"
+import { handleAccidentReplay } from "@/app/reports/accidents/_lib/offline"
+import { handleDailyReplay } from "@/app/reports/daily/_lib/offline"
+import { handleIceDepthReplay } from "@/app/reports/ice-depth/_lib/offline"
+import { handleIceOperationsReplay } from "@/app/reports/ice-operations/_lib/offline"
+import { handleMessageReplay } from "@/app/reports/communications/_lib/offline"
 
 // Validate the queued submission shape before it touches the DB, so a bad
 // payload surfaces as a 400 here rather than an opaque RLS/insert failure.
@@ -118,6 +123,66 @@ export async function POST(request: NextRequest) {
 
   if (moduleKey === "scheduling") {
     return handleSchedulingReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "accident_reports") {
+    return handleAccidentReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "daily_reports") {
+    return handleDailyReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "ice_depth") {
+    return handleIceDepthReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "ice_operations") {
+    return handleIceOperationsReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "communications") {
+    return handleMessageReplay({
       supabase,
       localId,
       action,

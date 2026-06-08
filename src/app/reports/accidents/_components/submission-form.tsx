@@ -1,10 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useActionState } from "react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { Card } from "@/components/ui/card"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   BODY_PART_KEYS,
@@ -102,6 +104,13 @@ const EMPTY_WITNESS: WitnessRow = { name: "", contact: "", statement: "" }
 
 const initialState: AccidentFormState = {}
 
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `acc-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 function nowForDateTimeLocal(): string {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -139,8 +148,11 @@ export function SubmissionForm({
     initialState
   )
 
+  const { isOnline } = useSyncQueue()
   const formRef = useRef<HTMLFormElement>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [localId] = useState<string>(genLocalId)
+  const [queued, setQueued] = useState(false)
 
   const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
@@ -266,6 +278,46 @@ export function SubmissionForm({
 
   const submitDisabled = workersComp && !workersCompAck
 
+  // Serialize the form into the SAME shape `buildInputFromPayload` parses, so an
+  // offline replay lands identical rows to the online server action.
+  function buildPayload(): Record<string, unknown> {
+    return {
+      injured_person_name: injuredName.trim(),
+      injured_person_contact: injuredContact.trim(),
+      injured_person_age: injuredAge.trim(),
+      description: description.trim(),
+      occurred_at: occurredAt,
+      location_dropdown_id: locationId || null,
+      activity_dropdown_id: activityId || null,
+      severity_dropdown_id: severityId || null,
+      medical_attention_dropdown_id: medicalAttentionId || null,
+      primary_injury_type_dropdown_id: primaryInjuryTypeId || null,
+      workers_comp: workersComp,
+      workers_comp_ack: workersCompAck,
+      body_parts: bodyPartsJson,
+      witnesses: witnessesJson,
+    }
+  }
+
+  // Offline submit: queue in the service worker; it replays to /api/offline-sync
+  // (which runs the same persist pipeline) once back online. If the SW isn't
+  // controlling the page yet, fall through to the normal action so the network
+  // error surfaces instead of silently dropping the report.
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const ok = enqueueSubmission({
+        localId,
+        moduleKey: "accident_reports",
+        action: "submit",
+        payload: buildPayload(),
+      })
+      if (ok) {
+        e.preventDefault()
+        setQueued(true)
+      }
+    }
+  }
+
   const handleSubmitClick = () => {
     if (!formRef.current?.checkValidity()) {
       formRef.current?.reportValidity()
@@ -279,9 +331,48 @@ export function SubmissionForm({
     formRef.current?.requestSubmit()
   }
 
+  if (queued) {
+    return (
+      <Card className="gap-4 py-8">
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
+          <div
+            aria-hidden
+            className="bg-primary/10 text-primary flex h-14 w-14 items-center justify-center rounded-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-7 w-7"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Saved on this device
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            You&apos;re offline, so this accident report is queued and will
+            submit automatically once you&apos;re back online — the same checks
+            run then. You can keep working.
+          </p>
+        </div>
+      </Card>
+    )
+  }
+
   return (
     <>
-      <form ref={formRef} action={formAction} className="flex flex-col gap-4">
+      <form
+        ref={formRef}
+        action={formAction}
+        onSubmit={handleSubmit}
+        className="flex flex-col gap-4"
+      >
         <input type="hidden" name="body_parts_json" value={bodyPartsJson} />
         <input type="hidden" name="witnesses_json" value={witnessesJson} />
         <input type="hidden" name="location_dropdown_id" value={locationId} />
@@ -665,7 +756,9 @@ export function SubmissionForm({
         <div className="sticky bottom-0 z-[5] mt-1 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/90 px-3.5 py-3 shadow-[var(--shadow-elev-2)] backdrop-blur-md">
           <div className="min-w-0 flex-[1_1_160px] text-xs text-muted-foreground">
             <strong className="font-bold text-foreground">Auto-saved</strong>
-            {" · review before submitting"}
+            {isOnline
+              ? " · review before submitting"
+              : " · offline — will sync when reconnected"}
           </div>
           <Button
             type="button"
@@ -689,7 +782,11 @@ export function SubmissionForm({
                 <path d="m20 6-11 11-5-5" />
               </svg>
             )}
-            {isPending ? "Submitting…" : "Submit report"}
+            {isPending
+              ? "Submitting…"
+              : isOnline
+                ? "Submit report"
+                : "Save offline"}
           </Button>
         </div>
       </form>

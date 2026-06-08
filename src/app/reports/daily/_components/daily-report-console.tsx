@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  type FormEvent,
   type ReactNode,
   useEffect,
   useMemo,
@@ -16,6 +17,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SectionCard } from "@/components/ui/section-card"
+import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
 import {
   Select,
   SelectContent,
@@ -104,6 +106,13 @@ function defaultTemplateId(area: ConsoleArea | undefined): string {
   return area && area.templates.length === 1 ? area.templates[0]!.id : ""
 }
 
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `daily-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   const [state, formAction] = useActionState(
     submitDailyReportAction,
@@ -118,6 +127,8 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   )
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [note, setNote] = useState("")
+  const [localId] = useState<string>(genLocalId)
+  const [queued, setQueued] = useState(false)
 
   const selectedArea =
     areas.find((a) => a.id === selectedAreaId) ?? areas[0]
@@ -177,8 +188,82 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   // distinct. Null/blank => fall back to neutral token styles.
   const accent = selectedArea?.color?.trim() || null
 
+  // Serialize the current selection into the SAME shape buildInputFromPayload
+  // parses (template/area identifiers + checklist item results + note). The
+  // replay endpoint runs the same area/template/permission checks online.
+  function buildPayload(): Record<string, unknown> {
+    return {
+      template_id: selectedTemplateId,
+      area_id: selectedArea?.id ?? "",
+      area_slug: selectedArea?.slug ?? "",
+      note: note.trim(),
+      items: items.map((i) => ({
+        checklist_item_id: i.id,
+        label_snapshot: i.label,
+        is_checked: !!checked[i.id],
+      })),
+    }
+  }
+
+  // Offline submit: queue in the service worker; it replays to /api/offline-sync
+  // (which runs the same area/template/permission checks) once back online. If
+  // the SW isn't controlling the page yet, fall through to the normal action so
+  // the network error surfaces instead of silently dropping the report.
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const ok = enqueueSubmission({
+        localId,
+        moduleKey: "daily_reports",
+        action: "submit",
+        payload: buildPayload(),
+      })
+      if (ok) {
+        e.preventDefault()
+        setQueued(true)
+      }
+    }
+  }
+
+  if (queued) {
+    return (
+      <Card className="gap-4 py-8">
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
+          <div
+            aria-hidden
+            className="bg-primary/10 text-primary flex h-14 w-14 items-center justify-center rounded-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-7 w-7"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Saved on this device
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            You&apos;re offline, so this report is queued and will submit
+            automatically once you&apos;re back online — the same checks run
+            then. You can keep working.
+          </p>
+        </div>
+      </Card>
+    )
+  }
+
   return (
-    <form action={formAction} className="flex flex-col gap-5">
+    <form
+      action={formAction}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
       <input type="hidden" name="template_id" value={selectedTemplateId} />
       <input type="hidden" name="area_id" value={selectedArea?.id ?? ""} />
       <input type="hidden" name="area_slug" value={selectedArea?.slug ?? ""} />

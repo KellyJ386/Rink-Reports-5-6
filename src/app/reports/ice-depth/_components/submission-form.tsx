@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FormEvent,
 } from "react"
 import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
@@ -21,6 +22,7 @@ import {
   type RinkPointSpec,
 } from "@/components/ice-depth/usa-rink"
 import { Textarea } from "@/components/ui/textarea"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 
 import { submitIceDepthSession, type SubmissionFormState } from "../actions"
 import type {
@@ -58,6 +60,13 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 const DISPLAY_FONT =
   "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
+function genLocalId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 const NAVY = "#003B6F"
 const GREEN = "#4DFF00"
 const GREEN_PRESS = "#2E9900"
@@ -77,6 +86,10 @@ function severityFor(
 
 export function SubmissionForm({ layout, points, settings }: Props) {
   const [state, formAction] = useActionState(submitIceDepthSession, initialState)
+
+  const { isOnline } = useSyncQueue()
+  const [localId] = useState<string>(genLocalId)
+  const [queued, setQueued] = useState(false)
 
   const sortedPoints = useMemo(() => {
     return [...points].sort((a, b) => {
@@ -201,7 +214,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     return values
   }, [values, editingPoint, draftValue, phase])
 
-  const measurementsJson = useMemo(() => {
+  const measurementsArray = useMemo(() => {
     const list: SubmittedMeasurement[] = []
     for (const p of sortedPoints) {
       const raw = committedValues[p.id]?.trim()
@@ -210,8 +223,13 @@ export function SubmissionForm({ layout, points, settings }: Props) {
       if (Number.isFinite(num) && num >= 0)
         list.push({ point_id: p.id, depth_value: num })
     }
-    return JSON.stringify(list)
+    return list
   }, [sortedPoints, committedValues])
+
+  const measurementsJson = useMemo(
+    () => JSON.stringify(measurementsArray),
+    [measurementsArray],
+  )
 
   const filledCount = useMemo(
     () =>
@@ -280,6 +298,36 @@ export function SubmissionForm({ layout, points, settings }: Props) {
 
   const progress = filledCount / sortedPoints.length
 
+  // Offline submit: serialize the measured session into the SAME payload shape
+  // `buildInputFromPayload` parses and queue it in the service worker, which
+  // replays to /api/offline-sync (running the same validation/severity engine)
+  // once back online. If the SW isn't controlling the page yet, fall through to
+  // the normal server action so the network error surfaces instead of silently
+  // dropping the session.
+  const handleReviewSubmit = (e: FormEvent<HTMLFormElement>) => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const ok = enqueueSubmission({
+        localId,
+        moduleKey: "ice_depth",
+        action: "submit",
+        payload: {
+          layout_id: layout.id,
+          layout_slug: layout.slug,
+          notes: notes.trim() || null,
+          measurements: measurementsArray,
+        },
+      })
+      if (ok) {
+        e.preventDefault()
+        setQueued(true)
+      }
+    }
+  }
+
+  if (queued) {
+    return <QueuedConfirmation />
+  }
+
   if (phase === "review") {
     return (
       <ReviewPhase
@@ -293,6 +341,8 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         setNotes={setNotes}
         measurementsJson={measurementsJson}
         formAction={formAction}
+        onSubmit={handleReviewSubmit}
+        isOnline={isOnline}
         stateError={state.error}
         onBack={() => {
           setPhase("measure")
@@ -700,6 +750,8 @@ interface ReviewPhaseProps {
   setNotes: (v: string) => void
   measurementsJson: string
   formAction: (payload: FormData) => void
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void
+  isOnline: boolean
   stateError?: string
   onBack: () => void
   baseId: string
@@ -716,12 +768,18 @@ function ReviewPhase({
   setNotes,
   measurementsJson,
   formAction,
+  onSubmit,
+  isOnline,
   stateError,
   onBack,
   baseId,
 }: ReviewPhaseProps) {
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form
+      action={formAction}
+      onSubmit={onSubmit}
+      className="flex flex-col gap-4"
+    >
       <FormError message={stateError} />
 
       <input type="hidden" name="layout_id" value={layout.id} />
@@ -978,7 +1036,23 @@ function ReviewPhase({
 
       {/* Actions */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <SubmitButton filledCount={stats.total} total={sortedPoints.length} />
+        <SubmitButton
+          filledCount={stats.total}
+          total={sortedPoints.length}
+          isOnline={isOnline}
+        />
+        {!isOnline && (
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--muted-foreground)",
+              textAlign: "center",
+            }}
+          >
+            You&apos;re offline. This session will be saved on your device and
+            submitted automatically when you reconnect.
+          </p>
+        )}
         <button
           type="button"
           onClick={onBack}
@@ -1035,11 +1109,18 @@ function SummaryPill({
 function SubmitButton({
   filledCount,
   total,
+  isOnline,
 }: {
   filledCount: number
   total: number
+  isOnline: boolean
 }) {
   const { pending } = useFormStatus()
+  const idleLabel = !isOnline
+    ? "Save Offline"
+    : filledCount === total
+      ? "Submit Reading"
+      : `Submit (${filledCount} of ${total} recorded)`
   return (
     <button
       type="submit"
@@ -1069,11 +1150,7 @@ function SubmitButton({
         gap: 8,
       }}
     >
-      {pending
-        ? "Submitting…"
-        : filledCount === total
-          ? "Submit Reading"
-          : `Submit (${filledCount} of ${total} recorded)`}
+      {pending ? "Submitting…" : idleLabel}
       {!pending && (
         <svg
           width="18"
@@ -1089,5 +1166,75 @@ function SubmitButton({
         </svg>
       )}
     </button>
+  )
+}
+
+// ── Offline "saved on this device" confirmation ───────────────────────────────
+
+function QueuedConfirmation() {
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        padding: 24,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 14,
+        textAlign: "center",
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          width: 56,
+          height: 56,
+          borderRadius: 9999,
+          background: `${GREEN}22`,
+          color: GREEN,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+      <div
+        style={{
+          fontFamily: DISPLAY_FONT,
+          fontSize: 22,
+          lineHeight: 1.1,
+          letterSpacing: "0.01em",
+          textTransform: "uppercase",
+          color: "var(--foreground)",
+        }}
+      >
+        Saved on this device
+      </div>
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--muted-foreground)",
+          maxWidth: 360,
+        }}
+      >
+        You&apos;re offline, so this ice-depth session is queued and will submit
+        automatically once you&apos;re back online — the same checks run then.
+        You can keep working.
+      </p>
+    </div>
   )
 }
