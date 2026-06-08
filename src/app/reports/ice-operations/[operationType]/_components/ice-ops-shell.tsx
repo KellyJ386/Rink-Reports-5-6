@@ -45,9 +45,25 @@ type Props = {
   recent: RecentActivityItem[]
 }
 
+// Live clock via useSyncExternalStore. The snapshot must be CACHED — returning a
+// fresh Date.now() on every getClockSnapshot call makes the store look
+// perpetually changed and sends React into an infinite render loop ("Maximum
+// update depth exceeded"). We mutate `clockNow` only inside the interval, so the
+// snapshot is stable between ticks. getClockServerSnapshot is null so SSR shows
+// "—" with no hydration mismatch.
+let clockNow = Date.now()
 function subscribeClock(cb: () => void) {
-  const id = setInterval(cb, 1000)
+  const id = setInterval(() => {
+    clockNow = Date.now()
+    cb()
+  }, 1000)
   return () => clearInterval(id)
+}
+function getClockSnapshot(): number {
+  return clockNow
+}
+function getClockServerSnapshot(): number | null {
+  return null
 }
 
 function formatDate(d: Date): string {
@@ -92,8 +108,8 @@ export function IceOpsShell({
 
   const nowMs = useSyncExternalStore(
     subscribeClock,
-    () => Date.now(),
-    () => null,
+    getClockSnapshot,
+    getClockServerSnapshot,
   )
   const now = nowMs == null ? null : new Date(nowMs)
 

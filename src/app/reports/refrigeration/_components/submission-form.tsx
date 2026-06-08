@@ -138,9 +138,25 @@ function formatTime(d: Date): string {
   })
 }
 
+// Live clock via useSyncExternalStore. The snapshot must be CACHED — returning a
+// fresh Date.now() on every getClockSnapshot call makes the store look
+// perpetually changed and sends React into an infinite render loop ("Maximum
+// update depth exceeded"). We mutate `clockNow` only inside the interval, so the
+// snapshot is stable between ticks. getClockServerSnapshot is null so SSR shows
+// "—" with no hydration mismatch.
+let clockNow = Date.now()
 function subscribeClock(cb: () => void) {
-  const id = setInterval(cb, 1000)
+  const id = setInterval(() => {
+    clockNow = Date.now()
+    cb()
+  }, 1000)
   return () => clearInterval(id)
+}
+function getClockSnapshot(): number {
+  return clockNow
+}
+function getClockServerSnapshot(): number | null {
+  return null
 }
 
 /** Convert a numeric field's displayed value to its canonical (°F) base unit. */
@@ -209,8 +225,8 @@ export function SubmissionForm({
 
   const nowMs = useSyncExternalStore(
     subscribeClock,
-    () => Date.now(),
-    () => null
+    getClockSnapshot,
+    getClockServerSnapshot
   )
   const now = nowMs == null ? null : new Date(nowMs)
 
