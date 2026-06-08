@@ -6,6 +6,12 @@ import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
+import {
+  buildMessageInputFromForm,
+  persistMessage,
+  validateMessageInput,
+} from "./_lib/submit"
+
 export type ComposeFieldName = "body" | "group_ids"
 
 export type SendMessageFormState = {
@@ -82,142 +88,34 @@ async function performSendMessage(formData: FormData): Promise<SendResult> {
     }
   }
 
-  const subject = String(formData.get("subject") ?? "").trim()
-  const body = String(formData.get("body") ?? "").trim()
-  const requiresAck = formData.get("requires_acknowledgement") === "on"
-  const templateIdRaw = String(formData.get("template_id") ?? "").trim()
-  const templateId =
-    templateIdRaw.length > 0 && isUuid(templateIdRaw) ? templateIdRaw : null
-
-  const groupIds = formData
-    .getAll("group_ids")
-    .map((v) => String(v).trim())
-    .filter((v) => v.length > 0 && isUuid(v))
-
-  const uniqueGroupIds = Array.from(new Set(groupIds))
+  const input = buildMessageInputFromForm(formData)
+  if (!input) {
+    return { ok: false, error: "Couldn't read the message. Please try again." }
+  }
 
   // Collect field-level errors in visual order so auto-focus picks the
   // topmost invalid field. Top-level errors (DB, permission) returned
   // separately via `error`.
-  const fieldErrors: Partial<Record<ComposeFieldName, string>> = {}
-  if (!body) fieldErrors.body = "Please enter a message."
-  if (uniqueGroupIds.length === 0) {
-    fieldErrors.group_ids = "Pick at least one recipient group."
-  }
-  if (Object.keys(fieldErrors).length > 0) {
-    return { ok: false, fieldErrors }
+  const validation = validateMessageInput(input)
+  if (!validation.ok) {
+    return { ok: false, fieldErrors: validation.fieldErrors }
   }
 
-  // Confirm groups belong to this facility and are active. Non-admin staff
-  // are further restricted to groups with staff_can_message=true (mig 59).
   const isAdmin = await getIsAdmin(current)
-  let groupSelect = supabase
-    .from("communication_groups")
-    .select("id, facility_id, is_active, staff_can_message")
-    .in("id", uniqueGroupIds)
-    .eq("facility_id", employeeRow.facility_id)
-    .eq("is_active", true)
-  if (!isAdmin) {
-    groupSelect = groupSelect.eq("staff_can_message", true)
-  }
-  const { data: groupRows, error: groupErr } = await groupSelect
-
-  if (groupErr) {
-    return {
-      ok: false,
-      error: dbError(groupErr, "Failed to load recipient groups."),
-    }
-  }
-  if (!groupRows || groupRows.length === 0) {
-    return { ok: false, error: "Selected groups are not available." }
-  }
-
-  const validGroupIds = groupRows.map((g) => g.id)
-
-  // Resolve recipients by union of group memberships.
-  const { data: memberRows, error: memberErr } = await supabase
-    .from("communication_group_members")
-    .select("employee_id")
-    .in("group_id", validGroupIds)
-    .eq("facility_id", employeeRow.facility_id)
-
-  if (memberErr) {
-    return {
-      ok: false,
-      error: dbError(memberErr, "Failed to resolve recipients."),
-    }
-  }
-
-  const recipientIds = Array.from(
-    new Set((memberRows ?? []).map((r) => r.employee_id))
-  )
-
-  if (recipientIds.length === 0) {
-    return {
-      ok: false,
-      error: "The selected groups don't have any members.",
-    }
-  }
-
-  // Insert the message.
-  const { data: inserted, error: insertErr } = await supabase
-    .from("communication_messages")
-    .insert({
-      facility_id: employeeRow.facility_id,
-      sender_employee_id: employeeRow.id,
-      subject: subject.length > 0 ? subject : null,
-      body,
-      requires_acknowledgement: requiresAck,
-      template_id: templateId,
-      sent_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single()
-
-  if (insertErr || !inserted) {
-    return {
-      ok: false,
-      error: dbError(insertErr, "Failed to send message."),
-    }
-  }
-
-  // Batch-insert recipients.
-  const nowIso = new Date().toISOString()
-  const recipientRows = recipientIds.map((employeeId) => ({
-    message_id: inserted.id,
-    employee_id: employeeId,
-    facility_id: employeeRow.facility_id,
-    delivered_at: nowIso,
-  }))
-
-  const { error: recipErr } = await supabase
-    .from("communication_recipients")
-    .insert(recipientRows)
-
-  if (recipErr) {
-    // Best-effort cleanup. Cascades will clear any rows already inserted.
-    await supabase
-      .from("communication_messages")
-      .delete()
-      .eq("id", inserted.id)
-    return {
-      ok: false,
-      error: dbError(recipErr, "Failed to deliver message to recipients."),
-    }
-  }
-
-  // Best-effort audit row. Don't fail the send if this errors.
-  await supabase.from("communication_audit_log").insert({
-    facility_id: employeeRow.facility_id,
-    actor_employee_id: employeeRow.id,
-    action: "message_sent",
-    entity_type: "communication_message",
-    entity_id: inserted.id,
+  const result = await persistMessage(supabase, {
+    employeeId: employeeRow.id,
+    facilityId: employeeRow.facility_id,
+    isAdmin,
+    input,
   })
+
+  if (!result.ok) {
+    return { ok: false, error: result.error }
+  }
 
   return {
     ok: true,
-    redirectTo: `/reports/communications/compose/done?id=${inserted.id}`,
+    redirectTo: `/reports/communications/compose/done?id=${result.messageId}`,
   }
 }
 
