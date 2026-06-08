@@ -231,13 +231,16 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
                     (selected
                       ? "border-transparent bg-primary text-primary-foreground"
                       : "border-border bg-card text-foreground hover:bg-accent/40"),
-                  color && !selected && "bg-card text-foreground hover:opacity-90"
+                  // Colored areas: selected => solid fill, unselected => soft tint
+                  // of the same color so every tab visibly carries its area color
+                  // (the tint reads correctly in both light and dark themes).
+                  color && !selected && "text-foreground hover:opacity-90"
                 )}
                 style={
                   color
                     ? selected
                       ? { backgroundColor: color, color: fg!, borderColor: color }
-                      : { borderColor: color }
+                      : { backgroundColor: `${color}29`, borderColor: color }
                     : undefined
                 }
               >
