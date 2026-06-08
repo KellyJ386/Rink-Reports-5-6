@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card"
 
 import {
+  bulkImportIncidentActivities,
   deleteIncidentActivity,
   seedIncidentActivities,
   setIncidentActivityActive,
@@ -21,6 +22,12 @@ import {
 import type { ActivityRow } from "../types"
 
 import { ActivityForm } from "./activity-form"
+import { BulkImportCard } from "./bulk-import-card"
+
+const ACTIVITY_CSV_PLACEHOLDER = `display_name,key,color,sort_order
+Open Hockey,open_hockey,,1
+Birthday Party,birthday_party,,2
+Broomball`
 
 type Props = {
   activities: ActivityRow[]
@@ -82,10 +89,16 @@ export function ActivitiesTab({ activities }: Props) {
               </Button>
             </CardContent>
           </Card>
-          <div>
+          <div className="flex flex-col items-start gap-2">
             <Button onClick={openCreate} variant="outline">
               Add activity manually
             </Button>
+            <BulkImportCard
+              title="Bulk import activities"
+              description="Paste CSV rows: display_name[, key][, color][, sort_order]. One activity per line. Duplicate keys are skipped."
+              placeholder={ACTIVITY_CSV_PLACEHOLDER}
+              action={bulkImportIncidentActivities}
+            />
           </div>
         </div>
         <ActivityForm
@@ -110,6 +123,13 @@ export function ActivitiesTab({ activities }: Props) {
         </div>
         <Button onClick={openCreate}>Add activity</Button>
       </div>
+
+      <BulkImportCard
+        title="Bulk import activities"
+        description="Paste CSV rows: display_name[, key][, color][, sort_order]. One activity per line. Duplicate keys are skipped."
+        placeholder={ACTIVITY_CSV_PLACEHOLDER}
+        action={bulkImportIncidentActivities}
+      />
 
       <div className="overflow-auto rounded-md border">
         <table className="w-full border-collapse text-sm">
