@@ -8,6 +8,7 @@ import {
   BODY_PART_KEYS,
   BODY_PART_LABELS,
   EMPTY_PAIRED,
+  isLegacyBodyPartKey,
   isPairedBodyPartKey,
   nextSide,
   pairedIsEmpty,
@@ -162,17 +163,24 @@ function buildRegions(): RegionDef[] {
   const shoulderLeft = <g>{circle(72, 140, 22, "sh-l")}</g>
   const shoulderRight = <g>{circle(168, 140, 22, "sh-r")}</g>
 
-  // Arms: upper-arm rect + forearm rect per side
-  const armLeft = (
+  // Arms: upper arm and lower arm (forearm) are independent regions per side,
+  // so each is selectable on its own (mirrors upper_leg / lower_leg).
+  const upperArmLeft = <g>{rect(LEFT_OUTER, 148, 36, 86, 12, "ua-l")}</g>
+  const upperArmRight = <g>{rect(RIGHT_INNER, 148, 36, 86, 12, "ua-r")}</g>
+  const lowerArmLeft = <g>{rect(LEFT_OUTER, 250, 36, 76, 12, "la-l")}</g>
+  const lowerArmRight = <g>{rect(RIGHT_INNER, 250, 36, 76, 12, "la-r")}</g>
+  // Legacy whole-arm geometry: only rendered for historical `arms` selections
+  // (see the legacy paired-region skip in ViewSvg).
+  const legacyArmLeft = (
     <g>
-      {rect(LEFT_OUTER, 148, 36, 86, 12, "ua-l")}
-      {rect(LEFT_OUTER, 250, 36, 76, 12, "fa-l")}
+      {rect(LEFT_OUTER, 148, 36, 86, 12, "arm-l-u")}
+      {rect(LEFT_OUTER, 250, 36, 76, 12, "arm-l-f")}
     </g>
   )
-  const armRight = (
+  const legacyArmRight = (
     <g>
-      {rect(RIGHT_INNER, 148, 36, 86, 12, "ua-r")}
-      {rect(RIGHT_INNER, 250, 36, 76, 12, "fa-r")}
+      {rect(RIGHT_INNER, 148, 36, 86, 12, "arm-r-u")}
+      {rect(RIGHT_INNER, 250, 36, 76, 12, "arm-r-f")}
     </g>
   )
 
@@ -216,9 +224,15 @@ function buildRegions(): RegionDef[] {
     { kind: "midline", key: "torso", front: torsoShape, back: torsoShape },
     {
       kind: "paired",
-      key: "arms",
-      left: { front: armLeft, back: armLeft },
-      right: { front: armRight, back: armRight },
+      key: "upper_arms",
+      left: { front: upperArmLeft, back: upperArmLeft },
+      right: { front: upperArmRight, back: upperArmRight },
+    },
+    {
+      kind: "paired",
+      key: "lower_arms",
+      left: { front: lowerArmLeft, back: lowerArmLeft },
+      right: { front: lowerArmRight, back: lowerArmRight },
     },
     {
       kind: "paired",
@@ -274,6 +288,15 @@ function buildRegions(): RegionDef[] {
       key: "feet",
       left: { front: footLeft, back: footLeft },
       right: { front: footRight, back: footRight },
+    },
+    // Legacy: whole-arm region, rendered per laterality only when a historical
+    // report carries an `arms` selection (the legacy skip in ViewSvg hides it
+    // for new submissions, which use upper_arms / lower_arms instead).
+    {
+      kind: "paired",
+      key: "arms",
+      left: { front: legacyArmLeft, back: legacyArmLeft },
+      right: { front: legacyArmRight, back: legacyArmRight },
     },
     // Legacy: render head + neck combined only when present on historical
     // reports. Treated as midline.
@@ -423,6 +446,13 @@ function ViewSvg({
                   view === "front" ? region[lat].front : region[lat].back
                 if (!node) return null
                 const side = paired[lat]
+                // Legacy paired regions (e.g. `arms`) overlay the new split
+                // regions; only paint/intercept where a historical report
+                // actually carries a selection so new submissions stay on the
+                // upper_arms / lower_arms regions underneath.
+                if (isLegacyBodyPartKey(region.key) && side === "none") {
+                  return null
+                }
                 const id = `${region.key}-${lat}`
                 const isHovered = hovered === id
                 const paint = paintForSide(side, view)

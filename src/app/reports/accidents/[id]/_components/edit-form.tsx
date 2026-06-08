@@ -113,6 +113,8 @@ function buildInitialSelections(
     ...EMPTY_BODY_SELECTIONS,
     shoulders: { ...EMPTY_BODY_SELECTIONS.shoulders },
     arms: { ...EMPTY_BODY_SELECTIONS.arms },
+    upper_arms: { ...EMPTY_BODY_SELECTIONS.upper_arms },
+    lower_arms: { ...EMPTY_BODY_SELECTIONS.lower_arms },
     elbows: { ...EMPTY_BODY_SELECTIONS.elbows },
     wrists: { ...EMPTY_BODY_SELECTIONS.wrists },
     hands: { ...EMPTY_BODY_SELECTIONS.hands },

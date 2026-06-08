@@ -27,7 +27,13 @@ export const MIDLINE_BODY_PART_KEYS = [
 
 export const PAIRED_BODY_PART_KEYS = [
   "shoulders",
+  // `arms` is retained for backwards compatibility with historical reports
+  // (it used to cover the whole arm). New submissions split it into the
+  // independently-selectable upper_arms / lower_arms, mirroring the
+  // upper_legs / lower_legs pattern.
   "arms",
+  "upper_arms",
+  "lower_arms",
   "elbows",
   "wrists",
   "hands",
@@ -54,7 +60,8 @@ export const BODY_PART_KEYS: readonly BodyPartKey[] = [
   "hips",
   "torso",
   "shoulders",
-  "arms",
+  "upper_arms",
+  "lower_arms",
   "elbows",
   "wrists",
   "hands",
@@ -62,10 +69,13 @@ export const BODY_PART_KEYS: readonly BodyPartKey[] = [
   "neck",
   "face_jaw",
   "head",
+  // Legacy keys: never offered to new submissions, kept so historical reports
+  // still read/render.
+  "arms",
   "head_neck",
 ]
 
-export const LEGACY_BODY_PART_KEYS = ["head_neck"] as const
+export const LEGACY_BODY_PART_KEYS = ["arms", "head_neck"] as const
 export type LegacyBodyPartKey = (typeof LEGACY_BODY_PART_KEYS)[number]
 
 export function isLegacyBodyPartKey(key: BodyPartKey): key is LegacyBodyPartKey {
@@ -103,6 +113,8 @@ export type BodySelections = {
   head_neck: BodySide
   shoulders: PairedSelection
   arms: PairedSelection
+  upper_arms: PairedSelection
+  lower_arms: PairedSelection
   elbows: PairedSelection
   wrists: PairedSelection
   hands: PairedSelection
@@ -125,6 +137,8 @@ export const EMPTY_BODY_SELECTIONS: BodySelections = {
   head_neck: "none",
   shoulders: { left: "none", right: "none" },
   arms: { left: "none", right: "none" },
+  upper_arms: { left: "none", right: "none" },
+  lower_arms: { left: "none", right: "none" },
   elbows: { left: "none", right: "none" },
   wrists: { left: "none", right: "none" },
   hands: { left: "none", right: "none" },
@@ -146,6 +160,8 @@ export const BODY_PART_LABELS: Record<BodyPartKey, string> = {
   torso: "Torso",
   shoulders: "Shoulders",
   arms: "Arms",
+  upper_arms: "Upper Arms",
+  lower_arms: "Lower Arms",
   elbows: "Elbows",
   wrists: "Wrists",
   hands: "Hands",

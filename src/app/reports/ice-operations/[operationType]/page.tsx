@@ -39,7 +39,7 @@ export const dynamic = "force-dynamic"
 const CONFIGURE_HREF = "/admin/ice-operations?tab=setup"
 
 const FORM_TITLES: Record<OperationType, string> = {
-  ice_make: "Resurface Activity",
+  ice_make: "Ice Make Activity",
   blade_change: "Blade Change",
   edging: "Edging",
   circle_check: "Digital Circle Check",
