@@ -4,9 +4,16 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 
+import type { JobAreaOption } from "../types"
 import { AvailabilityForm } from "./availability-form"
 
-export function AvailabilityAddToggle() {
+export function AvailabilityAddToggle({
+  jobAreas = [],
+  fixedDay,
+}: {
+  jobAreas?: JobAreaOption[]
+  fixedDay?: number
+}) {
   const [open, setOpen] = useState(false)
   if (!open) {
     return (
@@ -20,5 +27,11 @@ export function AvailabilityAddToggle() {
       </Button>
     )
   }
-  return <AvailabilityForm onClose={() => setOpen(false)} />
+  return (
+    <AvailabilityForm
+      onClose={() => setOpen(false)}
+      jobAreas={jobAreas}
+      fixedDay={fixedDay}
+    />
+  )
 }

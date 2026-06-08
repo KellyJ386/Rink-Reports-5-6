@@ -478,6 +478,28 @@ async function handleSchedulingReplay({
     const from = asString(payload.effective_from)
     const to = asString(payload.effective_to)
     const notes = asString(payload.notes)
+
+    // A chosen job area must be one the employee is assigned to.
+    const jobAreaIdRaw = asString(payload.job_area_id)
+    let jobAreaId: string | null = null
+    if (jobAreaIdRaw.length > 0) {
+      // employee_job_area_assignments isn't in the generated types; cast.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: assignment } = await (supabase as any)
+        .from("employee_job_area_assignments")
+        .select("job_area_id")
+        .eq("employee_id", employeeId)
+        .eq("job_area_id", jobAreaIdRaw)
+        .maybeSingle()
+      if (!assignment) {
+        return NextResponse.json(
+          { error: "Invalid job area" },
+          { status: 400 }
+        )
+      }
+      jobAreaId = jobAreaIdRaw
+    }
+
     table = "schedule_availability"
     updateId = asString(payload.id) || null
     row = {
@@ -490,6 +512,7 @@ async function handleSchedulingReplay({
       effective_from: from.length > 0 ? from : null,
       effective_to: to.length > 0 ? to : null,
       notes: notes.length > 0 ? notes : null,
+      job_area_id: jobAreaId,
     }
   } else if (action === "request_time_off") {
     const startsAt = new Date(asString(payload.starts_at))
