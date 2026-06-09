@@ -386,6 +386,183 @@ values
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
+-- 1z. Facility-B submission + scheduling + communication fixtures.
+--
+-- The crown-jewel data: one row per user-data table in Facility B, so the
+-- cross-tenant SELECT negatives in sections 2L/2M have non-empty targets. A
+-- leak would surface as count() > 0 when impersonating a Facility-A user.
+-- Minimal config (an air-quality location, an ice-depth layout) is seeded
+-- here because the base harness only stamped daily-report + refrigeration
+-- config into Facility B. Seeded as postgres (BYPASSRLS).
+-- ---------------------------------------------------------------------------
+
+-- Config rows needed as FK targets for the B-side submissions below.
+insert into public.air_quality_locations (id, facility_id, name, slug, sort_order, is_active)
+values ('bbbb2222-a91c-bbbb-bbbb-bbbb22220071',
+        '22222222-2222-2222-2222-222222222222', 'B Rink Air', 'b-rink-air', 1, true)
+on conflict (id) do nothing;
+
+insert into public.ice_depth_layouts (id, facility_id, name, slug, sort_order, is_active, is_default)
+values ('bbbb2222-1ae0-bbbb-bbbb-bbbb22220072',
+        '22222222-2222-2222-2222-222222222222', 'B Sheet', 'b-sheet', 1, true, true)
+on conflict (id) do nothing;
+
+-- B-side submission rows (Bob is the employee). refrigeration_reports for B
+-- already exists in the refrigeration fixture (bbbb2222-7e00-...).
+insert into public.daily_report_submissions (id, facility_id, area_id, template_id)
+values ('bbbb2222-5b11-bbbb-bbbb-bbbb22220073',
+        '22222222-2222-2222-2222-222222222222',
+        'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+        'bbbb2222-d701-bbbb-bbbb-bbbb22220012')
+on conflict (id) do nothing;
+
+insert into public.incident_reports (
+  id, facility_id, employee_id, reporter_name, reporter_phone, description
+) values ('bbbb2222-13c1-bbbb-bbbb-bbbb22220074',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          'Bob Baker', '555-0100', 'B-facility incident')
+on conflict (id) do nothing;
+
+insert into public.accident_reports (
+  id, facility_id, employee_id, injured_person_name, injured_person_contact, description
+) values ('bbbb2222-acc1-bbbb-bbbb-bbbb22220075',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          'Skater B', '555-0101', 'B-facility accident')
+on conflict (id) do nothing;
+
+insert into public.air_quality_reports (id, facility_id, employee_id, location_id)
+values ('bbbb2222-a9c1-bbbb-bbbb-bbbb22220076',
+        '22222222-2222-2222-2222-222222222222',
+        'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        'bbbb2222-a91c-bbbb-bbbb-bbbb22220071')
+on conflict (id) do nothing;
+
+insert into public.ice_operations_submissions (id, facility_id, employee_id, operation_type)
+values ('bbbb2222-1c01-bbbb-bbbb-bbbb22220077',
+        '22222222-2222-2222-2222-222222222222',
+        'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'ice_make')
+on conflict (id) do nothing;
+
+insert into public.ice_depth_sessions (
+  id, facility_id, layout_id, employee_id,
+  measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot
+) values ('bbbb2222-1de1-bbbb-bbbb-bbbb22220078',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-1ae0-bbbb-bbbb-bbbb22220072',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          'inches', 1.0, 2.0)
+on conflict (id) do nothing;
+
+insert into public.communication_messages (id, facility_id, body)
+values ('bbbb2222-c0a1-bbbb-bbbb-bbbb22220079',
+        '22222222-2222-2222-2222-222222222222', 'B-facility broadcast')
+on conflict (id) do nothing;
+
+insert into public.communication_recipients (id, facility_id, message_id, employee_id)
+values ('bbbb2222-c0a2-bbbb-bbbb-bbbb22220080',
+        '22222222-2222-2222-2222-222222222222',
+        'bbbb2222-c0a1-bbbb-bbbb-bbbb22220079',
+        'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+on conflict (id) do nothing;
+
+insert into public.communication_alerts (id, facility_id, source_module, severity, title)
+values ('bbbb2222-c0a3-bbbb-bbbb-bbbb22220081',
+        '22222222-2222-2222-2222-222222222222',
+        'air_quality', 'warn', 'B-facility alert')
+on conflict (id) do nothing;
+
+-- B-side scheduling rows. A department + shift give the swap request a valid
+-- requester_shift_id FK.
+insert into public.departments (id, facility_id, name, slug, sort_order, is_active)
+values ('bbbb2222-de71-bbbb-bbbb-bbbb22220082',
+        '22222222-2222-2222-2222-222222222222', 'B Crew', 'b-crew', 1, true)
+on conflict (id) do nothing;
+
+insert into public.schedule_shifts (id, facility_id, department_id, starts_at, ends_at)
+values ('bbbb2222-5511-bbbb-bbbb-bbbb22220083',
+        '22222222-2222-2222-2222-222222222222',
+        'bbbb2222-de71-bbbb-bbbb-bbbb22220082',
+        now(), now() + interval '4 hours')
+on conflict (id) do nothing;
+
+insert into public.schedule_availability (
+  id, facility_id, employee_id, day_of_week, start_time, end_time
+) values ('bbbb2222-a011-bbbb-bbbb-bbbb22220084',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 1, '08:00', '12:00')
+on conflict (id) do nothing;
+
+insert into public.schedule_time_off_requests (
+  id, facility_id, employee_id, starts_at, ends_at
+) values ('bbbb2222-7011-bbbb-bbbb-bbbb22220085',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          now(), now() + interval '1 day')
+on conflict (id) do nothing;
+
+insert into public.schedule_notifications (
+  id, facility_id, employee_id, notification_type
+) values ('bbbb2222-7711-bbbb-bbbb-bbbb22220086',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'shift_reminder')
+on conflict (id) do nothing;
+
+insert into public.schedule_swap_requests (
+  id, facility_id, requester_employee_id, requester_shift_id
+) values ('bbbb2222-5711-bbbb-bbbb-bbbb22220087',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          'bbbb2222-5511-bbbb-bbbb-bbbb22220083')
+on conflict (id) do nothing;
+
+-- Carol: a SCHEDULING ADMIN in Facility A. She exists to prove that
+-- module-admin rights are facility-scoped — the bug fixed in migration 129
+-- let a Facility-A scheduling admin read Facility-B availability/time-off/
+-- notification/swap rows, because those policies had a bare
+-- has_module_admin_access('scheduling') branch with no facility_id match.
+insert into auth.users (id, email)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'carol@fac-a.test')
+on conflict (id) do nothing;
+
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '11111111-1111-1111-1111-111111111111', 'carol@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select
+  'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'::uuid,
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
+  r.id, 'Carol', 'Chen', 'carol@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+
+insert into public.user_permissions (
+  user_id, facility_id, module_name, action, enabled
+) values
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'scheduling', 'admin', true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'scheduling', 'view', true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- A-side scheduling rows so Carol's OWN-facility positive assertions are
+-- non-empty (proves the migration-129 fix didn't over-restrict admins).
+insert into public.schedule_availability (
+  id, facility_id, employee_id, day_of_week, start_time, end_time
+) values ('aaaa1111-a011-aaaa-aaaa-aaaa11110090',
+          '11111111-1111-1111-1111-111111111111',
+          'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 3, '09:00', '17:00')
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
 reset role;
@@ -1011,18 +1188,21 @@ select * from public.drain_notification_outbox(
   p_facility_id := '11111111-1111-1111-1111-111111111111'::uuid
 );
 
--- No prior test in this script inserts into communication_messages, so a
--- direct count by the flag is unambiguous: exactly one message of each
--- ack value should exist after drain.
+-- Scope the count to the two messages this section drains (by their unique
+-- subjects). Section 1z seeds an unrelated Facility-B broadcast into
+-- communication_messages, so an unscoped count-by-flag is no longer
+-- unambiguous; matching on subject keeps the assertion about THIS drain.
 select pg_temp.expect_count(
   $$select count(*) from public.communication_messages
-     where requires_acknowledgement = true$$,
+     where requires_acknowledgement = true
+       and subject = 'Accident report'$$,
   1,
   'M6: drained message from ack-required rule has requires_acknowledgement=true');
 
 select pg_temp.expect_count(
   $$select count(*) from public.communication_messages
-     where requires_acknowledgement = false$$,
+     where requires_acknowledgement = false
+       and subject = 'Daily report'$$,
   1,
   'M6: drained message from opt-out rule has requires_acknowledgement=false');
 
@@ -1570,6 +1750,120 @@ select pg_temp.expect_error(
     values ('11111111-1111-1111-1111-111111111111',
             'aaaa1111-7e00-aaaa-aaaa-aaaa11110063', 'No permission')$$,
   'REFRIG: view-only dave CANNOT INSERT a follow-up note (requires submit)');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2L. Cross-facility SELECT isolation on the crown-jewel data: every report
+-- submission, communication, scheduling, and notification table. Impersonate
+-- Alice (staff in Facility A, holding view+submit on every module) and assert
+-- she reads ZERO of the Facility-B rows seeded in section 1z. Before this
+-- block these high-volume tables had no isolation coverage at all — only the
+-- config/permission tables did.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B daily_report_submissions');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_reports
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B incident_reports');
+select pg_temp.expect_count(
+  $$select count(*) from public.accident_reports
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B accident_reports');
+select pg_temp.expect_count(
+  $$select count(*) from public.refrigeration_reports
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B refrigeration_reports');
+select pg_temp.expect_count(
+  $$select count(*) from public.air_quality_reports
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B air_quality_reports');
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_operations_submissions
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B ice_operations_submissions');
+select pg_temp.expect_count(
+  $$select count(*) from public.ice_depth_sessions
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B ice_depth_sessions');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_messages
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_messages');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recipients
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_recipients');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_alerts
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_alerts');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B schedule_shifts');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_availability
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B schedule_availability');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_time_off_requests
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B schedule_time_off_requests');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_swap_requests
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B schedule_swap_requests');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B schedule_notifications');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2M. Module-admin rights are facility-scoped (regression for migration 129).
+--
+-- Impersonate Carol, a SCHEDULING ADMIN in Facility A. The four tables fixed
+-- in migration 129 (availability, time_off, notifications, swap_requests) had
+-- a bare has_module_admin_access('scheduling') branch that ignored the row's
+-- facility — so a Facility-A admin could read Facility-B rows. Assert she
+-- reads ZERO Facility-B rows, AND a positive that she still sees her own
+-- facility (proving the fix didn't over-restrict legitimate admin access).
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_availability
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B availability (migration 129)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_time_off_requests
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B time_off (migration 129)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B notifications (migration 129)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_swap_requests
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B swap_requests (migration 129)');
+
+-- Positive: the admin DOES see her own facility's scheduling rows.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_availability
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'ISO-ADMIN: scheduling admin STILL sees own-facility availability (fix is not over-broad)');
 
 reset role;
 
