@@ -19,11 +19,7 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// New columns (schedule_shifts.job_area_id) and the assignment-violations RPC
-// aren't in the generated DB types yet (see CLAUDE.md); cast through `any` at
-// those call sites, matching the employee_job_areas convention.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -268,7 +264,7 @@ export async function createShift(
       null
     )
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Hard block: refuse to create a shift that violates an active rule,
     // availability, approved time-off, double-booking, qualification, or a
@@ -339,7 +335,7 @@ export async function updateShift(
       id
     )
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Hard block (exclude this shift from its own weekly-hours total).
     const gate = await assertAssignable(supabase, {
@@ -420,7 +416,7 @@ export async function assignOpenShift(
     if (!openShiftId) return { ok: false, error: "Missing open shift id." }
     if (!employeeId) return { ok: false, error: "Pick an employee." }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { data: openRow, error: openErr } = await supabase
       .from("schedule_open_shifts")
       .select("id, shift_id, claim_status")
@@ -703,7 +699,7 @@ export async function createTemplateShift(
     const parsed = parseTemplateShiftInput(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase.from("schedule_template_shifts").insert({
       facility_id: ctx.facilityId,
       template_id: input.template_id,
@@ -741,7 +737,7 @@ export async function updateTemplateShift(
     const parsed = parseTemplateShiftInput(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_template_shifts")
       .update({
@@ -832,7 +828,7 @@ export async function applyTemplateToWeek(
       Date.UTC(ws.getUTCFullYear(), ws.getUTCMonth(), ws.getUTCDate())
     )
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
       .select(

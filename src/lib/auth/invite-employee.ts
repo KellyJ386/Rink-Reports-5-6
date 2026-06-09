@@ -68,16 +68,13 @@ export async function inviteEmployeeByEmail(params: {
     // and link to the new employee record without resending an invite.
     const looksLikeDuplicate =
       /already|exists|registered/i.test(error.message ?? "") ||
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (error as any).status === 422
+      error.status === 422
     if (!looksLikeDuplicate) {
       return { ok: false, error: friendlyAuthError(error.message) }
     }
     alreadyExisted = true
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adminAny = admin as any
     const { data: list, error: listErr } =
-      await adminAny.auth.admin.listUsers({ page: 1, perPage: 200 })
+      await admin.auth.admin.listUsers({ page: 1, perPage: 200 })
     if (listErr) {
       return {
         ok: false,

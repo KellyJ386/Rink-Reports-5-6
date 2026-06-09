@@ -152,7 +152,7 @@ export default async function RefrigerationHomePage() {
     supabase
       .from("refrigeration_fields")
       .select(
-        "id, section_id, equipment_id, label, field_type, unit, options, sort_order, is_active, facility_id"
+        "id, section_id, equipment_id, label, field_type, unit, options, sort_order, is_active, facility_id, is_required"
       )
       .eq("facility_id", employeeRow.facility_id)
       .eq("is_active", true)
@@ -198,6 +198,7 @@ export default async function RefrigerationHomePage() {
     | "sort_order"
     | "is_active"
     | "facility_id"
+    | "is_required"
   >[]
 
   if (sections.length === 0 || fields.length === 0) {
@@ -280,10 +281,7 @@ export default async function RefrigerationHomePage() {
           label: f.label,
           field_type: isFieldType(f.field_type) ? f.field_type : "text",
           unit: f.unit,
-          // is_required was added in migration 64 and isn't in generated
-          // types yet. Falls back to false for pre-migration rows.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          is_required: Boolean((f as any).is_required),
+          is_required: Boolean(f.is_required),
           options: parseFieldOptions(f.options),
           ...resolveRange(f.id, null),
         })),
@@ -298,8 +296,7 @@ export default async function RefrigerationHomePage() {
             label: f.label,
             field_type: isFieldType(f.field_type) ? f.field_type : "text",
             unit: f.unit,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            is_required: Boolean((f as any).is_required),
+            is_required: Boolean(f.is_required),
             options: parseFieldOptions(f.options),
             ...resolveRange(f.id, e.id),
           })),

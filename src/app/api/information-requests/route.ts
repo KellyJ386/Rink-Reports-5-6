@@ -90,10 +90,7 @@ export async function POST(request: NextRequest) {
   // Rate-limit by client IP before touching the table. Fail OPEN if the RPC
   // itself errors (infra blip) so legit users aren't blocked, but log it.
   const ip = clientIp(request)
-  // check_rate_limit is not in the generated DB types (added in migration 92),
-  // mirroring the as-any pattern used for information_requests below.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: allowed, error: rateError } = await (supabase as any).rpc(
+  const { data: allowed, error: rateError } = await supabase.rpc(
     "check_rate_limit",
     {
       p_bucket: RATE_LIMIT_BUCKET,
@@ -116,10 +113,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // The `information_requests` table is not yet in the generated DB types,
-  // mirroring the pattern used in src/app/api/offline-sync/route.ts.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("information_requests")
     .insert({
       name,

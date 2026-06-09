@@ -15,10 +15,7 @@ import {
 } from "./governance-types"
 import type { ActionState } from "./types"
 
-// New schedule_settings columns aren't in the generated DB types yet (see
-// CLAUDE.md); cast through `any` at those write sites.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -287,7 +284,7 @@ export async function approveSwap(
       }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Read both shifts to confirm they exist and capture the fields the
     // assignment-eligibility check needs.
@@ -761,7 +758,7 @@ export async function updateSchedulingSettings(
       return { ok: false, error: "Default shift minutes must be positive." }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_settings")
       .upsert(
@@ -799,7 +796,7 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
   try {
     const ctx = await resolveAdminContext()
     if (!ctx.ok) return { ok: false, error: ctx.error }
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     const { error: settingsErr } = await supabase
       .from("schedule_settings")

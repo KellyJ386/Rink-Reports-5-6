@@ -100,8 +100,7 @@ export async function resolveJobAreaAssignments(
   }
 
   // Facility ownership — fetch only ids that belong to THIS facility.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("employee_job_areas")
     .select("id")
     .eq("facility_id", facilityId)
@@ -175,8 +174,7 @@ export async function createEmployeeComplete(
   const areaIds = resolved.assignments.map((a) => a.jobAreaId)
   const primaryArea = resolved.assignments.find((a) => a.isPrimary)?.jobAreaId ?? null
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("create_employee_complete", {
+  const { data, error } = await supabase.rpc("create_employee_complete", {
     p_facility_id: args.facilityId,
     p_role_id: args.roleId,
     p_first_name: args.firstName,
@@ -218,8 +216,7 @@ export async function reconcileJobAreaAssignments(
   facilityId: string,
   assignments: ResolvedJobAreaAssignment[]
 ): Promise<ReconcileResult> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
+  const sb = supabase
 
   const { data: existingRaw, error: selErr } = await sb
     .from("employee_job_area_assignments")

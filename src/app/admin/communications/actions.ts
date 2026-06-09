@@ -764,10 +764,7 @@ export async function createRoutingRule(
     const parsed = parseRoutingForm(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const supabase = await createClient()
-    // requires_acknowledgement was added in migration 63 and isn't in the
-    // generated Database types yet; cast to bypass the excess-property check.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("communication_routing_rules")
       .insert({ facility_id: facility.facilityId, ...parsed.data })
       .select("*")
@@ -814,10 +811,7 @@ export async function updateRoutingRule(
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
       .maybeSingle()
-    // See createRoutingRule comment — requires_acknowledgement isn't in
-    // generated types yet (migration 63).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("communication_routing_rules")
       .update(parsed.data)
       .eq("id", id)

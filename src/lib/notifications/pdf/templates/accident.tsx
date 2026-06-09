@@ -111,8 +111,7 @@ async function fetchAccidentRecord(
 
   // Body parts: join to dropdowns for display_name. `laterality` (migration
   // 00000000000092) isn't in the generated Database types yet — cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: bodyRows } = await (sb as any)
+  const { data: bodyRows } = await sb
     .from("accident_body_part_selections")
     .select("body_part_dropdown_id, side, laterality, notes")
     .eq("accident_id", recordId)
@@ -154,8 +153,7 @@ async function fetchAccidentRecord(
   // report's facility so a malformed row can't leak a foreign witness.
   // accident_witnesses isn't in the generated Database types yet -- cast
   // through `any`, matching the pattern in offline-sync/route.ts.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: witnessRowsRaw } = await (sb as any)
+  const { data: witnessRowsRaw } = await sb
     .from("accident_witnesses")
     .select("name, contact, statement, sort_order")
     .eq("accident_id", recordId)

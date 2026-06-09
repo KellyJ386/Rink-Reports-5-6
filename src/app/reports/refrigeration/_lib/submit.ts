@@ -6,6 +6,7 @@
 
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
+import type { TablesInsert } from "@/types/database"
 
 import type { ThresholdSeverity } from "../types"
 import {
@@ -237,7 +238,7 @@ export async function persistRefrigeration(
   const trimmedNotes = (input.notes ?? "").trim()
 
   // 1) Report shell.
-  const insertReport: Record<string, unknown> = {
+  const insertReport: TablesInsert<"refrigeration_reports"> = {
     facility_id: facilityId,
     employee_id: employeeId,
     notes: trimmedNotes.length > 0 ? trimmedNotes : null,
@@ -248,10 +249,7 @@ export async function persistRefrigeration(
   }
   const { data: insertedReport, error: reportErr } = await supabase
     .from("refrigeration_reports")
-    // reading_at/shift/round_no are added in migration 110, not yet in
-    // generated types — cast matches the project's not-yet-typed pattern.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .insert(insertReport as any)
+    .insert(insertReport)
     .select("id")
     .single()
 
@@ -308,9 +306,7 @@ export async function persistRefrigeration(
     }))
     const { error: notesErr } = await supabase
       .from("refrigeration_followup_notes")
-      // report_value_id/field_id added in migration 111, not yet in types.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .insert(noteRows as any)
+      .insert(noteRows)
     if (notesErr) {
       return cleanupAndFail(
         dbError(notesErr, "Failed to save corrective-action notes."),

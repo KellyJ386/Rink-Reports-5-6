@@ -99,10 +99,7 @@ export function ReportDetail({ detail, backHref }: Props) {
                 : "Unknown"}
             </p>
             {(() => {
-              // reading_at/shift/round_no added in migration 110; not in the
-              // generated types yet — cast matches the project's pattern.
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const r = report as any
+              const r = report
               if (!r.reading_at) return null
               return (
                 <p className="text-muted-foreground text-xs">

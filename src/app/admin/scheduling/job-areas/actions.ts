@@ -5,11 +5,6 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
-// employee_job_areas isn't in the generated types yet (see CLAUDE.md); cast
-// through `any` at call sites, matching the offline_sync_queue convention.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
-
 const MAX_NAME = 60
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
@@ -107,7 +102,7 @@ export async function createJobArea(args: {
       return { ok: false, error: "Enter a name with letters or numbers." }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Append to the end of the current order.
     const { data: last } = await supabase
@@ -156,7 +151,7 @@ export async function renameJobArea(id: string, name: string): Promise<SimpleRes
       return { ok: false, error: "Enter a name with letters or numbers." }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("employee_job_areas")
       .update({ name: trimmed, slug })
@@ -177,7 +172,7 @@ export async function setJobAreaActive(
   try {
     await requireAdmin()
     if (!id) return { ok: false, error: "Missing job area id." }
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("employee_job_areas")
       .update({ is_active: isActive })
@@ -201,7 +196,7 @@ export async function moveJobArea(
     const facility = await resolveFacilityId(null)
     if (!facility.ok) return { ok: false, error: facility.error }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { data: rows, error: selErr } = await supabase
       .from("employee_job_areas")
       .select("id, sort_order")
@@ -241,7 +236,7 @@ export async function deleteJobArea(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
     if (!id) return { ok: false, error: "Missing job area id." }
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase.from("employee_job_areas").delete().eq("id", id)
     if (error) return { ok: false, error: dbError(error, "Failed to delete job area.") }
     revalidate()
@@ -275,7 +270,7 @@ export async function addJobAreaCertRequirement(args: {
       return { ok: false, error: `Name is too long (max ${MAX_CERT_NAME}).` }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("job_area_certification_requirements")
       .insert({
@@ -304,7 +299,7 @@ export async function removeJobAreaCertRequirement(
   try {
     await requireAdmin()
     if (!id) return { ok: false, error: "Missing requirement id." }
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("job_area_certification_requirements")
       .delete()

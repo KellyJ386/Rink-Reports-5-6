@@ -47,10 +47,7 @@ export default async function JobAreasPage() {
   }
 
   const supabase = await createClient()
-  // employee_job_areas / job_area_certification_requirements aren't in the
-  // generated types yet (see CLAUDE.md).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
+  const sb = supabase
   const [{ data }, { data: reqData }] = await Promise.all([
     sb
       .from("employee_job_areas")

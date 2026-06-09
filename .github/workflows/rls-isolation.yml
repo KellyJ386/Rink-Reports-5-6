@@ -91,3 +91,25 @@ jobs:
             -v ON_ERROR_STOP=1 \
             --echo-errors \
             -f supabase/tests/rls_isolation.sql
+
+      # The generated DB types must track the migrations in the same PR —
+      # otherwise call sites regrow `as any` casts (which once hid a broken
+      # retention RPC for months). The service container is already fully
+      # migrated at this point, so regenerating + diffing is cheap.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check src/types/database.ts freshness
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+        run: node scripts/generate-database-types.mjs --check

@@ -67,9 +67,7 @@ export async function GET(request: Request) {
   let anyFailed = false
 
   for (const fn of PURGE_FUNCTIONS) {
-    // purge_old_* functions are not in generated types (service-role only).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(fn)
+    const { data, error } = await supabase.rpc(fn)
     if (error) {
       console.error(`[cron/run-retention-purge] ${fn} failed:`, error)
       results[fn] = "error"
@@ -84,11 +82,9 @@ export async function GET(request: Request) {
   // Sync queue rows are ephemeral system state, not user data, so they don't
   // belong in retention_settings (which is per-facility). Drop synced rows
   // older than 90 days inline. Pending/failed rows are kept so an admin can
-  // still triage them. offline_sync_queue is not in generated types yet
-  // (migration 31).
+  // still triage them.
   const syncCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: syncErr, count: syncDeleted } = await (supabase as any)
+  const { error: syncErr, count: syncDeleted } = await supabase
     .from("offline_sync_queue")
     .delete({ count: "exact" })
     .eq("sync_status", "synced")

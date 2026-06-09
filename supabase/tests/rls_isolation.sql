@@ -1574,6 +1574,29 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2k. purge_module_data authorization gate (migration 128).
+--
+-- SECURITY DEFINER manual-purge worker for the admin Retention module. It
+-- bypasses RLS, so its internal gate (super admin or is_facility_admin) is
+-- the only thing standing between a regular employee and a cross-tenant (or
+-- own-tenant) bulk delete. Assert both directions fail for non-admins.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.purge_module_data(
+      '11111111-1111-1111-1111-111111111111', 'daily_reports')$$,
+  'PURGE: staff alice CANNOT manually purge her own facility (admin-only)');
+select pg_temp.expect_error(
+  $$select public.purge_module_data(
+      '22222222-2222-2222-2222-222222222222', 'daily_reports')$$,
+  'PURGE: staff alice CANNOT manually purge facility B (cross-tenant)');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

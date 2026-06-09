@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:cron": "node scripts/check-cron-schedule.mjs"
+    "check:cron": "node scripts/check-cron-schedule.mjs",
+    "types:write": "node scripts/generate-database-types.mjs --write",
+    "types:check": "node scripts/generate-database-types.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -37,6 +39,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@supabase/postgres-meta": "0.91.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

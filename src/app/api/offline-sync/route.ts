@@ -441,10 +441,10 @@ async function handleSchedulingReplay({
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // Build the row to persist, validating the same way the server actions do.
-  let table: "schedule_availability" | "schedule_time_off_requests"
-  let row: Record<string, unknown>
-  let updateId: string | null = null
+  // Build the write to persist, validating the same way the server actions
+  // do. Each branch captures a fully-typed row in a closure; the closure runs
+  // only after the queue claim below succeeds.
+  let doWrite: () => Promise<{ error: { message: string } | null }>
 
   if (action === "submit_availability") {
     const day = Number(payload.day_of_week)
@@ -462,8 +462,7 @@ async function handleSchedulingReplay({
     }
 
     // Respect the facility availability-submission toggle (migration 117).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: settingsRow } = await (supabase as any)
+    const { data: settingsRow } = await supabase
       .from("schedule_settings")
       .select("availability_submission_enabled")
       .eq("facility_id", facilityId)
@@ -483,9 +482,7 @@ async function handleSchedulingReplay({
     const jobAreaIdRaw = asString(payload.job_area_id)
     let jobAreaId: string | null = null
     if (jobAreaIdRaw.length > 0) {
-      // employee_job_area_assignments isn't in the generated types; cast.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: assignment } = await (supabase as any)
+      const { data: assignment } = await supabase
         .from("employee_job_area_assignments")
         .select("job_area_id")
         .eq("employee_id", employeeId)
@@ -500,9 +497,7 @@ async function handleSchedulingReplay({
       jobAreaId = jobAreaIdRaw
     }
 
-    table = "schedule_availability"
-    updateId = asString(payload.id) || null
-    row = {
+    const availabilityRow = {
       facility_id: facilityId,
       employee_id: employeeId,
       day_of_week: day,
@@ -514,6 +509,17 @@ async function handleSchedulingReplay({
       notes: notes.length > 0 ? notes : null,
       job_area_id: jobAreaId,
     }
+    const updateId = asString(payload.id) || null
+    doWrite = updateId !== null
+      ? async () =>
+          supabase
+            .from("schedule_availability")
+            .update(availabilityRow)
+            .eq("id", updateId)
+            .eq("facility_id", facilityId)
+            .eq("employee_id", employeeId)
+      : async () =>
+          supabase.from("schedule_availability").insert(availabilityRow)
   } else if (action === "request_time_off") {
     const startsAt = new Date(asString(payload.starts_at))
     const endsAt = new Date(asString(payload.ends_at))
@@ -524,8 +530,7 @@ async function handleSchedulingReplay({
       return NextResponse.json({ error: "End must be after start" }, { status: 400 })
     }
     const reason = asString(payload.reason)
-    table = "schedule_time_off_requests"
-    row = {
+    const timeOffRow = {
       facility_id: facilityId,
       employee_id: employeeId,
       starts_at: startsAt.toISOString(),
@@ -533,6 +538,8 @@ async function handleSchedulingReplay({
       reason: reason.length > 0 ? reason : null,
       status: "pending",
     }
+    doWrite = async () =>
+      supabase.from("schedule_time_off_requests").insert(timeOffRow)
   } else {
     return NextResponse.json({ error: "Unsupported scheduling action" }, { status: 400 })
   }
@@ -562,19 +569,7 @@ async function handleSchedulingReplay({
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const writeError =
-    updateId !== null
-      ? (
-          await sb
-            .from(table)
-            .update(row)
-            .eq("id", updateId)
-            .eq("facility_id", facilityId)
-            .eq("employee_id", employeeId)
-        ).error
-      : (await sb.from(table).insert(row)).error
+  const { error: writeError } = await doWrite()
 
   if (writeError) {
     // Release the claim so a future retry re-attempts the persist.

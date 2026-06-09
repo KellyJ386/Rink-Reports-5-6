@@ -9,11 +9,9 @@
 // an async checker that the "use server" action files call with their own
 // Supabase client.
 
-// The RPC + new columns aren't in the generated DB types yet (see CLAUDE.md);
-// cast through `any` at the call site, matching the offline_sync_queue /
-// employee_job_areas convention.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+import type { createClient } from "@/lib/supabase/server"
+
+type AnySupabase = Awaited<ReturnType<typeof createClient>>
 
 export type AssignmentCheckArgs = {
   facilityId: string
@@ -61,8 +59,11 @@ export async function checkAssignmentViolations(
     p_starts: args.startsAt,
     p_ends: args.endsAt,
     p_break_minutes: args.breakMinutes ?? 0,
-    p_job_area_id: args.jobAreaId,
-    p_exclude_shift_id: args.excludeShiftId,
+    // Generated RPC arg types are non-nullable (a pg-meta limitation), but
+    // the SQL function (migration 118) treats NULL as "no job area / no
+    // shift to exclude" — hence the narrowing casts.
+    p_job_area_id: args.jobAreaId as unknown as string,
+    p_exclude_shift_id: args.excludeShiftId as unknown as string,
   })
   if (error) {
     throw new Error(error.message ?? "Failed to evaluate scheduling rules.")

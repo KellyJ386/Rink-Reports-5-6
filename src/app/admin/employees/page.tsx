@@ -176,16 +176,12 @@ export default async function EmployeesPage({
       .from("role_permission_defaults")
       .select("role_id, module_name, action, enabled")
       .eq("facility_id", facilityId),
-    // employee_job_areas / _assignments aren't in the generated types yet
-    // (see CLAUDE.md); cast through any, matching offline_sync_queue.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("employee_job_areas")
       .select("id, name, is_active, sort_order")
       .eq("facility_id", facilityId)
       .order("sort_order", { ascending: true }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("employee_job_area_assignments")
       .select("employee_id, job_area_id, is_primary")
       .eq("facility_id", facilityId),

@@ -1013,7 +1013,7 @@ export type Database = {
           entity_type: string
           facility_id: string
           id: string
-          ip: unknown
+          ip: unknown | null
           user_agent: string | null
         }
         Insert: {
@@ -1027,7 +1027,7 @@ export type Database = {
           entity_type: string
           facility_id: string
           id?: string
-          ip?: unknown
+          ip?: unknown | null
           user_agent?: string | null
         }
         Update: {
@@ -1041,7 +1041,7 @@ export type Database = {
           entity_type?: string
           facility_id?: string
           id?: string
-          ip?: unknown
+          ip?: unknown | null
           user_agent?: string | null
         }
         Relationships: [
@@ -1214,7 +1214,7 @@ export type Database = {
           entity_type: string
           facility_id: string
           id: string
-          ip: unknown
+          ip: unknown | null
           user_agent: string | null
         }
         Insert: {
@@ -1227,7 +1227,7 @@ export type Database = {
           entity_type: string
           facility_id: string
           id?: string
-          ip?: unknown
+          ip?: unknown | null
           user_agent?: string | null
         }
         Update: {
@@ -1240,7 +1240,7 @@ export type Database = {
           entity_type?: string
           facility_id?: string
           id?: string
-          ip?: unknown
+          ip?: unknown | null
           user_agent?: string | null
         }
         Relationships: [
@@ -2112,55 +2112,6 @@ export type Database = {
           },
         ]
       }
-      employee_departments: {
-        Row: {
-          created_at: string
-          department_id: string
-          employee_id: string
-          facility_id: string
-          id: string
-          is_primary: boolean
-        }
-        Insert: {
-          created_at?: string
-          department_id: string
-          employee_id: string
-          facility_id: string
-          id?: string
-          is_primary?: boolean
-        }
-        Update: {
-          created_at?: string
-          department_id?: string
-          employee_id?: string
-          facility_id?: string
-          id?: string
-          is_primary?: boolean
-        }
-        Relationships: [
-          {
-            foreignKeyName: "employee_departments_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "employee_departments_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "employee_departments_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       employee_invites: {
         Row: {
           accepted_at: string | null
@@ -2214,6 +2165,99 @@ export type Database = {
           },
           {
             foreignKeyName: "employee_invites_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_job_area_assignments: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+          is_primary: boolean
+          job_area_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+          is_primary?: boolean
+          job_area_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          is_primary?: boolean
+          job_area_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_job_area_assignments_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_job_area_assignments_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_job_area_assignments_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_job_areas: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_job_areas_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
@@ -3116,10 +3160,8 @@ export type Database = {
           failed_notes: string | null
           id: string
           label_snapshot: string
-          passed: boolean | null
-          response_type_snapshot: string
+          passed: boolean
           submission_id: string
-          text_response: string | null
         }
         Insert: {
           checklist_item_id?: string | null
@@ -3128,10 +3170,8 @@ export type Database = {
           failed_notes?: string | null
           id?: string
           label_snapshot: string
-          passed?: boolean | null
-          response_type_snapshot?: string
+          passed: boolean
           submission_id: string
-          text_response?: string | null
         }
         Update: {
           checklist_item_id?: string | null
@@ -3140,10 +3180,8 @@ export type Database = {
           failed_notes?: string | null
           id?: string
           label_snapshot?: string
-          passed?: boolean | null
-          response_type_snapshot?: string
+          passed?: boolean
           submission_id?: string
-          text_response?: string | null
         }
         Relationships: [
           {
@@ -3176,9 +3214,7 @@ export type Database = {
           facility_id: string
           id: string
           is_active: boolean
-          is_response_required: boolean
           label: string
-          response_type: string
           sort_order: number
           template_id: string
           updated_at: string | null
@@ -3189,9 +3225,7 @@ export type Database = {
           facility_id: string
           id?: string
           is_active?: boolean
-          is_response_required?: boolean
           label: string
-          response_type?: string
           sort_order?: number
           template_id: string
           updated_at?: string | null
@@ -3202,9 +3236,7 @@ export type Database = {
           facility_id?: string
           id?: string
           is_active?: boolean
-          is_response_required?: boolean
           label?: string
-          response_type?: string
           sort_order?: number
           template_id?: string
           updated_at?: string | null
@@ -4087,6 +4119,51 @@ export type Database = {
         }
         Relationships: []
       }
+      job_area_certification_requirements: {
+        Row: {
+          cert_name: string
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          job_area_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          cert_name: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          job_area_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          cert_name?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          job_area_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_area_certification_requirements_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_area_certification_requirements_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       module_area_permissions: {
         Row: {
           area_id: string
@@ -4538,27 +4615,33 @@ export type Database = {
           created_at: string
           employee_id: string | null
           facility_id: string
+          field_id: string | null
           id: string
           is_admin_note: boolean
           report_id: string
+          report_value_id: string | null
         }
         Insert: {
           body: string
           created_at?: string
           employee_id?: string | null
           facility_id: string
+          field_id?: string | null
           id?: string
           is_admin_note?: boolean
           report_id: string
+          report_value_id?: string | null
         }
         Update: {
           body?: string
           created_at?: string
           employee_id?: string | null
           facility_id?: string
+          field_id?: string | null
           id?: string
           is_admin_note?: boolean
           report_id?: string
+          report_value_id?: string | null
         }
         Relationships: [
           {
@@ -4576,10 +4659,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "refrigeration_followup_notes_field_id_fkey"
+            columns: ["field_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_fields"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "refrigeration_followup_notes_report_id_fkey"
             columns: ["report_id"]
             isOneToOne: false
             referencedRelation: "refrigeration_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refrigeration_followup_notes_report_value_id_fkey"
+            columns: ["report_value_id"]
+            isOneToOne: false
+            referencedRelation: "refrigeration_report_values"
             referencedColumns: ["id"]
           },
         ]
@@ -4681,6 +4778,9 @@ export type Database = {
           facility_id: string
           id: string
           notes: string | null
+          reading_at: string
+          round_no: number | null
+          shift: string | null
           submitted_at: string
           updated_at: string | null
         }
@@ -4690,6 +4790,9 @@ export type Database = {
           facility_id: string
           id?: string
           notes?: string | null
+          reading_at?: string
+          round_no?: number | null
+          shift?: string | null
           submitted_at?: string
           updated_at?: string | null
         }
@@ -4699,6 +4802,9 @@ export type Database = {
           facility_id?: string
           id?: string
           notes?: string | null
+          reading_at?: string
+          round_no?: number | null
+          shift?: string | null
           submitted_at?: string
           updated_at?: string | null
         }
@@ -5054,6 +5160,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id: string
+          job_area_id: string | null
           notes: string | null
           start_time: string
           updated_at: string | null
@@ -5068,6 +5175,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id?: string
+          job_area_id?: string | null
           notes?: string | null
           start_time: string
           updated_at?: string | null
@@ -5082,6 +5190,7 @@ export type Database = {
           end_time?: string
           facility_id?: string
           id?: string
+          job_area_id?: string | null
           notes?: string | null
           start_time?: string
           updated_at?: string | null
@@ -5099,6 +5208,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_availability_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
             referencedColumns: ["id"]
           },
         ]
@@ -5429,6 +5545,7 @@ export type Database = {
       }
       schedule_settings: {
         Row: {
+          availability_submission_enabled: boolean
           created_at: string
           default_shift_minutes: number
           facility_id: string
@@ -5440,11 +5557,13 @@ export type Database = {
           notify_on_publish: boolean
           open_shift_first_come: boolean
           overtime_weekly_hours: number | null
+          require_job_area_qualification: boolean
           swap_requires_manager_approval: boolean
           updated_at: string | null
           week_start_day: number
         }
         Insert: {
+          availability_submission_enabled?: boolean
           created_at?: string
           default_shift_minutes?: number
           facility_id: string
@@ -5456,11 +5575,13 @@ export type Database = {
           notify_on_publish?: boolean
           open_shift_first_come?: boolean
           overtime_weekly_hours?: number | null
+          require_job_area_qualification?: boolean
           swap_requires_manager_approval?: boolean
           updated_at?: string | null
           week_start_day?: number
         }
         Update: {
+          availability_submission_enabled?: boolean
           created_at?: string
           default_shift_minutes?: number
           facility_id?: string
@@ -5472,6 +5593,7 @@ export type Database = {
           notify_on_publish?: boolean
           open_shift_first_come?: boolean
           overtime_weekly_hours?: number | null
+          require_job_area_qualification?: boolean
           swap_requires_manager_approval?: boolean
           updated_at?: string | null
           week_start_day?: number
@@ -5496,6 +5618,7 @@ export type Database = {
           ends_at: string
           facility_id: string
           id: string
+          job_area_id: string | null
           notes: string | null
           published_at: string | null
           published_by_employee_id: string | null
@@ -5515,6 +5638,7 @@ export type Database = {
           ends_at: string
           facility_id: string
           id?: string
+          job_area_id?: string | null
           notes?: string | null
           published_at?: string | null
           published_by_employee_id?: string | null
@@ -5534,6 +5658,7 @@ export type Database = {
           ends_at?: string
           facility_id?: string
           id?: string
+          job_area_id?: string | null
           notes?: string | null
           published_at?: string | null
           published_by_employee_id?: string | null
@@ -5564,6 +5689,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shifts_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
             referencedColumns: ["id"]
           },
           {
@@ -5692,6 +5824,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id: string
+          job_area_id: string | null
           role_label: string | null
           staff_count: number
           start_time: string
@@ -5706,6 +5839,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id?: string
+          job_area_id?: string | null
           role_label?: string | null
           staff_count?: number
           start_time: string
@@ -5720,6 +5854,7 @@ export type Database = {
           end_time?: string
           facility_id?: string
           id?: string
+          job_area_id?: string | null
           role_label?: string | null
           staff_count?: number
           start_time?: string
@@ -5739,6 +5874,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_template_shifts_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
             referencedColumns: ["id"]
           },
           {
@@ -5992,12 +6134,16 @@ export type Database = {
         Args: { p_facility_id: string; p_role_id: string; p_user_id: string }
         Returns: undefined
       }
+      armor: {
+        Args: { "": string }
+        Returns: string
+      }
       can_edit_user_profile: {
         Args: { p_target_user_id: string }
         Returns: boolean
       }
       canonical_role_permission_grants: {
-        Args: never
+        Args: Record<PropertyKey, never>
         Returns: {
           action: Database["public"]["Enums"]["user_action"]
           module_name: string
@@ -6012,6 +6158,30 @@ export type Database = {
           p_window_seconds: number
         }
         Returns: boolean
+      }
+      citext: {
+        Args: { "": boolean } | { "": string } | { "": unknown }
+        Returns: string
+      }
+      citext_hash: {
+        Args: { "": string }
+        Returns: number
+      }
+      citextin: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      citextout: {
+        Args: { "": string }
+        Returns: unknown
+      }
+      citextrecv: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      citextsend: {
+        Args: { "": string }
+        Returns: string
       }
       copy_role_permission_defaults: {
         Args: { p_source_role_id: string; p_target_role_id: string }
@@ -6029,9 +6199,11 @@ export type Database = {
           p_first_name: string
           p_hire_date?: string
           p_is_minor?: boolean
+          p_job_area_ids?: string[]
           p_last_name: string
           p_phone?: string
           p_primary_department_id?: string
+          p_primary_job_area_id?: string
           p_role_id: string
         }
         Returns: string
@@ -6047,12 +6219,18 @@ export type Database = {
         }
         Returns: string
       }
-      current_employee_id: { Args: never; Returns: string }
+      current_employee_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
       current_employee_module_permission: {
         Args: { p_module_key: string }
         Returns: Database["public"]["Enums"]["module_permission_level"]
       }
-      current_facility_id: { Args: never; Returns: string }
+      current_facility_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
       current_user_has_permission: {
         Args: {
           p_action: Database["public"]["Enums"]["user_action"]
@@ -6060,9 +6238,12 @@ export type Database = {
         }
         Returns: boolean
       }
-      current_user_id: { Args: never; Returns: string }
+      current_user_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
       current_user_record: {
-        Args: never
+        Args: Record<PropertyKey, never>
         Returns: {
           address_line1: string | null
           address_line2: string | null
@@ -6084,14 +6265,11 @@ export type Database = {
           state_province: string | null
           updated_at: string | null
         }
-        SetofOptions: {
-          from: "*"
-          to: "users"
-          isOneToOne: true
-          isSetofReturn: false
-        }
       }
-      current_user_role: { Args: never; Returns: string }
+      current_user_role: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
       deactivate_role: {
         Args: { p_force?: boolean; p_role_id: string }
         Returns: {
@@ -6099,6 +6277,10 @@ export type Database = {
           message: string
           ok: boolean
         }[]
+      }
+      dearmor: {
+        Args: { "": string }
+        Returns: string
       }
       dispatch_rules_for_submission: {
         Args: {
@@ -6128,12 +6310,44 @@ export type Database = {
         Args: { p_employee_id: string; p_module_key: string }
         Returns: Record<string, unknown>
       }
+      gen_random_bytes: {
+        Args: { "": number }
+        Returns: string
+      }
+      gen_random_uuid: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      gen_salt: {
+        Args: { "": string }
+        Returns: string
+      }
       get_employee_counts_by_facility: {
-        Args: never
+        Args: Record<PropertyKey, never>
         Returns: {
           employee_count: number
           facility_id: string
         }[]
+      }
+      gtrgm_compress: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_decompress: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_in: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_options: {
+        Args: { "": unknown }
+        Returns: undefined
+      }
+      gtrgm_out: {
+        Args: { "": unknown }
+        Returns: unknown
       }
       has_area_access: {
         Args: { p_area_id: string; p_module_key: string }
@@ -6143,7 +6357,10 @@ export type Database = {
         Args: { p_area_id: string; p_module_key: string }
         Returns: boolean
       }
-      has_module_access: { Args: { p_module_key: string }; Returns: boolean }
+      has_module_access: {
+        Args: { p_module_key: string }
+        Returns: boolean
+      }
       has_module_admin_access: {
         Args: { p_module_key: string }
         Returns: boolean
@@ -6152,18 +6369,66 @@ export type Database = {
         Args: { p_module_key: string }
         Returns: undefined
       }
-      is_facility_admin: { Args: { p_facility_id: string }; Returns: boolean }
-      is_super_admin: { Args: never; Returns: boolean }
-      purge_old_accident_reports: { Args: never; Returns: number }
-      purge_old_air_quality_reports: { Args: never; Returns: number }
-      purge_old_audit_logs: { Args: never; Returns: number }
-      purge_old_communications: { Args: never; Returns: number }
-      purge_old_daily_reports: { Args: never; Returns: number }
-      purge_old_ice_operations_submissions: { Args: never; Returns: number }
-      purge_old_incident_reports: { Args: never; Returns: number }
-      purge_old_rate_limit_counters: { Args: never; Returns: number }
-      purge_old_refrigeration_reports: { Args: never; Returns: number }
-      reactivate_role: { Args: { p_role_id: string }; Returns: boolean }
+      is_facility_admin: {
+        Args: { p_facility_id: string }
+        Returns: boolean
+      }
+      is_super_admin: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      pgp_armor_headers: {
+        Args: { "": string }
+        Returns: Record<string, unknown>[]
+      }
+      pgp_key_id: {
+        Args: { "": string }
+        Returns: string
+      }
+      purge_module_data: {
+        Args: { p_facility_id: string; p_module_key: string }
+        Returns: number
+      }
+      purge_old_accident_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_air_quality_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_audit_logs: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_communications: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_daily_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_ice_operations_submissions: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_incident_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_rate_limit_counters: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_refrigeration_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      reactivate_role: {
+        Args: { p_role_id: string }
+        Returns: boolean
+      }
       reapply_role_defaults_for_role: {
         Args: { p_facility_id: string; p_role_id: string }
         Returns: number
@@ -6173,6 +6438,18 @@ export type Database = {
         Returns: {
           employee_id: string
         }[]
+      }
+      scheduling_assignment_violations: {
+        Args: {
+          p_break_minutes: number
+          p_employee_id: string
+          p_ends: string
+          p_exclude_shift_id: string
+          p_facility_id: string
+          p_job_area_id: string
+          p_starts: string
+        }
+        Returns: string[]
       }
       scheduling_claim_open_shift: {
         Args: { p_open_shift_id: string }
@@ -6222,12 +6499,22 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: number
       }
+      set_limit: {
+        Args: { "": number }
+        Returns: number
+      }
       show_dashboard_module: {
         Args: { p_module_key: string }
         Returns: undefined
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
+      show_limit: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      show_trgm: {
+        Args: { "": string }
+        Returns: string[]
+      }
       user_has_permission: {
         Args: {
           p_action: Database["public"]["Enums"]["user_action"]

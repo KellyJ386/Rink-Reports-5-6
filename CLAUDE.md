@@ -70,7 +70,7 @@ Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` and `
 - `@/lib/supabase/client` — for `"use client"` components only.
 - `@/lib/supabase/session` — only called from `src/proxy.ts`; do not import elsewhere.
 
-Generated DB types live in `src/types/database.ts` and are passed as the generic to `createClient<Database>()`. When a migration adds a table that isn't yet in the generated types (e.g. `offline_sync_queue` in `src/app/api/offline-sync/route.ts`), the codebase casts via `as any` with an eslint-disable comment — match that pattern instead of hand-writing types.
+Generated DB types live in `src/types/database.ts` and are passed as the generic to `createClient<Database>()`. **When a migration changes the schema, regenerate the types in the same PR**: run `pnpm types:write` with `DATABASE_URL` pointing at a fully-migrated local database (`supabase start`, then `postgresql://postgres:postgres@127.0.0.1:54322/postgres`); see `scripts/generate-database-types.mjs`. CI enforces freshness (`pnpm types:check` in the rls-isolation workflow). Do NOT bridge schema gaps with `as any` casts — that pattern is retired; it once hid a call to a DB function that didn't exist (fixed in migration 128).
 
 ### App Router layout
 

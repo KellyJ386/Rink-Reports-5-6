@@ -145,8 +145,7 @@ export async function updateAccidentReport(
 
   // Existing body parts (for diff + snapshot.before). `laterality` isn't in
   // the generated Database types yet — cast.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: existingBpRaw } = await (supabase as any)
+  const { data: existingBpRaw } = await supabase
     .from("accident_body_part_selections")
     .select("id, body_part_dropdown_id, side, laterality")
     .eq("accident_id", reportId)
@@ -269,8 +268,7 @@ export async function updateAccidentReport(
     }
   }
   if (toInsert.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("accident_body_part_selections")
       .insert(toInsert)
     if (error) {
