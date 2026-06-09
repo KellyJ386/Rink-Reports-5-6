@@ -17,6 +17,7 @@ import { enUS } from "date-fns/locale"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -33,8 +34,10 @@ import {
   createGridShift,
   deleteGridShift,
   previewShiftWarnings,
+  saveGridTemplate,
   updateGridShift,
   type GridShiftDTO,
+  type GridTemplateDTO,
 } from "../../_lib/grid-actions"
 import {
   roundHours,
@@ -141,6 +144,7 @@ type Props = {
   employees: EmployeeLite[]
   jobAreas: JobAreaLite[]
   initialShifts: GridShiftDTO[]
+  initialTemplates: GridTemplateDTO[]
   operatingHours: OperatingHours
   /** 0=Sunday .. 6=Saturday (facility setting). */
   weekStartDay: number
@@ -148,10 +152,23 @@ type Props = {
   defaultDateIso: string
 }
 
+/** Build a Date on `day`'s calendar date at the given "HH:MM[:SS]" local time. */
+function combineDayTime(day: Date, hhmmss: string): Date {
+  const [h, m, s] = hhmmss.split(":")
+  const d = new Date(day)
+  d.setHours(Number(h) || 0, Number(m) || 0, Number(s) || 0, 0)
+  return d
+}
+
+function formatTimeOfDay(hhmmss: string): string {
+  return format(combineDayTime(new Date(), hhmmss), "h:mm a")
+}
+
 export function ScheduleGrid({
   employees,
   jobAreas,
   initialShifts,
+  initialTemplates,
   operatingHours,
   weekStartDay,
   defaultDateIso,
@@ -159,6 +176,10 @@ export function ScheduleGrid({
   const empById = useMemo(
     () => new Map(employees.map((e) => [e.id, e])),
     [employees]
+  )
+  const jobAreaById = useMemo(
+    () => new Map(jobAreas.map((j) => [j.id, j])),
+    [jobAreas]
   )
 
   const localizer = useMemo(
@@ -188,7 +209,15 @@ export function ScheduleGrid({
   const [warningBlocking, setWarningBlocking] = useState(false)
   const [warnLoading, setWarnLoading] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const [templates, setTemplates] = useState<GridTemplateDTO[]>(initialTemplates)
+  const [armedTemplateId, setArmedTemplateId] = useState<string | null>(null)
   const warnTokenRef = useRef(0)
+  const draggedTemplateRef = useRef<GridTemplateDTO | null>(null)
+
+  const armedTemplate = useMemo(
+    () => templates.find((t) => t.id === armedTemplateId) ?? null,
+    [templates, armedTemplateId]
+  )
 
   // Fetch advisory warnings for a candidate assignment. Driven imperatively from
   // popover open/change (not an effect) so there's no synchronous setState in an
@@ -304,22 +333,115 @@ export function ScheduleGrid({
     []
   )
 
-  const handleSelectSlot = useCallback((slot: SlotInfo) => {
-    setLiveRange(null)
-    const start = asDate(slot.start)
-    let end = asDate(slot.end)
-    // A plain click selects a single slot; give it a sensible default length.
-    if (end.getTime() - start.getTime() < 15 * 60 * 1000) {
-      end = new Date(start.getTime() + 60 * 60 * 1000)
+  // ---- Apply a template to a day (drag-drop or armed-then-tap) ----
+  const applyTemplateOnDate = useCallback(
+    (tpl: GridTemplateDTO, day: Date) => {
+      const start = combineDayTime(day, tpl.start_time)
+      const end = combineDayTime(day, tpl.end_time)
+      startTransition(async () => {
+        const res = await createGridShift({
+          starts_at: start.toISOString(),
+          ends_at: end.toISOString(),
+          employee_id: null,
+          job_area_id: tpl.job_area_id,
+          break_minutes: tpl.break_minutes,
+        })
+        if (!res.ok) {
+          toast.error(res.error)
+          return
+        }
+        setEvents((evts) => [...evts, dtoToEvent(res.data, empById)])
+        toast.success(`Applied "${tpl.name}".`)
+      })
+    },
+    [empById]
+  )
+
+  const handleSelectSlot = useCallback(
+    (slot: SlotInfo) => {
+      setLiveRange(null)
+      // When a template is armed, a tap/drag on a day places it there instead
+      // of opening the create popover.
+      if (armedTemplate) {
+        applyTemplateOnDate(armedTemplate, asDate(slot.start))
+        setArmedTemplateId(null)
+        return
+      }
+      const start = asDate(slot.start)
+      let end = asDate(slot.end)
+      // A plain click selects a single slot; give it a sensible default length.
+      if (end.getTime() - start.getTime() < 15 * 60 * 1000) {
+        end = new Date(start.getTime() + 60 * 60 * 1000)
+      }
+      openPopover({
+        mode: "create",
+        start,
+        end,
+        employeeId: OPEN_VALUE,
+        jobAreaId: NONE_VALUE,
+      })
+    },
+    [armedTemplate, applyTemplateOnDate, openPopover]
+  )
+
+  // Native drag of a template card onto the grid.
+  const handleDropFromOutside = useCallback(
+    (args: { start: Date | string }) => {
+      const tpl = draggedTemplateRef.current
+      draggedTemplateRef.current = null
+      setArmedTemplateId(null)
+      if (tpl) applyTemplateOnDate(tpl, asDate(args.start))
+    },
+    [applyTemplateOnDate]
+  )
+
+  // Preview event shown while dragging a template over the grid.
+  const dragFromOutsideItem = useCallback((): GridEvent => {
+    const tpl = draggedTemplateRef.current
+    const now = new Date()
+    return {
+      title: tpl?.name ?? "Template",
+      start: now,
+      end: new Date(now.getTime() + 60 * 60 * 1000),
+      resource: {
+        id: "__preview__",
+        employeeId: null,
+        jobAreaId: tpl?.job_area_id ?? null,
+        departmentId: null,
+        status: "draft",
+        breakMinutes: tpl?.break_minutes ?? 0,
+        roleLabel: null,
+        notes: null,
+      },
     }
-    openPopover({
-      mode: "create",
-      start,
-      end,
-      employeeId: OPEN_VALUE,
-      jobAreaId: NONE_VALUE,
-    })
-  }, [openPopover])
+  }, [])
+
+  // ---- Save a painted/selected block as a template ----
+  const handleSaveTemplate = useCallback(
+    (name: string) => {
+      if (!popover) return
+      const { start, end } = popover
+      const job_area_id =
+        popover.jobAreaId === NONE_VALUE ? null : popover.jobAreaId
+      startTransition(async () => {
+        const res = await saveGridTemplate({
+          name,
+          job_area_id,
+          day_of_week: start.getDay(),
+          start_time: format(start, "HH:mm:ss"),
+          end_time: format(end, "HH:mm:ss"),
+          break_minutes: 0,
+        })
+        if (!res.ok) {
+          setPopoverError(res.error)
+          return
+        }
+        setTemplates((t) => [...t, res.data])
+        toast.success(`Saved template "${res.data.name}".`)
+      })
+    },
+    [popover]
+  )
 
   // ---- Edit (click an existing event) ----
   const handleSelectEvent = useCallback(
@@ -452,7 +574,18 @@ export function ScheduleGrid({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex min-h-6 items-center gap-2 text-sm">
-        {liveRange ? (
+        {armedTemplate ? (
+          <span className="inline-flex items-center gap-2 rounded-md bg-primary/15 px-2 py-0.5 font-medium text-foreground">
+            Placing “{armedTemplate.name}” — tap a day to drop it.
+            <button
+              type="button"
+              className="text-muted-foreground underline underline-offset-2"
+              onClick={() => setArmedTemplateId(null)}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : liveRange ? (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-primary/15 px-2 py-0.5 font-medium text-foreground">
             <span className="text-muted-foreground">Selecting</span>
             {liveRange}
@@ -489,12 +622,30 @@ export function ScheduleGrid({
             onSelectEvent={handleSelectEvent}
             onEventDrop={commitTimeChange}
             onEventResize={commitTimeChange}
+            onDropFromOutside={handleDropFromOutside}
+            dragFromOutsideItem={dragFromOutsideItem}
             components={components}
             eventPropGetter={eventPropGetter}
             style={{ height: 680 }}
           />
         </div>
-        <WeeklyHoursRail rows={weeklyTally} />
+        <div className="flex w-full shrink-0 flex-col gap-4 lg:w-60">
+          <WeeklyHoursRail rows={weeklyTally} />
+          <TemplatesPanel
+            templates={templates}
+            jobAreaById={jobAreaById}
+            armedId={armedTemplateId}
+            onToggleArm={(id) =>
+              setArmedTemplateId((cur) => (cur === id ? null : id))
+            }
+            onDragStartTemplate={(tpl) => {
+              draggedTemplateRef.current = tpl
+            }}
+            onDragEndTemplate={() => {
+              draggedTemplateRef.current = null
+            }}
+          />
+        </div>
       </div>
 
       {popover ? (
@@ -514,6 +665,7 @@ export function ScheduleGrid({
           }}
           onSave={handlePopoverSave}
           onDelete={handlePopoverDelete}
+          onSaveTemplate={handleSaveTemplate}
           onClose={closePopover}
         />
       ) : null}
@@ -573,6 +725,73 @@ function WeeklyHoursRail({ rows }: { rows: TallyRow[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Templates side panel: saved single-slot templates. Drag a card onto a day, or
+// tap to arm it then tap a day to drop it.
+// ---------------------------------------------------------------------------
+
+function TemplatesPanel({
+  templates,
+  jobAreaById,
+  armedId,
+  onToggleArm,
+  onDragStartTemplate,
+  onDragEndTemplate,
+}: {
+  templates: GridTemplateDTO[]
+  jobAreaById: Map<string, JobAreaLite>
+  armedId: string | null
+  onToggleArm: (id: string) => void
+  onDragStartTemplate: (tpl: GridTemplateDTO) => void
+  onDragEndTemplate: () => void
+}) {
+  return (
+    <aside className="w-full rounded-xl border border-border bg-card p-4">
+      <h3 className="mb-2 text-sm font-semibold tracking-tight">Templates</h3>
+      {templates.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Paint a block and choose “Save as template” to reuse it here.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {templates.map((t) => {
+            const armed = t.id === armedId
+            const area = t.job_area_id
+              ? jobAreaById.get(t.job_area_id)
+              : null
+            return (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={() => onDragStartTemplate(t)}
+                  onDragEnd={onDragEndTemplate}
+                  onClick={() => onToggleArm(t.id)}
+                  aria-pressed={armed}
+                  className={cn(
+                    "w-full cursor-grab rounded-lg border px-3 py-2 text-left transition-colors active:cursor-grabbing",
+                    armed
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background hover:bg-accent"
+                  )}
+                >
+                  <span className="block truncate text-sm font-medium">
+                    {t.name}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {formatTimeOfDay(t.start_time)} – {formatTimeOfDay(t.end_time)}
+                    {area ? ` · ${area.name}` : ""}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </aside>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Lightweight assign popover (no Dialog primitive in the design system; a small
 // centered overlay keeps it touch-friendly).
 // ---------------------------------------------------------------------------
@@ -589,6 +808,7 @@ function AssignPopover({
   onChange,
   onSave,
   onDelete,
+  onSaveTemplate,
   onClose,
 }: {
   state: PopoverState
@@ -602,10 +822,13 @@ function AssignPopover({
   onChange: (next: PopoverState) => void
   onSave: () => void
   onDelete: () => void
+  onSaveTemplate: (name: string) => void
   onClose: () => void
 }) {
   // When the facility blocks on warnings, a flagged assignment can't be saved.
   const saveBlocked = warningsBlocking && warnings.length > 0
+  const [templateMode, setTemplateMode] = useState(false)
+  const [templateName, setTemplateName] = useState("")
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -705,6 +928,58 @@ function AssignPopover({
             {error}
           </p>
         ) : null}
+
+        {templateMode ? (
+          <div className="mt-4 flex flex-col gap-2 rounded-lg border border-border bg-background p-3">
+            <label className="text-sm font-medium" htmlFor="rr-template-name">
+              Template name
+            </label>
+            <Input
+              id="rr-template-name"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              placeholder="e.g. Morning open"
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Saves this block&rsquo;s times
+              {state.jobAreaId !== NONE_VALUE ? " and job area" : ""} as a
+              reusable template.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  setTemplateMode(false)
+                  setTemplateName("")
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={pending || templateName.trim().length === 0}
+                onClick={() => {
+                  onSaveTemplate(templateName.trim())
+                  setTemplateMode(false)
+                  setTemplateName("")
+                }}
+              >
+                Save template
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="mt-4 text-left text-sm font-medium text-primary underline underline-offset-2"
+            onClick={() => setTemplateMode(true)}
+          >
+            Save as template
+          </button>
+        )}
 
         <div
           className={cn(

@@ -31,6 +31,16 @@ export type GridShiftDTO = {
   notes: string | null
 }
 
+/** A single-slot reusable shift template surfaced in the grid's side panel. */
+export type GridTemplateDTO = {
+  id: string
+  name: string
+  job_area_id: string | null
+  start_time: string // "HH:MM:SS"
+  end_time: string // "HH:MM:SS"
+  break_minutes: number
+}
+
 export type GridResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string }
@@ -87,6 +97,26 @@ const updateSchema = z
     { message: "End must be after start.", path: ["ends_at"] }
   )
 
+const timeOfDay = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, "Invalid time")
+
+const saveTemplateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    job_area_id: z.string().uuid().nullable(),
+    day_of_week: z.number().int().min(0).max(6),
+    start_time: timeOfDay,
+    end_time: timeOfDay,
+    break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
+  })
+  .refine((v) => v.end_time > v.start_time, {
+    message: "End must be after start.",
+    path: ["end_time"],
+  })
+
+export type SaveGridTemplateInput = z.input<typeof saveTemplateSchema>
+
 const previewSchema = z.object({
   employee_id: z.string().uuid().nullable(),
   job_area_id: z.string().uuid().nullable(),
@@ -130,6 +160,17 @@ function dbError(
     return "That value conflicts with an existing record (duplicate)."
   }
   return err.message?.trim() || fallback
+}
+
+/** Slugify a template name and add a short random suffix to dodge collisions. */
+function templateSlug(name: string): string {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 48)
+  const suffix = Math.random().toString(36).slice(2, 6)
+  return `${base || "template"}-${suffix}`
 }
 
 /**
@@ -408,6 +449,88 @@ export async function previewShiftWarnings(
       readBlockOnViolations(supabase, ctx.facilityId),
     ])
     return { ok: true, data: { warnings, blocking } }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Save a painted/selected block as a reusable single-slot template. Writes a
+ * schedule_templates header + one schedule_template_shifts row (times as
+ * time-of-day). Applying a template re-uses createGridShift, so the Phase 4
+ * checks run on apply. Returns the template DTO for the side panel.
+ */
+export async function saveGridTemplate(
+  input: SaveGridTemplateInput
+): Promise<GridResult<GridTemplateDTO>> {
+  try {
+    const ctx = await resolveFacility()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const parsed = saveTemplateSchema.safeParse(input)
+    if (!parsed.success) {
+      return { ok: false, error: firstZodError(parsed.error) }
+    }
+    const v = parsed.data
+
+    const supabase = (await createClient()) as AnySupabase
+
+    const owned = await assertOwned(supabase, ctx.facilityId, {
+      jobAreaId: v.job_area_id,
+    })
+    if (!owned.ok) return { ok: false, error: owned.error }
+
+    const { data: tpl, error: tplErr } = await supabase
+      .from("schedule_templates")
+      .insert({
+        facility_id: ctx.facilityId,
+        name: v.name,
+        slug: templateSlug(v.name),
+        is_active: true,
+      })
+      .select("id, name")
+      .single()
+    if (tplErr || !tpl) {
+      return { ok: false, error: dbError(tplErr, "Failed to save template.") }
+    }
+
+    const breakMinutes = v.break_minutes ?? 0
+    const { error: slotErr } = await supabase
+      .from("schedule_template_shifts")
+      .insert({
+        facility_id: ctx.facilityId,
+        template_id: tpl.id,
+        department_id: null,
+        job_area_id: v.job_area_id,
+        day_of_week: v.day_of_week,
+        start_time: v.start_time,
+        end_time: v.end_time,
+        break_minutes: breakMinutes,
+        staff_count: 1,
+      })
+    if (slotErr) {
+      // Roll back the orphaned header so we don't leave an empty template.
+      await supabase
+        .from("schedule_templates")
+        .delete()
+        .eq("id", tpl.id)
+        .eq("facility_id", ctx.facilityId)
+      return { ok: false, error: dbError(slotErr, "Failed to save template.") }
+    }
+
+    revalidatePath("/admin/scheduling/shifts")
+    revalidatePath("/admin/scheduling/templates")
+    return {
+      ok: true,
+      data: {
+        id: tpl.id as string,
+        name: tpl.name as string,
+        job_area_id: v.job_area_id,
+        start_time: v.start_time,
+        end_time: v.end_time,
+        break_minutes: breakMinutes,
+      },
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }

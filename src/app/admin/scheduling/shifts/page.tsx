@@ -13,7 +13,7 @@ import { createClient } from "@/lib/supabase/server"
 
 import { resolveOperatingHours } from "../_lib/operating-hours"
 import type { EmployeeLite, JobAreaLite, ShiftRow } from "../_lib/types"
-import type { GridShiftDTO } from "../_lib/grid-actions"
+import type { GridShiftDTO, GridTemplateDTO } from "../_lib/grid-actions"
 
 import { ScheduleGrid } from "./_components/schedule-grid"
 
@@ -84,8 +84,15 @@ export default async function ShiftsPage({
 
   const supabase = await createClient()
 
-  const [employeesRes, jobAreasRes, facilityRes, settingsRes, shiftsRes] =
-    await Promise.all([
+  const [
+    employeesRes,
+    jobAreasRes,
+    facilityRes,
+    settingsRes,
+    shiftsRes,
+    templatesRes,
+    templateSlotsRes,
+  ] = await Promise.all([
       (supabase as AnySupabase)
         .from("employees")
         .select("id, first_name, last_name, is_minor, is_active, max_weekly_hours")
@@ -116,6 +123,16 @@ export default async function ShiftsPage({
         .lt("starts_at", windowEnd.toISOString())
         .order("starts_at", { ascending: true })
         .limit(1000),
+      supabase
+        .from("schedule_templates")
+        .select("id, name")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .order("name", { ascending: true }),
+      (supabase as AnySupabase)
+        .from("schedule_template_shifts")
+        .select("template_id, job_area_id, start_time, end_time, break_minutes")
+        .eq("facility_id", facilityId),
     ])
 
   const employees = (employeesRes.data ?? []) as EmployeeLite[]
@@ -140,6 +157,35 @@ export default async function ShiftsPage({
     }
   })
 
+  // Single-slot grid templates: pair each active template with its first slot.
+  type SlotRow = {
+    template_id: string
+    job_area_id: string | null
+    start_time: string
+    end_time: string
+    break_minutes: number | null
+  }
+  const slotByTemplate = new Map<string, SlotRow>()
+  for (const s of (templateSlotsRes.data ?? []) as SlotRow[]) {
+    if (!slotByTemplate.has(s.template_id)) slotByTemplate.set(s.template_id, s)
+  }
+  const initialTemplates: GridTemplateDTO[] = (
+    (templatesRes.data ?? []) as Array<{ id: string; name: string }>
+  )
+    .map((t) => {
+      const slot = slotByTemplate.get(t.id)
+      if (!slot) return null
+      return {
+        id: t.id,
+        name: t.name,
+        job_area_id: slot.job_area_id,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        break_minutes: slot.break_minutes ?? 0,
+      }
+    })
+    .filter((x): x is GridTemplateDTO => x !== null)
+
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <Header />
@@ -147,6 +193,7 @@ export default async function ShiftsPage({
         employees={employees}
         jobAreas={jobAreas}
         initialShifts={initialShifts}
+        initialTemplates={initialTemplates}
         operatingHours={operatingHours}
         weekStartDay={weekStartDay}
         defaultDateIso={anchor.toISOString()}
