@@ -86,9 +86,9 @@ export default async function ShiftsPage({
 
   const [employeesRes, jobAreasRes, facilityRes, settingsRes, shiftsRes] =
     await Promise.all([
-      supabase
+      (supabase as AnySupabase)
         .from("employees")
-        .select("id, first_name, last_name, is_minor, is_active")
+        .select("id, first_name, last_name, is_minor, is_active, max_weekly_hours")
         .eq("facility_id", facilityId)
         .eq("is_active", true)
         .order("last_name", { ascending: true }),

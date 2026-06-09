@@ -6,6 +6,8 @@ import { z } from "zod"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { collectShiftWarnings } from "./grid-warnings"
+
 // schedule_shifts.job_area_id and employee_job_areas aren't in the generated DB
 // types yet (see CLAUDE.md); cast through `any` at those write sites, matching
 // the convention in admin-core-actions.ts.
@@ -85,8 +87,18 @@ const updateSchema = z
     { message: "End must be after start.", path: ["ends_at"] }
   )
 
+const previewSchema = z.object({
+  employee_id: z.string().uuid().nullable(),
+  job_area_id: z.string().uuid().nullable(),
+  starts_at: isoDateTime,
+  ends_at: isoDateTime,
+  break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
+  exclude_shift_id: z.string().uuid().nullable().optional(),
+})
+
 export type CreateGridShiftInput = z.input<typeof createSchema>
 export type UpdateGridShiftInput = z.input<typeof updateSchema>
+export type PreviewShiftInput = z.input<typeof previewSchema>
 
 // ---------------------------------------------------------------------------
 // Session context (facility_id is ALWAYS derived server-side, never trusted
@@ -158,6 +170,47 @@ async function assertOwned(
   return { ok: true }
 }
 
+/** Whether this facility has opted into hard-blocking grid warnings. */
+async function readBlockOnViolations(
+  supabase: AnySupabase,
+  facilityId: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("schedule_settings")
+    .select("block_on_violations")
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  return Boolean(
+    (data as { block_on_violations?: boolean } | null)?.block_on_violations
+  )
+}
+
+/**
+ * When the facility opted into blocking, refuse a write that raises any advisory
+ * warning. No-op (allows) when blocking is off or the slot is unassigned.
+ */
+async function enforceBlocking(
+  supabase: AnySupabase,
+  facilityId: string,
+  args: {
+    employeeId: string | null
+    startsAt: string
+    endsAt: string
+    breakMinutes: number | null
+    jobAreaId: string | null
+    excludeShiftId: string | null
+  }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!args.employeeId) return { ok: true }
+  if (!(await readBlockOnViolations(supabase, facilityId))) return { ok: true }
+  const warnings = await collectShiftWarnings(supabase, { facilityId, ...args })
+  if (warnings.length === 0) return { ok: true }
+  return {
+    ok: false,
+    error: `Blocked by facility policy — ${warnings.join(" ")}`,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -191,6 +244,16 @@ export async function createGridShift(
       jobAreaId: v.job_area_id ?? null,
     })
     if (!owned.ok) return { ok: false, error: owned.error }
+
+    const blocked = await enforceBlocking(supabase, ctx.facilityId, {
+      employeeId: v.employee_id ?? null,
+      startsAt: v.starts_at,
+      endsAt: v.ends_at,
+      breakMinutes: v.break_minutes ?? null,
+      jobAreaId: v.job_area_id ?? null,
+      excludeShiftId: null,
+    })
+    if (!blocked.ok) return blocked
 
     const { data, error } = await supabase
       .from("schedule_shifts")
@@ -264,6 +327,34 @@ export async function updateGridShift(
     })
     if (!owned.ok) return { ok: false, error: owned.error }
 
+    // Blocking enforcement (only when the facility opted in). Move/resize may
+    // omit employee/job area, so resolve the effective values from the current
+    // row before evaluating warnings.
+    if (await readBlockOnViolations(supabase, ctx.facilityId)) {
+      const { data: cur } = await supabase
+        .from("schedule_shifts")
+        .select("employee_id, job_area_id, starts_at, ends_at, break_minutes")
+        .eq("id", v.id)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle()
+      if (cur) {
+        const blocked = await enforceBlocking(supabase, ctx.facilityId, {
+          employeeId:
+            v.employee_id !== undefined ? v.employee_id : cur.employee_id,
+          startsAt: v.starts_at ?? cur.starts_at,
+          endsAt: v.ends_at ?? cur.ends_at,
+          breakMinutes:
+            v.break_minutes !== undefined
+              ? v.break_minutes
+              : cur.break_minutes,
+          jobAreaId:
+            v.job_area_id !== undefined ? v.job_area_id : cur.job_area_id,
+          excludeShiftId: v.id,
+        })
+        if (!blocked.ok) return blocked
+      }
+    }
+
     const { data, error } = await supabase
       .from("schedule_shifts")
       .update(patch)
@@ -279,6 +370,44 @@ export async function updateGridShift(
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")
     return { ok: true, data: data as GridShiftDTO }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Advisory preview: compute the warnings (weekly-hours cap, overlap, cert gaps,
+ * time-off, overtime) for a candidate assignment without writing anything. Used
+ * by the assign popover to warn before save. `blocking` reflects the facility
+ * setting so the UI can disable Save when warnings are hard-blocked.
+ */
+export async function previewShiftWarnings(
+  input: PreviewShiftInput
+): Promise<GridResult<{ warnings: string[]; blocking: boolean }>> {
+  try {
+    const ctx = await resolveFacility()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const parsed = previewSchema.safeParse(input)
+    if (!parsed.success) {
+      return { ok: false, error: firstZodError(parsed.error) }
+    }
+    const v = parsed.data
+
+    const supabase = (await createClient()) as AnySupabase
+    const [warnings, blocking] = await Promise.all([
+      collectShiftWarnings(supabase, {
+        facilityId: ctx.facilityId,
+        employeeId: v.employee_id,
+        startsAt: v.starts_at,
+        endsAt: v.ends_at,
+        breakMinutes: v.break_minutes ?? null,
+        jobAreaId: v.job_area_id,
+        excludeShiftId: v.exclude_shift_id ?? null,
+      }),
+      readBlockOnViolations(supabase, ctx.facilityId),
+    ])
+    return { ok: true, data: { warnings, blocking } }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState, useTransition } from "react"
+import { useCallback, useMemo, useRef, useState, useTransition } from "react"
 import {
   Calendar,
   dateFnsLocalizer,
@@ -12,7 +12,7 @@ import {
 import withDragAndDrop, {
   type EventInteractionArgs,
 } from "react-big-calendar/lib/addons/dragAndDrop"
-import { format, getDay, parse, startOfWeek } from "date-fns"
+import { addDays, format, getDay, parse, startOfWeek } from "date-fns"
 import { enUS } from "date-fns/locale"
 import { toast } from "sonner"
 
@@ -32,9 +32,15 @@ import { timeOnDay } from "../../_lib/operating-hours"
 import {
   createGridShift,
   deleteGridShift,
+  previewShiftWarnings,
   updateGridShift,
   type GridShiftDTO,
 } from "../../_lib/grid-actions"
+import {
+  roundHours,
+  tallyWeeklyHoursByEmployee,
+  type TallyItem,
+} from "../../_lib/weekly-hours"
 
 // Vendor calendar CSS + DnD addon CSS, then our brand override (last wins).
 import "react-big-calendar/lib/css/react-big-calendar.css"
@@ -178,15 +184,59 @@ export function ScheduleGrid({
   const [liveRange, setLiveRange] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [popoverError, setPopoverError] = useState<string | null>(null)
+  const [popoverWarnings, setPopoverWarnings] = useState<string[]>([])
+  const [warningBlocking, setWarningBlocking] = useState(false)
+  const [warnLoading, setWarnLoading] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const warnTokenRef = useRef(0)
 
-  const openPopover = useCallback((next: PopoverState) => {
-    setPopoverError(null)
-    setPopover(next)
+  // Fetch advisory warnings for a candidate assignment. Driven imperatively from
+  // popover open/change (not an effect) so there's no synchronous setState in an
+  // effect body; a token guards against out-of-order responses.
+  const refreshWarnings = useCallback((next: PopoverState) => {
+    const employee_id = next.employeeId === OPEN_VALUE ? null : next.employeeId
+    if (!employee_id) {
+      warnTokenRef.current++
+      setPopoverWarnings([])
+      setWarningBlocking(false)
+      setWarnLoading(false)
+      return
+    }
+    const job_area_id = next.jobAreaId === NONE_VALUE ? null : next.jobAreaId
+    const exclude_shift_id = next.mode === "edit" ? next.eventId : null
+    const token = ++warnTokenRef.current
+    setWarnLoading(true)
+    previewShiftWarnings({
+      employee_id,
+      job_area_id,
+      starts_at: next.start.toISOString(),
+      ends_at: next.end.toISOString(),
+      exclude_shift_id,
+    })
+      .then((res) => {
+        if (token !== warnTokenRef.current) return
+        setPopoverWarnings(res.ok ? res.data.warnings : [])
+        setWarningBlocking(res.ok ? res.data.blocking : false)
+      })
+      .finally(() => {
+        if (token === warnTokenRef.current) setWarnLoading(false)
+      })
   }, [])
 
+  const openPopover = useCallback(
+    (next: PopoverState) => {
+      setPopoverError(null)
+      setPopoverWarnings([])
+      setPopover(next)
+      refreshWarnings(next)
+    },
+    [refreshWarnings]
+  )
+
   const closePopover = useCallback(() => {
+    warnTokenRef.current++
     setPopoverError(null)
+    setPopoverWarnings([])
     setPopover(null)
   }, [])
 
@@ -198,6 +248,36 @@ export function ScheduleGrid({
     () => timeOnDay(date, operatingHours.end),
     [date, operatingHours.end]
   )
+
+  const weekStartsOn = useMemo(
+    () => (((weekStartDay % 7) + 7) % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+    [weekStartDay]
+  )
+
+  // ---- Per-employee weekly-hours tally for the visible week (side rail) ----
+  const weeklyTally = useMemo(() => {
+    const weekStart = startOfWeek(date, { weekStartsOn })
+    const weekEnd = addDays(weekStart, 7)
+    const items: TallyItem[] = events.map((e) => ({
+      employeeId: e.resource.employeeId,
+      startMs: e.start.getTime(),
+      endMs: e.end.getTime(),
+      breakMinutes: e.resource.breakMinutes,
+    }))
+    const totals = tallyWeeklyHoursByEmployee(
+      items,
+      weekStart.getTime(),
+      weekEnd.getTime()
+    )
+    return employees
+      .map((emp) => ({
+        emp,
+        hours: totals.get(emp.id) ?? 0,
+        cap: emp.max_weekly_hours ?? null,
+      }))
+      .filter((row) => row.hours > 0)
+      .sort((a, b) => b.hours - a.hours)
+  }, [events, employees, date, weekStartsOn])
 
   // ---- Optimistic event mutation helpers ----
   const replaceEvent = useCallback((id: string, next: GridEvent) => {
@@ -385,43 +465,52 @@ export function ScheduleGrid({
         )}
       </div>
 
-      <DnDCalendar
-        localizer={localizer}
-        events={events}
-        defaultView="week"
-        view={view}
-        onView={(v) => setView(v)}
-        views={["week", "day"]}
-        date={date}
-        onNavigate={(d) => setDate(d)}
-        step={15}
-        timeslots={4}
-        min={min}
-        max={max}
-        scrollToTime={min}
-        selectable
-        longPressThreshold={250}
-        resizable
-        onSelecting={handleSelecting}
-        onSelectSlot={handleSelectSlot}
-        onSelectEvent={handleSelectEvent}
-        onEventDrop={commitTimeChange}
-        onEventResize={commitTimeChange}
-        components={components}
-        eventPropGetter={eventPropGetter}
-        style={{ height: 680 }}
-      />
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="min-w-0 flex-1">
+          <DnDCalendar
+            localizer={localizer}
+            events={events}
+            defaultView="week"
+            view={view}
+            onView={(v) => setView(v)}
+            views={["week", "day"]}
+            date={date}
+            onNavigate={(d) => setDate(d)}
+            step={15}
+            timeslots={4}
+            min={min}
+            max={max}
+            scrollToTime={min}
+            selectable
+            longPressThreshold={250}
+            resizable
+            onSelecting={handleSelecting}
+            onSelectSlot={handleSelectSlot}
+            onSelectEvent={handleSelectEvent}
+            onEventDrop={commitTimeChange}
+            onEventResize={commitTimeChange}
+            components={components}
+            eventPropGetter={eventPropGetter}
+            style={{ height: 680 }}
+          />
+        </div>
+        <WeeklyHoursRail rows={weeklyTally} />
+      </div>
 
       {popover ? (
         <AssignPopover
           state={popover}
           error={popoverError}
+          warnings={popoverWarnings}
+          warningsBlocking={warningBlocking}
+          warningsLoading={warnLoading}
           employees={employees}
           jobAreas={jobAreas}
           pending={isPending}
           onChange={(next) => {
             setPopoverError(null)
             setPopover(next)
+            refreshWarnings(next)
           }}
           onSave={handlePopoverSave}
           onDelete={handlePopoverDelete}
@@ -433,6 +522,57 @@ export function ScheduleGrid({
 }
 
 // ---------------------------------------------------------------------------
+// Weekly-hours side rail: per-employee total for the visible week vs cap.
+// ---------------------------------------------------------------------------
+
+type TallyRow = { emp: EmployeeLite; hours: number; cap: number | null }
+
+function WeeklyHoursRail({ rows }: { rows: TallyRow[] }) {
+  return (
+    <aside className="w-full shrink-0 rounded-xl border border-border bg-card p-4 lg:w-60">
+      <h3 className="mb-2 text-sm font-semibold tracking-tight">
+        This week&rsquo;s hours
+      </h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No assigned hours this week.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {rows.map(({ emp, hours, cap }) => {
+            const over = cap != null && hours > cap
+            return (
+              <li
+                key={emp.id}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span className="truncate">
+                  {emp.first_name} {emp.last_name}
+                </span>
+                <span
+                  className={cn(
+                    "tabular-nums font-medium",
+                    over ? "text-destructive" : "text-muted-foreground"
+                  )}
+                  title={
+                    cap != null
+                      ? `${roundHours(hours)}h of ${cap}h cap`
+                      : `${roundHours(hours)}h`
+                  }
+                >
+                  {roundHours(hours)}
+                  {cap != null ? `/${cap}` : ""}h
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </aside>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Lightweight assign popover (no Dialog primitive in the design system; a small
 // centered overlay keeps it touch-friendly).
 // ---------------------------------------------------------------------------
@@ -440,6 +580,9 @@ export function ScheduleGrid({
 function AssignPopover({
   state,
   error,
+  warnings,
+  warningsBlocking,
+  warningsLoading,
   employees,
   jobAreas,
   pending,
@@ -450,6 +593,9 @@ function AssignPopover({
 }: {
   state: PopoverState
   error: string | null
+  warnings: string[]
+  warningsBlocking: boolean
+  warningsLoading: boolean
   employees: EmployeeLite[]
   jobAreas: JobAreaLite[]
   pending: boolean
@@ -458,6 +604,8 @@ function AssignPopover({
   onDelete: () => void
   onClose: () => void
 }) {
+  // When the facility blocks on warnings, a flagged assignment can't be saved.
+  const saveBlocked = warningsBlocking && warnings.length > 0
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -522,6 +670,33 @@ function AssignPopover({
           </label>
         </div>
 
+        {warningsLoading ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Checking for conflicts…
+          </p>
+        ) : warnings.length > 0 ? (
+          <div
+            className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+            role="status"
+          >
+            <p className="mb-1 font-medium text-foreground">
+              {saveBlocked
+                ? "Blocked by facility policy:"
+                : "Heads up — this assignment:"}
+            </p>
+            <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+            {!saveBlocked ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Advisory only — you can still save.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {error ? (
           <p
             role="alert"
@@ -557,7 +732,11 @@ function AssignPopover({
             >
               Cancel
             </Button>
-            <Button type="button" disabled={pending} onClick={onSave}>
+            <Button
+              type="button"
+              disabled={pending || saveBlocked}
+              onClick={onSave}
+            >
               {pending ? "Saving…" : "Save"}
             </Button>
           </div>
