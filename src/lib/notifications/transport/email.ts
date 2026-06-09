@@ -2,6 +2,11 @@ import "server-only"
 
 import { Resend } from "resend"
 
+import {
+  type EmailDeliveryGate,
+  resolveEmailDeliveryGate,
+} from "./delivery-gate"
+
 export type EmailAttachment = {
   filename: string
   content: Buffer
@@ -31,13 +36,37 @@ function getResend(): Resend | null {
   return new Resend(key)
 }
 
+/**
+ * Environment gate on top of key configuration: even with a valid
+ * RESEND_API_KEY, delivery is blocked outside production unless
+ * RESEND_ENABLED=true — a dev clone or Vercel preview that inherits
+ * production secrets must never email real staff. See delivery-gate.ts.
+ */
+export function getEmailDeliveryGate(): EmailDeliveryGate {
+  return resolveEmailDeliveryGate({
+    resendEnabled: process.env.RESEND_ENABLED,
+    vercelEnv: process.env.VERCEL_ENV,
+    nodeEnv: process.env.NODE_ENV,
+  })
+}
+
 export function isEmailConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM)
+  return Boolean(
+    process.env.RESEND_API_KEY &&
+      process.env.RESEND_FROM &&
+      getEmailDeliveryGate().enabled,
+  )
 }
 
 export async function sendEmail(
   input: EmailSendInput,
 ): Promise<EmailSendResult> {
+  const gate = getEmailDeliveryGate()
+  if (!gate.enabled) {
+    // Recipient rows stay pending (same contract as missing secrets), so
+    // they flush once the environment allows delivery.
+    return { ok: false, error: `Email delivery disabled (${gate.reason})` }
+  }
   const client = getResend()
   const from = process.env.RESEND_FROM
   if (!client || !from) {

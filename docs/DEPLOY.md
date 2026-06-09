@@ -81,7 +81,25 @@ This runbook covers a clean production deploy to Vercel + Supabase. Existing dep
 
 ## 5. Production smoke tests (run after first deploy and after any release that touches auth, cron, or migrations)
 
+> Steps 1, 4, and the env-presence half of this list are automated by
+> `.github/workflows/post-deploy-smoke.yml`, which runs on every successful
+> Vercel production deployment (and on demand via workflow_dispatch with a
+> URL). It hits `/api/health` (must be 200 — required env present + DB
+> reachable) and probes each cron route with a wrong bearer (must be 401; a
+> 503 means CRON_SECRET is missing). For per-variable detail, call
+> `/api/health` with `Authorization: Bearer $CRON_SECRET`, or add CRON_SECRET
+> as a GitHub repo secret so the workflow logs it. The manual steps below
+> remain for auth/header/login checks the workflow can't cover.
+
 In order. Stop at the first failure.
+
+0. **Deployment health.**
+
+   ```bash
+   curl -s https://<domain>/api/health                          # 200, {"ok":true,...}
+   curl -s -H "Authorization: Bearer $CRON_SECRET" \
+     https://<domain>/api/health                                # per-variable detail
+   ```
 
 1. **Public surfaces respond.**
 
