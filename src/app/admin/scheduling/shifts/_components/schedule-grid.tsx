@@ -177,7 +177,18 @@ export function ScheduleGrid({
   const [view, setView] = useState<View>("week")
   const [liveRange, setLiveRange] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
+  const [popoverError, setPopoverError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  const openPopover = useCallback((next: PopoverState) => {
+    setPopoverError(null)
+    setPopover(next)
+  }, [])
+
+  const closePopover = useCallback(() => {
+    setPopoverError(null)
+    setPopover(null)
+  }, [])
 
   const min = useMemo(
     () => timeOnDay(date, operatingHours.start),
@@ -221,20 +232,29 @@ export function ScheduleGrid({
     if (end.getTime() - start.getTime() < 15 * 60 * 1000) {
       end = new Date(start.getTime() + 60 * 60 * 1000)
     }
-    setPopover({ mode: "create", start, end, employeeId: OPEN_VALUE, jobAreaId: NONE_VALUE })
-  }, [])
+    openPopover({
+      mode: "create",
+      start,
+      end,
+      employeeId: OPEN_VALUE,
+      jobAreaId: NONE_VALUE,
+    })
+  }, [openPopover])
 
   // ---- Edit (click an existing event) ----
-  const handleSelectEvent = useCallback((event: GridEvent) => {
-    setPopover({
-      mode: "edit",
-      eventId: event.resource.id,
-      start: event.start,
-      end: event.end,
-      employeeId: event.resource.employeeId ?? OPEN_VALUE,
-      jobAreaId: event.resource.jobAreaId ?? NONE_VALUE,
-    })
-  }, [])
+  const handleSelectEvent = useCallback(
+    (event: GridEvent) => {
+      openPopover({
+        mode: "edit",
+        eventId: event.resource.id,
+        start: event.start,
+        end: event.end,
+        employeeId: event.resource.employeeId ?? OPEN_VALUE,
+        jobAreaId: event.resource.jobAreaId ?? NONE_VALUE,
+      })
+    },
+    [openPopover]
+  )
 
   // ---- Move + resize (persist via updateGridShift) ----
   const commitTimeChange = useCallback(
@@ -267,6 +287,7 @@ export function ScheduleGrid({
   // ---- Popover save ----
   const handlePopoverSave = useCallback(() => {
     if (!popover) return
+    setPopoverError(null)
     const employee_id =
       popover.employeeId === OPEN_VALUE ? null : popover.employeeId
     const job_area_id =
@@ -282,42 +303,43 @@ export function ScheduleGrid({
           job_area_id,
         })
         if (!res.ok) {
-          toast.error(res.error)
+          setPopoverError(res.error) // inline; popover stays open
           return
         }
         setEvents((evts) => [...evts, dtoToEvent(res.data, empById)])
         toast.success("Shift created.")
-        setPopover(null)
+        closePopover()
       })
     } else {
       const id = popover.eventId
       startTransition(async () => {
         const res = await updateGridShift({ id, employee_id, job_area_id })
         if (!res.ok) {
-          toast.error(res.error)
+          setPopoverError(res.error)
           return
         }
         replaceEvent(id, dtoToEvent(res.data, empById))
         toast.success("Shift updated.")
-        setPopover(null)
+        closePopover()
       })
     }
-  }, [popover, empById, replaceEvent])
+  }, [popover, empById, replaceEvent, closePopover])
 
   const handlePopoverDelete = useCallback(() => {
     if (!popover || popover.mode !== "edit") return
+    setPopoverError(null)
     const id = popover.eventId
     startTransition(async () => {
       const res = await deleteGridShift(id)
       if (!res.ok) {
-        toast.error(res.error)
+        setPopoverError(res.error)
         return
       }
       setEvents((evts) => evts.filter((e) => e.resource.id !== id))
       toast.success("Shift deleted.")
-      setPopover(null)
+      closePopover()
     })
-  }, [popover])
+  }, [popover, closePopover])
 
   // ---- Rendering bits ----
   const components = useMemo<Components<GridEvent>>(
@@ -393,13 +415,17 @@ export function ScheduleGrid({
       {popover ? (
         <AssignPopover
           state={popover}
+          error={popoverError}
           employees={employees}
           jobAreas={jobAreas}
           pending={isPending}
-          onChange={setPopover}
+          onChange={(next) => {
+            setPopoverError(null)
+            setPopover(next)
+          }}
           onSave={handlePopoverSave}
           onDelete={handlePopoverDelete}
-          onClose={() => setPopover(null)}
+          onClose={closePopover}
         />
       ) : null}
     </div>
@@ -413,6 +439,7 @@ export function ScheduleGrid({
 
 function AssignPopover({
   state,
+  error,
   employees,
   jobAreas,
   pending,
@@ -422,6 +449,7 @@ function AssignPopover({
   onClose,
 }: {
   state: PopoverState
+  error: string | null
   employees: EmployeeLite[]
   jobAreas: JobAreaLite[]
   pending: boolean
@@ -493,6 +521,15 @@ function AssignPopover({
             </Select>
           </label>
         </div>
+
+        {error ? (
+          <p
+            role="alert"
+            className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        ) : null}
 
         <div
           className={cn(

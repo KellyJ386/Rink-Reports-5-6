@@ -120,6 +120,44 @@ function dbError(
   return err.message?.trim() || fallback
 }
 
+/**
+ * Defense-in-depth: confirm that a referenced employee / job area actually
+ * belongs to the session facility. RLS scopes the schedule_shifts row by
+ * facility_id, but the employee_id / job_area_id FKs do NOT enforce a facility
+ * match, so a crafted client payload could otherwise point a shift at another
+ * tenant's employee or job area. Both reads are themselves RLS-scoped, so a
+ * missing row here means "not in your facility (or doesn't exist)".
+ */
+async function assertOwned(
+  supabase: AnySupabase,
+  facilityId: string,
+  opts: { employeeId?: string | null; jobAreaId?: string | null }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (opts.employeeId) {
+    const { data } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("id", opts.employeeId)
+      .eq("facility_id", facilityId)
+      .maybeSingle()
+    if (!data) {
+      return { ok: false, error: "That employee isn't part of your facility." }
+    }
+  }
+  if (opts.jobAreaId) {
+    const { data } = await supabase
+      .from("employee_job_areas")
+      .select("id")
+      .eq("id", opts.jobAreaId)
+      .eq("facility_id", facilityId)
+      .maybeSingle()
+    if (!data) {
+      return { ok: false, error: "That job area isn't part of your facility." }
+    }
+  }
+  return { ok: true }
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -147,6 +185,13 @@ export async function createGridShift(
     const v = parsed.data
 
     const supabase = (await createClient()) as AnySupabase
+
+    const owned = await assertOwned(supabase, ctx.facilityId, {
+      employeeId: v.employee_id ?? null,
+      jobAreaId: v.job_area_id ?? null,
+    })
+    if (!owned.ok) return { ok: false, error: owned.error }
+
     const { data, error } = await supabase
       .from("schedule_shifts")
       .insert({
@@ -211,6 +256,14 @@ export async function updateGridShift(
     }
 
     const supabase = (await createClient()) as AnySupabase
+
+    // Validate ownership only for fields actually being (re)assigned.
+    const owned = await assertOwned(supabase, ctx.facilityId, {
+      employeeId: v.employee_id ?? null,
+      jobAreaId: v.job_area_id ?? null,
+    })
+    if (!owned.ok) return { ok: false, error: owned.error }
+
     const { data, error } = await supabase
       .from("schedule_shifts")
       .update(patch)
