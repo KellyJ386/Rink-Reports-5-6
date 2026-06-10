@@ -23,7 +23,12 @@ import { dirname, join } from "node:path"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const TYPES_PATH = join(ROOT, "src/types/database.ts")
-const PORT = process.env.PG_META_PORT ?? "18765"
+// Random per-run port: a fixed port risks silently querying a STALE pg-meta
+// server from an earlier run (pointed at a different/polluted database) if
+// that process outlived its parent — which once produced types containing
+// pgcrypto functions that don't exist in public on the CI image.
+const PORT =
+  process.env.PG_META_PORT ?? String(20000 + Math.floor(Math.random() * 20000))
 
 const mode = process.argv[2]
 if (mode !== "--write" && mode !== "--check") {
