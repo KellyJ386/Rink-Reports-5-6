@@ -308,7 +308,7 @@ function DaySlotList({
           ) : (
             <ul className="mt-1 flex flex-col gap-1">
               {rows.map((row) => {
-                const dept = deptById.get(row.department_id)
+                const dept = row.department_id ? deptById.get(row.department_id) : undefined
                 return (
                   <li key={row.id}>
                     <button

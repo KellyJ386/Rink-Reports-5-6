@@ -175,7 +175,7 @@ export default async function ShiftsPage({
         ...row,
         job_area_id: jobAreaId,
         employee: row.employee_id ? (empById.get(row.employee_id) ?? null) : null,
-        department: deptById.get(row.department_id) ?? null,
+        department: row.department_id ? (deptById.get(row.department_id) ?? null) : null,
         job_area: jobAreaId ? (jobAreaById.get(jobAreaId) ?? null) : null,
       }
     }
@@ -187,7 +187,7 @@ export default async function ShiftsPage({
       ...s,
       job_area_id: jobAreaId,
       employee: s.employee_id ? (empById.get(s.employee_id) ?? null) : null,
-      department: deptById.get(s.department_id) ?? null,
+      department: s.department_id ? (deptById.get(s.department_id) ?? null) : null,
       job_area: jobAreaId ? (jobAreaById.get(jobAreaId) ?? null) : null,
     }
   })

@@ -518,7 +518,7 @@ insert into public.schedule_swap_requests (
 on conflict (id) do nothing;
 
 -- Carol: a SCHEDULING ADMIN in Facility A. She exists to prove that
--- module-admin rights are facility-scoped — the bug fixed in migration 129
+-- module-admin rights are facility-scoped — the bug fixed in migration 133
 -- let a Facility-A scheduling admin read Facility-B availability/time-off/
 -- notification/swap rows, because those policies had a bare
 -- has_module_admin_access('scheduling') branch with no facility_id match.
@@ -1829,10 +1829,10 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 2M. Module-admin rights are facility-scoped (regression for migration 129).
+-- 2M. Module-admin rights are facility-scoped (regression for migration 133).
 --
 -- Impersonate Carol, a SCHEDULING ADMIN in Facility A. The four tables fixed
--- in migration 129 (availability, time_off, notifications, swap_requests) had
+-- in migration 133 (availability, time_off, notifications, swap_requests) had
 -- a bare has_module_admin_access('scheduling') branch that ignored the row's
 -- facility — so a Facility-A admin could read Facility-B rows. Assert she
 -- reads ZERO Facility-B rows, AND a positive that she still sees her own
@@ -1845,19 +1845,19 @@ select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_availability
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
-  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B availability (migration 129)');
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B availability (migration 133)');
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_time_off_requests
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
-  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B time_off (migration 129)');
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B time_off (migration 133)');
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_notifications
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
-  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B notifications (migration 129)');
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B notifications (migration 133)');
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_swap_requests
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
-  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B swap_requests (migration 129)');
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B swap_requests (migration 133)');
 
 -- Positive: the admin DOES see her own facility's scheduling rows.
 select pg_temp.expect_count(
@@ -1868,7 +1868,7 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 2k. purge_module_data authorization gate (migration 128).
+-- 2k. purge_module_data authorization gate (migration 132).
 --
 -- SECURITY DEFINER manual-purge worker for the admin Retention module. It
 -- bypasses RLS, so its internal gate (super admin or is_facility_admin) is

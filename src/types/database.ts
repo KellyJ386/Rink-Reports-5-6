@@ -2282,6 +2282,7 @@ export type Database = {
           is_active: boolean
           is_minor: boolean
           last_name: string
+          max_weekly_hours: number | null
           phone: string | null
           role_id: string
           updated_at: string | null
@@ -2303,6 +2304,7 @@ export type Database = {
           is_active?: boolean
           is_minor?: boolean
           last_name: string
+          max_weekly_hours?: number | null
           phone?: string | null
           role_id: string
           updated_at?: string | null
@@ -2324,6 +2326,7 @@ export type Database = {
           is_active?: boolean
           is_minor?: boolean
           last_name?: string
+          max_weekly_hours?: number | null
           phone?: string | null
           role_id?: string
           updated_at?: string | null
@@ -3835,7 +3838,7 @@ export type Database = {
           location_other: string | null
           occurred_at: string
           reporter_name: string
-          reporter_phone: string
+          reporter_phone: string | null
           resolved_at: string | null
           reviewed_at: string | null
           severity_level_id: string | null
@@ -3859,7 +3862,7 @@ export type Database = {
           location_other?: string | null
           occurred_at?: string
           reporter_name: string
-          reporter_phone: string
+          reporter_phone?: string | null
           resolved_at?: string | null
           reviewed_at?: string | null
           severity_level_id?: string | null
@@ -3883,7 +3886,7 @@ export type Database = {
           location_other?: string | null
           occurred_at?: string
           reporter_name?: string
-          reporter_phone?: string
+          reporter_phone?: string | null
           resolved_at?: string | null
           reviewed_at?: string | null
           severity_level_id?: string | null
@@ -5546,6 +5549,7 @@ export type Database = {
       schedule_settings: {
         Row: {
           availability_submission_enabled: boolean
+          block_on_violations: boolean
           created_at: string
           default_shift_minutes: number
           facility_id: string
@@ -5564,6 +5568,7 @@ export type Database = {
         }
         Insert: {
           availability_submission_enabled?: boolean
+          block_on_violations?: boolean
           created_at?: string
           default_shift_minutes?: number
           facility_id: string
@@ -5582,6 +5587,7 @@ export type Database = {
         }
         Update: {
           availability_submission_enabled?: boolean
+          block_on_violations?: boolean
           created_at?: string
           default_shift_minutes?: number
           facility_id?: string
@@ -5613,7 +5619,7 @@ export type Database = {
           break_minutes: number | null
           compliance_warnings: Json
           created_at: string
-          department_id: string
+          department_id: string | null
           employee_id: string | null
           ends_at: string
           facility_id: string
@@ -5633,7 +5639,7 @@ export type Database = {
           break_minutes?: number | null
           compliance_warnings?: Json
           created_at?: string
-          department_id: string
+          department_id?: string | null
           employee_id?: string | null
           ends_at: string
           facility_id: string
@@ -5653,7 +5659,7 @@ export type Database = {
           break_minutes?: number | null
           compliance_warnings?: Json
           created_at?: string
-          department_id?: string
+          department_id?: string | null
           employee_id?: string | null
           ends_at?: string
           facility_id?: string
@@ -5820,7 +5826,7 @@ export type Database = {
           break_minutes: number | null
           created_at: string
           day_of_week: number
-          department_id: string
+          department_id: string | null
           end_time: string
           facility_id: string
           id: string
@@ -5835,7 +5841,7 @@ export type Database = {
           break_minutes?: number | null
           created_at?: string
           day_of_week: number
-          department_id: string
+          department_id?: string | null
           end_time: string
           facility_id: string
           id?: string
@@ -5850,7 +5856,7 @@ export type Database = {
           break_minutes?: number | null
           created_at?: string
           day_of_week?: number
-          department_id?: string
+          department_id?: string | null
           end_time?: string
           facility_id?: string
           id?: string

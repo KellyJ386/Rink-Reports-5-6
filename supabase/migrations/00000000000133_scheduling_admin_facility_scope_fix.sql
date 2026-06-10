@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000129_scheduling_admin_facility_scope_fix.sql
+-- 00000000000133_scheduling_admin_facility_scope_fix.sql
 --
 -- SECURITY FIX (cross-tenant leak). Four scheduling tables had RLS policies
 -- whose admin branch was a BARE `has_module_admin_access('scheduling')`, not

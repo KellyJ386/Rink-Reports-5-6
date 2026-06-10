@@ -45,26 +45,24 @@ Their SQL is reproduced verbatim below so it can be backfilled into the repo —
 > the repo will diverge from prod until `incident_reporter_phone_optional` is
 > backfilled as a repo migration.
 
-### 4. The 128/129 numbering collision (DECISION REQUIRED)
+### 4. The 128/129 numbering collision (RESOLVED in this branch)
 `scheduling_grid_schema_additions`'s own SQL comments that it "mirrors
 `00000000000128_scheduling_grid_schema_additions.sql`", i.e. the parallel
-stream reserved **128/129/130** for:
+stream reserved the lower numbers. Resolved by backfilling the prod-only
+migrations at the lower numbers and renumbering this branch's two to follow:
 
-- 128 = scheduling_grid_schema_additions
-- 129 = schedule_settings_block_on_violations
-- 130 = schedule_template_shifts_nullable_department
+| Repo number | Migration | Origin |
+|---|---|---|
+| `00000000000128` | scheduling_grid_schema_additions | backfilled from prod `20260609174838` |
+| `00000000000129` | schedule_settings_block_on_violations | backfilled from prod `20260609184411` |
+| `00000000000130` | schedule_template_shifts_nullable_department | backfilled from prod `20260609185706` |
+| `00000000000131` | incident_reporter_phone_optional | backfilled from prod `20260603012740` |
+| `00000000000132` | purge_module_data | this branch (was 128) |
+| `00000000000133` | scheduling_admin_facility_scope_fix | this branch (was 129) |
 
-This branch already uses **128 = purge_module_data** and
-**129 = scheduling_admin_facility_scope_fix**. These cannot both be 128/129.
-
-**Recommended resolution:** the parallel migrations are already live on prod, so
-they own the lower numbers. Backfill them into the repo as 128/129/130 (plus a
-number for `incident_reporter_phone_optional`), and **renumber this branch's two
-migrations to follow** — e.g. `purge_module_data` → 131,
-`scheduling_admin_facility_scope_fix` → 132. (Renaming a *repo file* is safe;
-it only changes the version `db push` keys on. Never renumber a migration whose
-version is already in the prod history table — that's the timestamp rows in §2,
-which stay put.)
+Renaming a *repo file* is safe — it only changes the version `db push` keys
+on. The timestamp-versioned prod history rows in §2 stay put; never renumber
+those.
 
 ## Backfilled SQL of the four prod-only migrations
 
@@ -133,7 +131,7 @@ comment on column public.schedule_template_shifts.department_id is
 ## Convergence runbook (run deliberately from a linked machine, not CI)
 
 1. **Backfill** the four prod-only migrations into `supabase/migrations/` as
-   numbered files (SQL above), and **renumber** this branch's 128/129 per the
+   numbered files (SQL above), and **renumber** this branch's 132/133 per the
    decision in §4. Regenerate types (`pnpm types:write`) and re-run the RLS
    harness so the repo is internally consistent.
 2. `supabase link --project-ref bqbdgwlhbhabsibjgwmk`
@@ -150,9 +148,9 @@ comment on column public.schedule_template_shifts.department_id is
    not exists` / `drop not null` bodies are idempotent, so a re-run would be a
    no-op even if missed — but repairing keeps the history clean.)
 5. `supabase migration list --linked` — local and remote should now align with
-   only the genuinely-new migrations (this branch's renumbered 131/132) pending.
+   only the genuinely-new migrations (this branch's renumbered 132/133) pending.
 6. `supabase db push` (or merge to `main` to let `deploy-migrations.yml` do it)
-   applies only 131/132.
+   applies only 132/133.
 7. Post-deploy: run the smoke checklist (DEPLOY.md §5) and confirm the RLS
    leak fix is live (re-query the four scheduling policies — each admin branch
    should read `facility_id = current_facility_id() and has_module_admin_access`).

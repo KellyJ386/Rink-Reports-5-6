@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000128_purge_module_data.sql
+-- 00000000000132_purge_module_data.sql
 --
 -- Adds the facility-scoped manual-purge function that the admin Retention
 -- module's "Purge now" button has been calling since it shipped. The action
