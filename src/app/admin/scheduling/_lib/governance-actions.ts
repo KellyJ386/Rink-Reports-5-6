@@ -268,6 +268,19 @@ export async function assignSwapTarget(
     if (error) {
       return { ok: false, error: dbError(error, "Failed to assign target.") }
     }
+
+    // Best-effort heads-up to the assigned employee.
+    await supabase.from("schedule_notifications").insert({
+      facility_id: ctx.facilityId,
+      employee_id: targetEmployeeId,
+      notification_type: "swap_request_received",
+      swap_id: id,
+      payload: {
+        message:
+          "A manager assigned you to cover a coworker's shift — pending final approval.",
+      },
+    })
+
     revalidateGovernance()
     return { ok: true, message: "Target assigned." }
   } catch (e) {
@@ -369,13 +382,20 @@ export async function denySwap(
       return { ok: false, error: dbError(error, "Failed to deny swap.") }
     }
 
-    await supabase.from("schedule_notifications").insert({
-      facility_id: ctx.facilityId,
-      employee_id: swap.row.requester_employee_id,
-      notification_type: "swap_denied",
-      swap_id: id,
-      payload: { decision_note: note?.trim() ? note.trim() : null },
-    })
+    // Notify the requester — and the target too, if one had accepted.
+    const denialRecipients = [
+      swap.row.requester_employee_id,
+      ...(swap.row.target_employee_id ? [swap.row.target_employee_id] : []),
+    ]
+    await supabase.from("schedule_notifications").insert(
+      denialRecipients.map((employeeId) => ({
+        facility_id: ctx.facilityId,
+        employee_id: employeeId,
+        notification_type: "swap_denied" as const,
+        swap_id: id,
+        payload: { decision_note: note?.trim() ? note.trim() : null },
+      }))
+    )
 
     revalidateGovernance()
     return { ok: true, message: "Swap denied." }

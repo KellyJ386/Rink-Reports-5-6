@@ -164,13 +164,13 @@ export default async function AvailabilityPage({
         <Button asChild variant="outline" size="sm">
           <Link href={`/reports/scheduling/availability?week=${prevWeek}`}>
             <ChevronLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Previous</span>
+            <span className="sr-only sm:not-sr-only">Previous</span>
           </Link>
         </Button>
         <span className="text-sm font-medium">{monthRange(dates)}</span>
         <Button asChild variant="outline" size="sm">
           <Link href={`/reports/scheduling/availability?week=${nextWeek}`}>
-            <span className="hidden sm:inline">Next</span>
+            <span className="sr-only sm:not-sr-only">Next</span>
             <ChevronRight className="h-4 w-4" />
           </Link>
         </Button>
