@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import {
   complianceWeekWindow,
@@ -260,6 +261,7 @@ export async function createShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift created." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -332,6 +334,7 @@ export async function updateShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -357,6 +360,7 @@ export async function deleteShift(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -440,6 +444,7 @@ export async function assignOpenShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Open shift assigned." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -465,6 +470,7 @@ export async function cancelShift(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift cancelled." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -512,6 +518,7 @@ export async function createTemplate(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Template created." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -548,6 +555,7 @@ export async function updateTemplate(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Template updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -575,6 +583,7 @@ export async function setTemplateActive(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -599,6 +608,7 @@ export async function deleteTemplate(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Template deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -676,6 +686,7 @@ export async function createTemplateShift(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Slot added." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -716,6 +727,7 @@ export async function updateTemplateShift(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Slot updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -740,6 +752,7 @@ export async function deleteTemplateShift(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Slot deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -871,6 +884,7 @@ export async function applyTemplateToWeek(
       count: rows.length,
     }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -965,6 +979,7 @@ export async function sendShiftReminders(
       count: toSend.length,
     }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

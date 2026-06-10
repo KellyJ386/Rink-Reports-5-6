@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
 import {
@@ -127,6 +128,7 @@ export async function createRink(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Rink created." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -169,6 +171,7 @@ export async function updateRink(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Rink updated." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -194,6 +197,7 @@ export async function setRinkActive(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -219,6 +223,7 @@ export async function deleteRink(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -280,6 +285,7 @@ export async function createEquipment(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Equipment created." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -338,6 +344,7 @@ export async function updateEquipment(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Equipment updated." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -363,6 +370,7 @@ export async function setEquipmentActive(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -388,6 +396,7 @@ export async function deleteEquipment(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -448,6 +457,7 @@ export async function createCircleCheckItem(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Item created." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -497,6 +507,7 @@ export async function updateCircleCheckItem(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Item updated." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -522,6 +533,7 @@ export async function setCircleCheckItemActive(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -550,6 +562,7 @@ export async function deleteCircleCheckItem(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -624,6 +637,7 @@ export async function moveCircleCheckItem(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -710,6 +724,7 @@ export async function importCircleCheckItems(
       message: `Imported ${insertRows.length} item(s).`,
     }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -757,6 +772,7 @@ export async function updateIceOperationsSettings(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Settings saved." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -808,6 +824,7 @@ export async function addIceOperationsFollowupNote(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -835,6 +852,7 @@ export async function deleteIceOperationsSubmission(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -879,6 +897,7 @@ export async function createFuelType(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Fuel type created." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -921,6 +940,7 @@ export async function updateFuelType(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Fuel type updated." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -946,6 +966,7 @@ export async function setFuelTypeActive(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -975,6 +996,7 @@ export async function deleteFuelType(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1039,6 +1061,7 @@ export async function createCircleCheckTemplate(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Template created." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1086,6 +1109,7 @@ export async function updateCircleCheckTemplate(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Template updated." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1111,6 +1135,7 @@ export async function setCircleCheckTemplateActive(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1135,6 +1160,7 @@ export async function deleteCircleCheckTemplate(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1191,6 +1217,7 @@ export async function createCircleCheckTemplateItem(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Field added." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1263,6 +1290,7 @@ export async function importCircleCheckTemplateItems(
       message: `Imported ${insertRows.length} field(s).`,
     }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1293,6 +1321,7 @@ export async function updateCircleCheckTemplateItem(
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Field updated." }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1318,6 +1347,7 @@ export async function setCircleCheckTemplateItemActive(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1342,6 +1372,7 @@ export async function deleteCircleCheckTemplateItem(
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1427,6 +1458,7 @@ export async function seedDefaultIceOperationsConfig(): Promise<SimpleResult> {
     revalidatePath("/admin/ice-operations")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type {
   ActionState,
@@ -153,6 +154,7 @@ export async function createSection(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Section created." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -197,6 +199,7 @@ export async function updateSection(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Section updated." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -222,6 +225,7 @@ export async function setSectionActive(
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -250,6 +254,7 @@ export async function deleteSection(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -296,6 +301,7 @@ export async function createEquipment(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Equipment created." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -338,6 +344,7 @@ export async function updateEquipment(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Equipment updated." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -363,6 +370,7 @@ export async function setEquipmentActive(
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -391,6 +399,7 @@ export async function deleteEquipment(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -465,6 +474,7 @@ export async function createField(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Field created." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -535,6 +545,7 @@ export async function updateField(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Field updated." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -560,6 +571,7 @@ export async function setFieldActive(
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -588,6 +600,7 @@ export async function deleteField(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -667,6 +680,7 @@ export async function moveField(
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -724,6 +738,7 @@ export async function createThreshold(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Threshold created." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -777,6 +792,7 @@ export async function updateThreshold(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Threshold updated." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -802,6 +818,7 @@ export async function setThresholdActive(
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -824,6 +841,7 @@ export async function deleteThreshold(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -875,6 +893,7 @@ export async function addRefrigerationFollowupNote(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -902,6 +921,7 @@ export async function deleteRefrigerationReport(
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -944,6 +964,7 @@ export async function updateRefrigerationSettings(
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Settings saved." }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1010,6 +1031,7 @@ export async function seedDefaultRefrigerationSections(): Promise<SimpleResult> 
     revalidatePath("/admin/refrigeration")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

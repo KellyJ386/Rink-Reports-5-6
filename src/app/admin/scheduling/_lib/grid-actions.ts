@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { TablesUpdate } from "@/types/database"
 
 import { collectShiftWarnings } from "./grid-warnings"
@@ -317,6 +318,7 @@ export async function createGridShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, data: data as GridShiftDTO }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -407,6 +409,7 @@ export async function updateGridShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, data: data as GridShiftDTO }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -445,6 +448,7 @@ export async function previewShiftWarnings(
     ])
     return { ok: true, data: { warnings, blocking } }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -527,6 +531,7 @@ export async function saveGridTemplate(
       },
     }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -557,6 +562,7 @@ export async function deleteGridShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, data: { id: parsedId.data } }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type { SimpleResult } from "./types"
 
@@ -84,6 +85,7 @@ export async function setDailyAreaAccess(input: {
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/area-access-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -208,6 +210,7 @@ export async function bulkImportDailyAreaAccessCsv(
     revalidatePath("/admin/daily-reports")
     return { ok: true, granted, revoked, skipped, errors }
   } catch (e) {
+    logServerError("admin/daily-reports/area-access-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }

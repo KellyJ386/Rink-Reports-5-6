@@ -8,6 +8,7 @@ import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { checkSiteUrlEnv } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import {
   createEmployeeComplete,
@@ -256,6 +257,7 @@ export async function createEmployee(
           : "Employee created (schedule-only — no login). Use “Invite” later to grant access.",
     }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -359,6 +361,7 @@ export async function updateEmployee(
       message: roleWarning ?? "Employee updated.",
     }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -396,6 +399,7 @@ export async function deactivateEmployee(id: string): Promise<ActionState> {
     revalidatePath("/admin/employees")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -431,6 +435,7 @@ export async function reactivateEmployee(id: string): Promise<ActionState> {
     revalidatePath("/admin/employees")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -453,6 +458,7 @@ export async function deleteEmployee(id: string): Promise<ActionState> {
     revalidatePath("/admin/employees")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -496,6 +502,7 @@ export async function seedRolesForCurrentFacility(
     revalidatePath("/admin/employees")
     return { ok: true, message: "Default roles created." }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -529,6 +536,7 @@ export async function inviteEmployee(
     try {
       adminClient = createAdminClient()
     } catch (e) {
+      logServerError("admin/employees/actions", e)
       const detail = e instanceof Error ? e.message : "unknown configuration error"
       return {
         ok: false,
@@ -625,6 +633,7 @@ export async function inviteEmployee(
     revalidatePath(`/admin/employees/${employeeId}`)
     return { ok: true, invited: true }
   } catch (e) {
+    logServerError("admin/employees/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }

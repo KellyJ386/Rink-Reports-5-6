@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import {
   assertValidLevel,
@@ -74,6 +75,7 @@ export async function setEmployeeModuleOverride(
     revalidatePath("/admin/permissions")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -115,6 +117,7 @@ export async function clearEmployeeModuleOverride(
     revalidatePath("/admin/permissions")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -169,6 +172,7 @@ export async function addEmployeeToGroup(
     revalidatePath(`/admin/employees/${employeeId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -189,6 +193,7 @@ export async function removeEmployeeFromGroup(
     revalidatePath(`/admin/employees/${employeeId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -255,6 +260,7 @@ export async function addEmployeeCertification(
     revalidatePath(`/admin/employees/${employeeId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -286,6 +292,7 @@ export async function updateEmployeeCertification(
     revalidatePath(`/admin/employees/${employeeId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -307,6 +314,7 @@ export async function deleteEmployeeCertification(
     revalidatePath(`/admin/employees/${employeeId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/employees/[id]/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }

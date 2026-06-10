@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { logServerError } from "@/lib/observability/log-server-error"
 import {
   MAX_DOCUMENT_BYTES,
   fileExtension,
@@ -195,6 +196,7 @@ export async function uploadDocuments(
           : base,
     }
   } catch (e) {
+    logServerError("admin/facility-documents/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -237,6 +239,7 @@ export async function updateDocument(
     revalidate()
     return { ok: true, message: "Document updated." }
   } catch (e) {
+    logServerError("admin/facility-documents/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -265,6 +268,7 @@ export async function setDocumentActive(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/facility-documents/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -308,6 +312,7 @@ export async function deleteDocument(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/facility-documents/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

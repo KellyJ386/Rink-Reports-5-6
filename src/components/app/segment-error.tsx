@@ -9,6 +9,7 @@ import { useEffect } from "react"
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
+import { captureClientException } from "@/lib/observability/capture-client"
 
 export function SegmentError({
   error,
@@ -25,13 +26,7 @@ export function SegmentError({
 }) {
   useEffect(() => {
     console.error(error)
-    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-      void import("posthog-js")
-        .then(({ default: posthog }) => {
-          posthog.captureException(error, { digest: error.digest })
-        })
-        .catch(() => {})
-    }
+    captureClientException(error)
   }, [error])
 
   return (

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 const MAX_NAME = 60
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -132,6 +133,7 @@ export async function createJobArea(args: {
     revalidate()
     return { ok: true, area: { id: data.id as string, name: data.name as string } }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -160,6 +162,7 @@ export async function renameJobArea(id: string, name: string): Promise<SimpleRes
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -181,6 +184,7 @@ export async function setJobAreaActive(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -226,6 +230,7 @@ export async function moveJobArea(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -242,6 +247,7 @@ export async function deleteJobArea(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -288,6 +294,7 @@ export async function addJobAreaCertRequirement(args: {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -310,6 +317,7 @@ export async function removeJobAreaCertRequirement(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

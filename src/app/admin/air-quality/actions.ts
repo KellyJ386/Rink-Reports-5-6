@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import {
   readingTypeImportSpec,
@@ -127,6 +128,7 @@ export async function createLocation(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Location created." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -173,6 +175,7 @@ export async function updateLocation(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Location updated." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -201,6 +204,7 @@ export async function setLocationActive(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -232,6 +236,7 @@ export async function deleteLocation(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -283,6 +288,7 @@ export async function createEquipment(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Equipment created." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -332,6 +338,7 @@ export async function updateEquipment(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Equipment updated." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -360,6 +367,7 @@ export async function setEquipmentActive(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -391,6 +399,7 @@ export async function deleteEquipment(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -471,6 +480,7 @@ export async function importReadingTypes(
       message: `Imported ${insertRows.length} reading type(s).`,
     }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -523,6 +533,7 @@ export async function createReadingType(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Reading type created." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -583,6 +594,7 @@ export async function updateReadingType(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Reading type updated." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -614,6 +626,7 @@ export async function setReadingTypeActive(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -648,6 +661,7 @@ export async function deleteReadingType(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -725,6 +739,7 @@ export async function moveReadingType(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -819,6 +834,7 @@ export async function createThreshold(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Threshold created." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -862,6 +878,7 @@ export async function updateThreshold(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Threshold updated." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -890,6 +907,7 @@ export async function setThresholdActive(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -915,6 +933,7 @@ export async function deleteThreshold(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -966,6 +985,7 @@ export async function createComplianceRule(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Compliance rule created." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1015,6 +1035,7 @@ export async function updateComplianceRule(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Compliance rule updated." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1046,6 +1067,7 @@ export async function setComplianceRuleActive(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1074,6 +1096,7 @@ export async function deleteComplianceRule(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1128,6 +1151,7 @@ export async function addAirQualityFollowupNote(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1158,6 +1182,7 @@ export async function deleteAirQualityReport(
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1204,6 +1229,7 @@ export async function updateAirQualitySettings(
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Settings saved." }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1465,6 +1491,7 @@ export async function seedDefaultAirQualityConfig(): Promise<SimpleResult> {
     revalidatePath("/admin/air-quality")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/air-quality/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",

@@ -6,6 +6,7 @@ import { NextResponse } from "next/server"
 import { mapWithConcurrency } from "@/lib/concurrency"
 import { renderPdfForModule } from "@/lib/notifications/pdf/render"
 import { uploadSubmissionPdf } from "@/lib/notifications/pdf/upload"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { Database } from "@/types/database"
 
 // Force dynamic; service-role env vars must not be evaluated at build.
@@ -88,7 +89,7 @@ export async function GET(request: Request) {
   })
 
   if (error) {
-    console.error("[cron/drain-notifications] drain failed:", error)
+    logServerError("cron/drain-notifications", error, { step: "drain" })
     return NextResponse.json({ ok: false }, { status: 500 })
   }
 
@@ -180,7 +181,7 @@ async function renderDuePdfs(
     .limit(200)
 
   if (selErr) {
-    console.error("[cron/drain-notifications] outbox query failed:", selErr)
+    logServerError("cron/drain-notifications", selErr, { step: "outbox query" })
     return stats
   }
 
@@ -273,7 +274,7 @@ async function renderAndStampOne(
       .is("pdf_url", null)
     if (upErr) {
       stats.failed += 1
-      console.error("[cron/drain-notifications] outbox update failed:", upErr)
+      logServerError("cron/drain-notifications", upErr, { step: "outbox update" })
       return
     }
     stats.rendered += 1
@@ -281,12 +282,11 @@ async function renderAndStampOne(
     // Transient (or unknown) failure: record the message but leave the row
     // pending so it retries next run. Do NOT mark it permanent.
     stats.failed += 1
-    console.error(
-      "[cron/drain-notifications] render failed:",
-      u.source_module,
-      u.source_record_id,
-      e,
-    )
+    logServerError("cron/drain-notifications", e, {
+      step: "render",
+      source_module: u.source_module,
+      source_record_id: u.source_record_id,
+    })
     await recordOutboxError(
       supabase,
       u,
@@ -314,9 +314,8 @@ async function recordOutboxError(
     .eq("source_record_id", u.source_record_id)
     .is("pdf_url", null)
   if (error) {
-    console.error(
-      "[cron/drain-notifications] failed to record outbox error:",
-      error,
-    )
+    logServerError("cron/drain-notifications", error, {
+      step: "record outbox error",
+    })
   }
 }

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { Database, Json } from "@/types/database"
 
 import type { ActionState, Severity, SimpleResult } from "./types"
@@ -187,6 +189,7 @@ export async function createTemplate(
     revalidate()
     return { ok: true, message: "Template created." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -259,6 +262,7 @@ export async function updateTemplate(
     revalidate()
     return { ok: true, message: "Template updated." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -296,6 +300,7 @@ export async function setTemplateActive(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -345,6 +350,7 @@ export async function deleteTemplate(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -403,6 +409,7 @@ export async function createGroup(
     revalidate()
     return { ok: true, message: "Group created." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -469,6 +476,7 @@ export async function updateGroup(
     revalidate()
     return { ok: true, message: "Group updated." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -506,6 +514,7 @@ export async function setGroupActive(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -551,6 +560,7 @@ export async function deleteGroup(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -593,6 +603,7 @@ export async function addGroupMember(
     revalidate()
     return { ok: true, message: "Member added." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -631,6 +642,7 @@ export async function removeGroupMember(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -785,6 +797,7 @@ export async function createRoutingRule(
     revalidate()
     return { ok: true, message: "Routing rule created." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -835,6 +848,7 @@ export async function updateRoutingRule(
     revalidate()
     return { ok: true, message: "Routing rule updated." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -875,6 +889,7 @@ export async function setRoutingRuleActive(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -916,6 +931,7 @@ export async function deleteRoutingRule(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -950,6 +966,7 @@ export async function previewRoutingRecipients(ruleId: string): Promise<
     if (empErr) return { ok: false, error: empErr.message }
     return { ok: true, recipients: emps ?? [] }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1060,6 +1077,7 @@ export async function createReminder(
     revalidate()
     return { ok: true, message: "Reminder created." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1107,6 +1125,7 @@ export async function updateReminder(
     revalidate()
     return { ok: true, message: "Reminder updated." }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1144,6 +1163,7 @@ export async function setReminderActive(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1182,6 +1202,7 @@ export async function deleteReminder(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1230,6 +1251,7 @@ export async function resolveAlert(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1274,6 +1296,7 @@ export async function reopenAlert(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1313,6 +1336,7 @@ export async function deleteAlert(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1355,6 +1379,124 @@ export async function deleteMessage(id: string): Promise<SimpleResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/communications/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+// =============================================================================
+// Failed-delivery retries (Deliveries tab — I3 from the 360 review)
+// =============================================================================
+
+/**
+ * Re-queue a terminally-failed email delivery. Resets the attempt counter so
+ * the send cron's backoff ladder starts fresh; the row is picked up on the
+ * next /api/cron/send-communications run. RLS already restricts the update
+ * to communications admins within their own facility.
+ */
+export async function retryFailedEmail(recipientId: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!UUID_RE.test(recipientId)) {
+      return { ok: false, error: "Invalid delivery id." }
+    }
+    const supabase = await createClient()
+    const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
+    const { data, error } = await supabase
+      .from("communication_recipients")
+      .update({
+        email_status: "pending",
+        email_attempts: 0,
+        email_next_attempt_at: new Date().toISOString(),
+      })
+      .eq("id", recipientId)
+      .eq("facility_id", facility.facilityId)
+      .eq("email_status", "failed")
+      .select("id")
+      .maybeSingle()
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to re-queue delivery.") }
+    }
+    if (!data) {
+      return { ok: false, error: "Delivery not found or no longer failed." }
+    }
+    await writeAudit(supabase, facility.facilityId, actor, {
+      entity_type: "communication_recipient",
+      entity_id: recipientId,
+      action: "retry_email",
+    })
+    revalidate()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/communications/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+/**
+ * Re-queue a failed notification_outbox row for the next drain run. Client
+ * UPDATE on the outbox is locked down by RLS (migration 49), so after the
+ * admin + facility checks this goes through the service-role client; the
+ * row's facility is verified against the caller's before writing.
+ */
+export async function retryFailedOutboxRow(outboxId: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!UUID_RE.test(outboxId)) {
+      return { ok: false, error: "Invalid notification id." }
+    }
+
+    const supabase = await createClient()
+    const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
+
+    const admin = createAdminClient()
+    const { data: row, error: rowErr } = await admin
+      .from("notification_outbox")
+      .select("id, facility_id, status")
+      .eq("id", outboxId)
+      .maybeSingle()
+    if (rowErr) {
+      return { ok: false, error: dbError(rowErr, "Failed to load notification.") }
+    }
+    if (!row || row.facility_id !== facility.facilityId) {
+      return { ok: false, error: "Notification not found." }
+    }
+    if (row.status !== "failed") {
+      return { ok: false, error: "Notification is no longer failed." }
+    }
+
+    const { error: updErr } = await admin
+      .from("notification_outbox")
+      .update({
+        status: "pending",
+        scheduled_for: new Date().toISOString(),
+        error: null,
+      })
+      .eq("id", outboxId)
+      .eq("status", "failed")
+    if (updErr) {
+      return { ok: false, error: dbError(updErr, "Failed to re-queue notification.") }
+    }
+
+    await writeAudit(supabase, facility.facilityId, actor, {
+      entity_type: "notification_outbox",
+      entity_id: outboxId,
+      action: "retry_outbox",
+    })
+    revalidate()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/communications/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",

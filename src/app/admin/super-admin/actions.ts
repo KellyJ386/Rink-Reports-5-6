@@ -11,6 +11,7 @@ import {
   getServiceRoleKeyDebugInfo,
 } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type { ActionState, InviteServiceHealth } from "./types"
 
@@ -89,6 +90,7 @@ export async function sendPasswordReset(
   try {
     admin = createAdminClient()
   } catch (e) {
+    logServerError("admin/super-admin/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Service role not configured.",
@@ -173,6 +175,7 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
       },
     )
   } catch (e) {
+    logServerError("admin/super-admin/actions", e)
     return {
       ok: false,
       reason: "other",

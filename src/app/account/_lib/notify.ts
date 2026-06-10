@@ -2,6 +2,7 @@ import "server-only"
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 type ProfileEditNotification = {
   facilityId: string | null
@@ -43,6 +44,7 @@ export async function notifyProfileEdited(
         `If you did not expect this change, please contact your facility administrator.`,
     })
   } catch (e) {
+    logServerError("account/_lib/notify", e)
     console.error("[account] failed to notify affected user:", e)
   }
 
@@ -82,6 +84,7 @@ export async function notifyProfileEdited(
       (email) => email !== input.target.email,
     )
   } catch (e) {
+    logServerError("account/_lib/notify", e)
     // Service-role not configured (e.g. local dev) — skip the admin fan-out.
     console.error("[account] failed to resolve admin recipients:", e)
     return

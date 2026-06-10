@@ -7,6 +7,7 @@ import { mapWithConcurrency } from "@/lib/concurrency"
 import { downloadPdf } from "@/lib/notifications/pdf/upload"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
 import type { Database } from "@/types/database"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -147,7 +148,7 @@ async function loadPending(
     .limit(BATCH_LIMIT)
 
   if (error) {
-    console.error("[send-communications] load failed:", error)
+    logServerError("cron/send-communications", error, { step: "load" })
     return []
   }
 

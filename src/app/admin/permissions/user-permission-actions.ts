@@ -12,6 +12,7 @@ import {
   type UserAction,
 } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 export type ActionResult = { ok: true } | { ok: false; error: string }
 
@@ -75,6 +76,7 @@ export async function upsertUserPermission(input: {
     revalidatePath(`/admin/permissions/${input.userId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/permissions/user-permission-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -116,6 +118,7 @@ export async function applyPresetToUser(input: {
     revalidatePath(`/admin/permissions/${input.userId}`)
     return { ok: true }
   } catch (e) {
+    logServerError("admin/permissions/user-permission-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }
@@ -208,6 +211,7 @@ export async function bulkImportUserPermissionsCsv(
     revalidatePath("/admin/permissions")
     return { ok: true, inserted, skipped, errors }
   } catch (e) {
+    logServerError("admin/permissions/user-permission-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }

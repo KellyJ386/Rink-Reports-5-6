@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
 import type { Database } from "@/types/database"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
   for (const fn of PURGE_FUNCTIONS) {
     const { data, error } = await supabase.rpc(fn)
     if (error) {
-      console.error(`[cron/run-retention-purge] ${fn} failed:`, error)
+      logServerError("cron/run-retention-purge", error, { fn })
       results[fn] = "error"
       anyFailed = true
       continue
@@ -94,10 +95,9 @@ export async function GET(request: Request) {
     .update({ last_purged_at: stampedAt })
     .eq("auto_purge", true)
   if (stampErr) {
-    console.error(
-      "[cron/run-retention-purge] last_purged_at stamp failed:",
-      stampErr,
-    )
+    logServerError("cron/run-retention-purge", stampErr, {
+      step: "last_purged_at stamp",
+    })
   }
 
   console.log(
