@@ -50,4 +50,5 @@ export type SchedulingSettingsInput = {
   notify_on_overtime: boolean
   availability_submission_enabled: boolean
   require_job_area_qualification: boolean
+  block_on_violations: boolean
 }

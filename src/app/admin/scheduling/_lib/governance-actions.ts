@@ -776,6 +776,7 @@ export async function updateSchedulingSettings(
           notify_on_overtime: values.notify_on_overtime,
           availability_submission_enabled: values.availability_submission_enabled,
           require_job_area_qualification: values.require_job_area_qualification,
+          block_on_violations: values.block_on_violations,
         },
         { onConflict: "facility_id" }
       )
@@ -815,6 +816,7 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
           notify_on_overtime: true,
           availability_submission_enabled: true,
           require_job_area_qualification: false,
+          block_on_violations: false,
         },
         { onConflict: "facility_id" }
       )

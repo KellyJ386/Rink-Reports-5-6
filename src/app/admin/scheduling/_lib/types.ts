@@ -20,6 +20,8 @@ export type EmployeeLite = {
   last_name: string
   is_minor: boolean
   is_active: boolean
+  // Added by migration 128; optional so existing selects that omit it still fit.
+  max_weekly_hours?: number | null
 }
 
 export type DepartmentLite = {
