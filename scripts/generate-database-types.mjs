@@ -23,12 +23,7 @@ import { dirname, join } from "node:path"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const TYPES_PATH = join(ROOT, "src/types/database.ts")
-// Random per-run port: a fixed port risks silently querying a STALE pg-meta
-// server from an earlier run (pointed at a different/polluted database) if
-// that process outlived its parent — which once produced types containing
-// pgcrypto functions that don't exist in public on the CI image.
-const PORT =
-  process.env.PG_META_PORT ?? String(20000 + Math.floor(Math.random() * 20000))
+const PORT = process.env.PG_META_PORT ?? "18765"
 
 const mode = process.argv[2]
 if (mode !== "--write" && mode !== "--check") {
@@ -55,12 +50,35 @@ const serverEntry = join(
   ROOT,
   "node_modules/@supabase/postgres-meta/dist/server/server.js",
 )
+
+// Guard against a STALE pg-meta server from an earlier run still listening
+// on this port (pointed at a different/polluted database) — that once
+// produced types containing pgcrypto functions that don't exist in public on
+// the CI image. If anything already answers here, bail out loudly instead of
+// silently generating from the wrong schema.
+try {
+  await fetch(`http://127.0.0.1:${PORT}/`, { signal: AbortSignal.timeout(1500) })
+  console.error(
+    `Something is already listening on port ${PORT} — likely a stale pg-meta\n` +
+      "server from an earlier run, which may be connected to a DIFFERENT\n" +
+      "database. Kill it (pkill -f postgres-meta/dist/server) and re-run, or\n" +
+      "set PG_META_PORT to a free port.",
+  )
+  process.exit(1)
+} catch {
+  // Nothing listening — good, proceed.
+}
+
 const server = spawn(process.execPath, [serverEntry], {
   env: { ...process.env, PG_META_PORT: PORT, PG_META_DB_URL: dbUrl },
-  stdio: ["ignore", "ignore", "pipe"],
+  stdio: ["ignore", "pipe", "pipe"],
 })
 let serverErr = ""
 server.stderr.on("data", (d) => (serverErr += d))
+// pg-meta (fastify) logs through stdout — capture it too so a startup
+// failure (bad port, DB unreachable) is diagnosable from CI logs.
+let serverOut = ""
+server.stdout.on("data", (d) => (serverOut += d))
 
 try {
   const url = `http://127.0.0.1:${PORT}/generators/typescript?included_schemas=public&detect_one_to_one_relationships=true`
@@ -78,7 +96,10 @@ try {
     }
   }
   if (!generated) {
-    console.error(`pg-meta did not come up / generate types.\n${serverErr}`)
+    console.error(
+      `pg-meta did not come up / generate types.\n` +
+        `--- pg-meta stdout ---\n${serverOut}\n--- pg-meta stderr ---\n${serverErr}`,
+    )
     process.exit(1)
   }
 
