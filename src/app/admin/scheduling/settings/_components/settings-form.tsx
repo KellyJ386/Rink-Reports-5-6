@@ -83,6 +83,9 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       (settings as { require_job_area_qualification?: boolean })
         .require_job_area_qualification ?? false
     )
+  const [blockOnViolations, setBlockOnViolations] = useState<boolean>(
+    (settings as { block_on_violations?: boolean }).block_on_violations ?? false
+  )
   const [pending, startTransition] = useTransition()
 
   function submit() {
@@ -105,6 +108,7 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         notify_on_overtime: notifyOnOvertime,
         availability_submission_enabled: availabilitySubmissionEnabled,
         require_job_area_qualification: requireJobAreaQualification,
+        block_on_violations: blockOnViolations,
       })
       if (r.ok === true) toast.success(r.message ?? "Saved.")
       else if (r.ok === false) toast.error(r.error)
@@ -208,6 +212,11 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           label="Require employees to be assigned to a shift's job area"
           value={requireJobAreaQualification}
           onChange={setRequireJobAreaQualification}
+        />
+        <ToggleField
+          label="Block scheduling-grid saves that raise warnings (hours cap, overlap, cert gaps). Off = advisory only."
+          value={blockOnViolations}
+          onChange={setBlockOnViolations}
         />
       </div>
 
