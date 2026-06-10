@@ -206,3 +206,80 @@ Two migration files share the prefix `00000000000088`:
 - `supabase/migrations/00000000000088_information_requests.sql`
 
 This is a grandfathered collision: `migration-prefix-check.yml` only fails on *newly added* duplicates, and these two are already in `main` (and likely already applied to prod). **Do not rename them** — renaming changes the version string `supabase db push` keys on and would desync the very history this section reconciles. When step 3 above marks versions applied, treat `00000000000088` as covering both files (apply each underlying object's state as it exists in the DB). Any *new* migration must use the next free monotonic prefix, never `00000000000088`.
+
+> **June 2026:** the repo and the live project have since diverged further
+> (five repo migrations recorded on prod under timestamp versions, four
+> prod-only migrations not in git, and a 128/129 numbering collision with a
+> parallel work stream). The concrete, current convergence steps and the
+> recovered SQL of the prod-only migrations are in
+> [`production-reconciliation-2026-06.md`](production-reconciliation-2026-06.md).
+> Do that reconciliation before relying on `deploy-migrations.yml`.
+
+## 9. Supabase Auth configuration (hosted project — verify before launch)
+
+`supabase/config.toml` configures the **local** stack only. The hosted
+project's auth settings live in the Supabase dashboard (Authentication →
+Providers / URL Configuration / Email) and must be set there. The local config
+ships dev-friendly defaults that are wrong for production:
+
+| Setting | Local (`config.toml`) | Production target | Where |
+|---|---|---|---|
+| Email confirmations | `enable_confirmations = false` | **ON** — require email verification | Auth → Providers → Email |
+| Site URL | `http://localhost:3000` | the canonical HTTPS domain (matches `NEXT_PUBLIC_SITE_URL`) | Auth → URL Configuration → Site URL |
+| Redirect allow-list | n/a | add `https://<domain>/**` (covers `/update-password`, invite/recovery links) | Auth → URL Configuration → Redirect URLs |
+| Signup | `enable_signup = true` | leave on **only if** self-signup is intended; this is an invite-driven staff app, so prefer **off** and provision via the Employees flow | Auth → Providers → Email |
+| Refresh-token rotation | `true` | keep on | Auth → Sessions |
+
+Verify after setting: an invite email's link lands on `https://<domain>/update-password`
+(not localhost), and a new sign-up (if enabled) must confirm its email before
+the session activates.
+
+## 10. Migration rollback runbook ("a migration broke prod")
+
+There are no down-migrations; recovery relies on Supabase Point-in-Time
+Recovery (PITR) plus a code revert. Move deliberately — a restore is
+destructive to data written after the chosen point.
+
+**Before you need it (one-time):** confirm PITR is enabled on the project
+(Supabase → Database → Backups; requires a paid plan). Without it, only the
+daily logical backup is available and the recovery window is far coarser.
+
+**When a deploy's migration breaks prod:**
+
+1. **Stop the bleeding.** In Vercel, roll back to the previous deployment
+   (Deployments → prior green build → Promote). The app now runs the old code;
+   if the bad migration only *added* objects, the old code ignores them and the
+   site is stable while you assess. Note: a Vercel rollback does **not** revert
+   the database.
+
+2. **Classify the migration.** Is it *additive* (new column/table/policy/index)
+   or *destructive* (drop/alter that lost or rewrote data)?
+   - **Additive and the old code tolerates it:** you usually do **not** need a
+     DB restore. Fix forward — author a corrective migration, test it against a
+     branch DB, and deploy. Prefer this; it avoids data loss.
+   - **Destructive, or the new schema is actively corrupting writes:** proceed
+     to a PITR restore (step 3).
+
+3. **PITR restore (data-loss decision).** Supabase → Database → Backups →
+   Point in Time. Choose a timestamp **just before** the bad migration ran
+   (cross-check against `supabase_migrations.schema_migrations` for that
+   version's apply time). Restoring rewinds the **entire** database — every row
+   written after that point is lost, including legitimate submissions. If the
+   gap is large, first export the post-cutover rows you must keep (e.g. via the
+   admin exports or a targeted `copy ... to`), then re-import after the restore.
+
+4. **Re-align migration history.** After a restore the
+   `schema_migrations` table reflects the restored point. Remove the rolled-back
+   migration file from `main` (or supersede it), and re-run the §8 reconciliation
+   so repo and prod agree before the next `db push`.
+
+5. **Post-mortem gate.** The bad migration passed `rls-isolation.yml` (which
+   runs every migration on a fresh PG) but still broke prod — that means the
+   failure was data-dependent (existing rows violating a new constraint) or
+   environment-specific. Add a guard or a backfill step to the corrective
+   migration so the same class of failure can't recur, and, where feasible, a
+   row-shape assertion to the RLS harness fixtures.
+
+**Communications:** for any restore that loses data, notify affected facility
+admins with the recovery window (what timeframe of submissions to re-enter).
+
