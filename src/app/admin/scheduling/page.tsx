@@ -92,7 +92,9 @@ export default async function SchedulingOverviewPage() {
       .maybeSingle<{ name: string }>(),
   ])
 
-  const weekStartDay = settings?.week_start_day ?? 1
+  // Default 0 (Sunday) — must match the shifts grid's fallback so the hub's
+  // "this week" agrees with the grid.
+  const weekStartDay = settings?.week_start_day ?? 0
   const { start: weekStart, end: weekEnd } = startOfWeek(weekStartDay)
 
   const [
@@ -124,7 +126,9 @@ export default async function SchedulingOverviewPage() {
       .limit(500),
     supabase
       .from("schedule_open_shifts")
-      .select("id, shift_id, claim_status")
+      .select(
+        "id, shift_id, claim_status, approval_required, claimed_by_employee_id"
+      )
       .eq("facility_id", facilityId)
       .in("claim_status", ["open", "claimed"]),
     supabase
@@ -176,6 +180,8 @@ export default async function SchedulingOverviewPage() {
     id: string
     shift_id: string
     claim_status: string
+    approval_required: boolean
+    claimed_by_employee_id: string | null
   }
 
   const shifts = (shiftsRes.data ?? []) as ShiftRow[]
@@ -286,12 +292,19 @@ export default async function SchedulingOverviewPage() {
       const s = shiftById.get(o.shift_id)
       if (!s) return null
       const dept = deptById.get(s.department_id)
+      const claimant = o.claimed_by_employee_id
+        ? empById.get(o.claimed_by_employee_id)
+        : null
       return {
         id: o.id,
         starts_at: s.starts_at,
         ends_at: s.ends_at,
         departmentName: dept?.name ?? "Department",
         roleLabel: s.role_label,
+        claimStatus: o.claim_status,
+        claimantName: claimant
+          ? `${claimant.first_name} ${claimant.last_name}`
+          : null,
       }
     })
     .filter((x): x is OpenShiftItem => x !== null)

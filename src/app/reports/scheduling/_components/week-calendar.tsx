@@ -24,7 +24,6 @@ interface Props {
 
 const NAVY = "#003B6F"
 const GREEN = "#4DFF00"
-const GREEN_INK = "#1F6B00"
 const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 // Theme-responsive via CSS custom properties
 const SURFACE = "var(--card)"
@@ -164,7 +163,7 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
                 <div style={{
                   fontSize: 9.5, fontWeight: 700, letterSpacing: ".1em",
                   textTransform: "uppercase",
-                  color: isToday ? GREEN_INK : SECONDARY,
+                  color: isToday ? "var(--primary)" : SECONDARY,
                 }}>
                   {SHORT_DAY_NAMES[d.getDay()]}
                 </div>

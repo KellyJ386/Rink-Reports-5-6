@@ -160,8 +160,9 @@ export default async function NotificationsPage({
         className="bg-card grid gap-3 rounded-md border p-4 shadow-sm md:grid-cols-5"
       >
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium">Type</label>
+          <label htmlFor="filter-type" className="text-xs font-medium">Type</label>
           <select
+            id="filter-type"
             name="type"
             defaultValue={sp.type ?? "all"}
             className="border-border bg-background h-9 rounded-md border px-2 text-sm"
@@ -175,8 +176,9 @@ export default async function NotificationsPage({
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium">Recipient</label>
+          <label htmlFor="filter-recipient" className="text-xs font-medium">Recipient</label>
           <select
+            id="filter-recipient"
             name="recipient"
             defaultValue={recipientFilter}
             className="border-border bg-background h-9 rounded-md border px-2 text-sm"
@@ -191,8 +193,9 @@ export default async function NotificationsPage({
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium">Unread</label>
+          <label htmlFor="filter-unread" className="text-xs font-medium">Unread</label>
           <select
+            id="filter-unread"
             name="unread"
             defaultValue={sp.unread ?? ""}
             className="border-border bg-background h-9 rounded-md border px-2 text-sm"
@@ -203,12 +206,12 @@ export default async function NotificationsPage({
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium">From</label>
-          <Input type="date" name="from" defaultValue={sp.from ?? ""} />
+          <label htmlFor="filter-from" className="text-xs font-medium">From</label>
+          <Input id="filter-from" type="date" name="from" defaultValue={sp.from ?? ""} />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium">To</label>
-          <Input type="date" name="to" defaultValue={sp.to ?? ""} />
+          <label htmlFor="filter-to" className="text-xs font-medium">To</label>
+          <Input id="filter-to" type="date" name="to" defaultValue={sp.to ?? ""} />
         </div>
         <div className="md:col-span-5 flex justify-end gap-2">
           <Button type="submit" size="sm">

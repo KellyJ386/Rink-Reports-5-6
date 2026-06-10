@@ -14,7 +14,7 @@ import {
   type SettingsForCompliance,
   type ShiftForHours,
 } from "./compliance"
-import { assertAssignable } from "./enforcement"
+import { assertAssignable, formatViolations } from "./enforcement"
 import type {
   ActionState,
   CreateShiftInput,
@@ -74,6 +74,14 @@ async function resolveAdminContext(): Promise<
 // Compliance computation (pure math lives in ./compliance — unit-tested)
 // ---------------------------------------------------------------------------
 
+type ComplianceContext = {
+  facilityId: string
+  settings: SettingsForCompliance | null
+  employee: EmployeeForCompliance | null
+  timezone: string | null
+  weekStartDay: number
+}
+
 async function computeComplianceWarnings(
   shift: {
     starts_at: string
@@ -81,19 +89,22 @@ async function computeComplianceWarnings(
     break_minutes: number | null
     employee_id: string | null
   },
-  settings: SettingsForCompliance | null,
-  employee: EmployeeForCompliance | null,
+  ctx: ComplianceContext,
   excludeShiftId: string | null
 ): Promise<string[]> {
-  if (!shift.employee_id || !employee || !settings) return []
+  if (!shift.employee_id || !ctx.employee || !ctx.settings) return []
 
-  const window = complianceWeekWindow(shift.starts_at)
+  const window = complianceWeekWindow(shift.starts_at, {
+    timezone: ctx.timezone,
+    weekStartDay: ctx.weekStartDay,
+  })
 
   const supabase = await createClient()
   let query = supabase
     .from("schedule_shifts")
     .select("starts_at, ends_at, break_minutes")
     .eq("employee_id", shift.employee_id)
+    .eq("facility_id", ctx.facilityId)
     .in("status", ["draft", "published"])
     .gte("starts_at", window.startIso)
     .lt("starts_at", window.endIso)
@@ -103,24 +114,28 @@ async function computeComplianceWarnings(
   return evaluateComplianceWarnings({
     shift,
     otherShifts: (existing ?? []) as ShiftForHours[],
-    settings,
-    employee,
+    settings: ctx.settings,
+    employee: ctx.employee,
   })
 }
 
 async function loadComplianceContext(
   facilityId: string,
   employeeId: string | null
-): Promise<{
-  settings: SettingsForCompliance | null
-  employee: EmployeeForCompliance | null
-}> {
+): Promise<ComplianceContext> {
   const supabase = await createClient()
-  const settingsRes = await supabase
-    .from("schedule_settings")
-    .select("minor_max_weekly_hours, overtime_weekly_hours")
-    .eq("facility_id", facilityId)
-    .maybeSingle<SettingsForCompliance>()
+  const [settingsRes, facilityRes] = await Promise.all([
+    supabase
+      .from("schedule_settings")
+      .select("minor_max_weekly_hours, overtime_weekly_hours, week_start_day")
+      .eq("facility_id", facilityId)
+      .maybeSingle<SettingsForCompliance & { week_start_day: number | null }>(),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
 
   let employee: EmployeeForCompliance | null = null
   if (employeeId) {
@@ -131,7 +146,13 @@ async function loadComplianceContext(
       .maybeSingle<EmployeeForCompliance>()
     employee = emp ?? null
   }
-  return { settings: settingsRes.data ?? null, employee }
+  return {
+    facilityId,
+    settings: settingsRes.data ?? null,
+    employee,
+    timezone: facilityRes.data?.timezone ?? null,
+    weekStartDay: settingsRes.data?.week_start_day ?? 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,16 +234,11 @@ export async function createShift(
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
 
-    const { settings, employee } = await loadComplianceContext(
+    const complianceCtx = await loadComplianceContext(
       ctx.facilityId,
       input.employee_id
     )
-    const warnings = await computeComplianceWarnings(
-      input,
-      settings,
-      employee,
-      null
-    )
+    const warnings = await computeComplianceWarnings(input, complianceCtx, null)
 
     const supabase = await createClient()
 
@@ -285,16 +301,11 @@ export async function updateShift(
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input: UpdateShiftInput & CreateShiftInput = parsed.value
 
-    const { settings, employee } = await loadComplianceContext(
+    const complianceCtx = await loadComplianceContext(
       ctx.facilityId,
       input.employee_id
     )
-    const warnings = await computeComplianceWarnings(
-      input,
-      settings,
-      employee,
-      id
-    )
+    const warnings = await computeComplianceWarnings(input, complianceCtx, id)
 
     const supabase = await createClient()
 
@@ -455,6 +466,65 @@ export async function assignOpenShift(
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Open shift assigned." }
+  } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+type DecideOpenClaimRpcResult = {
+  ok?: boolean
+  decision?: string
+  error?: string
+  violations?: string[]
+}
+
+/**
+ * Approve or decline a pending approval-required claim on an open shift.
+ * The RPC is atomic: it locks the listing + parent shift, re-validates the
+ * claimant on approve, assigns the still-unassigned shift, and notifies the
+ * claimant either way.
+ */
+export async function decideOpenShiftClaim(
+  openShiftId: string,
+  approve: boolean,
+  note?: string
+): Promise<ActionState> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+    if (!openShiftId) return { ok: false, error: "Missing open shift id." }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("scheduling_decide_open_claim", {
+      p_open_shift_id: openShiftId,
+      p_approve: approve,
+      p_note: note?.trim() ? note.trim() : undefined,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to decide claim.") }
+    }
+    const result = (data ?? {}) as DecideOpenClaimRpcResult
+    if (result.ok !== true) {
+      const detail =
+        result.violations && result.violations.length > 0
+          ? `The claimant can no longer work this shift: ${formatViolations(result.violations)}`
+          : (result.error ?? "Failed to decide claim.")
+      return { ok: false, error: detail }
+    }
+
+    revalidatePath("/admin/scheduling")
+    revalidatePath("/admin/scheduling/shifts")
+    return {
+      ok: true,
+      message:
+        result.decision === "approved"
+          ? "Claim approved — shift assigned."
+          : "Claim declined — shift reopened.",
+    }
   } catch (e) {
     logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {

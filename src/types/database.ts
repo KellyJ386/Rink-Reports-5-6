@@ -6454,6 +6454,14 @@ export type Database = {
         Args: { p_open_shift_id: string }
         Returns: boolean
       }
+      scheduling_decide_open_claim: {
+        Args: { p_approve: boolean; p_note?: string; p_open_shift_id: string }
+        Returns: Json
+      }
+      scheduling_notify_swap_request: {
+        Args: { p_swap_id: string }
+        Returns: boolean
+      }
       seed_default_accident_dropdowns: {
         Args: { p_facility_id: string }
         Returns: undefined

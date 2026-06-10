@@ -33,9 +33,18 @@ type CoworkerOption = {
   label: string
 }
 
+type CoworkerShiftOption = {
+  id: string
+  employee_id: string
+  starts_at: string
+  ends_at: string
+  role_label: string | null
+}
+
 type Props = {
   myShifts: ShiftOption[]
   coworkers: CoworkerOption[]
+  coworkerShifts: CoworkerShiftOption[]
   timezone: string | null
 }
 
@@ -53,7 +62,12 @@ function Submit() {
   )
 }
 
-export function SwapForm({ myShifts, coworkers, timezone }: Props) {
+export function SwapForm({
+  myShifts,
+  coworkers,
+  coworkerShifts,
+  timezone,
+}: Props) {
   const [state, formAction] = useActionState(
     submitSwapRequest,
     INITIAL_ACTION_STATE
@@ -63,6 +77,10 @@ export function SwapForm({ myShifts, coworkers, timezone }: Props) {
   const [targetEmpId, setTargetEmpId] = useState("")
   const [targetShiftId, setTargetShiftId] = useState("")
   const [note, setNote] = useState("")
+
+  const targetCoworkerShifts = coworkerShifts.filter(
+    (s) => s.employee_id === targetEmpId
+  )
 
   useEffect(() => {
     if (state.status === "error") {
@@ -116,9 +134,9 @@ export function SwapForm({ myShifts, coworkers, timezone }: Props) {
       <input type="hidden" name="target_employee_id" value={targetEmpId} />
 
       <div className="flex flex-col gap-2">
-        <Label>Your shift to give up</Label>
+        <Label id="swap-my-shift-label">Your shift to give up</Label>
         <Select value={shiftId} onValueChange={setShiftId} required>
-          <SelectTrigger>
+          <SelectTrigger aria-labelledby="swap-my-shift-label">
             <SelectValue placeholder="Pick a shift" />
           </SelectTrigger>
           <SelectContent>
@@ -132,9 +150,15 @@ export function SwapForm({ myShifts, coworkers, timezone }: Props) {
         </Select>
       </div>
       <div className="flex flex-col gap-2">
-        <Label>Coworker (optional)</Label>
-        <Select value={targetEmpId || undefined} onValueChange={setTargetEmpId}>
-          <SelectTrigger>
+        <Label id="swap-coworker-label">Coworker (optional)</Label>
+        <Select
+          value={targetEmpId || undefined}
+          onValueChange={(v) => {
+            setTargetEmpId(v)
+            setTargetShiftId("")
+          }}
+        >
+          <SelectTrigger aria-labelledby="swap-coworker-label">
             <SelectValue placeholder="Anyone" />
           </SelectTrigger>
           <SelectContent>
@@ -146,19 +170,39 @@ export function SwapForm({ myShifts, coworkers, timezone }: Props) {
           </SelectContent>
         </Select>
       </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="target_shift_id">
-          Their shift to take (optional, ID)
-        </Label>
-        <input
-          id="target_shift_id"
-          name="target_shift_id"
-          value={targetShiftId}
-          onChange={(e) => setTargetShiftId(e.target.value)}
-          placeholder="Leave blank to drop only"
-          className="border-input bg-background h-12 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        />
-      </div>
+      {targetEmpId ? (
+        <div className="flex flex-col gap-2">
+          <Label id="swap-target-shift-label">
+            Their shift to take (optional)
+          </Label>
+          <input type="hidden" name="target_shift_id" value={targetShiftId} />
+          {targetCoworkerShifts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No upcoming shifts for this coworker — leave blank to just give
+              your shift away.
+            </p>
+          ) : (
+            <Select
+              value={targetShiftId || undefined}
+              onValueChange={setTargetShiftId}
+            >
+              <SelectTrigger aria-labelledby="swap-target-shift-label">
+                <SelectValue placeholder="Just cover mine (no trade)" />
+              </SelectTrigger>
+              <SelectContent>
+                {targetCoworkerShifts.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {formatDateRange(s.starts_at, s.ends_at, timezone)}
+                    {s.role_label ? ` — ${s.role_label}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      ) : (
+        <input type="hidden" name="target_shift_id" value="" />
+      )}
       <div className="flex flex-col gap-2">
         <Label htmlFor="decision_note">Note (optional)</Label>
         <Textarea

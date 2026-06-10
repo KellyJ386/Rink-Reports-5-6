@@ -80,6 +80,7 @@ type OpenShiftRow = {
   id: string
   approval_required: boolean
   claim_status: string
+  claimed_by_employee_id: string | null
   schedule_shifts: {
     id: string
     starts_at: string
@@ -148,10 +149,10 @@ export default async function SchedulingDashboardPage() {
     supabase
       .from("schedule_open_shifts")
       .select(
-        "id, approval_required, claim_status, schedule_shifts(id, starts_at, ends_at, role_label, department_id, departments(name))"
+        "id, approval_required, claim_status, claimed_by_employee_id, schedule_shifts(id, starts_at, ends_at, role_label, department_id, departments(name))"
       )
       .eq("facility_id", employeeRow.facility_id)
-      .eq("claim_status", "open"),
+      .in("claim_status", ["open", "claimed"]),
     supabase
       .from("facilities")
       .select("timezone")
@@ -170,7 +171,7 @@ export default async function SchedulingDashboardPage() {
   const openShifts = openShiftsAll
     .filter((row) => {
       const shift = row.schedule_shifts
-      if (!shift) return false
+      if (!shift || row.claim_status !== "open") return false
       const startTs = new Date(shift.starts_at).getTime()
       return startTs >= now.getTime() && startTs <= in14.getTime()
     })
@@ -180,6 +181,15 @@ export default async function SchedulingDashboardPage() {
         new Date(b.schedule_shifts!.starts_at).getTime()
     )
     .slice(0, 5)
+
+  // My claims that still need an admin's approval — otherwise a claimed
+  // shift just vanishes from the open list with no trace for the claimant.
+  const myPendingClaims = openShiftsAll.filter(
+    (row) =>
+      row.claim_status === "claimed" &&
+      row.claimed_by_employee_id === employeeRow.id &&
+      row.schedule_shifts !== null
+  )
 
   const nextShift = myShifts[0] ?? null
   const upcomingShifts = myShifts.slice(0, 8)
@@ -517,7 +527,7 @@ export default async function SchedulingDashboardPage() {
           </div>
           <Link
             href="/reports/scheduling/my-schedule"
-            style={{ fontSize: 12, color: GREEN, textDecoration: "none" }}
+            style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none" }}
           >
             View all →
           </Link>
@@ -707,6 +717,57 @@ export default async function SchedulingDashboardPage() {
                     </div>
                   </div>
                   <ClaimOpenShiftButton openShiftId={row.id} />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* My pending claims (awaiting admin approval) */}
+      {myPendingClaims.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: SECONDARY,
+              textTransform: "uppercase",
+              marginBottom: 10,
+            }}
+          >
+            Your claims · Awaiting approval
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {myPendingClaims.map((row) => {
+              const shift = row.schedule_shifts
+              if (!shift) return null
+              return (
+                <div
+                  key={row.id}
+                  style={{
+                    background: SURFACE,
+                    border: `1px dashed ${BORDER}`,
+                    borderRadius: 14,
+                    padding: "12px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
+                    >
+                      {formatDateTime(shift.starts_at, tz)}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: SECONDARY, marginTop: 2 }}>
+                      {shift.departments?.name ?? "—"}
+                      {shift.role_label ? ` · ${shift.role_label}` : ""}
+                      {" · You claimed this shift — a manager needs to approve it."}
+                    </div>
+                  </div>
                 </div>
               )
             })}

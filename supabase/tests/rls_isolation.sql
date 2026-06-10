@@ -2204,6 +2204,36 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2O. Migration-137 SECURITY DEFINER gates.
+--
+-- scheduling_decide_open_claim is admin-gated; scheduling_notify_swap_request
+-- may only fire for the CALLER'S OWN live swap (returns false otherwise, and
+-- must insert nothing).
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.scheduling_decide_open_claim(
+      'aaaa1111-5711-aaaa-aaaa-aaaa11110095', true)$$,
+  'SCHED-137: staff CANNOT execute scheduling_decide_open_claim');
+
+-- Alice is the TARGET (not requester) of swap ...95 — the helper must refuse.
+select pg_temp.expect_count(
+  $$select case when public.scheduling_notify_swap_request(
+      'aaaa1111-5711-aaaa-aaaa-aaaa11110095') then 1 else 0 end$$,
+  0, 'SCHED-137: non-requester CANNOT fire swap_request_received');
+
+reset role;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+    where swap_id = 'aaaa1111-5711-aaaa-aaaa-aaaa11110095'
+      and notification_type = 'swap_request_received'$$,
+  0, 'SCHED-137: refused notify helper inserted nothing');
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
