@@ -336,6 +336,23 @@ values
    'daily_reports', 'aaaa1111-da01-aaaa-aaaa-aaaa11110011', true, true)
 on conflict (employee_id, module_key, area_id) do nothing;
 
+-- Ice-depth layout + measurement point in Facility A, so the positive
+-- session-INSERT assertion below (alice submits her OWN reading) and the
+-- depth >= 0 / low < high CHECK assertions (migration 136) have valid FK
+-- targets. Seeded as postgres (BYPASSRLS).
+insert into public.ice_depth_layouts (id, facility_id, name, slug, sort_order, is_active, is_default)
+values ('aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+        '11111111-1111-1111-1111-111111111111', 'A Sheet', 'a-sheet', 1, true, true)
+on conflict (id) do nothing;
+
+insert into public.ice_depth_points
+  (id, facility_id, layout_id, point_number, label, x_position, y_position, sort_order, is_active)
+values ('aaaa1111-1c01-aaaa-aaaa-aaaa11110073',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+        1, 'Center', 0.5, 0.5, 1, true)
+on conflict (id) do nothing;
+
 -- NOTE (migrations 91 + 99): The config-table SELECT policies (ice_depth, communications,
 -- ice_operations, refrigeration, ...) gate on public.has_module_access(<module>).
 -- BEFORE migration 90 that helper read the deprecated module_permissions.can_view
@@ -798,6 +815,23 @@ select pg_temp.expect_error(
     values
       ('22222222-2222-2222-2222-222222222222', 'Sneaky Rink', 'sneaky')$$,
   'ice_depth: alice CANNOT INSERT a rink into facility B');
+
+-- Ice Depth sessions: the INSERT policy (migration 71) lets a module-submitter
+-- record a reading in their OWN facility. The cross-facility negative is pinned
+-- in section 2L; this positive case ensures the submit gate does not
+-- over-restrict legitimate staff (the regression that would silently break the
+-- entire staff submission flow). employee attribution is enforced in app code
+-- (submit.ts), not this policy.
+select pg_temp.expect_ok(
+  $$insert into public.ice_depth_sessions
+      (facility_id, layout_id, employee_id,
+       measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+       'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       'inches', 1.0, 2.0)$$,
+  'ice_depth: alice CAN INSERT a session in her own facility (submit gate)');
 
 -- ---------------------------------------------------------------------------
 -- Facility Paperwork (migration 85): documents are browsable by any employee
@@ -1930,6 +1964,55 @@ select pg_temp.expect_ok(
   'PURGE-134: service_role CAN execute purge_old_offline_sync_queue');
 
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2m. Ice-depth nightly purge worker + integrity constraints (migration 136).
+--
+-- purge_old_ice_depth_sessions() is a SECURITY DEFINER bulk-deleter wired into
+-- the run-retention-purge cron. Like the migration-134 workers, the EXECUTE
+-- grant (service_role only) IS the gate. The CHECK constraints are the DB
+-- floor under the app-layer guards in compute.ts / the admin settings form.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.purge_old_ice_depth_sessions()$$,
+  'PURGE-136: authenticated CANNOT execute purge_old_ice_depth_sessions');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.purge_old_ice_depth_sessions()$$,
+  'PURGE-136: anon CANNOT execute purge_old_ice_depth_sessions');
+
+reset role;
+set local role service_role;
+
+select pg_temp.expect_ok(
+  $$select public.purge_old_ice_depth_sessions()$$,
+  'PURGE-136: service_role CAN execute purge_old_ice_depth_sessions');
+
+reset role;
+
+-- Integrity CHECKs run as postgres (BYPASSRLS) so only the constraint — not a
+-- policy — can reject the write.
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_settings (facility_id, low_threshold, high_threshold)
+    values ('11111111-1111-1111-1111-111111111111', 2.0, 1.0)$$,
+  'INTEGRITY-136: ice_depth_settings rejects low_threshold >= high_threshold');
+
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_measurements
+      (facility_id, session_id, point_number_snapshot, x_snapshot, y_snapshot,
+       depth_value, severity)
+    select '11111111-1111-1111-1111-111111111111', s.id, 1, 0.5, 0.5, -1, 'low'
+      from public.ice_depth_sessions s
+     where s.facility_id = '11111111-1111-1111-1111-111111111111'
+     limit 1$$,
+  'INTEGRITY-136: ice_depth_measurements rejects negative depth_value');
 
 -- ---------------------------------------------------------------------------
 -- 2m. Daily-checklist seeder (migration 135).

@@ -26,6 +26,10 @@ type Props = {
   layouts: LayoutRow[]
   employees: EmployeeLite[]
   params: HistoryParams
+  /** "Load more" target preserving filters, or null when all rows are shown. */
+  moreHref: string | null
+  /** Super admins may hard-delete an (otherwise immutable) session. */
+  canDelete: boolean
 }
 
 function fmt(ts: string): string {
@@ -58,9 +62,13 @@ export function HistoryTab({
   layouts,
   employees,
   params,
+  moreHref,
+  canDelete,
 }: Props) {
   if (detail) {
-    return <SessionDetail detail={detail} backHref={backHref} />
+    return (
+      <SessionDetail detail={detail} backHref={backHref} canDelete={canDelete} />
+    )
   }
 
   return (
@@ -85,7 +93,20 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <SessionsList list={list} params={params} />
+        <>
+          <SessionsList list={list} params={params} />
+          {moreHref && (
+            <div className="flex justify-center">
+              <Link
+                href={moreHref}
+                scroll={false}
+                className="text-primary text-sm font-medium hover:underline"
+              >
+                Load more
+              </Link>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
