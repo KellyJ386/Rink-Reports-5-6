@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { addDaysToKey, wallTimeToUtc } from "@/lib/timezone"
 
 import {
   complianceWeekWindow,
@@ -416,13 +417,24 @@ export async function assignOpenShift(
     if (!gate.ok) return { ok: false, error: gate.error }
 
     const nowIso = new Date().toISOString()
-    const { error: shiftErr } = await supabase
+    // Only fill a still-unassigned slot — a stale open-shift row must not
+    // clobber a shift someone else already holds (e.g. a no-approval claim
+    // that landed between page load and this click).
+    const { data: updatedShift, error: shiftErr } = await supabase
       .from("schedule_shifts")
       .update({ employee_id: employeeId })
       .eq("id", openRow.shift_id)
       .eq("facility_id", ctx.facilityId)
+      .is("employee_id", null)
+      .select("id")
     if (shiftErr) {
       return { ok: false, error: dbError(shiftErr, "Failed to assign shift.") }
+    }
+    if (!updatedShift || updatedShift.length === 0) {
+      return {
+        ok: false,
+        error: "That shift was already assigned to someone else.",
+      }
     }
 
     const { error: claimErr } = await supabase
@@ -764,21 +776,19 @@ export async function deleteTemplateShift(id: string): Promise<ActionState> {
 // Apply template to week
 // ---------------------------------------------------------------------------
 
-function combineDateAndTime(weekStartUtc: Date, dayOfWeek: number, time: string): string {
-  // time is HH:MM or HH:MM:SS; treat as UTC wall time for v1 (per datetime.ts approach).
-  const [hRaw, mRaw, sRaw] = time.split(":")
-  const h = Number.parseInt(hRaw ?? "0", 10)
-  const m = Number.parseInt(mRaw ?? "0", 10)
-  const s = Number.parseInt(sRaw ?? "0", 10)
-  const d = new Date(weekStartUtc)
-  d.setUTCDate(d.getUTCDate() + dayOfWeek)
-  d.setUTCHours(
-    Number.isFinite(h) ? h : 0,
-    Number.isFinite(m) ? m : 0,
-    Number.isFinite(s) ? s : 0,
-    0
-  )
-  return d.toISOString()
+function combineDateAndTime(
+  weekStartKey: string,
+  dayOfWeek: number,
+  time: string,
+  timezone: string | null
+): string | null {
+  // time is HH:MM or HH:MM:SS — a wall-clock time in the FACILITY's timezone.
+  const dateKey = addDaysToKey(weekStartKey, dayOfWeek)
+  const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time)
+  const wall = m
+    ? `${dateKey}T${m[1]}:${m[2]}:${m[3] ?? "00"}`
+    : `${dateKey}T00:00:00`
+  return wallTimeToUtc(wall, timezone)?.toISOString() ?? null
 }
 
 export async function applyTemplateToWeek(
@@ -795,11 +805,20 @@ export async function applyTemplateToWeek(
     if (Number.isNaN(ws.getTime())) {
       return { ok: false, error: "Invalid week start." }
     }
-    const weekStartUtc = new Date(
-      Date.UTC(ws.getUTCFullYear(), ws.getUTCMonth(), ws.getUTCDate())
-    )
+    const weekStartKey = /^\d{4}-\d{2}-\d{2}$/.test(weekStart)
+      ? weekStart
+      : ws.toISOString().slice(0, 10)
 
     const supabase = await createClient()
+
+    // Template times are wall-clock in the facility's timezone.
+    const { data: facilityRow } = await supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", ctx.facilityId)
+      .maybeSingle<{ timezone: string | null }>()
+    const timezone = facilityRow?.timezone ?? null
+
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
       .select(
@@ -843,15 +862,20 @@ export async function applyTemplateToWeek(
     }> = []
     for (const slot of slots) {
       const starts_at = combineDateAndTime(
-        weekStartUtc,
+        weekStartKey,
         slot.day_of_week,
-        slot.start_time
+        slot.start_time,
+        timezone
       )
       const ends_at = combineDateAndTime(
-        weekStartUtc,
+        weekStartKey,
         slot.day_of_week,
-        slot.end_time
+        slot.end_time,
+        timezone
       )
+      if (!starts_at || !ends_at) {
+        return { ok: false, error: "Template slot has an invalid time." }
+      }
       for (let i = 0; i < slot.staff_count; i++) {
         rows.push({
           facility_id: ctx.facilityId,

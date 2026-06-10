@@ -11,6 +11,7 @@ import {
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { addDaysToKey, dayKeyInTz, dayPartsInTz } from "@/lib/timezone"
 
 import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
 import { formatDateRange, formatDateTime } from "./_components/format-utils"
@@ -63,17 +64,6 @@ function NotAvailable({
       </Card>
     </div>
   )
-}
-
-function toISODate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + n)
-  return r
 }
 
 type ShiftRow = {
@@ -184,19 +174,33 @@ export default async function SchedulingDashboardPage() {
       const startTs = new Date(shift.starts_at).getTime()
       return startTs >= now.getTime() && startTs <= in14.getTime()
     })
+    .sort(
+      (a, b) =>
+        new Date(a.schedule_shifts!.starts_at).getTime() -
+        new Date(b.schedule_shifts!.starts_at).getTime()
+    )
     .slice(0, 5)
 
   const nextShift = myShifts[0] ?? null
   const upcomingShifts = myShifts.slice(0, 8)
 
-  // Build 7-day week strip (today + 6 days)
+  // Build 7-day week strip (today + 6 days) on the FACILITY's calendar, so a
+  // late-evening shift doesn't land under the wrong day when the server (or
+  // viewer) sits in another timezone.
+  const todayKey = dayKeyInTz(now, tz)
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(now, i)
-    const iso = toISODate(d)
-    const hasShift = myShifts.some((s) => toISODate(new Date(s.starts_at)) === iso)
+    const iso = addDaysToKey(todayKey, i)
+    const probe = new Date(`${iso}T12:00:00Z`)
+    const hasShift = myShifts.some((s) => dayKeyInTz(s.starts_at, tz) === iso)
     const isNext =
-      nextShift !== null && toISODate(new Date(nextShift.starts_at)) === iso
-    return { date: d, iso, hasShift, isNext, label: DAY_LABELS[d.getDay()] }
+      nextShift !== null && dayKeyInTz(nextShift.starts_at, tz) === iso
+    return {
+      iso,
+      hasShift,
+      isNext,
+      label: DAY_LABELS[probe.getUTCDay()],
+      dayOfMonth: probe.getUTCDate(),
+    }
   })
 
   function formatShiftTime(shift: ShiftRow): string {
@@ -218,10 +222,10 @@ export default async function SchedulingDashboardPage() {
   }
 
   function formatShiftDay(shift: ShiftRow): { day: string; date: number } {
-    const d = new Date(shift.starts_at)
+    const p = dayPartsInTz(shift.starts_at, tz)
     return {
-      day: DAY_LABELS[d.getDay()],
-      date: d.getDate(),
+      day: DAY_LABELS[p.dayOfWeek],
+      date: p.dayOfMonth,
     }
   }
 
@@ -239,8 +243,8 @@ export default async function SchedulingDashboardPage() {
   }
 
   function formatNextShiftHero(shift: ShiftRow): string {
-    const d = new Date(shift.starts_at)
-    return `${DAY_LABELS[d.getDay()]} ${d.getDate()}`
+    const p = dayPartsInTz(shift.starts_at, tz)
+    return `${DAY_LABELS[p.dayOfWeek]} ${p.dayOfMonth}`
   }
 
   return (
@@ -475,7 +479,7 @@ export default async function SchedulingDashboardPage() {
                 lineHeight: 1.15,
               }}
             >
-              {d.date.getDate()}
+              {d.dayOfMonth}
             </div>
             <div
               style={{
@@ -640,7 +644,7 @@ export default async function SchedulingDashboardPage() {
             {openShifts.map((row) => {
               const shift = row.schedule_shifts
               if (!shift) return null
-              const d = new Date(shift.starts_at)
+              const dayParts = dayPartsInTz(shift.starts_at, tz)
               return (
                 <div
                   key={row.id}
@@ -677,7 +681,7 @@ export default async function SchedulingDashboardPage() {
                         color: SECONDARY,
                       }}
                     >
-                      {DAY_LABELS[d.getDay()]}
+                      {DAY_LABELS[dayParts.dayOfWeek]}
                     </div>
                     <div
                       style={{
@@ -687,7 +691,7 @@ export default async function SchedulingDashboardPage() {
                         color: FOREGROUND,
                       }}
                     >
-                      {d.getDate()}
+                      {dayParts.dayOfMonth}
                     </div>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>

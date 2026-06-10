@@ -45,11 +45,11 @@ export default async function SchedulingSettingsPage() {
   }
 
   const supabase = await createClient()
+  // Select * — the form reads (and writes back) every policy flag, so an
+  // omitted column here silently reverts that flag to its default on save.
   const { data: settings } = await supabase
     .from("schedule_settings")
-    .select(
-      "id, facility_id, week_start_day, default_shift_minutes, minor_max_weekly_hours, overtime_weekly_hours, minimum_break_minutes, minimum_break_after_hours, swap_requires_manager_approval, open_shift_first_come, notify_on_publish, notify_on_overtime"
-    )
+    .select("*")
     .eq("facility_id", facilityId)
     .maybeSingle<Tables<"schedule_settings">>()
 

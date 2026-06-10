@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "@/lib/auth"
 import { currentUserCan } from "@/lib/permissions/check"
+import { wallTimeToUtc } from "@/lib/timezone"
 import type { Json } from "@/types/database"
 import {
   buildInputFromPayload,
@@ -521,9 +522,17 @@ async function handleSchedulingReplay({
       : async () =>
           supabase.from("schedule_availability").insert(availabilityRow)
   } else if (action === "request_time_off") {
-    const startsAt = new Date(asString(payload.starts_at))
-    const endsAt = new Date(asString(payload.ends_at))
-    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+    // datetime-local strings are wall-clock times in the FACILITY's timezone
+    // (mirrors submitTimeOffRequest).
+    const { data: facilityRow } = await supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>()
+    const tz = facilityRow?.timezone ?? null
+    const startsAt = wallTimeToUtc(asString(payload.starts_at), tz)
+    const endsAt = wallTimeToUtc(asString(payload.ends_at), tz)
+    if (!startsAt || !endsAt) {
       return NextResponse.json({ error: "Invalid dates" }, { status: 400 })
     }
     if (endsAt <= startsAt) {

@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import type { Json } from "@/types/database"
 
-import { assertAssignable } from "./enforcement"
+import { formatViolations } from "./enforcement"
 import {
   isComplianceRuleType,
   type CreateComplianceRuleInput,
@@ -239,6 +239,23 @@ export async function assignSwapTarget(
     }
 
     const supabase = await createClient()
+
+    // The target id comes from the client — verify it names an active
+    // employee of THIS facility before writing it onto the swap.
+    const { data: targetEmp } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("id", targetEmployeeId)
+      .eq("facility_id", ctx.facilityId)
+      .eq("is_active", true)
+      .maybeSingle()
+    if (!targetEmp) {
+      return {
+        ok: false,
+        error: "That employee isn't an active member of your facility.",
+      }
+    }
+
     const { error } = await supabase
       .from("schedule_swap_requests")
       .update({
@@ -262,6 +279,12 @@ export async function assignSwapTarget(
   }
 }
 
+type ApplySwapRpcResult = {
+  ok?: boolean
+  error?: string
+  violations?: string[]
+}
+
 export async function approveSwap(
   id: string,
   note?: string
@@ -271,144 +294,35 @@ export async function approveSwap(
     if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing swap id." }
 
-    const swap = await loadSwap(id, ctx.facilityId)
-    if (!swap.ok) return swap
-
-    if (swap.row.status === "manager_approved") {
-      return { ok: false, error: "Already approved." }
-    }
-    if (swap.row.status === "denied" || swap.row.status === "cancelled") {
-      return { ok: false, error: "Swap already in terminal state." }
-    }
-    if (!swap.row.target_employee_id || !swap.row.target_shift_id) {
-      return {
-        ok: false,
-        error:
-          "Swap is missing a target shift. Assign a target before approving.",
-      }
-    }
-
+    // The RPC re-runs every check inside one transaction: it locks the swap
+    // and both shifts, verifies neither shift was reassigned since the swap
+    // was filed, validates both directions while excluding BOTH traded shifts
+    // (so the counterpart can't false-positive double-booking / weekly-hours
+    // / min-rest), applies the exchange — or a one-way coverage hand-off when
+    // there is no counter-shift — and notifies both employees.
     const supabase = await createClient()
-
-    // Read both shifts to confirm they exist and capture the fields the
-    // assignment-eligibility check needs.
-    const { data: shifts, error: shiftErr } = await supabase
-      .from("schedule_shifts")
-      .select("id, employee_id, facility_id, starts_at, ends_at, break_minutes, job_area_id")
-      .in("id", [swap.row.requester_shift_id, swap.row.target_shift_id])
-
-    if (shiftErr) {
-      return { ok: false, error: dbError(shiftErr, "Failed to load shifts.") }
-    }
-    const list = (shifts ?? []) as Array<{
-      id: string
-      employee_id: string | null
-      facility_id: string
-      starts_at: string
-      ends_at: string
-      break_minutes: number | null
-      job_area_id: string | null
-    }>
-    const requesterShift = list.find(
-      (s) => s.id === swap.row.requester_shift_id
-    )
-    const targetShift = list.find((s) => s.id === swap.row.target_shift_id)
-    if (!requesterShift || !targetShift) {
-      return { ok: false, error: "One or both shifts no longer exist." }
-    }
-    if (
-      requesterShift.facility_id !== ctx.facilityId ||
-      targetShift.facility_id !== ctx.facilityId
-    ) {
-      return { ok: false, error: "Shifts do not belong to this facility." }
-    }
-
-    // Hard block: each employee must be eligible for the shift they're moving
-    // onto. Exclude the shift itself so its current occupant doesn't count.
-    const gateTargetOntoRequester = await assertAssignable(supabase, {
-      facilityId: ctx.facilityId,
-      employeeId: swap.row.target_employee_id,
-      startsAt: requesterShift.starts_at,
-      endsAt: requesterShift.ends_at,
-      breakMinutes: requesterShift.break_minutes,
-      jobAreaId: requesterShift.job_area_id,
-      excludeShiftId: requesterShift.id,
+    const { data, error } = await supabase.rpc("scheduling_apply_swap", {
+      p_swap_id: id,
+      p_decision_note: note?.trim() ? note.trim() : undefined,
     })
-    if (!gateTargetOntoRequester.ok) {
-      return { ok: false, error: gateTargetOntoRequester.error }
-    }
-    const gateRequesterOntoTarget = await assertAssignable(supabase, {
-      facilityId: ctx.facilityId,
-      employeeId: swap.row.requester_employee_id,
-      startsAt: targetShift.starts_at,
-      endsAt: targetShift.ends_at,
-      breakMinutes: targetShift.break_minutes,
-      jobAreaId: targetShift.job_area_id,
-      excludeShiftId: targetShift.id,
-    })
-    if (!gateRequesterOntoTarget.ok) {
-      return { ok: false, error: gateRequesterOntoTarget.error }
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to approve swap.") }
     }
 
-    // Apply the swap: swap employee_ids on both shifts.
-    const { error: updReqErr } = await supabase
-      .from("schedule_shifts")
-      .update({ employee_id: swap.row.target_employee_id })
-      .eq("id", swap.row.requester_shift_id)
-      .eq("facility_id", ctx.facilityId)
-    if (updReqErr) {
-      return {
-        ok: false,
-        error: dbError(updReqErr, "Failed to update requester shift."),
-      }
+    const result = (data ?? {}) as ApplySwapRpcResult
+    if (result.ok !== true) {
+      const who =
+        result.error === "target_not_assignable"
+          ? "The target employee can't take the requester's shift: "
+          : result.error === "requester_not_assignable"
+            ? "The requester can't take the target's shift: "
+            : ""
+      const detail =
+        result.violations && result.violations.length > 0
+          ? formatViolations(result.violations)
+          : (result.error ?? "Failed to approve swap.")
+      return { ok: false, error: who ? `${who}${detail}` : detail }
     }
-    const { error: updTgtErr } = await supabase
-      .from("schedule_shifts")
-      .update({ employee_id: swap.row.requester_employee_id })
-      .eq("id", swap.row.target_shift_id)
-      .eq("facility_id", ctx.facilityId)
-    if (updTgtErr) {
-      return {
-        ok: false,
-        error: dbError(updTgtErr, "Failed to update target shift."),
-      }
-    }
-
-    const nowIso = new Date().toISOString()
-    const { error: swapErr } = await supabase
-      .from("schedule_swap_requests")
-      .update({
-        status: "manager_approved",
-        approved_at: nowIso,
-        manager_approver_employee_id: ctx.employeeId,
-        decision_note: note?.trim() ? note.trim() : null,
-        decided_at: nowIso,
-      })
-      .eq("id", id)
-      .eq("facility_id", ctx.facilityId)
-    if (swapErr) {
-      return {
-        ok: false,
-        error: dbError(swapErr, "Failed to mark swap approved."),
-      }
-    }
-
-    await supabase.from("schedule_notifications").insert([
-      {
-        facility_id: ctx.facilityId,
-        employee_id: swap.row.requester_employee_id,
-        notification_type: "swap_approved",
-        swap_id: id,
-        payload: { role: "requester" },
-      },
-      {
-        facility_id: ctx.facilityId,
-        employee_id: swap.row.target_employee_id,
-        notification_type: "swap_approved",
-        swap_id: id,
-        payload: { role: "target" },
-      },
-    ])
 
     revalidateGovernance()
     return { ok: true, message: "Swap approved and applied." }

@@ -12,9 +12,10 @@ import {
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { currentUserCan } from "@/lib/permissions/check"
+
 import { formatRelativeAge } from "../_components/format-utils"
 import {
-
   MarkAllReadButton,
   MarkReadButton,
 } from "../_components/notification-buttons"
@@ -55,40 +56,67 @@ function NotAvailable({
   )
 }
 
+// The 9 types the DB CHECK constraint allows (migration 20) — anything else
+// falls through to the underscore-replace fallback.
 const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
-  shift_published: "Shift published",
-  shift_assigned: "Shift assigned",
-  shift_cancelled: "Shift cancelled",
-  shift_unassigned: "Shift unassigned",
-  swap_requested: "Swap requested",
-  swap_accepted: "Swap accepted",
+  schedule_published: "Schedule published",
+  shift_changed: "Shift changed",
+  open_shift_available: "Open shift available",
+  swap_request_received: "Swap request received",
+  swap_approved: "Swap approved",
   swap_denied: "Swap denied",
-  swap_applied: "Swap applied",
-  swap_cancelled: "Swap cancelled",
-  time_off_requested: "Time-off requested",
-  time_off_approved: "Time-off approved",
-  time_off_denied: "Time-off denied",
-  time_off_cancelled: "Time-off cancelled",
-  open_shift_posted: "Open shift posted",
-  open_shift_claimed: "Open shift claimed",
-  open_shift_approved: "Open shift approved",
+  time_off_decided: "Time off decided",
+  overtime_warning: "Overtime warning",
   shift_reminder: "Shift reminder",
 }
 
-function notificationTypeLabel(type: string): string {
-  return NOTIFICATION_TYPE_LABELS[type] ?? type.replace(/_/g, " ")
+function notificationTypeLabel(row: NotifRow): string {
+  // Surface the actual outcome for time-off decisions instead of the
+  // ambiguous "decided".
+  if (row.notification_type === "time_off_decided") {
+    const decision = payloadString(row.payload, "decision")
+    if (decision === "approved") return "Time off approved"
+    if (decision === "denied") return "Time off denied"
+  }
+  return (
+    NOTIFICATION_TYPE_LABELS[row.notification_type] ??
+    row.notification_type.replace(/_/g, " ")
+  )
 }
 
-function bodyFromPayload(payload: unknown): string | null {
+function payloadString(payload: unknown, key: string): string | null {
   if (!payload || typeof payload !== "object") return null
-  const obj = payload as Record<string, unknown>
+  const v = (payload as Record<string, unknown>)[key]
+  return typeof v === "string" && v.length > 0 ? v : null
+}
+
+function bodyFromPayload(row: NotifRow): string | null {
   const message =
-    typeof obj.message === "string"
-      ? obj.message
-      : typeof obj.body === "string"
-        ? obj.body
-        : null
-  return message
+    payloadString(row.payload, "message") ?? payloadString(row.payload, "body")
+  if (message) return message
+  if (row.notification_type === "time_off_decided") {
+    const decision = payloadString(row.payload, "decision")
+    const note = payloadString(row.payload, "decision_note")
+    const base =
+      decision === "approved"
+        ? "Your time-off request was approved."
+        : decision === "denied"
+          ? "Your time-off request was denied."
+          : null
+    if (base) return note ? `${base} Note: ${note}` : base
+    return note ? `Note: ${note}` : null
+  }
+  if (row.notification_type === "swap_denied") {
+    const note = payloadString(row.payload, "decision_note")
+    return note ? `Note: ${note}` : null
+  }
+  if (row.notification_type === "swap_approved") {
+    const role = payloadString(row.payload, "role")
+    return role === "target"
+      ? "A swap was approved — you picked up the shift."
+      : "Your swap request was approved."
+  }
+  return null
 }
 
 type NotifRow = {
@@ -124,6 +152,15 @@ export default async function NotificationsPage() {
     )
   }
 
+  if (!(await currentUserCan(supabase, "scheduling", "view"))) {
+    return (
+      <NotAvailable
+        title="No permission"
+        description="You don't have access to scheduling yet."
+      />
+    )
+  }
+
   const { data: rowsRaw } = await supabase
     .from("schedule_notifications")
     .select(
@@ -138,13 +175,11 @@ export default async function NotificationsPage() {
   const read = rows.filter((r) => r.read_at !== null)
 
   function NotifRowItem({ row }: { row: NotifRow }) {
-    const body = bodyFromPayload(row.payload)
+    const body = bodyFromPayload(row)
     return (
       <li className="flex flex-col gap-2 px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Badge variant="secondary">
-            {notificationTypeLabel(row.notification_type)}
-          </Badge>
+          <Badge variant="secondary">{notificationTypeLabel(row)}</Badge>
           <span className="text-xs text-muted-foreground">
             {formatRelativeAge(row.created_at)}
           </span>

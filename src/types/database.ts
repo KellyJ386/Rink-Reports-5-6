@@ -6425,12 +6425,21 @@ export type Database = {
           employee_id: string
         }[]
       }
+      scheduling_apply_swap: {
+        Args: { p_decision_note?: string; p_swap_id: string }
+        Returns: Json
+      }
+      scheduling_approve_publish_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       scheduling_assignment_violations: {
         Args: {
           p_break_minutes: number
           p_employee_id: string
           p_ends: string
           p_exclude_shift_id: string
+          p_exclude_shift_id2?: string
           p_facility_id: string
           p_job_area_id: string
           p_starts: string

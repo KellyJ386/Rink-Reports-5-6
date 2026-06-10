@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useMemo, useRef, useState, useTransition } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import {
   Calendar,
   dateFnsLocalizer,
@@ -197,10 +198,35 @@ export function ScheduleGrid({
     [weekStartDay]
   )
 
+  const router = useRouter()
+  const pathname = usePathname()
+
   const [events, setEvents] = useState<GridEvent[]>(() =>
     initialShifts.map((s) => dtoToEvent(s, empById))
   )
-  const [date, setDate] = useState<Date>(() => new Date(defaultDateIso))
+  // The anchor arrives as a UTC-midnight ISO; take its calendar date as a
+  // LOCAL date so admins west of UTC don't land on the previous day (which
+  // can flip the visible week when the anchor is the week-start day).
+  const [date, setDate] = useState<Date>(() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(defaultDateIso)
+    return m
+      ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+      : new Date(defaultDateIso)
+  })
+
+  // Events are seeded from a ±28-day server preload around ?date=. Keep the
+  // anchor in the URL on navigation so the server refetches (the page keys
+  // this component by anchor) instead of silently rendering empty weeks once
+  // the user navigates past the preload window — and so reloads keep position.
+  const navigate = useCallback(
+    (d: Date) => {
+      setDate(d)
+      const pad = (n: number) => String(n).padStart(2, "0")
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+      router.replace(`${pathname}?date=${key}`, { scroll: false })
+    },
+    [router, pathname]
+  )
   const [view, setView] = useState<View>("week")
   const [liveRange, setLiveRange] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
@@ -608,7 +634,7 @@ export function ScheduleGrid({
             onView={(v) => setView(v)}
             views={["week", "day"]}
             date={date}
-            onNavigate={(d) => setDate(d)}
+            onNavigate={navigate}
             step={15}
             timeslots={4}
             min={min}
