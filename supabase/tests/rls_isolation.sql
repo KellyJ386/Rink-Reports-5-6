@@ -1891,6 +1891,47 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2l. System-state purge functions (migration 134).
+--
+-- purge_old_notification_outbox / purge_old_offline_sync_queue are SECURITY
+-- DEFINER bulk-deleters with no internal caller gate — the EXECUTE grant
+-- (service_role only) IS the gate. Assert anon/authenticated cannot call
+-- them, and that service_role can.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.purge_old_notification_outbox()$$,
+  'PURGE-134: authenticated CANNOT execute purge_old_notification_outbox');
+select pg_temp.expect_error(
+  $$select public.purge_old_offline_sync_queue()$$,
+  'PURGE-134: authenticated CANNOT execute purge_old_offline_sync_queue');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.purge_old_notification_outbox()$$,
+  'PURGE-134: anon CANNOT execute purge_old_notification_outbox');
+select pg_temp.expect_error(
+  $$select public.purge_old_offline_sync_queue()$$,
+  'PURGE-134: anon CANNOT execute purge_old_offline_sync_queue');
+
+reset role;
+set local role service_role;
+
+select pg_temp.expect_ok(
+  $$select public.purge_old_notification_outbox()$$,
+  'PURGE-134: service_role CAN execute purge_old_notification_outbox');
+select pg_temp.expect_ok(
+  $$select public.purge_old_offline_sync_queue()$$,
+  'PURGE-134: service_role CAN execute purge_old_offline_sync_queue');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

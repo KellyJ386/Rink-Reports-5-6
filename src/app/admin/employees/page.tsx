@@ -18,6 +18,9 @@ import {
 } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
+import { clampShow, nextShow } from "@/lib/pagination"
+
 import { EmployeesClient } from "./_components/employees-client"
 import { SeedRolesButton } from "./_components/seed-roles-button"
 import type {
@@ -45,7 +48,7 @@ type FacilityOption = {
   is_active: boolean
 }
 
-type SearchParams = Promise<{ facility?: string }>
+type SearchParams = Promise<{ facility?: string; show?: string }>
 
 export const metadata = { title: "Employees | MFO / Rink Reports" }
 
@@ -57,6 +60,7 @@ export default async function EmployeesPage({
   const current = await requireAdmin()
   const profile = current.profile
   const params = await searchParams
+  const show = clampShow(params.show, { initial: 500 })
 
   const facilityId = profile?.is_super_admin
     ? (params?.facility ?? null)
@@ -171,7 +175,8 @@ export default async function EmployeesPage({
       )
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true })
-      .limit(500),
+      // One extra row to learn whether a "Load more" link is needed.
+      .range(0, show),
     supabase
       .from("role_permission_defaults")
       .select("role_id, module_name, action, enabled")
@@ -188,7 +193,9 @@ export default async function EmployeesPage({
   ])
 
   const roles = (rolesRaw ?? []) as RoleRow[]
-  const employees = (employeesRaw ?? []) as EmployeeRow[]
+  const overfetched = (employeesRaw ?? []) as EmployeeRow[]
+  const hasMore = overfetched.length > show
+  const employees = hasMore ? overfetched.slice(0, show) : overfetched
 
   // Build roleId -> default permission matrix for the form preview.
   const roleDefaultRows = (roleDefaultsRaw ?? []) as unknown as Array<{
@@ -282,8 +289,24 @@ export default async function EmployeesPage({
         roleDefaults={roleDefaults}
         canDelete={profile?.is_super_admin === true}
       />
+      {hasMore && nextShow(show, { initial: 500 }) ? (
+        <LoadMoreLink
+          href={employeesMoreHref(params.facility, nextShow(show, { initial: 500 }))}
+          shown={list.length}
+        />
+      ) : null}
     </div>
   )
+}
+
+function employeesMoreHref(
+  facility: string | undefined,
+  show: number | null,
+): string {
+  const sp = new URLSearchParams()
+  if (facility) sp.set("facility", facility)
+  if (show) sp.set("show", String(show))
+  return `/admin/employees?${sp.toString()}`
 }
 
 function Header() {

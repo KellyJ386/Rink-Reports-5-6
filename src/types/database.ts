@@ -6423,6 +6423,14 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      purge_old_notification_outbox: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_offline_sync_queue: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       purge_old_rate_limit_counters: {
         Args: Record<PropertyKey, never>
         Returns: number

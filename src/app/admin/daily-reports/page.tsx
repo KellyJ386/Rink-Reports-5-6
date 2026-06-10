@@ -12,7 +12,9 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { requireAdmin } from "@/lib/auth"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
 import { AreaAccessTab } from "./_components/area-access-tab"
@@ -45,6 +47,7 @@ type SearchParams = Promise<{
   employee?: string
   from?: string
   to?: string
+  show?: string
 }>
 
 // React's `cache` makes the impure read deterministic for the duration of a
@@ -331,6 +334,7 @@ async function SubmissionsTabLoader({
     from?: string
     to?: string
     submission?: string
+    show?: string
   }
 }) {
   const supabase = await createClient()
@@ -338,6 +342,7 @@ async function SubmissionsTabLoader({
   // Default window: last 14 days (DB cron purges older rows anyway).
   const fromDate = params.from ?? fourteenDaysAgoCutoff()
   const toDate = params.to ?? null
+  const show = clampShow(params.show, { initial: 200 })
 
   // Pull employees scoped to facility for the filter dropdown.
   const { data: empsRaw } = await supabase
@@ -354,13 +359,16 @@ async function SubmissionsTabLoader({
     .eq("facility_id", facilityId)
     .gte("submitted_at", `${fromDate}T00:00:00.000Z`)
     .order("submitted_at", { ascending: false })
-    .limit(200)
+    // One extra row to learn whether a "Load more" link is needed.
+    .range(0, show)
   if (params.area) q = q.eq("area_id", params.area)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (toDate) q = q.lte("submitted_at", `${toDate}T23:59:59.999Z`)
 
   const { data: subsRaw } = await q
-  const subs = (subsRaw ?? []) as SubmissionRow[]
+  const overfetched = (subsRaw ?? []) as SubmissionRow[]
+  const hasMore = overfetched.length > show
+  const subs = hasMore ? overfetched.slice(0, show) : overfetched
 
   // Pull related counts in batches (avoid N+1 by fetching all items+notes for
   // the listed submissions in one round-trip each).
@@ -554,10 +562,37 @@ async function SubmissionsTabLoader({
           </CardHeader>
         </Card>
       ) : (
-        <SubmissionsList list={list} params={params} />
+        <>
+          <SubmissionsList list={list} params={params} />
+          {!detail && hasMore && nextShow(show, { initial: 200 }) ? (
+            <LoadMoreLink
+              href={loadMoreHref(params, nextShow(show, { initial: 200 }))}
+              shown={list.length}
+            />
+          ) : null}
+        </>
       )}
     </div>
   )
+}
+
+function loadMoreHref(
+  params: {
+    area?: string
+    employee?: string
+    from?: string
+    to?: string
+  },
+  show: number | null,
+): string {
+  const sp = new URLSearchParams()
+  sp.set("tab", "submissions")
+  if (params.area) sp.set("area", params.area)
+  if (params.employee) sp.set("employee", params.employee)
+  if (params.from) sp.set("from", params.from)
+  if (params.to) sp.set("to", params.to)
+  if (show) sp.set("show", String(show))
+  return `/admin/daily-reports?${sp.toString()}`
 }
 
 function SubmissionsList({

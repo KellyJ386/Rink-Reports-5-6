@@ -10,9 +10,12 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
- * Invokes the per-module purge_old_* functions defined in migration 24.
- * Each function self-discovers facilities whose retention_settings row has
- * auto_purge = true and deletes records older than keep_days.
+ * Invokes the per-module purge_old_* functions defined in migration 24,
+ * plus the fixed-interval system-state purges from migration 134
+ * (notification_outbox and offline_sync_queue terminal rows).
+ * Each retention_settings-aware function self-discovers facilities whose
+ * retention_settings row has auto_purge = true and deletes records older
+ * than keep_days.
  *
  * Authenticated by the same CRON_SECRET as the other cron routes; expected
  * to be invoked daily (vercel.json schedules it once per day off-peak).
@@ -26,6 +29,8 @@ const PURGE_FUNCTIONS = [
   "purge_old_air_quality_reports",
   "purge_old_ice_operations_submissions",
   "purge_old_audit_logs",
+  "purge_old_notification_outbox",
+  "purge_old_offline_sync_queue",
 ] as const
 
 type PurgeFn = (typeof PURGE_FUNCTIONS)[number]
@@ -79,26 +84,6 @@ export async function GET(request: Request) {
     total += deleted
   }
 
-  // Sync queue rows are ephemeral system state, not user data, so they don't
-  // belong in retention_settings (which is per-facility). Drop synced rows
-  // older than 90 days inline. Pending/failed rows are kept so an admin can
-  // still triage them.
-  const syncCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-  const { error: syncErr, count: syncDeleted } = await supabase
-    .from("offline_sync_queue")
-    .delete({ count: "exact" })
-    .eq("sync_status", "synced")
-    .lt("synced_at", syncCutoff)
-  if (syncErr) {
-    console.error(
-      "[cron/run-retention-purge] offline_sync_queue purge failed:",
-      syncErr,
-    )
-    anyFailed = true
-  } else if (typeof syncDeleted === "number") {
-    total += syncDeleted
-  }
-
   // Stamp last_purged_at on every auto_purge row so the admin UI reflects
   // the run. We don't attribute per-facility counts here (the SQL functions
   // aggregate across facilities); operators wanting precise counts use the
@@ -115,7 +100,6 @@ export async function GET(request: Request) {
     )
   }
 
-  const offlineSyncDeleted = typeof syncDeleted === "number" ? syncDeleted : 0
   console.log(
     "[cron/run-retention-purge] run complete",
     JSON.stringify({
@@ -123,7 +107,6 @@ export async function GET(request: Request) {
       duration_ms: Date.now() - startedAt,
       total,
       results,
-      offline_sync_deleted: offlineSyncDeleted,
       ok: !anyFailed,
     }),
   )
@@ -133,7 +116,6 @@ export async function GET(request: Request) {
       ok: !anyFailed,
       total,
       results,
-      offline_sync_deleted: offlineSyncDeleted,
       stamped_at: stampedAt,
     },
     { status: anyFailed ? 500 : 200 },
