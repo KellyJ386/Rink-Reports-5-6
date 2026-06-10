@@ -112,8 +112,11 @@ export function GlobalHeader({
 
   return (
     <header
-      className="sticky top-0 z-30 flex h-14 items-center gap-3 px-4 text-white shadow-sm lg:px-6 print:hidden"
-      style={{ background: "var(--action-green)" }}
+      className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/10 px-4 text-white shadow-md shadow-black/5 backdrop-saturate-150 lg:px-6 print:hidden"
+      style={{
+        backgroundImage:
+          "linear-gradient(180deg, var(--green-400) 0%, var(--green-500) 55%, var(--green-600) 100%)",
+      }}
     >
       {/* Left: mobile sidebar trigger (per-context) */}
       <div className="lg:hidden [&_button]:text-white [&_button:hover]:bg-white/15">
@@ -128,28 +131,25 @@ export function GlobalHeader({
         )}
       </div>
 
-      {/* Center: uniform context info — User · Facility · Date/Time · Temp */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-0.5 text-sm font-medium">
-        <span className="flex items-center gap-1.5">
-          <UserIcon className="h-4 w-4 shrink-0 text-white/80" aria-hidden />
+      {/* Center: uniform context info as subtle chips — User · Facility · Date/Time · Temp */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-medium">
+        <span className="flex min-w-0 items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 ring-1 ring-inset ring-white/15 shadow-sm">
+          <UserIcon className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
           <span className="truncate">{userLabel}</span>
         </span>
         {facilityName ? (
-          <span className="hidden items-center gap-1.5 sm:flex">
-            <Building2 className="h-4 w-4 shrink-0 text-white/80" aria-hidden />
+          <span className="hidden min-w-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 ring-1 ring-inset ring-white/10 sm:flex">
+            <Building2 className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
             <span className="truncate">{facilityName}</span>
           </span>
         ) : null}
-        <span className="hidden items-center gap-1.5 md:flex">
-          <Clock className="h-4 w-4 shrink-0 text-white/80" aria-hidden />
+        <span className="hidden items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 ring-1 ring-inset ring-white/10 md:flex">
+          <Clock className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
           <span>{now ? formatDate(now) : "—"}</span>
           <span className="tabular-nums">{now ? formatTime(now) : ""}</span>
         </span>
-        <span className="hidden items-center gap-1.5 lg:flex">
-          <Thermometer
-            className="h-4 w-4 shrink-0 text-white/80"
-            aria-hidden
-          />
+        <span className="hidden items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 ring-1 ring-inset ring-white/10 lg:flex">
+          <Thermometer className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
           <span>{tempLabel}</span>
         </span>
       </div>
@@ -161,7 +161,7 @@ export function GlobalHeader({
             type="button"
             onClick={() => router.push("/dashboard")}
             aria-label="Back to Dashboard"
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-white/40 bg-white/10 px-2.5 text-sm font-medium transition-colors hover:bg-white/20"
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 text-sm font-medium shadow-sm transition-colors hover:bg-white/20"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">Dashboard</span>
@@ -171,15 +171,15 @@ export function GlobalHeader({
             <SyncStatusBadge />
           </div>
         )}
-        <div className="[&_button]:text-white [&_button:hover]:bg-white/15">
+        <div className="[&_button]:rounded-full [&_button]:text-white [&_button:hover]:bg-white/15">
           <ThemeToggle />
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Open user menu"
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-white/40 bg-white/10 px-2 text-sm transition-colors hover:bg-white/20"
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-1.5 text-sm shadow-sm transition-colors hover:bg-white/20 sm:pr-3"
           >
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-[var(--action-green)]">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-[var(--green-700)] shadow-sm ring-2 ring-white/40">
               {initials}
             </span>
             <span className="hidden max-w-[160px] truncate sm:inline">
