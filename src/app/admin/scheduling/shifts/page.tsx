@@ -119,21 +119,6 @@ export default async function ShiftsPage({
         .from("schedule_shifts")
         .select("*")
         .eq("facility_id", facilityId)
-        .eq("id", params.shift)
-        .maybeSingle()
-      row = (directRaw ?? undefined) as ShiftRow | undefined
-    }
-    if (row) {
-      const jobAreaId = (row as { job_area_id?: string | null }).job_area_id ?? null
-      selected = {
-        ...row,
-        job_area_id: jobAreaId,
-        employee: row.employee_id ? (empById.get(row.employee_id) ?? null) : null,
-        department: row.department_id ? (deptById.get(row.department_id) ?? null) : null,
-        job_area: jobAreaId ? (jobAreaById.get(jobAreaId) ?? null) : null,
-      }
-    }
-  }
         .gte("starts_at", windowStart.toISOString())
         .lt("starts_at", windowEnd.toISOString())
         .order("starts_at", { ascending: true })
@@ -164,9 +149,6 @@ export default async function ShiftsPage({
       ends_at: s.ends_at,
       employee_id: s.employee_id,
       job_area_id: jobAreaId,
-      employee: s.employee_id ? (empById.get(s.employee_id) ?? null) : null,
-      department: s.department_id ? (deptById.get(s.department_id) ?? null) : null,
-      job_area: jobAreaId ? (jobAreaById.get(jobAreaId) ?? null) : null,
       department_id: s.department_id,
       status: s.status as GridShiftDTO["status"],
       break_minutes: s.break_minutes ?? 0,
