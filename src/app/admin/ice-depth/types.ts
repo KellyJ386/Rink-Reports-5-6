@@ -38,11 +38,12 @@ export function isAlertOn(v: string): v is AlertOn {
 
 export type ReadingSeverity = "low" | "ok" | "high"
 
-export type Tab = "rinks" | "layouts" | "history" | "settings"
+export type Tab = "rinks" | "layouts" | "history" | "analytics" | "settings"
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "rinks", label: "Rinks" },
   { key: "layouts", label: "Diagrams" },
   { key: "history", label: "History" },
+  { key: "analytics", label: "Analytics" },
   { key: "settings", label: "Settings" },
 ]
 

@@ -1,10 +1,22 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState, useEffect, useMemo } from "react"
+import { useRouter } from "next/navigation"
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,7 +27,7 @@ import {
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 
-import { addIceDepthFollowupNote } from "../actions"
+import { addIceDepthFollowupNote, deleteIceDepthSession } from "../actions"
 import type {
   ActionState,
   MeasurementRow,
@@ -28,6 +40,8 @@ const NOTE_INITIAL: ActionState = { ok: null }
 type Props = {
   detail: SessionDetailData
   backHref: string
+  /** Sessions are immutable; only super admins can hard-delete one (RLS). */
+  canDelete?: boolean
 }
 
 function fmt(ts: string | null): string {
@@ -51,7 +65,7 @@ function severityColor(
   return ok
 }
 
-export function SessionDetail({ detail, backHref }: Props) {
+export function SessionDetail({ detail, backHref, canDelete }: Props) {
   const { session, layout, points, employee, measurements, notes, settings } =
     detail
 
@@ -125,6 +139,9 @@ export function SessionDetail({ detail, backHref }: Props) {
         <Button asChild variant="outline" size="sm">
           <Link href={backHref}>← Back to history</Link>
         </Button>
+        {canDelete && (
+          <DeleteSessionButton sessionId={session.id} backHref={backHref} />
+        )}
       </div>
 
       <Card>
@@ -248,6 +265,67 @@ export function SessionDetail({ detail, backHref }: Props) {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+// Hard-delete a session. The RLS policy restricts this to super admins; the
+// button is only rendered for them (canDelete), but the action re-checks. There
+// is no undo — sessions are otherwise immutable — so it's gated behind a
+// confirmation dialog that names what cascades.
+function DeleteSessionButton({
+  sessionId,
+  backHref,
+}: {
+  sessionId: string
+  backHref: string
+}) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [pending, startTransition] = useTransition()
+
+  function onConfirm() {
+    startTransition(async () => {
+      const res = await deleteIceDepthSession(sessionId)
+      if (res.ok) {
+        toast.success("Session deleted.")
+        setOpen(false)
+        router.push(backHref)
+        router.refresh()
+      } else {
+        toast.error(res.error)
+      }
+    })
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button variant="destructive" size="sm">
+          Delete session
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this session?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently removes the session and all of its measurements,
+            follow-up notes, and change-log entries. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending} onClick={() => setOpen(false)}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={pending}
+            onClick={onConfirm}
+          >
+            {pending ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

@@ -13,8 +13,17 @@ import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { clampShow, nextShow } from "@/lib/pagination"
 
+import { AnalyticsTab } from "./_components/analytics-tab"
 import { HistoryTab } from "./_components/history-tab"
+import {
+  rollupByPoint,
+  summarizeAnalytics,
+  trendByDay,
+  type AnalyticsMeasurement,
+  type AnalyticsSession,
+} from "./_lib/analytics"
 import { LayoutsTab } from "./_components/layouts-tab"
 import { RinksTab } from "./_components/rinks-tab"
 import { SeedDefaultsCard } from "./_components/seed-defaults-card"
@@ -50,7 +59,11 @@ type SearchParams = Promise<{
   has_high?: string
   from?: string
   to?: string
+  show?: string
 }>
+
+// History "Load more" page sizing.
+const HISTORY_SHOW = { initial: 50, step: 50, max: 2000 } as const
 
 function tabHref(tab: Tab): string {
   const sp = new URLSearchParams()
@@ -108,7 +121,14 @@ export default async function IceDepthAdminPage({
         <LayoutsTabLoader facilityId={facilityId} params={params} />
       )}
       {tab === "history" && (
-        <HistoryTabLoader facilityId={facilityId} params={params} />
+        <HistoryTabLoader
+          facilityId={facilityId}
+          params={params}
+          canDelete={profile?.is_super_admin === true}
+        />
+      )}
+      {tab === "analytics" && (
+        <AnalyticsTabLoader facilityId={facilityId} params={params} />
       )}
       {tab === "settings" && <SettingsTabLoader facilityId={facilityId} />}
     </div>
@@ -275,14 +295,17 @@ async function RinksTabLoader({ facilityId }: { facilityId: string }) {
 async function HistoryTabLoader({
   facilityId,
   params,
+  canDelete,
 }: {
   facilityId: string
-  params: HistoryParams & { session?: string }
+  params: HistoryParams & { session?: string; show?: string }
+  canDelete: boolean
 }) {
   const supabase = await createClient()
 
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
+  const show = clampShow(params.show, HISTORY_SHOW)
 
   const [layoutsRes, empsRes] = await Promise.all([
     supabase
@@ -300,12 +323,14 @@ async function HistoryTabLoader({
   const layouts = (layoutsRes.data ?? []) as LayoutRow[]
   const employees = (empsRes.data ?? []) as EmployeeLite[]
 
+  // Fetch one extra row (range is inclusive: 0..show => show+1 rows) so we can
+  // tell whether a "Load more" link is warranted without a separate count.
   let q = supabase
     .from("ice_depth_sessions")
     .select("*")
     .eq("facility_id", facilityId)
     .order("submitted_at", { ascending: false })
-    .limit(200)
+    .range(0, show)
   if (params.layout) q = q.eq("layout_id", params.layout)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (params.has_low === "yes") q = q.eq("has_low_reading", true)
@@ -316,7 +341,9 @@ async function HistoryTabLoader({
   if (to) q = q.lte("submitted_at", `${to}T23:59:59.999Z`)
 
   const { data: rawSessions } = await q
-  const sessions = (rawSessions ?? []) as SessionRow[]
+  const fetched = (rawSessions ?? []) as SessionRow[]
+  const hasMore = fetched.length > show
+  const sessions = hasMore ? fetched.slice(0, show) : fetched
 
   const layoutById = new Map(layouts.map((l) => [l.id, l]))
   const empIds = Array.from(
@@ -436,6 +463,15 @@ async function HistoryTabLoader({
   }
   const backHref = `/admin/ice-depth?${backSp.toString()}`
 
+  // "Load more": same filters, larger `show`. nextShow returns null at the cap.
+  const nextSize = nextShow(show, HISTORY_SHOW)
+  let moreHref: string | null = null
+  if (hasMore && nextSize !== null) {
+    const moreSp = new URLSearchParams(backSp)
+    moreSp.set("show", String(nextSize))
+    moreHref = `/admin/ice-depth?${moreSp.toString()}`
+  }
+
   return (
     <HistoryTab
       list={list}
@@ -444,6 +480,111 @@ async function HistoryTabLoader({
       layouts={layouts}
       employees={employees}
       params={{ ...params, from }}
+      moreHref={moreHref}
+      canDelete={canDelete}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Analytics tab
+// ---------------------------------------------------------------------------
+
+async function AnalyticsTabLoader({
+  facilityId,
+  params,
+}: {
+  facilityId: string
+  params: { layout?: string; from?: string; to?: string }
+}) {
+  const supabase = await createClient()
+
+  const from = params.from ?? defaultDateFrom()
+  const to = params.to ?? null
+
+  const [layoutsRes, settingsRes] = await Promise.all([
+    supabase
+      .from("ice_depth_layouts")
+      .select("id, name, slug, is_default, is_active")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("ice_depth_settings")
+      .select("low_color, ok_color, high_color, measurement_unit")
+      .eq("facility_id", facilityId)
+      .maybeSingle(),
+  ])
+  const layouts = (layoutsRes.data ?? []) as Array<{
+    id: string
+    name: string
+    slug: string
+    is_default: boolean | null
+    is_active: boolean
+  }>
+
+  // Pick the requested layout, else the default, else the first. Analytics are
+  // per-layout because each layout has its own point grid.
+  const selected =
+    layouts.find((l) => l.id === params.layout) ??
+    layouts.find((l) => l.is_default) ??
+    layouts[0] ??
+    null
+
+  let summary = summarizeAnalytics([], 0)
+  let points: ReturnType<typeof rollupByPoint> = []
+  let trend: ReturnType<typeof trendByDay> = []
+
+  if (selected) {
+    let sq = supabase
+      .from("ice_depth_sessions")
+      .select("id, submitted_at, low_count, high_count, total_measurements")
+      .eq("facility_id", facilityId)
+      .eq("layout_id", selected.id)
+      .order("submitted_at", { ascending: false })
+      .limit(2000)
+    if (from) sq = sq.gte("submitted_at", `${from}T00:00:00.000Z`)
+    if (to) sq = sq.lte("submitted_at", `${to}T23:59:59.999Z`)
+    const { data: sessRows } = await sq
+    const sessions = (sessRows ?? []) as Array<
+      AnalyticsSession & { id: string }
+    >
+
+    let measurements: AnalyticsMeasurement[] = []
+    if (sessions.length > 0) {
+      const { data: measRows } = await supabase
+        .from("ice_depth_measurements")
+        .select(
+          "point_number_snapshot, label_snapshot, x_snapshot, y_snapshot, depth_value, severity",
+        )
+        .eq("facility_id", facilityId)
+        .in(
+          "session_id",
+          sessions.map((s) => s.id),
+        )
+      measurements = (measRows ?? []) as AnalyticsMeasurement[]
+    }
+
+    summary = summarizeAnalytics(measurements, sessions.length)
+    points = rollupByPoint(measurements)
+    trend = trendByDay(sessions)
+  }
+
+  return (
+    <AnalyticsTab
+      layouts={layouts.map((l) => ({ id: l.id, name: l.name }))}
+      selectedLayoutId={selected?.id ?? null}
+      summary={summary}
+      points={points}
+      trend={trend}
+      colors={{
+        low: settingsRes.data?.low_color ?? "#ef4444",
+        ok: settingsRes.data?.ok_color ?? "#22c55e",
+        high: settingsRes.data?.high_color ?? "#eab308",
+      }}
+      unit={settingsRes.data?.measurement_unit ?? "inches"}
+      from={from}
+      to={to}
     />
   )
 }
