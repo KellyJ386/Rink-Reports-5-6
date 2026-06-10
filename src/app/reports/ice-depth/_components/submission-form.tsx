@@ -90,6 +90,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   const { isOnline } = useSyncQueue()
   const [localId] = useState<string>(genLocalId)
   const [queued, setQueued] = useState(false)
+  const [offlineError, setOfflineError] = useState<string | null>(null)
 
   const sortedPoints = useMemo(() => {
     return [...points].sort((a, b) => {
@@ -301,11 +302,14 @@ export function SubmissionForm({ layout, points, settings }: Props) {
   // Offline submit: serialize the measured session into the SAME payload shape
   // `buildInputFromPayload` parses and queue it in the service worker, which
   // replays to /api/offline-sync (running the same validation/severity engine)
-  // once back online. If the SW isn't controlling the page yet, fall through to
-  // the normal server action so the network error surfaces instead of silently
-  // dropping the session.
+  // once back online. enqueueSubmission only succeeds when a SW is controlling
+  // the page; if it isn't, we must NOT fall through to the server action — the
+  // browser already reports itself offline, so that POST would just fail with a
+  // confusing network error. Block the submit and tell the user plainly instead
+  // of showing a false "Saved on this device".
   const handleReviewSubmit = (e: FormEvent<HTMLFormElement>) => {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
+      e.preventDefault()
       const ok = enqueueSubmission({
         localId,
         moduleKey: "ice_depth",
@@ -318,8 +322,12 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         },
       })
       if (ok) {
-        e.preventDefault()
+        setOfflineError(null)
         setQueued(true)
+      } else {
+        setOfflineError(
+          "This device can't save offline yet. Reconnect to submit, or reload the page and try again — your readings are still here.",
+        )
       }
     }
   }
@@ -343,7 +351,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         formAction={formAction}
         onSubmit={handleReviewSubmit}
         isOnline={isOnline}
-        stateError={state.error}
+        stateError={offlineError ?? state.error}
         onBack={() => {
           setPhase("measure")
           openPopover(sortedPoints.length - 1)
@@ -408,6 +416,12 @@ export function SubmissionForm({ layout, points, settings }: Props) {
 
       {/* Progress bar */}
       <div
+        role="progressbar"
+        aria-label="Points recorded"
+        aria-valuemin={0}
+        aria-valuemax={sortedPoints.length}
+        aria-valuenow={filledCount}
+        aria-valuetext={`${filledCount} of ${sortedPoints.length} points recorded`}
         style={{
           height: 4,
           width: "100%",
@@ -418,6 +432,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         }}
       >
         <div
+          aria-hidden
           style={{
             height: "100%",
             width: `${Math.max(progress * 100, 2)}%`,
@@ -1125,6 +1140,7 @@ function SubmitButton({
     <button
       type="submit"
       disabled={pending}
+      aria-busy={pending}
       style={{
         width: "100%",
         minHeight: 52,
