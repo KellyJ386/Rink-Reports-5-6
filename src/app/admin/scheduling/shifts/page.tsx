@@ -19,11 +19,6 @@ import { ScheduleGrid } from "./_components/schedule-grid"
 
 export const dynamic = "force-dynamic"
 
-// employee_job_areas + schedule_shifts.job_area_id aren't in the generated DB
-// types yet (see CLAUDE.md); cast through `any` at those read sites.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
-
 type SearchParams = Promise<{ date?: string }>
 
 // How much shift history/future to preload around the anchor so week-nav has
@@ -93,13 +88,13 @@ export default async function ShiftsPage({
     templatesRes,
     templateSlotsRes,
   ] = await Promise.all([
-      (supabase as AnySupabase)
+      supabase
         .from("employees")
         .select("id, first_name, last_name, is_minor, is_active, max_weekly_hours")
         .eq("facility_id", facilityId)
         .eq("is_active", true)
         .order("last_name", { ascending: true }),
-      (supabase as AnySupabase)
+      supabase
         .from("employee_job_areas")
         .select("id, name, slug, is_active")
         .eq("facility_id", facilityId)
@@ -129,7 +124,7 @@ export default async function ShiftsPage({
         .eq("facility_id", facilityId)
         .eq("is_active", true)
         .order("name", { ascending: true }),
-      (supabase as AnySupabase)
+      supabase
         .from("schedule_template_shifts")
         .select("template_id, job_area_id, start_time, end_time, break_minutes")
         .eq("facility_id", facilityId),
@@ -140,15 +135,14 @@ export default async function ShiftsPage({
   const operatingHours = resolveOperatingHours(facilityRes.data?.settings)
   const weekStartDay = settingsRes.data?.week_start_day ?? 0
 
-  const shifts = (shiftsRes.data ?? []) as ShiftRow[]
+  const shifts: ShiftRow[] = shiftsRes.data ?? []
   const initialShifts: GridShiftDTO[] = shifts.map((s) => {
-    const jobAreaId = (s as { job_area_id?: string | null }).job_area_id ?? null
     return {
       id: s.id,
       starts_at: s.starts_at,
       ends_at: s.ends_at,
       employee_id: s.employee_id,
-      job_area_id: jobAreaId,
+      job_area_id: s.job_area_id,
       department_id: s.department_id,
       status: s.status as GridShiftDTO["status"],
       break_minutes: s.break_minutes ?? 0,

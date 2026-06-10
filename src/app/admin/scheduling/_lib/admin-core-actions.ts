@@ -5,6 +5,13 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import {
+  complianceWeekWindow,
+  evaluateComplianceWarnings,
+  type EmployeeForCompliance,
+  type SettingsForCompliance,
+  type ShiftForHours,
+} from "./compliance"
 import { assertAssignable } from "./enforcement"
 import type {
   ActionState,
@@ -61,43 +68,9 @@ async function resolveAdminContext(): Promise<
   return { ok: true, facilityId, employeeId: emp?.id ?? null }
 }
 
-function startOfWeekUTC(date: string): Date {
-  // Sunday-anchored week (matches default settings.week_start_day = 0).
-  // For compliance hour summing we just need a window per shift; using Sun-Sat.
-  const d = new Date(date)
-  const day = d.getUTCDay()
-  const start = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
-  )
-  start.setUTCDate(start.getUTCDate() - day)
-  return start
-}
-
 // ---------------------------------------------------------------------------
-// Compliance computation (stub per spec)
+// Compliance computation (pure math lives in ./compliance — unit-tested)
 // ---------------------------------------------------------------------------
-
-type SettingsForCompliance = {
-  minor_max_weekly_hours: number | null
-  overtime_weekly_hours: number | null
-}
-
-type EmployeeForCompliance = {
-  id: string
-  is_minor: boolean
-}
-
-type ShiftForHours = {
-  starts_at: string
-  ends_at: string
-  break_minutes: number | null
-}
-
-function shiftHours(s: ShiftForHours): number {
-  const ms = new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()
-  const minutes = Math.max(0, ms / 60000) - (s.break_minutes ?? 0)
-  return Math.max(0, minutes / 60)
-}
 
 async function computeComplianceWarnings(
   shift: {
@@ -112,9 +85,7 @@ async function computeComplianceWarnings(
 ): Promise<string[]> {
   if (!shift.employee_id || !employee || !settings) return []
 
-  const weekStart = startOfWeekUTC(shift.starts_at)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setUTCDate(weekEnd.getUTCDate() + 7)
+  const window = complianceWeekWindow(shift.starts_at)
 
   const supabase = await createClient()
   let query = supabase
@@ -122,30 +93,17 @@ async function computeComplianceWarnings(
     .select("starts_at, ends_at, break_minutes")
     .eq("employee_id", shift.employee_id)
     .in("status", ["draft", "published"])
-    .gte("starts_at", weekStart.toISOString())
-    .lt("starts_at", weekEnd.toISOString())
+    .gte("starts_at", window.startIso)
+    .lt("starts_at", window.endIso)
   if (excludeShiftId) query = query.neq("id", excludeShiftId)
 
   const { data: existing } = await query
-  const others = (existing ?? []) as ShiftForHours[]
-  const totalHours =
-    others.reduce((sum, s) => sum + shiftHours(s), 0) + shiftHours(shift)
-
-  const warnings: string[] = []
-  if (
-    employee.is_minor &&
-    settings.minor_max_weekly_hours != null &&
-    totalHours > Number(settings.minor_max_weekly_hours)
-  ) {
-    warnings.push("minor_overtime")
-  }
-  if (
-    settings.overtime_weekly_hours != null &&
-    totalHours > Number(settings.overtime_weekly_hours)
-  ) {
-    warnings.push("overtime")
-  }
-  return warnings
+  return evaluateComplianceWarnings({
+    shift,
+    otherShifts: (existing ?? []) as ShiftForHours[],
+    settings,
+    employee,
+  })
 }
 
 async function loadComplianceContext(

@@ -5,14 +5,11 @@ import { z } from "zod"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import type { TablesUpdate } from "@/types/database"
 
 import { collectShiftWarnings } from "./grid-warnings"
 
-// schedule_shifts.job_area_id and employee_job_areas aren't in the generated DB
-// types yet (see CLAUDE.md); cast through `any` at those write sites, matching
-// the convention in admin-core-actions.ts.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>
 
 // ---------------------------------------------------------------------------
 // Result + DTO shapes (typed so the grid can reconcile optimistic state)
@@ -182,7 +179,7 @@ function templateSlug(name: string): string {
  * missing row here means "not in your facility (or doesn't exist)".
  */
 async function assertOwned(
-  supabase: AnySupabase,
+  supabase: ServerSupabase,
   facilityId: string,
   opts: { employeeId?: string | null; jobAreaId?: string | null }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -213,7 +210,7 @@ async function assertOwned(
 
 /** Whether this facility has opted into hard-blocking grid warnings. */
 async function readBlockOnViolations(
-  supabase: AnySupabase,
+  supabase: ServerSupabase,
   facilityId: string
 ): Promise<boolean> {
   const { data } = await supabase
@@ -221,9 +218,7 @@ async function readBlockOnViolations(
     .select("block_on_violations")
     .eq("facility_id", facilityId)
     .maybeSingle()
-  return Boolean(
-    (data as { block_on_violations?: boolean } | null)?.block_on_violations
-  )
+  return Boolean(data?.block_on_violations)
 }
 
 /**
@@ -231,7 +226,7 @@ async function readBlockOnViolations(
  * warning. No-op (allows) when blocking is off or the slot is unassigned.
  */
 async function enforceBlocking(
-  supabase: AnySupabase,
+  supabase: ServerSupabase,
   facilityId: string,
   args: {
     employeeId: string | null
@@ -278,7 +273,7 @@ export async function createGridShift(
     }
     const v = parsed.data
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     const owned = await assertOwned(supabase, ctx.facilityId, {
       employeeId: v.employee_id ?? null,
@@ -344,7 +339,7 @@ export async function updateGridShift(
     const v = parsed.data
 
     // Only send the fields that were actually provided (partial update).
-    const patch: Record<string, unknown> = {}
+    const patch: TablesUpdate<"schedule_shifts"> = {}
     if (v.starts_at !== undefined) patch.starts_at = v.starts_at
     if (v.ends_at !== undefined) patch.ends_at = v.ends_at
     if (v.employee_id !== undefined) patch.employee_id = v.employee_id
@@ -359,7 +354,7 @@ export async function updateGridShift(
       return { ok: false, error: "Nothing to update." }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Validate ownership only for fields actually being (re)assigned.
     const owned = await assertOwned(supabase, ctx.facilityId, {
@@ -435,7 +430,7 @@ export async function previewShiftWarnings(
     }
     const v = parsed.data
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const [warnings, blocking] = await Promise.all([
       collectShiftWarnings(supabase, {
         facilityId: ctx.facilityId,
@@ -473,7 +468,7 @@ export async function saveGridTemplate(
     }
     const v = parsed.data
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     const owned = await assertOwned(supabase, ctx.facilityId, {
       jobAreaId: v.job_area_id,
@@ -523,8 +518,8 @@ export async function saveGridTemplate(
     return {
       ok: true,
       data: {
-        id: tpl.id as string,
-        name: tpl.name as string,
+        id: tpl.id,
+        name: tpl.name,
         job_area_id: v.job_area_id,
         start_time: v.start_time,
         end_time: v.end_time,
