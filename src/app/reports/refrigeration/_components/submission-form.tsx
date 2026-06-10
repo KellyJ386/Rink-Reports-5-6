@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { useUnsavedGuard } from "@/hooks/use-unsaved-guard"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
 import { FieldError } from "@/components/ui/field-error"
 import { Button } from "@/components/ui/button"
@@ -222,6 +223,15 @@ export function SubmissionForm({
   const [localId, setLocalId] = useState<string>(genLocalId)
   const [queued, setQueued] = useState(false)
   const { isOnline } = useSyncQueue()
+
+  // Warn before a tab close / hard refresh discards entered readings. Cleared
+  // once the submission has been queued offline (online submits navigate via
+  // the server action, which doesn't fire beforeunload).
+  const hasEnteredData =
+    notes.trim() !== "" ||
+    Object.values(values).some((v) => v.text.trim() !== "" || v.bool) ||
+    Object.values(followupNotes).some((n) => n.trim() !== "")
+  useUnsavedGuard(hasEnteredData && !queued)
 
   const nowMs = useSyncExternalStore(
     subscribeClock,

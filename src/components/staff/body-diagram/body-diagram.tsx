@@ -321,11 +321,13 @@ function buildRegions(): RegionDef[] {
 
 const REGIONS = buildRegions()
 
-const BASE_FILL = "#dbeafe" // blue-100
-const BASE_STROKE = "#3b82f6" // blue-500
-const SELECTED_FILL = "#ef4444" // red-500
-const SELECTED_STROKE = "#b91c1c" // red-700
-const HOVER_FILL = "#bfdbfe" // blue-200
+// Semantic tokens (globals.css) so the diagram adapts to light/dark themes
+// (F4 from the 360 review — these were hardcoded Tailwind blues/reds).
+const BASE_FILL = "var(--accent)"
+const BASE_STROKE = "var(--accent-brand)"
+const SELECTED_FILL = "var(--destructive)"
+const SELECTED_STROKE = "var(--destructive-soft-foreground)"
+const HOVER_FILL = "color-mix(in srgb, var(--accent-brand) 30%, var(--accent))"
 
 function paintForSide(
   side: BodySide,
@@ -490,10 +492,10 @@ function ViewSvg({
         {view === "front" ? (
           <g
             pointerEvents="none"
-            stroke="#1d4ed8"
+            stroke="var(--accent-foreground)"
             strokeWidth={2}
             strokeLinecap="round"
-            fill="#1d4ed8"
+            fill="var(--accent-foreground)"
           >
             {/* eyes */}
             <circle cx={110} cy={40} r={2.2} />

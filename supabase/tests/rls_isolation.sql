@@ -1932,6 +1932,57 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2m. Daily-checklist seeder (migration 135).
+--
+-- seed_default_daily_report_checklists is SECURITY DEFINER and writes a
+-- caller-chosen facility's daily-report config, so its EXECUTE grant
+-- (service_role / definer-internal only) is the gate. Also assert the seed
+-- itself lands the full catalog for a brand-new facility — the D4 regression
+-- this exists to prevent is "new facility, zero checklists".
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.seed_default_daily_report_checklists(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'SEED-135: authenticated CANNOT execute seed_default_daily_report_checklists');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.seed_default_daily_report_checklists(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'SEED-135: anon CANNOT execute seed_default_daily_report_checklists');
+
+reset role;
+
+insert into public.facilities (id, name, slug, timezone)
+values ('33333333-3333-4333-8333-333333333333', 'Seed Test Rink', 'seed-test-rink', 'America/Chicago');
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.seed_default_daily_report_checklists(
+      '33333333-3333-4333-8333-333333333333')$$,
+  'SEED-135: service_role CAN execute the checklist seeder');
+reset role;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_areas
+    where facility_id = '33333333-3333-4333-8333-333333333333'$$,
+  17, 'SEED-135: new facility gets all 17 checklist areas');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_templates
+    where facility_id = '33333333-3333-4333-8333-333333333333'$$,
+  51, 'SEED-135: new facility gets all 51 phase templates');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_checklist_items
+    where facility_id = '33333333-3333-4333-8333-333333333333'$$,
+  506, 'SEED-135: new facility gets all 506 checklist items');
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
