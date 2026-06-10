@@ -169,12 +169,15 @@ export default async function MySchedulePage({
     .order("starts_at", { ascending: true })
 
   if (currentView === "week") {
-    // Week view date range
+    // Week view date range. Drafts are never shown to staff — the publish
+    // step is the gate (RLS enforces this too; the filter keeps admins
+    // viewing their own staff schedule consistent).
     const weekEnd = new Date(weekStart)
     weekEnd.setDate(weekEnd.getDate() + 7)
     query = query
       .gte("starts_at", weekStart.toISOString())
       .lt("starts_at", weekEnd.toISOString())
+      .neq("status", "draft")
   } else {
     query = query
       .gte("starts_at", fromDate.toISOString())

@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
+import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
 import { formatDateTime } from "../../../_lib/datetime"
 import {
@@ -45,11 +45,14 @@ type Props = {
   me: CurrentUser
 }
 
-const STATUS_BADGE: Record<PublishRequestRow["status"], string> = {
-  pending: "bg-amber-800/50 text-amber-100",
-  published: "bg-emerald-800/50 text-emerald-100",
-  rejected: "bg-rose-800/60 text-rose-100",
-}
+// Token-based badge variants (defined in ui/badge) so both themes render
+// correctly — never hardcode palette colors here.
+const STATUS_BADGE: Record<PublishRequestRow["status"], BadgeProps["variant"]> =
+  {
+    pending: "warning",
+    published: "success",
+    rejected: "error",
+  }
 
 export function RequestsClient({ rows, employees, me }: Props) {
   const empById = new Map(employees.map((e) => [e.id, e]))
@@ -115,7 +118,7 @@ export function RequestsClient({ rows, employees, me }: Props) {
                       {name(r.requested_by_employee_id)}
                     </td>
                     <td className="border-b px-3 py-2">
-                      <Badge className={cn(STATUS_BADGE[r.status])}>
+                      <Badge variant={STATUS_BADGE[r.status]}>
                         {r.status}
                       </Badge>
                     </td>
@@ -218,7 +221,7 @@ function PendingCard({
             Requested by {requesterName} · {formatDateTime(row.created_at)}
           </div>
         </div>
-        <Badge className={cn(STATUS_BADGE[row.status])}>{row.status}</Badge>
+        <Badge variant={STATUS_BADGE[row.status]}>{row.status}</Badge>
       </div>
 
       {row.notes ? (
