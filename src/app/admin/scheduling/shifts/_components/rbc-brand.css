@@ -1,0 +1,151 @@
+/*
+ * Brand override for react-big-calendar.
+ *
+ * The vendor stylesheet ships an Outlook-blue palette; this file re-skins the
+ * week/day grid to the Rink Reports brand using the SAME semantic tokens defined
+ * in src/app/globals.css (so it adapts to light/dark automatically and never
+ * hardcodes a hex). --primary = Action Green (#69BE28), --primary-foreground =
+ * Rink Navy (#002244).
+ *
+ * Imported from schedule-grid.tsx alongside the vendor CSS.
+ */
+
+.rbc-calendar {
+  font-family: inherit;
+  color: var(--foreground);
+}
+
+/* ---- Toolbar (Today / Back / Next + view switch) ---- */
+.rbc-toolbar {
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.rbc-toolbar .rbc-toolbar-label {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground-strong, var(--foreground));
+}
+.rbc-toolbar button {
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.rbc-toolbar button:hover,
+.rbc-toolbar button:focus-visible {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--border);
+}
+.rbc-toolbar button.rbc-active,
+.rbc-toolbar button.rbc-active:hover,
+.rbc-toolbar button.rbc-active:focus {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+  box-shadow: none;
+}
+
+/* ---- Grid surfaces / borders ---- */
+.rbc-time-view,
+.rbc-time-header,
+.rbc-time-content,
+.rbc-time-header-content,
+.rbc-header,
+.rbc-timeslot-group,
+.rbc-day-slot,
+.rbc-time-gutter,
+.rbc-time-column {
+  border-color: var(--border) !important;
+}
+.rbc-time-view {
+  background: var(--card);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.rbc-header {
+  padding: 0.5rem 0.25rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.rbc-time-gutter,
+.rbc-label {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+/* Quarter-hour slots: keep the hour line solid, soften the inner 15-min lines. */
+.rbc-timeslot-group {
+  min-height: 44px;
+}
+.rbc-time-slot {
+  border-top: 1px dotted color-mix(in srgb, var(--border) 55%, transparent);
+}
+.rbc-time-slot:first-child {
+  border-top: none;
+}
+
+/* Today column + current-time indicator on brand. */
+.rbc-today {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.rbc-current-time-indicator {
+  background: var(--primary);
+  height: 2px;
+}
+
+/* ---- Events ---- */
+.rbc-event,
+.rbc-event.rbc-selected {
+  border: none;
+  border-radius: 0.5rem;
+  padding: 2px 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  outline: none;
+}
+.rbc-event:focus-visible {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 1px;
+}
+
+/* Assigned shift: Action Green fill, Navy ink. */
+.rr-shift--assigned {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+/* Open / unassigned shift: Navy fill, light ink (visually distinct from filled). */
+.rr-shift--open {
+  background: var(--brand-navy, var(--navy-700));
+  color: var(--brand-navy-foreground, #ffffff);
+}
+/* Cancelled: muted + struck. */
+.rr-shift--cancelled {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* Live drag-selection preview slot. */
+.rbc-slot-selection {
+  background: color-mix(in srgb, var(--primary) 28%, transparent);
+  color: var(--primary-foreground);
+  border: 1px solid var(--primary);
+  border-radius: 0.4rem;
+  font-weight: 600;
+  font-size: 0.7rem;
+  padding: 1px 4px;
+}
+
+/* DnD addon: dragged/resized preview. */
+.rbc-addons-dnd .rbc-addons-dnd-drag-preview,
+.rbc-addons-dnd-dragged-event {
+  opacity: 0.85;
+}
+.rbc-addons-dnd .rbc-addons-dnd-resize-ns-icon,
+.rbc-addons-dnd .rbc-addons-dnd-resize-ew-icon {
+  border-color: var(--primary-foreground);
+}
