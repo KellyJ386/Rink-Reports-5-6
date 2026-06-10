@@ -6387,6 +6387,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      purge_old_ice_depth_sessions: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       purge_old_ice_operations_submissions: {
         Args: Record<PropertyKey, never>
         Returns: number

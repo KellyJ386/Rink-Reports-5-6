@@ -54,6 +54,17 @@ describe("parseMeasurements", () => {
     expect(parseMeasurements([{ point_id: P1 }])).toBeNull()
   })
 
+  it("returns null when depth is negative (depth is never < 0)", () => {
+    expect(parseMeasurements([{ point_id: P1, depth_value: -0.5 }])).toBeNull()
+    expect(parseMeasurements([{ point_id: P1, depth_value: "-3" }])).toBeNull()
+  })
+
+  it("accepts a zero depth reading", () => {
+    expect(parseMeasurements([{ point_id: P1, depth_value: 0 }])).toEqual([
+      { point_id: P1, depth_value: 0 },
+    ])
+  })
+
   it("accepts an empty array", () => {
     expect(parseMeasurements([])).toEqual([])
   })
