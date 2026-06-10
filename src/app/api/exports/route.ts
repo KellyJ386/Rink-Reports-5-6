@@ -54,11 +54,18 @@ export async function GET(request: NextRequest) {
   }
 
   const { bytes, filename, contentType } = result.file
+  // RFC 6266 encoding. The filename is already ASCII-safe today (slug() strips
+  // to [a-z0-9_] and the dates are validated), but encode defensively so a
+  // future filename source can never inject CRLF / extra headers, and provide
+  // a UTF-8 form for non-ASCII. encodeURIComponent also covers the ASCII
+  // fallback's quote/control chars.
+  const asciiName = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")
+  const encodedName = encodeURIComponent(filename)
   return new NextResponse(new Uint8Array(bytes), {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
       "Content-Length": String(bytes.length),
       "Cache-Control": "no-store",
     },

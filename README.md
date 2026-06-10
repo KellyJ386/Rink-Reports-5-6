@@ -5,20 +5,22 @@ Internal reporting tool for MFO/RinkReports.
 ## Project Structure
 
 ```
-/app                  Next.js 15 App Router
-/components           Shared UI components
-/lib                  Utilities and server logic
+/src/app              Next.js 16 App Router
+/src/components       Shared UI components
+/src/lib              Utilities and server logic
+/src/types            TypeScript type definitions
 /supabase/migrations  Database migrations
 /public               Static assets
-/types                TypeScript type definitions
-/agents               Build agent briefs and prompts
+/docs                 Deploy runbook + architecture notes
 ```
+
+See `CLAUDE.md` for architecture details (auth/proxy flow, Supabase client
+selection, the offline/PWA queue, and the report-form pattern).
 
 ## Getting Started
 
-Copy `.env.example` to `.env.local` and fill in your credentials before starting the dev server.
-
 ```bash
+cp .env.example .env.local   # then fill in your Supabase credentials
 pnpm install
 pnpm dev
 ```
