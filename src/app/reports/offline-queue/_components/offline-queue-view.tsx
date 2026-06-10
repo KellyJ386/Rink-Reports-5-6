@@ -22,6 +22,9 @@ interface QueueItem {
   status: "pending" | "failed"
   startedAt: number
   retryCount: number
+  nextAttemptAt?: number | null
+  lastStatus?: number | null
+  permanent?: boolean
   lastError: string | null
   payload: Record<string, unknown>
 }
@@ -41,6 +44,14 @@ const MODULE_LABELS: Record<string, string> = {
 export function OfflineQueueView() {
   const { pendingCount, failedCount, isOnline } = useSyncQueue()
   const [items, setItems] = useState<QueueItem[]>([])
+  // Ticking clock so backoff countdowns stay live without calling Date.now()
+  // during render (React 19 treats that as impure).
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
@@ -63,6 +74,19 @@ export function OfflineQueueView() {
   }, [])
 
   const hasItems = pendingCount > 0 || failedCount > 0
+
+  function statusLabel(item: QueueItem): string {
+    if (item.status === "failed") {
+      return item.permanent ? "won't retry" : "failed"
+    }
+    if (item.nextAttemptAt && item.nextAttemptAt > now) {
+      const secs = Math.round((item.nextAttemptAt - now) / 1000)
+      return secs > 60
+        ? `retry in ${Math.round(secs / 60)} min`
+        : `retry in ${secs}s`
+    }
+    return "pending"
+  }
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -140,7 +164,7 @@ export function OfflineQueueView() {
                 {MODULE_LABELS[item.moduleKey] ?? item.moduleKey}
               </CardTitle>
               <Badge variant={item.status === "failed" ? "destructive" : "secondary"}>
-                {item.status}
+                {statusLabel(item)}
               </Badge>
             </div>
             <CardDescription>
@@ -155,8 +179,17 @@ export function OfflineQueueView() {
           {item.lastError && (
             <CardContent>
               <p className="text-xs text-destructive">
-                Last error: {item.lastError}
+                {item.permanent
+                  ? "This submission can't be synced automatically: "
+                  : "Last error: "}
+                {item.lastError}
               </p>
+              {item.permanent && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  It needs attention before it can sync — contact your
+                  administrator if you&apos;re unsure why.
+                </p>
+              )}
             </CardContent>
           )}
         </Card>
