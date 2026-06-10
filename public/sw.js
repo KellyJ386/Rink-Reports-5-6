@@ -15,13 +15,44 @@
 //  - Supabase API calls: always network-only (no cache).
 // =============================================================================
 
-// CACHE_NAME bumped to v3 so installs that previously cached authenticated
-// HTML under v2 get their stale cache deleted on activate.
-const CACHE_NAME = "rink-reports-v3"
-const STATIC_CACHE = "rink-reports-static-v3"
+// CACHE_NAME bumped to v4 on the Day-5 resilience change so any client still
+// running an older SW re-evaluates and cleans its caches on activate. (Cache
+// contents are unchanged; the bump just guarantees a clean swap.)
+const CACHE_NAME = "rink-reports-v4"
+const STATIC_CACHE = "rink-reports-static-v4"
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1
 const STORE_NAME = "submissions"
+
+// ---------------------------------------------------------------------------
+// Replay retry policy — INLINE MIRROR of src/lib/offline/retry-policy.ts
+// (a classic SW can't import ES modules). Keep the two in sync; the .ts copy
+// is unit-tested. See retry-policy.test.ts.
+// ---------------------------------------------------------------------------
+const MAX_REPLAY_RETRIES = 4
+const RETRY_BACKOFF_MS = [5000, 15000, 60000, 300000]
+const TRANSIENT_4XX = new Set([401, 408, 409, 425, 429])
+
+function isTransientReplayStatus(status) {
+  if (status === null) return true
+  if (status >= 500) return true
+  if (status >= 400) return TRANSIENT_4XX.has(status)
+  return false
+}
+
+/** Mirror of classifyReplayResult() in retry-policy.ts. */
+function classifyReplayResult(ok, status, retryCount, now) {
+  if (ok) return { kind: "success" }
+  if (!isTransientReplayStatus(status)) {
+    return { kind: "failed", retryCount: retryCount + 1, permanent: true }
+  }
+  const nextCount = retryCount + 1
+  if (nextCount > MAX_REPLAY_RETRIES) {
+    return { kind: "failed", retryCount: nextCount, permanent: false }
+  }
+  const delayMs = RETRY_BACKOFF_MS[Math.min(nextCount - 1, RETRY_BACKOFF_MS.length - 1)]
+  return { kind: "retry", retryCount: nextCount, nextAttemptAt: now + delayMs, delayMs }
+}
 
 // ---------------------------------------------------------------------------
 // Install: do NOT call skipWaiting() here. A staff member mid-shift filling
@@ -123,14 +154,38 @@ async function broadcastQueueUpdate() {
   clients.forEach((c) => c.postMessage(msg))
 }
 
+// Reschedule timer: when items are waiting out a backoff, re-run replay once
+// the soonest one comes due (best-effort; the `online`/`sync` events and new
+// enqueues also re-trigger). Module-level so we keep just one pending timer.
+let retryTimer = null
+
+// Pull the server's `{ error }` body (if any) for a human-readable lastError.
+async function readErrorMessage(response) {
+  try {
+    const data = await response.json()
+    if (data && typeof data.error === "string" && data.error.length > 0) {
+      return data.error
+    }
+  } catch {
+    // non-JSON body — fall through to the generic status text
+  }
+  return `HTTP ${response.status}`
+}
+
 // ---------------------------------------------------------------------------
-// Sync replay: drain pending queue FIFO
+// Sync replay: drain DUE pending items FIFO, with exponential backoff and
+// permanent-vs-transient classification (see the retry policy above).
 // ---------------------------------------------------------------------------
 async function replayQueue() {
   const db = await openDB()
   const pending = await getPendingItems(db)
+  const now = Date.now()
 
   for (const item of pending) {
+    // Respect backoff: skip items not yet due for another attempt.
+    if (item.nextAttemptAt && item.nextAttemptAt > now) continue
+
+    const retryCount = item.retryCount ?? 0
     try {
       const response = await fetch("/api/offline-sync", {
         method: "POST",
@@ -138,28 +193,87 @@ async function replayQueue() {
         body: JSON.stringify(item),
       })
 
-      if (response.ok) {
+      const outcome = classifyReplayResult(
+        response.ok,
+        response.status,
+        retryCount,
+        Date.now(),
+      )
+
+      if (outcome.kind === "success") {
         await dbDelete(db, item.localId)
-      } else {
-        const updated = {
+      } else if (outcome.kind === "retry") {
+        await dbPut(db, {
           ...item,
-          status: item.retryCount >= 4 ? "failed" : "pending",
-          retryCount: item.retryCount + 1,
-          lastError: `HTTP ${response.status}`,
-        }
-        await dbPut(db, updated)
+          status: "pending",
+          retryCount: outcome.retryCount,
+          nextAttemptAt: outcome.nextAttemptAt,
+          lastStatus: response.status,
+          lastError: await readErrorMessage(response),
+        })
+      } else {
+        // failed (permanent client error, or transient retries exhausted)
+        await dbPut(db, {
+          ...item,
+          status: "failed",
+          retryCount: outcome.retryCount,
+          permanent: outcome.permanent,
+          nextAttemptAt: null,
+          lastStatus: response.status,
+          lastError: await readErrorMessage(response),
+        })
       }
     } catch {
-      const updated = {
-        ...item,
-        retryCount: item.retryCount + 1,
-        lastError: "network error",
+      // fetch threw → network error mid-flight; always transient.
+      const outcome = classifyReplayResult(false, null, retryCount, Date.now())
+      if (outcome.kind === "retry") {
+        await dbPut(db, {
+          ...item,
+          status: "pending",
+          retryCount: outcome.retryCount,
+          nextAttemptAt: outcome.nextAttemptAt,
+          lastStatus: null,
+          lastError: "Network unavailable",
+        })
+      } else {
+        await dbPut(db, {
+          ...item,
+          status: "failed",
+          retryCount: outcome.retryCount,
+          permanent: false,
+          nextAttemptAt: null,
+          lastStatus: null,
+          lastError: "Network unavailable",
+        })
       }
-      await dbPut(db, updated)
     }
   }
 
   await broadcastQueueUpdate()
+  await scheduleNextRetry(db)
+}
+
+// Schedule a single timer to re-run replay when the earliest backed-off item
+// becomes due. No-op if nothing is waiting.
+async function scheduleNextRetry(db) {
+  const stillPending = await dbGetAll(db, "byStatus", "pending")
+  const now = Date.now()
+  let soonest = Infinity
+  for (const item of stillPending) {
+    const due = item.nextAttemptAt ?? now
+    if (due > now && due < soonest) soonest = due
+  }
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+  if (soonest !== Infinity) {
+    const delay = Math.max(0, soonest - now)
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      replayQueue().catch(() => {})
+    }, delay)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +308,8 @@ self.addEventListener("message", (event) => {
           startedAt: event.data.startedAt ?? Date.now(),
           status: "pending",
           retryCount: 0,
+          nextAttemptAt: 0,
+          lastStatus: null,
           lastError: null,
         }
         await dbPut(db, record)
@@ -212,7 +328,15 @@ self.addEventListener("message", (event) => {
       openDB().then(async (db) => {
         const failed = await dbGetAll(db, "byStatus", "failed")
         for (const item of failed) {
-          await dbPut(db, { ...item, status: "pending", retryCount: 0, lastError: null })
+          await dbPut(db, {
+            ...item,
+            status: "pending",
+            retryCount: 0,
+            nextAttemptAt: 0,
+            permanent: false,
+            lastStatus: null,
+            lastError: null,
+          })
         }
         await broadcastQueueUpdate()
         if (self.registration.sync) {

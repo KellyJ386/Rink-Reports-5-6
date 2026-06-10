@@ -8,6 +8,7 @@ import { parseAccountForm, emailSchema } from "@/lib/account/schema"
 import { canEditProfile, loadAccountProfile, profileDisplayName } from "./queries"
 import { notifyProfileEdited } from "./notify"
 import type { AccountActionState } from "./types"
+import type { Json } from "@/types/database"
 
 const FIELD_LABELS: Record<string, string> = {
   address_line1: "Street address",
@@ -90,11 +91,12 @@ export async function updateAccountProfile(
 
   // Diff against the saved row so the audit log + notifications only list
   // fields that actually changed.
-  const changes: Record<string, { from: unknown; to: unknown }> = {}
+  const changes: Record<string, { from: Json; to: Json }> = {}
   const changedLabels: string[] = []
   for (const key of Object.keys(FIELD_LABELS)) {
-    const before = (existing as Record<string, unknown>)[key] ?? null
-    const after = (updatePayload as Record<string, unknown>)[key] ?? null
+    // Profile fields are text/boolean columns, so the values are Json-safe.
+    const before = ((existing as Record<string, unknown>)[key] ?? null) as Json
+    const after = ((updatePayload as Record<string, unknown>)[key] ?? null) as Json
     const normalizedBefore = typeof before === "boolean" ? before : (before ?? "")
     const normalizedAfter = typeof after === "boolean" ? after : (after ?? "")
     if (normalizedBefore !== normalizedAfter) {
@@ -132,9 +134,7 @@ export async function updateAccountProfile(
 
   // Supervisor+ edited someone else: write the audit log + notify.
   if (!isSelf && changedLabels.length > 0) {
-    // profile_audit_log isn't in the generated types yet (migration 100).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).from("profile_audit_log").insert({
+    await supabase.from("profile_audit_log").insert({
       facility_id: existing.facility_id,
       edited_by: editorId,
       target_user_id: targetUserId,

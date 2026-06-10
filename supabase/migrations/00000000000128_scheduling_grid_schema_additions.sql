@@ -1,5 +1,18 @@
 -- =============================================================================
 -- 00000000000128_scheduling_grid_schema_additions.sql
+--
+-- Phase 1 schema additions for the drag-to-create scheduling grid.
+--
+-- BACKFILL: this migration was applied directly to the production project on
+-- 2026-06-09 (history version 20260609174838) by a parallel work stream and
+-- committed here after the fact so the repo is a faithful source of truth.
+-- The body is reproduced verbatim from the prod history table; it is
+-- idempotent (add column if not exists / drop not null) so re-applying to an
+-- already-migrated database is a no-op. See
+-- docs/production-reconciliation-2026-06.md.
+-- =============================================================================
+
+-- 1. employees.max_weekly_hours
 -- Drag-to-create weekly grid (Employee Scheduling) — Phase 1 schema additions.
 --
 -- Scope was deliberately trimmed during Phase 0 discovery, because the existing
@@ -60,6 +73,7 @@ end $$;
 comment on column public.employees.max_weekly_hours is
   'Scheduling: per-employee weekly scheduled-hours cap (whole hours). NULL = no individual cap; the weekly-hours tally then falls back to facility-level schedule_settings (e.g. minor_max_weekly_hours / overtime_weekly_hours). Range 1..168.';
 
+-- 2. schedule_shifts.department_id — relax NOT NULL.
 -- -----------------------------------------------------------------------------
 -- 2. schedule_shifts.department_id — relax NOT NULL.
 --    Job area is the live role concept; a grid-painted shift need not carry a

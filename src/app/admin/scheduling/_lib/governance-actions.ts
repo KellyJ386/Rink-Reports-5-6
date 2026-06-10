@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { Json } from "@/types/database"
 
 import { assertAssignable } from "./enforcement"
@@ -15,10 +16,7 @@ import {
 } from "./governance-types"
 import type { ActionState } from "./types"
 
-// New schedule_settings columns aren't in the generated DB types yet (see
-// CLAUDE.md); cast through `any` at those write sites.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,6 +143,7 @@ export async function decideTimeOffRequest(
         decision === "approved" ? "Request approved." : "Request denied.",
     }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -170,6 +169,7 @@ export async function cancelTimeOffRequest(id: string): Promise<ActionState> {
     revalidateGovernance()
     return { ok: true, message: "Request cancelled." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -254,6 +254,7 @@ export async function assignSwapTarget(
     revalidateGovernance()
     return { ok: true, message: "Target assigned." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -287,7 +288,7 @@ export async function approveSwap(
       }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Read both shifts to confirm they exist and capture the fields the
     // assignment-eligibility check needs.
@@ -412,6 +413,7 @@ export async function approveSwap(
     revalidateGovernance()
     return { ok: true, message: "Swap approved and applied." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -464,6 +466,7 @@ export async function denySwap(
     revalidateGovernance()
     return { ok: true, message: "Swap denied." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -498,6 +501,7 @@ export async function cancelSwap(id: string): Promise<ActionState> {
     revalidateGovernance()
     return { ok: true, message: "Swap cancelled." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -542,6 +546,7 @@ export async function createComplianceRule(
     revalidateGovernance()
     return { ok: true, message: "Rule created." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -613,6 +618,7 @@ export async function updateComplianceRule(
     revalidateGovernance()
     return { ok: true, message: "Rule updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -640,6 +646,7 @@ export async function setComplianceRuleActive(
     revalidateGovernance()
     return { ok: true, message: isActive ? "Rule enabled." : "Rule disabled." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -664,6 +671,7 @@ export async function deleteComplianceRule(id: string): Promise<ActionState> {
     revalidateGovernance()
     return { ok: true, message: "Rule deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -734,6 +742,7 @@ export async function moveComplianceRule(
     revalidateGovernance()
     return { ok: true, message: "Order updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -761,7 +770,7 @@ export async function updateSchedulingSettings(
       return { ok: false, error: "Default shift minutes must be positive." }
     }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_settings")
       .upsert(
@@ -789,6 +798,7 @@ export async function updateSchedulingSettings(
     revalidateGovernance()
     return { ok: true, message: "Settings saved." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -800,7 +810,7 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
   try {
     const ctx = await resolveAdminContext()
     if (!ctx.ok) return { ok: false, error: ctx.error }
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     const { error: settingsErr } = await supabase
       .from("schedule_settings")
@@ -886,6 +896,7 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
     revalidateGovernance()
     return { ok: true, message: "Defaults seeded." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",

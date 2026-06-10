@@ -2,6 +2,8 @@ import "server-only"
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import type { Database } from "@/types/database"
+
 import {
   MODULE_COLUMN_OPTIONS,
   MODULE_LABELS,
@@ -12,11 +14,7 @@ import { MODULE_NAMES, type ModuleName } from "@/lib/permissions/actions"
 import { formatExportDate } from "./format-date"
 import type { ExportTable } from "./types"
 
-// The report tables aren't all present in the generated DB types, so the
-// builders below lean on SupabaseClient (untyped) results — matching the
-// project's `as any` pattern (e.g. src/app/api/offline-sync/route.ts).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Sb = SupabaseClient<any, "public", any>
+type Sb = SupabaseClient<Database>
 
 /** Hard cap on rows pulled for any single export to bound query/render cost. */
 export const EXPORT_ROW_LIMIT = 2000
@@ -77,7 +75,14 @@ async function loadEmployeeNames(
   return map
 }
 
-/** Generic single-table fetch scoped to facility + range, newest first. */
+/**
+ * Generic single-table fetch scoped to facility + range, newest first.
+ *
+ * Table / column names arrive as plain strings from the per-module builder
+ * configs, so this one helper deliberately widens to the untyped client —
+ * threading literal table types through every builder would buy little since
+ * each call site already names its row shape via T.
+ */
 async function fetchSubmissions<T = Record<string, unknown>>(
   sb: Sb,
   table: string,
@@ -86,7 +91,7 @@ async function fetchSubmissions<T = Record<string, unknown>>(
   columns: string,
   dateColumn = "submitted_at",
 ): Promise<T[]> {
-  const { data } = await sb
+  const { data } = await (sb as SupabaseClient)
     .from(table)
     .select(columns)
     .eq("facility_id", facilityId)

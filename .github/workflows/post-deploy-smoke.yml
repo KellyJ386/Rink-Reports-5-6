@@ -1,0 +1,106 @@
+name: Post-deploy smoke
+
+# Verifies a deployment is actually healthy after it goes live. Before this
+# existed, a deploy with a missing CRON_SECRET or service-role key would fail
+# silently: the cron routes 503 forever, notifications stop, and nothing
+# alerts anyone. This workflow makes that failure mode loud within minutes.
+#
+# What it checks (no GitHub secrets required):
+#   1. GET /api/health           → must be 200 (required env present + DB
+#      reachable; see src/app/api/health/route.ts).
+#   2. GET each cron route with a deliberately WRONG bearer token → must be
+#      401. The routes return 503 when CRON_SECRET is unset, so a 401 proves
+#      the secret is configured — without triggering a real cron run.
+#
+# Optionally, if a CRON_SECRET repo secret is configured, it also fetches the
+# authenticated /api/health detail (per-variable booleans, email gate,
+# commit) into the job log for debugging.
+#
+# Triggers:
+#   - deployment_status: fired by the Vercel GitHub integration on every
+#     deployment; we only act on successful Production deployments.
+#   - workflow_dispatch: manual run against any URL (e.g. after rotating env
+#     vars without a code deploy).
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Base URL to smoke-test (e.g. https://app.example.com)"
+        required: true
+        type: string
+
+jobs:
+  smoke:
+    # For deployment_status events, only successful production deploys.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       contains(fromJSON('["production", "Production"]'), github.event.deployment.environment))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Resolve target URL
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            URL="${{ inputs.url }}"
+          else
+            URL="${{ github.event.deployment_status.environment_url }}"
+          fi
+          # Strip any trailing slash so path concatenation is predictable.
+          URL="${URL%/}"
+          if [ -z "$URL" ]; then
+            echo "No target URL resolved from the event payload." >&2
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Smoke-testing $URL"
+
+      - name: Health endpoint returns 200
+        run: |
+          URL="${{ steps.target.outputs.url }}"
+          STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 \
+            --retry 3 --retry-delay 5 --retry-all-errors \
+            "$URL/api/health")
+          echo "GET /api/health -> $STATUS"
+          cat /tmp/health.json || true
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::/api/health returned $STATUS — required env missing or database unreachable. See response body above."
+            exit 1
+          fi
+
+      - name: Cron routes reject a bad bearer with 401 (proves CRON_SECRET is set)
+        run: |
+          URL="${{ steps.target.outputs.url }}"
+          FAIL=0
+          for ROUTE in drain-notifications send-communications run-retention-purge; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+              -H "Authorization: Bearer definitely-not-the-secret" \
+              "$URL/api/cron/$ROUTE")
+            echo "GET /api/cron/$ROUTE (bad bearer) -> $STATUS"
+            if [ "$STATUS" = "503" ]; then
+              echo "::error::/api/cron/$ROUTE returned 503 — CRON_SECRET (or service-role env) is NOT configured on this deployment."
+              FAIL=1
+            elif [ "$STATUS" != "401" ]; then
+              echo "::error::/api/cron/$ROUTE returned $STATUS, expected 401."
+              FAIL=1
+            fi
+          done
+          exit $FAIL
+
+      - name: Authenticated health detail (optional, requires CRON_SECRET repo secret)
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET repo secret not configured — skipping detailed health output."
+            exit 0
+          fi
+          URL="${{ steps.target.outputs.url }}"
+          curl -s --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$URL/api/health" | head -c 4000

@@ -1,0 +1,60 @@
+name: Security scan
+
+# Two security gates that previously had no CI coverage (360-review O5):
+#   1. pnpm audit — fails on high/critical advisories in production deps.
+#   2. gitleaks — scans the tree (and PR history) for committed secrets.
+#
+# Both are BLOCKING. A small set of high advisories with no current registry
+# fix (xlsx via the npm registry, dompurify via posthog-js) is explicitly
+# accepted in package.json -> pnpm.auditConfig.ignoreGhsas and documented in
+# docs/security-audit-exceptions.md, so the audit still fails on any NEW high.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fail on high/critical advisories in production deps only (--prod skips
+      # devDependencies, which aren't shipped). Accepted exceptions live in
+      # package.json's pnpm.auditConfig.ignoreGhsas.
+      - name: Audit production dependencies (high/critical)
+        run: pnpm audit --prod --audit-level high
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers the PR's new commits, not just the
+          # tip tree.
+          fetch-depth: 0
+
+      - name: Scan for committed secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

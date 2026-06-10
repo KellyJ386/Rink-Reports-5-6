@@ -27,17 +27,11 @@ export async function seedRolePermissionDefaults(params: {
     return { ok: false, error: `Permission seeding unavailable: ${detail}` }
   }
 
-  const { error } = await admin.rpc(
-    // Not in generated types yet; cast follows the project pattern.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    "apply_role_permission_defaults" as any,
-    {
-      p_user_id: params.userId,
-      p_facility_id: params.facilityId,
-      p_role_id: params.roleId,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
-  )
+  const { error } = await admin.rpc("apply_role_permission_defaults", {
+    p_user_id: params.userId,
+    p_facility_id: params.facilityId,
+    p_role_id: params.roleId,
+  })
 
   if (error) return { ok: false, error: error.message }
   return { ok: true }

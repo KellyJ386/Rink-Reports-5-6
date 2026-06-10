@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type {
   ActionState,
@@ -146,6 +147,7 @@ export async function createLayout(
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Diagram created." }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -198,6 +200,7 @@ export async function updateLayout(
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Layout updated." }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -223,6 +226,7 @@ export async function setLayoutActive(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -251,6 +255,7 @@ export async function deleteLayout(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -288,6 +293,7 @@ export async function setLayoutRink(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -338,6 +344,7 @@ export async function setLayoutDefault(layoutId: string): Promise<SimpleResult> 
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -389,6 +396,7 @@ export async function createRink(
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Rink created." }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -432,6 +440,7 @@ export async function updateRink(
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Rink updated." }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -457,6 +466,7 @@ export async function setRinkActive(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -493,6 +503,7 @@ export async function setRinkDefault(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -521,6 +532,7 @@ export async function deleteRink(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -575,6 +587,7 @@ export async function createPoint(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -639,6 +652,7 @@ export async function updatePoint(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -721,6 +735,7 @@ export async function movePoint(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -745,6 +760,7 @@ export async function deletePoint(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -833,6 +849,7 @@ export async function renumberPointsForLayout(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -882,6 +899,7 @@ export async function addIceDepthFollowupNote(
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -909,6 +927,7 @@ export async function deleteIceDepthSession(
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -989,6 +1008,7 @@ export async function updateIceDepthSettings(
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Settings saved." }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -1021,6 +1041,7 @@ export async function seedDefaultIceDepthSettings(): Promise<SimpleResult> {
     revalidatePath("/admin/ice-depth")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/ice-depth/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:cron": "node scripts/check-cron-schedule.mjs"
+    "check:cron": "node scripts/check-cron-schedule.mjs",
+    "types:write": "node scripts/generate-database-types.mjs --write",
+    "types:check": "node scripts/generate-database-types.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -25,8 +27,8 @@
     "date-fns": "^4.4.0",
     "libphonenumber-js": "^1.13.4",
     "lucide-react": "^1.14.0",
-    "next": "16.2.4",
-    "posthog-js": "^1.373.5",
+    "next": "16.2.9",
+    "posthog-js": "^1.383.3",
     "react": "19.2.4",
     "react-big-calendar": "^1.20.0",
     "react-dom": "19.2.4",
@@ -39,15 +41,25 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@supabase/postgres-meta": "0.91.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-big-calendar": "^1.16.3",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.4",
+    "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-4r6h-8v6p-xvw6",
+        "GHSA-5pgg-2g8v-p4x9",
+        "GHSA-87xg-pxx2-7hvx"
+      ]
+    }
   }
 }

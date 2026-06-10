@@ -110,9 +110,8 @@ export default async function AvailabilityPage({
     )
   }
 
-  // Facility work-week start (migration 117 column; not in generated types).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: settingsRow } = await (supabase as any)
+  // Facility work-week start (migration 117).
+  const { data: settingsRow } = await supabase
     .from("schedule_settings")
     .select("week_start_day")
     .eq("facility_id", employeeRow.facility_id)

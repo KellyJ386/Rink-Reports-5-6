@@ -112,11 +112,7 @@ export default async function AvailabilityDayPage({
     )
   }
 
-  // job_area_id isn't in the generated types yet (migration 127); cast.
-  const { data: rowsRaw } = await (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    supabase as any
-  )
+  const { data: rowsRaw } = await supabase
     .from("schedule_availability")
     .select(
       "id, day_of_week, start_time, end_time, availability_type, effective_from, effective_to, notes, job_area_id"
@@ -128,11 +124,7 @@ export default async function AvailabilityDayPage({
   const rows = (rowsRaw ?? []) as AvailabilityRowData[]
 
   // Job areas this employee is assigned to (the picker options + name lookup).
-  // employee_job_area_* tables aren't in the generated types; cast.
-  const { data: assignmentsRaw } = await (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    supabase as any
-  )
+  const { data: assignmentsRaw } = await supabase
     .from("employee_job_area_assignments")
     .select("job_area_id, employee_job_areas(id, name, is_active, sort_order)")
     .eq("employee_id", employeeRow.id)

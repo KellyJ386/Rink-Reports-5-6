@@ -5,6 +5,7 @@ import { useActionState } from "react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
+import { useUnsavedGuard } from "@/hooks/use-unsaved-guard"
 import { Card } from "@/components/ui/card"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
@@ -171,6 +172,21 @@ export function SubmissionForm({
     () => ({ ...EMPTY_BODY_SELECTIONS })
   )
   const [witnesses, setWitnesses] = useState<WitnessRow[]>([])
+
+  // Warn before a tab close / hard refresh discards an in-progress report.
+  // Identity fields prefill from the session, so dirty-ness is keyed to the
+  // incident details the reporter actually typed/selected.
+  const hasEnteredData =
+    description.trim() !== "" ||
+    injuredAge.trim() !== "" ||
+    locationId !== "" ||
+    activityId !== "" ||
+    severityId !== "" ||
+    medicalAttentionId !== "" ||
+    primaryInjuryTypeId !== "" ||
+    witnesses.length > 0 ||
+    JSON.stringify(selections) !== JSON.stringify(EMPTY_BODY_SELECTIONS)
+  useUnsavedGuard(hasEnteredData && !queued)
 
   useEffect(() => {
     if (state.error) {

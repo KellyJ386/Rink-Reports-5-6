@@ -146,8 +146,7 @@ function TabBar({ active }: { active: Tab }) {
 
 async function SetupTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
+  const sb = supabase
   const [rinksRes, equipRes, itemsRes, fuelsRes, tmplRes, tmplItemsRes] =
     await Promise.all([
       supabase

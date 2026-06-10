@@ -4,15 +4,19 @@ import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
 import type { Database } from "@/types/database"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
- * Invokes the per-module purge_old_* functions defined in migration 24.
- * Each function self-discovers facilities whose retention_settings row has
- * auto_purge = true and deletes records older than keep_days.
+ * Invokes the per-module purge_old_* functions defined in migration 24,
+ * plus the fixed-interval system-state purges from migration 134
+ * (notification_outbox and offline_sync_queue terminal rows).
+ * Each retention_settings-aware function self-discovers facilities whose
+ * retention_settings row has auto_purge = true and deletes records older
+ * than keep_days.
  *
  * Authenticated by the same CRON_SECRET as the other cron routes; expected
  * to be invoked daily (vercel.json schedules it once per day off-peak).
@@ -26,6 +30,8 @@ const PURGE_FUNCTIONS = [
   "purge_old_air_quality_reports",
   "purge_old_ice_operations_submissions",
   "purge_old_audit_logs",
+  "purge_old_notification_outbox",
+  "purge_old_offline_sync_queue",
 ] as const
 
 type PurgeFn = (typeof PURGE_FUNCTIONS)[number]
@@ -67,11 +73,9 @@ export async function GET(request: Request) {
   let anyFailed = false
 
   for (const fn of PURGE_FUNCTIONS) {
-    // purge_old_* functions are not in generated types (service-role only).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc(fn)
+    const { data, error } = await supabase.rpc(fn)
     if (error) {
-      console.error(`[cron/run-retention-purge] ${fn} failed:`, error)
+      logServerError("cron/run-retention-purge", error, { fn })
       results[fn] = "error"
       anyFailed = true
       continue
@@ -79,28 +83,6 @@ export async function GET(request: Request) {
     const deleted = typeof data === "number" ? data : 0
     results[fn] = deleted
     total += deleted
-  }
-
-  // Sync queue rows are ephemeral system state, not user data, so they don't
-  // belong in retention_settings (which is per-facility). Drop synced rows
-  // older than 90 days inline. Pending/failed rows are kept so an admin can
-  // still triage them. offline_sync_queue is not in generated types yet
-  // (migration 31).
-  const syncCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: syncErr, count: syncDeleted } = await (supabase as any)
-    .from("offline_sync_queue")
-    .delete({ count: "exact" })
-    .eq("sync_status", "synced")
-    .lt("synced_at", syncCutoff)
-  if (syncErr) {
-    console.error(
-      "[cron/run-retention-purge] offline_sync_queue purge failed:",
-      syncErr,
-    )
-    anyFailed = true
-  } else if (typeof syncDeleted === "number") {
-    total += syncDeleted
   }
 
   // Stamp last_purged_at on every auto_purge row so the admin UI reflects
@@ -113,13 +95,11 @@ export async function GET(request: Request) {
     .update({ last_purged_at: stampedAt })
     .eq("auto_purge", true)
   if (stampErr) {
-    console.error(
-      "[cron/run-retention-purge] last_purged_at stamp failed:",
-      stampErr,
-    )
+    logServerError("cron/run-retention-purge", stampErr, {
+      step: "last_purged_at stamp",
+    })
   }
 
-  const offlineSyncDeleted = typeof syncDeleted === "number" ? syncDeleted : 0
   console.log(
     "[cron/run-retention-purge] run complete",
     JSON.stringify({
@@ -127,7 +107,6 @@ export async function GET(request: Request) {
       duration_ms: Date.now() - startedAt,
       total,
       results,
-      offline_sync_deleted: offlineSyncDeleted,
       ok: !anyFailed,
     }),
   )
@@ -137,7 +116,6 @@ export async function GET(request: Request) {
       ok: !anyFailed,
       total,
       results,
-      offline_sync_deleted: offlineSyncDeleted,
       stamped_at: stampedAt,
     },
     { status: anyFailed ? 500 : 200 },

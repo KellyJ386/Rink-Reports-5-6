@@ -2,30 +2,32 @@
 
 import { useEffect } from "react"
 
+import { clientPosthogEnabled } from "@/lib/observability/capture-client"
+import { scrubText } from "@/lib/observability/scrub"
+
 /**
- * PostHog client integration. Two modes:
+ * PostHog client integration. Capture is environment-gated (see
+ * src/lib/observability/gate.ts): it requires NEXT_PUBLIC_POSTHOG_KEY AND
+ * (production OR an explicit NEXT_PUBLIC_POSTHOG_ENABLED=true), so a dev
+ * clone or preview deployment that inherits the production key never
+ * pollutes production analytics. When the gate is closed the dynamic import
+ * never fires — posthog-js stays out of the JS heap entirely.
  *
- *  - NEXT_PUBLIC_POSTHOG_KEY unset (dev / local / unconfigured deploy):
- *    the dynamic import never fires, posthog-js never enters the page's
- *    JS heap, and no requests go out. Net cost: zero.
+ * `autocapture` is intentionally OFF because for a staff app the
+ * noise/utility ratio of capturing every click + input is poor, and there
+ * are privacy concerns about autocapture grabbing values from forms that
+ * handle PII (incident descriptions, employee names, accident records).
+ * Defense-in-depth for the same concern: `before_send` runs every event's
+ * exception/message-ish properties through the shared PII scrubber.
  *
- *  - NEXT_PUBLIC_POSTHOG_KEY set: lazy-import posthog-js after hydration,
- *    initialize with pageview tracking on. `autocapture` is intentionally
- *    OFF because for a staff app the noise/utility ratio of capturing
- *    every click + input is poor, and there are privacy concerns about
- *    autocapture grabbing values from forms that handle PII (incident
- *    descriptions, employee names, accident records). Call sites that
- *    want manual capture import posthog-js directly.
- *
- * Error tracking is wired separately in src/app/error.tsx and
- * src/app/global-error.tsx — they import posthog-js dynamically inside
- * a useEffect and call captureException so an error during init doesn't
- * itself crash the boundary.
+ * Error tracking is wired separately via captureClientException (used by
+ * error.tsx / global-error.tsx / segment-error.tsx), which applies the same
+ * gate before importing posthog-js.
  */
 export function PostHogProvider() {
   useEffect(() => {
-    const key = process.env.NEXT_PUBLIC_POSTHOG_KEY
-    if (!key) return
+    if (!clientPosthogEnabled()) return
+    const key = process.env.NEXT_PUBLIC_POSTHOG_KEY as string
     const host =
       process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim() || "https://us.i.posthog.com"
     let cancelled = false
@@ -36,9 +38,32 @@ export function PostHogProvider() {
         capture_pageview: true,
         autocapture: false,
         // Staff app, no anonymous traffic — disable persisted distinct_id
-        // until a user signs in. The user-identify call happens in
-        // identify-on-login (future commit) once the auth context is wired.
+        // until a user signs in.
         persistence: "memory",
+        before_send: (event) => {
+          if (!event) return event
+          const props = event.properties as
+            | Record<string, unknown>
+            | undefined
+          if (!props) return event
+          // Exception events: scrub message/value fields, which can echo
+          // form contents (incident text, names, emails) from thrown errors.
+          if (typeof props.$exception_message === "string") {
+            props.$exception_message = scrubText(props.$exception_message)
+          }
+          const list = props.$exception_list
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              if (item && typeof item === "object") {
+                const entry = item as { value?: unknown }
+                if (typeof entry.value === "string") {
+                  entry.value = scrubText(entry.value)
+                }
+              }
+            }
+          }
+          return event
+        },
       })
     })
     return () => {

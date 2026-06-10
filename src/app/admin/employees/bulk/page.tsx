@@ -52,10 +52,7 @@ export default async function BulkAddEmployeesPage({
         .eq("facility_id", facilityId)
         .order("hierarchy_level", { ascending: true }),
       supabase.from("employees").select("email").eq("facility_id", facilityId),
-      // employee_job_areas isn't in the generated types yet (see CLAUDE.md);
-      // cast through any, matching the offline_sync_queue convention.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
+      supabase
         .from("employee_job_areas")
         .select("id, name")
         .eq("facility_id", facilityId)

@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { requireAdmin } from "@/lib/auth"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
 import { HistoryTab } from "./_components/history-tab"
@@ -48,6 +50,7 @@ type SearchParams = Promise<{
   to?: string
   oor?: string
   q?: string
+  show?: string
 }>
 
 function tabHref(tab: Tab): string {
@@ -249,12 +252,14 @@ async function HistoryTabLoader({
     to?: string
     oor?: string
     q?: string
+    show?: string
   }
 }) {
   const supabase = await createClient()
 
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
+  const show = clampShow(params.show, { initial: 200 })
 
   const empsRes = await supabase
     .from("employees")
@@ -268,14 +273,17 @@ async function HistoryTabLoader({
     .select("*")
     .eq("facility_id", facilityId)
     .order("submitted_at", { ascending: false })
-    .limit(200)
+    // One extra row to learn whether a "Load more" link is needed.
+    .range(0, show)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (from) q = q.gte("submitted_at", `${from}T00:00:00.000Z`)
   if (to) q = q.lte("submitted_at", `${to}T23:59:59.999Z`)
   if (params.q) q = q.ilike("notes", `%${params.q}%`)
 
   const { data: reportsRaw } = await q
-  const reports = (reportsRaw ?? []) as ReportRow[]
+  const overfetched = (reportsRaw ?? []) as ReportRow[]
+  const hasMore = overfetched.length > show
+  const reports = hasMore ? overfetched.slice(0, show) : overfetched
 
   // Aggregate value counts + OOR counts per report.
   let valueAgg: Array<{ report_id: string; is_out_of_range: boolean }> = []
@@ -399,14 +407,31 @@ async function HistoryTabLoader({
   }
   const backHref = `/admin/refrigeration?${backSp.toString()}`
 
+  const more = nextShow(show, { initial: 200 })
+  const moreSp = new URLSearchParams()
+  moreSp.set("tab", "history")
+  for (const k of ["employee", "from", "to", "oor", "q"] as const) {
+    const v = params[k]
+    if (v) moreSp.set(k, v)
+  }
+  if (more) moreSp.set("show", String(more))
+
   return (
-    <HistoryTab
-      list={list}
-      detail={detail}
-      backHref={backHref}
-      employees={employees}
-      params={{ ...params, from }}
-    />
+    <>
+      <HistoryTab
+        list={list}
+        detail={detail}
+        backHref={backHref}
+        employees={employees}
+        params={{ ...params, from }}
+      />
+      {!detail && hasMore && more ? (
+        <LoadMoreLink
+          href={`/admin/refrigeration?${moreSp.toString()}`}
+          shown={list.length}
+        />
+      ) : null}
+    </>
   )
 }
 

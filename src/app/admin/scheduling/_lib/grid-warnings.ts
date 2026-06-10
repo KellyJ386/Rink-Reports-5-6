@@ -11,13 +11,13 @@
 // Plain module (not "use server"): the preview action and the create/update
 // actions call it with their own RLS-scoped Supabase client.
 
+import type { createClient } from "@/lib/supabase/server"
+
+import { complianceWeekWindow } from "./compliance"
 import { checkAssignmentViolations, describeViolation } from "./enforcement"
 import { shiftDurationHours } from "./weekly-hours"
 
-// The RPC + employees.max_weekly_hours aren't in the generated DB types yet (see
-// CLAUDE.md); cast at the call sites.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>
 
 export type WarningArgs = {
   facilityId: string
@@ -33,26 +33,12 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
 }
 
-// Sunday-anchored UTC week containing `startsAt`, matching the window used by
-// scheduling_assignment_violations() so the cap warning lines up with overtime.
-function weekWindowUTC(startsAt: string): { start: string; end: string } {
-  const d = new Date(startsAt)
-  const dow = d.getUTCDay() // 0 = Sunday
-  const start = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
-  )
-  start.setUTCDate(start.getUTCDate() - dow)
-  const end = new Date(start)
-  end.setUTCDate(end.getUTCDate() + 7)
-  return { start: start.toISOString(), end: end.toISOString() }
-}
-
 /**
  * Returns human-readable advisory warnings for assigning `employeeId` to the
  * given slot. Empty array = clean. An open/unassigned slot yields no warnings.
  */
 export async function collectShiftWarnings(
-  supabase: AnySupabase,
+  supabase: ServerSupabase,
   args: WarningArgs
 ): Promise<string[]> {
   if (!args.employeeId) return []
@@ -73,28 +59,21 @@ export async function collectShiftWarnings(
     .eq("facility_id", args.facilityId)
     .maybeSingle()
 
-  const cap = (emp as { max_weekly_hours?: number | null } | null)
-    ?.max_weekly_hours
+  const cap = emp?.max_weekly_hours
   if (cap != null) {
-    const { start, end } = weekWindowUTC(args.startsAt)
+    const { startIso, endIso } = complianceWeekWindow(args.startsAt)
     let query = supabase
       .from("schedule_shifts")
       .select("starts_at, ends_at, break_minutes")
       .eq("employee_id", args.employeeId)
       .eq("facility_id", args.facilityId)
       .in("status", ["draft", "published"])
-      .gte("starts_at", start)
-      .lt("starts_at", end)
+      .gte("starts_at", startIso)
+      .lt("starts_at", endIso)
     if (args.excludeShiftId) query = query.neq("id", args.excludeShiftId)
 
     const { data: others } = await query
-    const otherHours = (
-      (others ?? []) as Array<{
-        starts_at: string
-        ends_at: string
-        break_minutes: number | null
-      }>
-    ).reduce(
+    const otherHours = (others ?? []).reduce(
       (sum, s) =>
         sum +
         shiftDurationHours(

@@ -188,14 +188,12 @@ export default async function AccidentReportPage({
   ] = await Promise.all([
     // laterality (added by migration 00000000000092) isn't in the generated
     // Database types yet — cast to keep the typed builder happy.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("accident_body_part_selections")
       .select("id, body_part_dropdown_id, side, laterality")
       .eq("accident_id", report.id),
     // accident_witnesses isn't in the generated Database types yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("accident_witnesses")
       .select("id, name, contact, statement, sort_order")
       .eq("accident_id", report.id)

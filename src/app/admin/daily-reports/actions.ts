@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
 import { checklistImportSpec } from "./_components/checklist-import"
@@ -110,6 +111,7 @@ export async function createArea(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Area created." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -159,6 +161,7 @@ export async function updateArea(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Area updated." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -182,6 +185,7 @@ export async function setAreaActive(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -205,6 +209,7 @@ export async function reorderArea(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -235,6 +240,7 @@ export async function deleteArea(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -273,6 +279,7 @@ export async function createTemplate(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Template created." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -310,6 +317,7 @@ export async function updateTemplate(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Template updated." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -335,6 +343,7 @@ export async function setTemplateActive(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -364,6 +373,7 @@ export async function deleteTemplate(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -415,6 +425,7 @@ export async function createChecklistItem(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Item created." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -488,6 +499,7 @@ export async function importDailyChecklistItems(
       message: `Imported ${insertRows.length} item(s).`,
     }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -525,6 +537,7 @@ export async function updateChecklistItem(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Item updated." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -547,6 +560,7 @@ export async function deleteChecklistItem(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -572,6 +586,7 @@ export async function reorderChecklistItem(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -653,6 +668,7 @@ export async function moveChecklistItem(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -694,6 +710,7 @@ export async function toggleSubmissionItem(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -742,6 +759,7 @@ export async function addAdminNote(
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -781,6 +799,7 @@ export async function updateNote(
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -813,6 +832,7 @@ export async function deleteNote(note_id: string): Promise<SimpleResult> {
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -837,6 +857,7 @@ export async function deleteSubmission(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

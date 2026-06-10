@@ -1,0 +1,18 @@
+# Gitleaks configuration.
+#
+# Uses the upstream default ruleset, plus a narrow allowlist for known
+# false positives so the secret-scan CI gate stays meaningful.
+title = "Rink Reports gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets flagged by default rules."
+regexes = [
+  # .github/workflows/post-deploy-smoke.yml sends a deliberately invalid bearer
+  # token to prove the cron routes reject bad auth (they must return 401). It is
+  # a literal placeholder, not a credential — the curl-auth-header rule flags the
+  # pattern regardless.
+  '''definitely-not-the-secret''',
+]

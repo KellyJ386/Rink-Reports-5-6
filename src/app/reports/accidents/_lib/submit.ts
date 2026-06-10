@@ -112,8 +112,7 @@ export async function persistAccident(
     }))
     const { error: bpErr } = await supabase
       .from("accident_body_part_selections")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .insert(rows as any)
+      .insert(rows)
     if (bpErr) {
       return cleanupAndFail(
         dbError(bpErr, "Failed to save body part selections.")

@@ -2,6 +2,8 @@
 
 import { useEffect } from "react"
 
+import { captureClientException } from "@/lib/observability/capture-client"
+
 export default function GlobalError({
   error,
   reset,
@@ -11,13 +13,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error(error)
-    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-      void import("posthog-js")
-        .then(({ default: posthog }) => {
-          posthog.captureException(error, { digest: error.digest })
-        })
-        .catch(() => {})
-    }
+    captureClientException(error)
   }, [error])
 
   return (

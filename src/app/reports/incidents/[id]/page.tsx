@@ -196,7 +196,7 @@ export default async function IncidentReportPage({
             <Row label="When it happened" value={fmt(report.occurred_at)} />
             <Row label="Reported at" value={fmt(report.submitted_at)} />
             <Row label="Reporter" value={report.reporter_name} />
-            <Row label="Phone" value={report.reporter_phone} />
+            <Row label="Phone" value={report.reporter_phone ?? "—"} />
             <div className="flex flex-col gap-1 border-b border-border pb-2">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
                 Description
@@ -242,7 +242,7 @@ export default async function IncidentReportPage({
 
   const initial: IncidentFormInitial = {
     reporterName: report.reporter_name,
-    reporterPhone: report.reporter_phone,
+    reporterPhone: report.reporter_phone ?? "",
     occurredAtLocal: isoToDateTimeLocal(report.occurred_at),
     severityLevelId: report.severity_level_id ?? "",
     activityValue: report.activity_id
@@ -289,7 +289,7 @@ export default async function IncidentReportPage({
         action={updateAction}
         initial={initial}
         defaultReporterName={report.reporter_name}
-        defaultReporterPhone={report.reporter_phone}
+        defaultReporterPhone={report.reporter_phone ?? ""}
         severityLevels={severities}
         activities={activities}
         spaces={spaces}

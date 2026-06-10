@@ -6,6 +6,7 @@ import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
 import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import { createEmployeeComplete } from "../_lib/job-areas"
 import {
@@ -224,6 +225,7 @@ export async function bulkCreateEmployees(args: {
     revalidatePath("/admin/employees")
     return { ok: true, results }
   } catch (e) {
+    logServerError("admin/employees/bulk/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

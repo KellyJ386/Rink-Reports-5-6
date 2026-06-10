@@ -7,6 +7,7 @@ import { mapWithConcurrency } from "@/lib/concurrency"
 import { downloadPdf } from "@/lib/notifications/pdf/upload"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
 import type { Database } from "@/types/database"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -136,8 +137,7 @@ async function loadPending(
   const nowIso = new Date().toISOString()
   // email_attempts / email_next_attempt_at are added in migration 62 and
   // not yet in generated DB types — cast to bypass typing for those columns.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("communication_recipients")
     .select(
       "id, message_id, email_attempts, employees!inner(email), communication_messages!inner(subject, body, pdf_url)",
@@ -148,7 +148,7 @@ async function loadPending(
     .limit(BATCH_LIMIT)
 
   if (error) {
-    console.error("[send-communications] load failed:", error)
+    logServerError("cron/send-communications", error, { step: "load" })
     return []
   }
 
@@ -277,8 +277,7 @@ async function markEmailSent(
   attempts: number,
 ) {
   // Filter on email_status='pending' so concurrent workers can't double-send.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any)
+  await supabase
     .from("communication_recipients")
     .update({
       email_status: "sent",
@@ -314,8 +313,7 @@ async function markEmailRetry(
   nextAttemptAt: string,
   error: string,
 ) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any)
+  await supabase
     .from("communication_recipients")
     .update({
       email_status: "pending",
@@ -333,8 +331,7 @@ async function markEmailTerminalFailure(
   attempts: number,
   error: string,
 ) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any)
+  await supabase
     .from("communication_recipients")
     .update({
       email_status: "failed",

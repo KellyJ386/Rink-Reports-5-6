@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type {
   ActionState,
@@ -109,6 +110,7 @@ export async function createSeverityLevel(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Severity level created." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -160,6 +162,7 @@ export async function updateSeverityLevel(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Severity level updated." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -185,6 +188,7 @@ export async function setSeverityLevelActive(
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -229,6 +233,7 @@ export async function deleteSeverityLevel(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -281,6 +286,7 @@ export async function seedIncidentDefaults(): Promise<SimpleResult> {
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -335,6 +341,7 @@ export async function setReportStatus(
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -384,6 +391,7 @@ export async function addFollowupNote(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -429,6 +437,7 @@ export async function createIncidentActivity(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Activity created." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -477,6 +486,7 @@ export async function updateIncidentActivity(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Activity updated." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -502,6 +512,7 @@ export async function setIncidentActivityActive(
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -538,6 +549,7 @@ export async function deleteIncidentActivity(id: string): Promise<SimpleResult> 
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -581,6 +593,7 @@ export async function createFacilitySpace(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Facility space created." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -627,6 +640,7 @@ export async function updateFacilitySpace(
     revalidatePath("/admin/incident-reports")
     return { ok: true, message: "Facility space updated." }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -652,6 +666,7 @@ export async function setFacilitySpaceActive(
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -695,6 +710,7 @@ export async function deleteFacilitySpace(id: string): Promise<SimpleResult> {
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -753,6 +769,7 @@ export async function seedIncidentActivities(): Promise<SimpleResult> {
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -779,6 +796,7 @@ export async function seedFacilitySpaces(): Promise<SimpleResult> {
     revalidatePath("/admin/incident-reports")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -875,6 +893,7 @@ export async function bulkImportIncidentActivities(
     revalidatePath("/admin/incident-reports")
     return { ok: true, inserted, skipped: rows.length - inserted, errors }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -947,6 +966,7 @@ export async function bulkImportFacilitySpaces(
     revalidatePath("/admin/incident-reports")
     return { ok: true, inserted, skipped: rows.length - inserted, errors }
   } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

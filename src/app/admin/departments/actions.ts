@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type { ActionState, SimpleResult } from "./types"
 
@@ -97,6 +98,7 @@ export async function createDepartment(
     revalidatePath("/admin/departments")
     return { ok: true, message: "Department created." }
   } catch (e) {
+    logServerError("admin/departments/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -173,6 +175,7 @@ export async function createDepartmentInline(args: {
       },
     }
   } catch (e) {
+    logServerError("admin/departments/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -224,6 +227,7 @@ export async function updateDepartment(
     revalidatePath("/admin/departments")
     return { ok: true, message: "Department updated." }
   } catch (e) {
+    logServerError("admin/departments/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -249,6 +253,7 @@ export async function setDepartmentActive(
     revalidatePath("/admin/departments")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/departments/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -274,6 +279,7 @@ export async function reorderDepartment(
     revalidatePath("/admin/departments")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/departments/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

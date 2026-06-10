@@ -10,6 +10,7 @@ import {
   type UserAction,
 } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 function isModuleName(value: string): value is ModuleName {
   return (MODULE_NAMES as readonly string[]).includes(value)
@@ -96,6 +97,7 @@ export async function setRoleModuleAction(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }
@@ -200,6 +202,7 @@ export async function createRole(input: {
     revalidate()
     return { ok: true, value: { id: data!.id } }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }
@@ -234,6 +237,7 @@ export async function renameRole(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }
@@ -287,6 +291,7 @@ export async function setRoleHierarchy(
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }
@@ -321,6 +326,7 @@ export async function deactivateRole(
       },
     }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }
@@ -337,6 +343,7 @@ export async function reactivateRole(roleId: string): Promise<ActionResult> {
     revalidate()
     return { ok: true }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }
@@ -400,6 +407,7 @@ export async function copyRolePermissionDefaults(
     revalidate()
     return { ok: true, value: { copied: rows.length } }
   } catch (e) {
+    logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
   }
 }

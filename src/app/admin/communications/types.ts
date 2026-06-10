@@ -59,6 +59,7 @@ export type Tab =
   | "groups"
   | "routing"
   | "reminders"
+  | "deliveries"
   | "audit"
 
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
@@ -67,6 +68,7 @@ export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "groups", label: "Groups" },
   { key: "routing", label: "Routing" },
   { key: "reminders", label: "Reminders" },
+  { key: "deliveries", label: "Deliveries" },
   { key: "audit", label: "Audit Log" },
 ]
 

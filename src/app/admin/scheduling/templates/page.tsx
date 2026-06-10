@@ -22,9 +22,7 @@ import { TemplatesClient } from "./_components/templates-client"
 
 export const dynamic = "force-dynamic"
 
-// employee_job_areas isn't in the generated DB types yet (see CLAUDE.md).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+
 
 type SearchParams = Promise<{ template?: string }>
 
@@ -74,7 +72,7 @@ export default async function TemplatesPage({
       .select("id, name, slug, color, is_active")
       .eq("facility_id", facilityId)
       .order("sort_order", { ascending: true }),
-    (supabase as AnySupabase)
+    supabase
       .from("employee_job_areas")
       .select("id, name, slug, is_active")
       .eq("facility_id", facilityId)

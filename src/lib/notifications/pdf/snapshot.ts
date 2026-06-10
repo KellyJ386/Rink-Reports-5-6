@@ -2,6 +2,8 @@ import "server-only"
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import type { Database } from "@/types/database"
+
 /**
  * A flat, source-module-agnostic representation of a submission that's
  * enough to render a useful PDF. Each fetcher in this module reads one
@@ -19,7 +21,7 @@ export type SubmissionSnapshot = {
   long_form: { label: string; body: string } | null
 }
 
-type Sb = SupabaseClient
+type Sb = SupabaseClient<Database>
 
 async function fetchEmployeeName(
   sb: Sb,
@@ -331,8 +333,6 @@ export async function fetchSubmissionSnapshot(
   sourceModule: string,
   sourceRecordId: string,
 ): Promise<SubmissionSnapshot | null> {
-  // generated types haven't kept up with all the report tables, so the
-  // fetchers above use `as any` implicitly by virtue of SupabaseClient<any>.
   const fn = REGISTRY[sourceModule]
   if (!fn) return null
   try {

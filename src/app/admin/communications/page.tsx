@@ -15,6 +15,11 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { AuditTab } from "./_components/audit-tab"
+import {
+  DeliveriesTab,
+  type FailedOutboxItem,
+  type FailedRecipientItem,
+} from "./_components/deliveries-tab"
 import { GroupsTab } from "./_components/groups-tab"
 import { InboxTab } from "./_components/inbox-tab"
 import { RemindersTab } from "./_components/reminders-tab"
@@ -123,6 +128,7 @@ export default async function CommunicationsAdminPage({
       )}
       {tab === "routing" && <RoutingTabLoader facilityId={facilityId} />}
       {tab === "reminders" && <RemindersTabLoader facilityId={facilityId} />}
+      {tab === "deliveries" && <DeliveriesTabLoader facilityId={facilityId} />}
       {tab === "audit" && (
         <AuditTabLoader facilityId={facilityId} params={params} />
       )}
@@ -639,6 +645,85 @@ async function AuditTabLoader({
       entityTypes={entityTypes}
       actions={actions}
       params={{ ...params, from }}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Deliveries tab loader (failed email sends + failed queued notifications)
+// ---------------------------------------------------------------------------
+
+async function DeliveriesTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+
+  const [recipientsRes, outboxRes] = await Promise.all([
+    supabase
+      .from("communication_recipients")
+      .select(
+        "id, email_attempts, email_error, created_at, employees!inner(first_name, last_name), communication_messages!inner(subject)",
+      )
+      .eq("facility_id", facilityId)
+      .eq("email_status", "failed")
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("notification_outbox")
+      .select(
+        "id, subject, error, scheduled_for, created_at, employees:recipient_employee_id(first_name, last_name)",
+      )
+      .eq("facility_id", facilityId)
+      .eq("status", "failed")
+      .order("scheduled_for", { ascending: false })
+      .limit(200),
+  ])
+
+  type RecipientJoinRow = {
+    id: string
+    email_attempts: number
+    email_error: string | null
+    created_at: string
+    employees: { first_name: string; last_name: string } | null
+    communication_messages: { subject: string | null } | null
+  }
+  type OutboxJoinRow = {
+    id: string
+    subject: string | null
+    error: string | null
+    scheduled_for: string
+    created_at: string
+    employees: { first_name: string; last_name: string } | null
+  }
+
+  const failedRecipients: FailedRecipientItem[] = (
+    (recipientsRes.data ?? []) as unknown as RecipientJoinRow[]
+  ).map((r) => ({
+    id: r.id,
+    employee_name: r.employees
+      ? `${r.employees.first_name} ${r.employees.last_name}`.trim()
+      : "Unknown",
+    subject: r.communication_messages?.subject ?? "(no subject)",
+    email_attempts: r.email_attempts,
+    email_error: r.email_error,
+    created_at: r.created_at,
+  }))
+
+  const failedOutbox: FailedOutboxItem[] = (
+    (outboxRes.data ?? []) as unknown as OutboxJoinRow[]
+  ).map((o) => ({
+    id: o.id,
+    recipient_name: o.employees
+      ? `${o.employees.first_name} ${o.employees.last_name}`.trim()
+      : "Unknown",
+    subject: o.subject,
+    error: o.error,
+    scheduled_for: o.scheduled_for,
+    created_at: o.created_at,
+  }))
+
+  return (
+    <DeliveriesTab
+      failedRecipients={failedRecipients}
+      failedOutbox={failedOutbox}
     />
   )
 }

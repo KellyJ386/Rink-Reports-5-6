@@ -4,7 +4,15 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
+import {
+  complianceWeekWindow,
+  evaluateComplianceWarnings,
+  type EmployeeForCompliance,
+  type SettingsForCompliance,
+  type ShiftForHours,
+} from "./compliance"
 import { assertAssignable } from "./enforcement"
 import type {
   ActionState,
@@ -19,11 +27,7 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// New columns (schedule_shifts.job_area_id) and the assignment-violations RPC
-// aren't in the generated DB types yet (see CLAUDE.md); cast through `any` at
-// those call sites, matching the employee_job_areas convention.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
+
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -65,43 +69,9 @@ async function resolveAdminContext(): Promise<
   return { ok: true, facilityId, employeeId: emp?.id ?? null }
 }
 
-function startOfWeekUTC(date: string): Date {
-  // Sunday-anchored week (matches default settings.week_start_day = 0).
-  // For compliance hour summing we just need a window per shift; using Sun-Sat.
-  const d = new Date(date)
-  const day = d.getUTCDay()
-  const start = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
-  )
-  start.setUTCDate(start.getUTCDate() - day)
-  return start
-}
-
 // ---------------------------------------------------------------------------
-// Compliance computation (stub per spec)
+// Compliance computation (pure math lives in ./compliance — unit-tested)
 // ---------------------------------------------------------------------------
-
-type SettingsForCompliance = {
-  minor_max_weekly_hours: number | null
-  overtime_weekly_hours: number | null
-}
-
-type EmployeeForCompliance = {
-  id: string
-  is_minor: boolean
-}
-
-type ShiftForHours = {
-  starts_at: string
-  ends_at: string
-  break_minutes: number | null
-}
-
-function shiftHours(s: ShiftForHours): number {
-  const ms = new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()
-  const minutes = Math.max(0, ms / 60000) - (s.break_minutes ?? 0)
-  return Math.max(0, minutes / 60)
-}
 
 async function computeComplianceWarnings(
   shift: {
@@ -116,9 +86,7 @@ async function computeComplianceWarnings(
 ): Promise<string[]> {
   if (!shift.employee_id || !employee || !settings) return []
 
-  const weekStart = startOfWeekUTC(shift.starts_at)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setUTCDate(weekEnd.getUTCDate() + 7)
+  const window = complianceWeekWindow(shift.starts_at)
 
   const supabase = await createClient()
   let query = supabase
@@ -126,30 +94,17 @@ async function computeComplianceWarnings(
     .select("starts_at, ends_at, break_minutes")
     .eq("employee_id", shift.employee_id)
     .in("status", ["draft", "published"])
-    .gte("starts_at", weekStart.toISOString())
-    .lt("starts_at", weekEnd.toISOString())
+    .gte("starts_at", window.startIso)
+    .lt("starts_at", window.endIso)
   if (excludeShiftId) query = query.neq("id", excludeShiftId)
 
   const { data: existing } = await query
-  const others = (existing ?? []) as ShiftForHours[]
-  const totalHours =
-    others.reduce((sum, s) => sum + shiftHours(s), 0) + shiftHours(shift)
-
-  const warnings: string[] = []
-  if (
-    employee.is_minor &&
-    settings.minor_max_weekly_hours != null &&
-    totalHours > Number(settings.minor_max_weekly_hours)
-  ) {
-    warnings.push("minor_overtime")
-  }
-  if (
-    settings.overtime_weekly_hours != null &&
-    totalHours > Number(settings.overtime_weekly_hours)
-  ) {
-    warnings.push("overtime")
-  }
-  return warnings
+  return evaluateComplianceWarnings({
+    shift,
+    otherShifts: (existing ?? []) as ShiftForHours[],
+    settings,
+    employee,
+  })
 }
 
 async function loadComplianceContext(
@@ -268,7 +223,7 @@ export async function createShift(
       null
     )
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Hard block: refuse to create a shift that violates an active rule,
     // availability, approved time-off, double-booking, qualification, or a
@@ -306,6 +261,7 @@ export async function createShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift created." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -339,7 +295,7 @@ export async function updateShift(
       id
     )
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
 
     // Hard block (exclude this shift from its own weekly-hours total).
     const gate = await assertAssignable(supabase, {
@@ -378,6 +334,7 @@ export async function updateShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -403,6 +360,7 @@ export async function deleteShift(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -420,7 +378,7 @@ export async function assignOpenShift(
     if (!openShiftId) return { ok: false, error: "Missing open shift id." }
     if (!employeeId) return { ok: false, error: "Pick an employee." }
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { data: openRow, error: openErr } = await supabase
       .from("schedule_open_shifts")
       .select("id, shift_id, claim_status")
@@ -486,6 +444,7 @@ export async function assignOpenShift(
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Open shift assigned." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -511,6 +470,7 @@ export async function cancelShift(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Shift cancelled." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -558,6 +518,7 @@ export async function createTemplate(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Template created." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -594,6 +555,7 @@ export async function updateTemplate(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Template updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -621,6 +583,7 @@ export async function setTemplateActive(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -645,6 +608,7 @@ export async function deleteTemplate(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Template deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -703,7 +667,7 @@ export async function createTemplateShift(
     const parsed = parseTemplateShiftInput(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase.from("schedule_template_shifts").insert({
       facility_id: ctx.facilityId,
       template_id: input.template_id,
@@ -722,6 +686,7 @@ export async function createTemplateShift(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Slot added." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -741,7 +706,7 @@ export async function updateTemplateShift(
     const parsed = parseTemplateShiftInput(formData)
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_template_shifts")
       .update({
@@ -762,6 +727,7 @@ export async function updateTemplateShift(
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Slot updated." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -786,6 +752,7 @@ export async function deleteTemplateShift(id: string): Promise<ActionState> {
     revalidatePath("/admin/scheduling/templates")
     return { ok: true, message: "Slot deleted." }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -832,7 +799,7 @@ export async function applyTemplateToWeek(
       Date.UTC(ws.getUTCFullYear(), ws.getUTCMonth(), ws.getUTCDate())
     )
 
-    const supabase = (await createClient()) as AnySupabase
+    const supabase = await createClient()
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
       .select(
@@ -917,6 +884,7 @@ export async function applyTemplateToWeek(
       count: rows.length,
     }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -1011,6 +979,7 @@ export async function sendShiftReminders(
       count: toSend.length,
     }
   } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }

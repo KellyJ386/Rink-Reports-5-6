@@ -8,11 +8,6 @@ import { createClient } from "@/lib/supabase/server"
 import { checkAssignmentViolations } from "./enforcement"
 import type { ActionState } from "./types"
 
-// New schedule_shifts.job_area_id + the violations RPC aren't in the generated
-// DB types yet (see CLAUDE.md); cast through `any` at those sites.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
-
 // ---------------------------------------------------------------------------
 // Shared admin context
 // ---------------------------------------------------------------------------
@@ -122,7 +117,7 @@ export async function approveAndPublishRequest(
   if (!ctx.ok) return { ok: false, error: ctx.error }
   if (!requestId) return { ok: false, error: "Request id required." }
 
-  const supabase = (await createClient()) as AnySupabase
+  const supabase = await createClient()
 
   const { data: reqRaw, error: reqErr } = await supabase
     .from("schedule_publish_requests")

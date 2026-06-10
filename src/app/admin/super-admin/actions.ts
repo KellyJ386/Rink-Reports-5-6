@@ -11,6 +11,7 @@ import {
   getServiceRoleKeyDebugInfo,
 } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type { ActionState, InviteServiceHealth } from "./types"
 
@@ -89,6 +90,7 @@ export async function sendPasswordReset(
   try {
     admin = createAdminClient()
   } catch (e) {
+    logServerError("admin/super-admin/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Service role not configured.",
@@ -130,16 +132,28 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
   const keyDebug = getServiceRoleKeyDebugInfo(
     process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   )
+  // The key fingerprint (length, prefix kind, whitespace) is a diagnostic aid
+  // but it narrows the search space for the secret, so it goes to SERVER LOGS
+  // only — never into a detail string returned to the browser, even for super
+  // admins. The UI gets an actionable message without the fingerprint.
+  const keyFingerprint =
+    `raw_len=${keyDebug.rawLength}, normalized_len=${keyDebug.normalizedLength}, ` +
+    `quoted=${keyDebug.hadWrappingQuotes}, ` +
+    `starts_with=${keyDebug.startsWithSbSecret ? "sb_secret_" : keyDebug.startsWithEyJ ? "eyJ" : "other"}, ` +
+    `contains_ws=${keyDebug.hasWhitespace}`
 
   // Local validation first — catches blank, placeholder, and malformed keys
   // before they hit GoTrue (which would only respond with `no_authorization`
   // and obscure the real cause).
   const envCheck = checkServiceRoleEnv()
   if (!envCheck.ok) {
+    console.error(
+      `[super-admin/checkInviteServiceHealth] service-role env invalid: ${keyFingerprint}`,
+    )
     return {
       ok: false,
       reason: "not_configured",
-      detail: `${envCheck.error.message} Debug: raw_len=${keyDebug.rawLength}, normalized_len=${keyDebug.normalizedLength}, quoted=${keyDebug.hadWrappingQuotes}, starts_with=${keyDebug.startsWithSbSecret ? "sb_secret_" : keyDebug.startsWithEyJ ? "eyJ" : "other"}, contains_ws=${keyDebug.hasWhitespace}. Add it to the environment (and redeploy on Vercel) before retrying.`,
+      detail: `${envCheck.error.message} Add it to the environment (and redeploy on Vercel) before retrying.`,
       checkedAt,
     }
   }
@@ -161,6 +175,7 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
       },
     )
   } catch (e) {
+    logServerError("admin/super-admin/actions", e)
     return {
       ok: false,
       reason: "other",
@@ -178,12 +193,15 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
 
   const body = await response.text().catch(() => "")
   if (response.status === 401) {
+    console.error(
+      `[super-admin/checkInviteServiceHealth] GoTrue rejected service-role key (401): ${keyFingerprint}`,
+    )
     return {
       ok: false,
       reason: "unauthorized",
       status: 401,
       detail:
-        `Service-role key invalid (HTTP 401 from GoTrue). The configured SUPABASE_SERVICE_ROLE_KEY was rejected — it's missing, rotated, or padded with whitespace. Debug: raw_len=${keyDebug.rawLength}, normalized_len=${keyDebug.normalizedLength}, quoted=${keyDebug.hadWrappingQuotes}, starts_with=${keyDebug.startsWithSbSecret ? "sb_secret_" : keyDebug.startsWithEyJ ? "eyJ" : "other"}, contains_ws=${keyDebug.hasWhitespace}. Copy the current service_role key from the Supabase dashboard (Settings → API) and update the env.`,
+        "Service-role key invalid (HTTP 401 from GoTrue). The configured SUPABASE_SERVICE_ROLE_KEY was rejected — it's missing, rotated, or padded with whitespace. Copy the current service_role key from the Supabase dashboard (Settings → API) and update the env. (Key fingerprint logged server-side.)",
       checkedAt,
     }
   }
@@ -197,11 +215,15 @@ export async function checkInviteServiceHealth(): Promise<InviteServiceHealth> {
       checkedAt,
     }
   }
+  // Log the raw GoTrue body server-side rather than echoing it to the browser.
+  console.error(
+    `[super-admin/checkInviteServiceHealth] unexpected GoTrue response (HTTP ${response.status}): ${body.slice(0, 500)}`,
+  )
   return {
     ok: false,
     reason: "other",
     status: response.status,
-    detail: `Unexpected response from Supabase Auth (HTTP ${response.status}). ${body.slice(0, 240)}`,
+    detail: `Unexpected response from Supabase Auth (HTTP ${response.status}). Details logged server-side.`,
     checkedAt,
   }
 }

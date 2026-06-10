@@ -1,0 +1,236 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  buildInputFromForm,
+  buildInputFromPayload,
+  DESCRIPTION_MAX,
+  MAX_WITNESSES,
+  validateIncidentInput,
+  type IncidentInput,
+} from "./compute"
+
+function validInput(overrides: Partial<IncidentInput> = {}): IncidentInput {
+  return {
+    reporter_name: "Pat Reporter",
+    reporter_phone: "555-0100",
+    description: "Skater collided with the boards.",
+    occurred_at: "2026-06-08T14:30",
+    severity_level_id: "sev-1",
+    activity_id: "",
+    activity_other: "",
+    location_other: "",
+    immediate_actions: "",
+    space_ids: ["space-1"],
+    witnesses: [],
+    witnessMissingContact: false,
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// buildInputFromPayload — untrusted offline JSON
+// ---------------------------------------------------------------------------
+
+describe("buildInputFromPayload", () => {
+  it("returns null for non-objects", () => {
+    expect(buildInputFromPayload(null)).toBeNull()
+    expect(buildInputFromPayload("nope")).toBeNull()
+    expect(buildInputFromPayload(42)).toBeNull()
+  })
+
+  it("coerces missing/non-string fields to empty strings", () => {
+    const out = buildInputFromPayload({ reporter_name: 7, description: null })!
+    expect(out.reporter_name).toBe("")
+    expect(out.description).toBe("")
+    expect(out.space_ids).toEqual([])
+    expect(out.witnesses).toEqual([])
+  })
+
+  it("trims string fields", () => {
+    const out = buildInputFromPayload({ reporter_name: "  Pat  " })!
+    expect(out.reporter_name).toBe("Pat")
+  })
+
+  it("dedupes and trims space ids, dropping non-strings and blanks", () => {
+    const out = buildInputFromPayload({
+      space_ids: [" a ", "a", "b", "", 3, null],
+    })!
+    expect(out.space_ids).toEqual(["a", "b"])
+  })
+
+  it("caps witnesses at MAX_WITNESSES", () => {
+    const witnesses = Array.from({ length: 5 }, (_, i) => ({
+      name: `W${i}`,
+      phone: "555",
+    }))
+    const out = buildInputFromPayload({ witnesses })!
+    expect(out.witnesses).toHaveLength(MAX_WITNESSES)
+  })
+
+  it("skips nameless witnesses without flagging missing contact", () => {
+    const out = buildInputFromPayload({
+      witnesses: [{ name: "", phone: "555" }, { name: "Ann", email: "a@b.c" }],
+    })!
+    expect(out.witnesses).toEqual([
+      { name: "Ann", phone: null, email: "a@b.c", statement: null },
+    ])
+    expect(out.witnessMissingContact).toBe(false)
+  })
+
+  it("flags (and drops) a named witness with no phone and no email", () => {
+    const out = buildInputFromPayload({
+      witnesses: [{ name: "Ann" }],
+    })!
+    expect(out.witnesses).toEqual([])
+    expect(out.witnessMissingContact).toBe(true)
+  })
+
+  it("nulls empty witness contact subfields", () => {
+    const out = buildInputFromPayload({
+      witnesses: [{ name: "Ann", phone: " 555 ", email: "", statement: "  " }],
+    })!
+    expect(out.witnesses).toEqual([
+      { name: "Ann", phone: "555", email: null, statement: null },
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildInputFromForm — online FormData path
+// ---------------------------------------------------------------------------
+
+describe("buildInputFromForm", () => {
+  it("parses fields, witnesses_json, and spaces_json", () => {
+    const fd = new FormData()
+    fd.set("reporter_name", " Pat ")
+    fd.set("reporter_phone", "555-0100")
+    fd.set("description", "desc")
+    fd.set("occurred_at", "2026-06-08T14:30")
+    fd.set("severity_level_id", "sev-1")
+    fd.set(
+      "witnesses_json",
+      JSON.stringify([{ name: "Ann", phone: "555" }]),
+    )
+    fd.set("spaces_json", JSON.stringify(["s1", "s1", "s2"]))
+
+    const out = buildInputFromForm(fd)
+    expect(out.reporter_name).toBe("Pat")
+    expect(out.witnesses).toEqual([
+      { name: "Ann", phone: "555", email: null, statement: null },
+    ])
+    expect(out.space_ids).toEqual(["s1", "s2"])
+  })
+
+  it("tolerates malformed JSON in the hidden fields", () => {
+    const fd = new FormData()
+    fd.set("witnesses_json", "{not json")
+    fd.set("spaces_json", "also not json")
+    const out = buildInputFromForm(fd)
+    expect(out.witnesses).toEqual([])
+    expect(out.space_ids).toEqual([])
+    expect(out.witnessMissingContact).toBe(false)
+  })
+
+  it("online (form) and offline (payload) parse to the same shape", () => {
+    const fd = new FormData()
+    fd.set("reporter_name", "Pat")
+    fd.set("reporter_phone", "555")
+    fd.set("description", "desc")
+    fd.set("occurred_at", "2026-06-08T14:30")
+    fd.set("severity_level_id", "sev-1")
+    fd.set("witnesses_json", JSON.stringify([{ name: "Ann", phone: "5" }]))
+    fd.set("spaces_json", JSON.stringify(["s1"]))
+
+    const fromForm = buildInputFromForm(fd)
+    const fromPayload = buildInputFromPayload({
+      reporter_name: "Pat",
+      reporter_phone: "555",
+      description: "desc",
+      occurred_at: "2026-06-08T14:30",
+      severity_level_id: "sev-1",
+      witnesses: [{ name: "Ann", phone: "5" }],
+      space_ids: ["s1"],
+    })
+    expect(fromPayload).toEqual(fromForm)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// validateIncidentInput
+// ---------------------------------------------------------------------------
+
+describe("validateIncidentInput", () => {
+  it("passes a fully-valid input", () => {
+    const { fieldErrors, error } = validateIncidentInput(validInput())
+    expect(fieldErrors).toEqual({})
+    expect(error).toBeUndefined()
+  })
+
+  it("requires every core field", () => {
+    const { fieldErrors } = validateIncidentInput(
+      validInput({
+        reporter_name: "",
+        reporter_phone: "",
+        occurred_at: "",
+        severity_level_id: "",
+        description: "",
+      }),
+    )
+    expect(Object.keys(fieldErrors).sort()).toEqual([
+      "description",
+      "occurred_at",
+      "reporter_name",
+      "reporter_phone",
+      "severity_level_id",
+    ])
+  })
+
+  it("rejects an unparseable occurred_at", () => {
+    const { fieldErrors } = validateIncidentInput(
+      validInput({ occurred_at: "not-a-date" }),
+    )
+    expect(fieldErrors.occurred_at).toBe("Invalid date and time.")
+  })
+
+  it("rejects an over-long description, accepts one at the limit", () => {
+    const atLimit = validateIncidentInput(
+      validInput({ description: "x".repeat(DESCRIPTION_MAX) }),
+    )
+    expect(atLimit.fieldErrors.description).toBeUndefined()
+
+    const over = validateIncidentInput(
+      validInput({ description: "x".repeat(DESCRIPTION_MAX + 1) }),
+    )
+    expect(over.fieldErrors.description).toContain(`${DESCRIPTION_MAX}`)
+  })
+
+  it("surfaces the witness-contact error", () => {
+    const { error } = validateIncidentInput(
+      validInput({ witnessMissingContact: true }),
+    )
+    expect(error).toMatch(/witness/i)
+  })
+
+  it("requires a space or an Other location", () => {
+    const missing = validateIncidentInput(
+      validInput({ space_ids: [], location_other: "" }),
+    )
+    expect(missing.error).toMatch(/facility space/i)
+
+    const withOther = validateIncidentInput(
+      validInput({ space_ids: [], location_other: "Parking lot" }),
+    )
+    expect(withOther.error).toBeUndefined()
+  })
+
+  it("witness-contact error takes precedence over the space error", () => {
+    const { error } = validateIncidentInput(
+      validInput({
+        witnessMissingContact: true,
+        space_ids: [],
+        location_other: "",
+      }),
+    )
+    expect(error).toMatch(/witness/i)
+  })
+})

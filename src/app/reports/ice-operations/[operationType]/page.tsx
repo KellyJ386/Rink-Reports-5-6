@@ -150,8 +150,7 @@ export default async function OperationTypePage({
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("ice_operations_equipment")
       .select(
         "id, name, equipment_type, hours_count, sort_order, is_active, fuel_type_id"
@@ -265,8 +264,7 @@ export default async function OperationTypePage({
   let templateItems: { id: string; template_id: string; label: string }[] = []
 
   if (operationType === "circle_check") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
+    const sb = supabase
     const [itemsRes, fuelsRes, tmplRes, tmplItemsRes] = await Promise.all([
       supabase
         .from("ice_operations_circle_check_items")

@@ -1,5 +1,10 @@
 -- =============================================================================
 -- 00000000000129_schedule_settings_block_on_violations.sql
+--
+-- BACKFILL of production history version 20260609184411 (applied 2026-06-09 by
+-- a parallel work stream). Reproduced verbatim from the prod history table so
+-- the repo matches prod; idempotent (add column if not exists). See
+-- docs/production-reconciliation-2026-06.md.
 -- Scheduling grid Phase 4: make the smart-layer warnings enforceable.
 --
 -- The drag-to-create grid surfaces advisory warnings (weekly-hours cap, overlap,

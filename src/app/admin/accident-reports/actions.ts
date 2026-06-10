@@ -6,6 +6,7 @@ import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { accidentDropdownsTag } from "@/app/reports/accidents/_lib/dropdowns"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 import type { Json } from "@/types/database"
 
 import {
@@ -160,6 +161,7 @@ export async function importDropdowns(
       message: `Imported ${insertRows.length} value(s).`,
     }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
@@ -215,6 +217,7 @@ export async function createDropdown(
     updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true, message: "Dropdown created." }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -278,6 +281,7 @@ export async function updateDropdown(
     updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true, message: "Dropdown updated." }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -307,6 +311,7 @@ export async function setDropdownActive(
     updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -358,6 +363,7 @@ export async function deleteDropdown(id: string): Promise<SimpleResult> {
     updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -520,6 +526,7 @@ export async function seedAccidentDefaults(): Promise<SimpleResult> {
     updateTag(accidentDropdownsTag(facility.facilityId))
     return { ok: true }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -585,6 +592,7 @@ export async function updateWorkersCompInstructions(
     revalidatePath("/admin/accident-reports")
     return { ok: true, message: "Workers' Comp instructions saved." }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",
@@ -637,6 +645,7 @@ export async function addAccidentFollowupNote(
     revalidatePath("/admin/accident-reports")
     return { ok: true, message: "Note added." }
   } catch (e) {
+    logServerError("admin/accident-reports/actions", e)
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Unknown error.",

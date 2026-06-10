@@ -28,10 +28,7 @@ export async function loadAccountProfile(
 /** Whether the current user may edit the given target user's profile. */
 export async function canEditProfile(targetUserId: string): Promise<boolean> {
   const supabase = await createClient()
-  // can_edit_user_profile lands in migration 00000000000100 and isn't in the
-  // generated types yet; cast to call it (matches the repo's untyped-RPC pattern).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.rpc as any)("can_edit_user_profile", {
+  const { data, error } = await supabase.rpc("can_edit_user_profile", {
     p_target_user_id: targetUserId,
   })
   if (error) return false
