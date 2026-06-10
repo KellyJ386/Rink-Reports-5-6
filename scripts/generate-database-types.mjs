@@ -93,10 +93,52 @@ try {
           "Regenerate it against a fully-migrated database:\n" +
           "  DATABASE_URL=... node scripts/generate-database-types.mjs --write",
       )
+      printDiff(committed, normalized)
       process.exit(1)
     }
     console.log("src/types/database.ts is up to date with the schema.")
   }
 } finally {
   server.kill()
+}
+
+// Minimal line diff so CI logs show WHAT is stale, not just that it is.
+// (A byte-exact mismatch with no context is undiagnosable from a CI log.)
+function printDiff(committed, generated, maxHunks = 20) {
+  const a = committed.split("\n")
+  const b = generated.split("\n")
+  let i = 0
+  let j = 0
+  let hunks = 0
+  while ((i < a.length || j < b.length) && hunks < maxHunks) {
+    if (a[i] === b[j]) {
+      i++
+      j++
+      continue
+    }
+    // Find the next re-sync point within a small window.
+    let ai = -1
+    let bj = -1
+    outer: for (let look = 1; look <= 50; look++) {
+      for (let da = 0; da <= look; da++) {
+        const db = look - da
+        if (i + da < a.length && j + db < b.length && a[i + da] === b[j + db]) {
+          ai = i + da
+          bj = j + db
+          break outer
+        }
+      }
+    }
+    if (ai === -1) {
+      ai = a.length
+      bj = b.length
+    }
+    console.error(`@@ committed line ${i + 1} / generated line ${j + 1} @@`)
+    for (let k = i; k < ai; k++) console.error(`- ${a[k]}`)
+    for (let k = j; k < bj; k++) console.error(`+ ${b[k]}`)
+    i = ai
+    j = bj
+    hunks++
+  }
+  if (hunks === maxHunks) console.error("… (diff truncated)")
 }
