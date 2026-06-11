@@ -113,7 +113,8 @@ export default async function TimeOffPage() {
       .from("schedule_time_off_requests")
       .select("id, starts_at, ends_at, reason, status, created_at")
       .eq("employee_id", employeeRow.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(50),
     supabase
       .from("facilities")
       .select("timezone")

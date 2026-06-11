@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache"
 
 import { requireUser } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
+import { wallTimeToUtc } from "@/lib/timezone"
 
 import {
   INITIAL_ACTION_STATE,
@@ -52,11 +54,14 @@ async function getActiveEmployee(): Promise<
   return { ok: true, employee: { id: row.id, facility_id: row.facility_id } }
 }
 
-function parseDateTime(raw: string): Date | null {
-  if (!raw) return null
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return null
-  return d
+async function facilityTimezone(facilityId: string): Promise<string | null> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("facilities")
+    .select("timezone")
+    .eq("id", facilityId)
+    .maybeSingle<{ timezone: string | null }>()
+  return data?.timezone ?? null
 }
 
 function parseTime(raw: string): string | null {
@@ -88,8 +93,19 @@ export async function submitTimeOffRequest(
   if (!auth.ok) return { status: "error", error: auth.error }
   const supabase = await createClient()
 
-  const startsAt = parseDateTime(String(formData.get("starts_at") ?? ""))
-  const endsAt = parseDateTime(String(formData.get("ends_at") ?? ""))
+  // Same permission the offline replay endpoint enforces — otherwise the
+  // identical submission succeeds online but dead-letters when queued offline.
+  if (!(await currentUserCan(supabase, "scheduling", "submit"))) {
+    return {
+      status: "error",
+      error: "You don't have permission to submit time-off requests.",
+    }
+  }
+
+  // datetime-local strings are wall-clock times in the FACILITY's timezone.
+  const tz = await facilityTimezone(auth.employee.facility_id)
+  const startsAt = wallTimeToUtc(String(formData.get("starts_at") ?? ""), tz)
+  const endsAt = wallTimeToUtc(String(formData.get("ends_at") ?? ""), tz)
   const reasonRaw = String(formData.get("reason") ?? "").trim()
 
   if (!startsAt || !endsAt) {
@@ -154,13 +170,23 @@ export async function cancelTimeOffRequest(
     }
   }
 
-  const { error } = await supabase
+  // Guard on the current status so a concurrent admin decision can't be
+  // silently overwritten between our read and this write.
+  const { data: updated, error } = await supabase
     .from("schedule_time_off_requests")
     .update({ status: "cancelled" })
     .eq("id", id)
+    .in("status", ["pending", "approved"])
+    .select("id")
 
   if (error) {
     return { status: "error", error: dbError(error, "Failed to cancel.") }
+  }
+  if (!updated || updated.length === 0) {
+    return {
+      status: "error",
+      error: "This request can no longer be cancelled.",
+    }
   }
 
   revalidatePath("/reports/scheduling/time-off")
@@ -174,6 +200,14 @@ export async function upsertAvailability(
   const auth = await getActiveEmployee()
   if (!auth.ok) return { status: "error", error: auth.error }
   const supabase = await createClient()
+
+  // Permission parity with the offline replay endpoint.
+  if (!(await currentUserCan(supabase, "scheduling", "submit"))) {
+    return {
+      status: "error",
+      error: "You don't have permission to submit availability.",
+    }
+  }
 
   // Respect the facility-level toggle (migration 117).
   const { data: settingsRow } = await supabase
@@ -347,21 +381,74 @@ export async function submitSwapRequest(
     return { status: "error", error: "That shift isn't yours." }
   }
 
-  const { error } = await supabase.from("schedule_swap_requests").insert({
-    facility_id: auth.employee.facility_id,
-    requester_employee_id: auth.employee.id,
-    requester_shift_id: requesterShiftId,
-    target_employee_id: targetEmployeeId.length > 0 ? targetEmployeeId : null,
-    target_shift_id: targetShiftId.length > 0 ? targetShiftId : null,
-    decision_note: note.length > 0 ? note : null,
-    status: "pending",
-  })
+  // The target ids are client-supplied — verify them before persisting.
+  if (targetEmployeeId.length > 0) {
+    if (targetEmployeeId === auth.employee.id) {
+      return { status: "error", error: "Pick a coworker, not yourself." }
+    }
+    const { data: targetEmp } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("id", targetEmployeeId)
+      .eq("facility_id", auth.employee.facility_id)
+      .eq("is_active", true)
+      .maybeSingle()
+    if (!targetEmp) {
+      return {
+        status: "error",
+        error: "That coworker isn't an active member of your facility.",
+      }
+    }
+  }
+  if (targetShiftId.length > 0) {
+    if (targetEmployeeId.length === 0) {
+      return {
+        status: "error",
+        error: "Pick the coworker whose shift you want to take.",
+      }
+    }
+    const { data: targetShift } = await supabase
+      .from("schedule_shifts")
+      .select("id, employee_id, facility_id")
+      .eq("id", targetShiftId)
+      .eq("facility_id", auth.employee.facility_id)
+      .maybeSingle()
+    if (!targetShift || targetShift.employee_id !== targetEmployeeId) {
+      return {
+        status: "error",
+        error: "That shift doesn't belong to the chosen coworker.",
+      }
+    }
+  }
 
-  if (error) {
+  const { data: created, error } = await supabase
+    .from("schedule_swap_requests")
+    .insert({
+      facility_id: auth.employee.facility_id,
+      requester_employee_id: auth.employee.id,
+      requester_shift_id: requesterShiftId,
+      target_employee_id: targetEmployeeId.length > 0 ? targetEmployeeId : null,
+      target_shift_id: targetShiftId.length > 0 ? targetShiftId : null,
+      decision_note: note.length > 0 ? note : null,
+      status: "pending",
+    })
+    .select("id")
+    .single()
+
+  if (error || !created) {
     return {
       status: "error",
       error: dbError(error, "Failed to submit swap request."),
     }
+  }
+
+  // Tell the chosen coworker (best-effort; the swap stands either way). The
+  // SECURITY DEFINER helper exists because staff can't write notifications
+  // directly.
+  if (targetEmployeeId.length > 0) {
+    await supabase.rpc("scheduling_notify_swap_request", {
+      p_swap_id: created.id,
+    })
   }
 
   revalidatePath("/reports/scheduling/swaps")
@@ -399,13 +486,20 @@ export async function cancelSwapRequest(
     return { status: "error", error: "This swap can no longer be cancelled." }
   }
 
-  const { error } = await supabase
+  // Guard on the current status so a concurrent accept/approve can't be
+  // silently overwritten between our read and this write.
+  const { data: updated, error } = await supabase
     .from("schedule_swap_requests")
     .update({ status: "cancelled" })
     .eq("id", id)
+    .in("status", ["pending", "accepted"])
+    .select("id")
 
   if (error) {
     return { status: "error", error: dbError(error, "Failed to cancel swap.") }
+  }
+  if (!updated || updated.length === 0) {
+    return { status: "error", error: "This swap can no longer be cancelled." }
   }
 
   revalidatePath("/reports/scheduling/swaps")
@@ -437,13 +531,20 @@ export async function acceptSwapRequest(
     return { status: "error", error: "Only pending swaps can be accepted." }
   }
 
-  const { error } = await supabase
+  // Guard on `pending` so a cancel that landed after our read can't be
+  // flipped back to accepted.
+  const { data: updated, error } = await supabase
     .from("schedule_swap_requests")
     .update({ status: "accepted", accepted_at: new Date().toISOString() })
     .eq("id", id)
+    .eq("status", "pending")
+    .select("id")
 
   if (error) {
     return { status: "error", error: dbError(error, "Failed to accept swap.") }
+  }
+  if (!updated || updated.length === 0) {
+    return { status: "error", error: "This swap is no longer pending." }
   }
 
   revalidatePath("/reports/scheduling/swaps")

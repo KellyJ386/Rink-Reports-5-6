@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { addDaysToKey, wallTimeToUtc } from "@/lib/timezone"
 
 import {
   complianceWeekWindow,
@@ -13,7 +14,7 @@ import {
   type SettingsForCompliance,
   type ShiftForHours,
 } from "./compliance"
-import { assertAssignable } from "./enforcement"
+import { assertAssignable, formatViolations } from "./enforcement"
 import type {
   ActionState,
   CreateShiftInput,
@@ -73,6 +74,14 @@ async function resolveAdminContext(): Promise<
 // Compliance computation (pure math lives in ./compliance — unit-tested)
 // ---------------------------------------------------------------------------
 
+type ComplianceContext = {
+  facilityId: string
+  settings: SettingsForCompliance | null
+  employee: EmployeeForCompliance | null
+  timezone: string | null
+  weekStartDay: number
+}
+
 async function computeComplianceWarnings(
   shift: {
     starts_at: string
@@ -80,19 +89,22 @@ async function computeComplianceWarnings(
     break_minutes: number | null
     employee_id: string | null
   },
-  settings: SettingsForCompliance | null,
-  employee: EmployeeForCompliance | null,
+  ctx: ComplianceContext,
   excludeShiftId: string | null
 ): Promise<string[]> {
-  if (!shift.employee_id || !employee || !settings) return []
+  if (!shift.employee_id || !ctx.employee || !ctx.settings) return []
 
-  const window = complianceWeekWindow(shift.starts_at)
+  const window = complianceWeekWindow(shift.starts_at, {
+    timezone: ctx.timezone,
+    weekStartDay: ctx.weekStartDay,
+  })
 
   const supabase = await createClient()
   let query = supabase
     .from("schedule_shifts")
     .select("starts_at, ends_at, break_minutes")
     .eq("employee_id", shift.employee_id)
+    .eq("facility_id", ctx.facilityId)
     .in("status", ["draft", "published"])
     .gte("starts_at", window.startIso)
     .lt("starts_at", window.endIso)
@@ -102,24 +114,28 @@ async function computeComplianceWarnings(
   return evaluateComplianceWarnings({
     shift,
     otherShifts: (existing ?? []) as ShiftForHours[],
-    settings,
-    employee,
+    settings: ctx.settings,
+    employee: ctx.employee,
   })
 }
 
 async function loadComplianceContext(
   facilityId: string,
   employeeId: string | null
-): Promise<{
-  settings: SettingsForCompliance | null
-  employee: EmployeeForCompliance | null
-}> {
+): Promise<ComplianceContext> {
   const supabase = await createClient()
-  const settingsRes = await supabase
-    .from("schedule_settings")
-    .select("minor_max_weekly_hours, overtime_weekly_hours")
-    .eq("facility_id", facilityId)
-    .maybeSingle<SettingsForCompliance>()
+  const [settingsRes, facilityRes] = await Promise.all([
+    supabase
+      .from("schedule_settings")
+      .select("minor_max_weekly_hours, overtime_weekly_hours, week_start_day")
+      .eq("facility_id", facilityId)
+      .maybeSingle<SettingsForCompliance & { week_start_day: number | null }>(),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
 
   let employee: EmployeeForCompliance | null = null
   if (employeeId) {
@@ -130,7 +146,13 @@ async function loadComplianceContext(
       .maybeSingle<EmployeeForCompliance>()
     employee = emp ?? null
   }
-  return { settings: settingsRes.data ?? null, employee }
+  return {
+    facilityId,
+    settings: settingsRes.data ?? null,
+    employee,
+    timezone: facilityRes.data?.timezone ?? null,
+    weekStartDay: settingsRes.data?.week_start_day ?? 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -212,16 +234,11 @@ export async function createShift(
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input = parsed.value
 
-    const { settings, employee } = await loadComplianceContext(
+    const complianceCtx = await loadComplianceContext(
       ctx.facilityId,
       input.employee_id
     )
-    const warnings = await computeComplianceWarnings(
-      input,
-      settings,
-      employee,
-      null
-    )
+    const warnings = await computeComplianceWarnings(input, complianceCtx, null)
 
     const supabase = await createClient()
 
@@ -284,16 +301,11 @@ export async function updateShift(
     if (!parsed.ok) return { ok: false, error: parsed.error }
     const input: UpdateShiftInput & CreateShiftInput = parsed.value
 
-    const { settings, employee } = await loadComplianceContext(
+    const complianceCtx = await loadComplianceContext(
       ctx.facilityId,
       input.employee_id
     )
-    const warnings = await computeComplianceWarnings(
-      input,
-      settings,
-      employee,
-      id
-    )
+    const warnings = await computeComplianceWarnings(input, complianceCtx, id)
 
     const supabase = await createClient()
 
@@ -416,13 +428,24 @@ export async function assignOpenShift(
     if (!gate.ok) return { ok: false, error: gate.error }
 
     const nowIso = new Date().toISOString()
-    const { error: shiftErr } = await supabase
+    // Only fill a still-unassigned slot — a stale open-shift row must not
+    // clobber a shift someone else already holds (e.g. a no-approval claim
+    // that landed between page load and this click).
+    const { data: updatedShift, error: shiftErr } = await supabase
       .from("schedule_shifts")
       .update({ employee_id: employeeId })
       .eq("id", openRow.shift_id)
       .eq("facility_id", ctx.facilityId)
+      .is("employee_id", null)
+      .select("id")
     if (shiftErr) {
       return { ok: false, error: dbError(shiftErr, "Failed to assign shift.") }
+    }
+    if (!updatedShift || updatedShift.length === 0) {
+      return {
+        ok: false,
+        error: "That shift was already assigned to someone else.",
+      }
     }
 
     const { error: claimErr } = await supabase
@@ -443,6 +466,65 @@ export async function assignOpenShift(
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")
     return { ok: true, message: "Open shift assigned." }
+  } catch (e) {
+    logServerError("admin/scheduling/_lib/admin-core-actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+type DecideOpenClaimRpcResult = {
+  ok?: boolean
+  decision?: string
+  error?: string
+  violations?: string[]
+}
+
+/**
+ * Approve or decline a pending approval-required claim on an open shift.
+ * The RPC is atomic: it locks the listing + parent shift, re-validates the
+ * claimant on approve, assigns the still-unassigned shift, and notifies the
+ * claimant either way.
+ */
+export async function decideOpenShiftClaim(
+  openShiftId: string,
+  approve: boolean,
+  note?: string
+): Promise<ActionState> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+    if (!openShiftId) return { ok: false, error: "Missing open shift id." }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("scheduling_decide_open_claim", {
+      p_open_shift_id: openShiftId,
+      p_approve: approve,
+      p_note: note?.trim() ? note.trim() : undefined,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to decide claim.") }
+    }
+    const result = (data ?? {}) as DecideOpenClaimRpcResult
+    if (result.ok !== true) {
+      const detail =
+        result.violations && result.violations.length > 0
+          ? `The claimant can no longer work this shift: ${formatViolations(result.violations)}`
+          : (result.error ?? "Failed to decide claim.")
+      return { ok: false, error: detail }
+    }
+
+    revalidatePath("/admin/scheduling")
+    revalidatePath("/admin/scheduling/shifts")
+    return {
+      ok: true,
+      message:
+        result.decision === "approved"
+          ? "Claim approved — shift assigned."
+          : "Claim declined — shift reopened.",
+    }
   } catch (e) {
     logServerError("admin/scheduling/_lib/admin-core-actions", e)
     return {
@@ -764,21 +846,19 @@ export async function deleteTemplateShift(id: string): Promise<ActionState> {
 // Apply template to week
 // ---------------------------------------------------------------------------
 
-function combineDateAndTime(weekStartUtc: Date, dayOfWeek: number, time: string): string {
-  // time is HH:MM or HH:MM:SS; treat as UTC wall time for v1 (per datetime.ts approach).
-  const [hRaw, mRaw, sRaw] = time.split(":")
-  const h = Number.parseInt(hRaw ?? "0", 10)
-  const m = Number.parseInt(mRaw ?? "0", 10)
-  const s = Number.parseInt(sRaw ?? "0", 10)
-  const d = new Date(weekStartUtc)
-  d.setUTCDate(d.getUTCDate() + dayOfWeek)
-  d.setUTCHours(
-    Number.isFinite(h) ? h : 0,
-    Number.isFinite(m) ? m : 0,
-    Number.isFinite(s) ? s : 0,
-    0
-  )
-  return d.toISOString()
+function combineDateAndTime(
+  weekStartKey: string,
+  dayOfWeek: number,
+  time: string,
+  timezone: string | null
+): string | null {
+  // time is HH:MM or HH:MM:SS — a wall-clock time in the FACILITY's timezone.
+  const dateKey = addDaysToKey(weekStartKey, dayOfWeek)
+  const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time)
+  const wall = m
+    ? `${dateKey}T${m[1]}:${m[2]}:${m[3] ?? "00"}`
+    : `${dateKey}T00:00:00`
+  return wallTimeToUtc(wall, timezone)?.toISOString() ?? null
 }
 
 export async function applyTemplateToWeek(
@@ -795,11 +875,20 @@ export async function applyTemplateToWeek(
     if (Number.isNaN(ws.getTime())) {
       return { ok: false, error: "Invalid week start." }
     }
-    const weekStartUtc = new Date(
-      Date.UTC(ws.getUTCFullYear(), ws.getUTCMonth(), ws.getUTCDate())
-    )
+    const weekStartKey = /^\d{4}-\d{2}-\d{2}$/.test(weekStart)
+      ? weekStart
+      : ws.toISOString().slice(0, 10)
 
     const supabase = await createClient()
+
+    // Template times are wall-clock in the facility's timezone.
+    const { data: facilityRow } = await supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", ctx.facilityId)
+      .maybeSingle<{ timezone: string | null }>()
+    const timezone = facilityRow?.timezone ?? null
+
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
       .select(
@@ -843,15 +932,20 @@ export async function applyTemplateToWeek(
     }> = []
     for (const slot of slots) {
       const starts_at = combineDateAndTime(
-        weekStartUtc,
+        weekStartKey,
         slot.day_of_week,
-        slot.start_time
+        slot.start_time,
+        timezone
       )
       const ends_at = combineDateAndTime(
-        weekStartUtc,
+        weekStartKey,
         slot.day_of_week,
-        slot.end_time
+        slot.end_time,
+        timezone
       )
+      if (!starts_at || !ends_at) {
+        return { ok: false, error: "Template slot has an invalid time." }
+      }
       for (let i = 0; i < slot.staff_count; i++) {
         rows.push({
           facility_id: ctx.facilityId,

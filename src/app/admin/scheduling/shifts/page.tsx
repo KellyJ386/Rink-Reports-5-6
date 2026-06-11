@@ -12,10 +12,16 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { resolveOperatingHours } from "../_lib/operating-hours"
-import type { EmployeeLite, JobAreaLite, ShiftRow } from "../_lib/types"
+import type {
+  EmployeeLite,
+  JobAreaLite,
+  ShiftRow,
+  TemplateRow,
+} from "../_lib/types"
 import type { GridShiftDTO, GridTemplateDTO } from "../_lib/grid-actions"
 
 import { ScheduleGrid } from "./_components/schedule-grid"
+import { ShiftsActions } from "./_components/shifts-actions"
 
 export const dynamic = "force-dynamic"
 
@@ -120,7 +126,7 @@ export default async function ShiftsPage({
         .limit(1000),
       supabase
         .from("schedule_templates")
-        .select("id, name")
+        .select("*")
         .eq("facility_id", facilityId)
         .eq("is_active", true)
         .order("name", { ascending: true }),
@@ -163,9 +169,8 @@ export default async function ShiftsPage({
   for (const s of (templateSlotsRes.data ?? []) as SlotRow[]) {
     if (!slotByTemplate.has(s.template_id)) slotByTemplate.set(s.template_id, s)
   }
-  const initialTemplates: GridTemplateDTO[] = (
-    (templatesRes.data ?? []) as Array<{ id: string; name: string }>
-  )
+  const templateRows = (templatesRes.data ?? []) as TemplateRow[]
+  const initialTemplates: GridTemplateDTO[] = templateRows
     .map((t) => {
       const slot = slotByTemplate.get(t.id)
       if (!slot) return null
@@ -180,10 +185,25 @@ export default async function ShiftsPage({
     })
     .filter((x): x is GridTemplateDTO => x !== null)
 
+  // Visible week (half-open UTC window) for the publish-request button.
+  const anchorDow = anchor.getUTCDay()
+  const weekStart = new Date(anchor)
+  weekStart.setUTCDate(anchor.getUTCDate() - ((anchorDow - weekStartDay + 7) % 7))
+  const weekEnd = new Date(weekStart)
+  weekEnd.setUTCDate(weekStart.getUTCDate() + 7)
+  const weekLabel = `week of ${weekStart.toISOString().slice(0, 10)}`
+
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <Header />
+      <ShiftsActions
+        templates={templateRows}
+        weekStartsAtIso={weekStart.toISOString()}
+        weekEndsAtIso={weekEnd.toISOString()}
+        weekLabel={weekLabel}
+      />
       <ScheduleGrid
+        key={anchor.toISOString()}
         employees={employees}
         jobAreas={jobAreas}
         initialShifts={initialShifts}

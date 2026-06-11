@@ -129,10 +129,9 @@ function SwapRowCard({
     row.status === "manager_approved"
   const canAssign =
     row.status === "pending" && row.target.employee_id === null
-  const canApprove =
-    !isTerminal &&
-    row.target.employee_id !== null &&
-    row.target.shift !== null
+  // A counter-shift is optional: target_shift_id NULL = one-way coverage
+  // (the target simply takes over the requester's shift).
+  const canApprove = !isTerminal && row.target.employee_id !== null
 
   function close() {
     setMode(null)
@@ -318,9 +317,9 @@ function SwapRowCard({
             </Button>
           </div>
           <p className="text-muted-foreground text-xs">
-            Assigning marks the swap as accepted. You&apos;ll need to also
-            select a counter-shift before approving (v1: assign assumes the
-            shift will be linked separately).
+            Assigning marks the swap as accepted. Approving then hands the
+            requester&apos;s shift to this employee (coverage); if the request
+            includes a counter-shift, the two shifts are exchanged.
           </p>
         </div>
       ) : null}

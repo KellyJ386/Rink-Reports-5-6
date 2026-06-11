@@ -11,6 +11,7 @@ import {
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { addDaysToKey, dayKeyInTz, dayPartsInTz } from "@/lib/timezone"
 
 import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
 import { formatDateRange, formatDateTime } from "./_components/format-utils"
@@ -65,17 +66,6 @@ function NotAvailable({
   )
 }
 
-function toISODate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + n)
-  return r
-}
-
 type ShiftRow = {
   id: string
   starts_at: string
@@ -90,6 +80,7 @@ type OpenShiftRow = {
   id: string
   approval_required: boolean
   claim_status: string
+  claimed_by_employee_id: string | null
   schedule_shifts: {
     id: string
     starts_at: string
@@ -158,10 +149,10 @@ export default async function SchedulingDashboardPage() {
     supabase
       .from("schedule_open_shifts")
       .select(
-        "id, approval_required, claim_status, schedule_shifts(id, starts_at, ends_at, role_label, department_id, departments(name))"
+        "id, approval_required, claim_status, claimed_by_employee_id, schedule_shifts(id, starts_at, ends_at, role_label, department_id, departments(name))"
       )
       .eq("facility_id", employeeRow.facility_id)
-      .eq("claim_status", "open"),
+      .in("claim_status", ["open", "claimed"]),
     supabase
       .from("facilities")
       .select("timezone")
@@ -180,23 +171,46 @@ export default async function SchedulingDashboardPage() {
   const openShifts = openShiftsAll
     .filter((row) => {
       const shift = row.schedule_shifts
-      if (!shift) return false
+      if (!shift || row.claim_status !== "open") return false
       const startTs = new Date(shift.starts_at).getTime()
       return startTs >= now.getTime() && startTs <= in14.getTime()
     })
+    .sort(
+      (a, b) =>
+        new Date(a.schedule_shifts!.starts_at).getTime() -
+        new Date(b.schedule_shifts!.starts_at).getTime()
+    )
     .slice(0, 5)
+
+  // My claims that still need an admin's approval — otherwise a claimed
+  // shift just vanishes from the open list with no trace for the claimant.
+  const myPendingClaims = openShiftsAll.filter(
+    (row) =>
+      row.claim_status === "claimed" &&
+      row.claimed_by_employee_id === employeeRow.id &&
+      row.schedule_shifts !== null
+  )
 
   const nextShift = myShifts[0] ?? null
   const upcomingShifts = myShifts.slice(0, 8)
 
-  // Build 7-day week strip (today + 6 days)
+  // Build 7-day week strip (today + 6 days) on the FACILITY's calendar, so a
+  // late-evening shift doesn't land under the wrong day when the server (or
+  // viewer) sits in another timezone.
+  const todayKey = dayKeyInTz(now, tz)
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(now, i)
-    const iso = toISODate(d)
-    const hasShift = myShifts.some((s) => toISODate(new Date(s.starts_at)) === iso)
+    const iso = addDaysToKey(todayKey, i)
+    const probe = new Date(`${iso}T12:00:00Z`)
+    const hasShift = myShifts.some((s) => dayKeyInTz(s.starts_at, tz) === iso)
     const isNext =
-      nextShift !== null && toISODate(new Date(nextShift.starts_at)) === iso
-    return { date: d, iso, hasShift, isNext, label: DAY_LABELS[d.getDay()] }
+      nextShift !== null && dayKeyInTz(nextShift.starts_at, tz) === iso
+    return {
+      iso,
+      hasShift,
+      isNext,
+      label: DAY_LABELS[probe.getUTCDay()],
+      dayOfMonth: probe.getUTCDate(),
+    }
   })
 
   function formatShiftTime(shift: ShiftRow): string {
@@ -218,10 +232,10 @@ export default async function SchedulingDashboardPage() {
   }
 
   function formatShiftDay(shift: ShiftRow): { day: string; date: number } {
-    const d = new Date(shift.starts_at)
+    const p = dayPartsInTz(shift.starts_at, tz)
     return {
-      day: DAY_LABELS[d.getDay()],
-      date: d.getDate(),
+      day: DAY_LABELS[p.dayOfWeek],
+      date: p.dayOfMonth,
     }
   }
 
@@ -239,8 +253,8 @@ export default async function SchedulingDashboardPage() {
   }
 
   function formatNextShiftHero(shift: ShiftRow): string {
-    const d = new Date(shift.starts_at)
-    return `${DAY_LABELS[d.getDay()]} ${d.getDate()}`
+    const p = dayPartsInTz(shift.starts_at, tz)
+    return `${DAY_LABELS[p.dayOfWeek]} ${p.dayOfMonth}`
   }
 
   return (
@@ -475,7 +489,7 @@ export default async function SchedulingDashboardPage() {
                 lineHeight: 1.15,
               }}
             >
-              {d.date.getDate()}
+              {d.dayOfMonth}
             </div>
             <div
               style={{
@@ -513,7 +527,7 @@ export default async function SchedulingDashboardPage() {
           </div>
           <Link
             href="/reports/scheduling/my-schedule"
-            style={{ fontSize: 12, color: GREEN, textDecoration: "none" }}
+            style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none" }}
           >
             View all →
           </Link>
@@ -640,7 +654,7 @@ export default async function SchedulingDashboardPage() {
             {openShifts.map((row) => {
               const shift = row.schedule_shifts
               if (!shift) return null
-              const d = new Date(shift.starts_at)
+              const dayParts = dayPartsInTz(shift.starts_at, tz)
               return (
                 <div
                   key={row.id}
@@ -677,7 +691,7 @@ export default async function SchedulingDashboardPage() {
                         color: SECONDARY,
                       }}
                     >
-                      {DAY_LABELS[d.getDay()]}
+                      {DAY_LABELS[dayParts.dayOfWeek]}
                     </div>
                     <div
                       style={{
@@ -687,7 +701,7 @@ export default async function SchedulingDashboardPage() {
                         color: FOREGROUND,
                       }}
                     >
-                      {d.getDate()}
+                      {dayParts.dayOfMonth}
                     </div>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -703,6 +717,57 @@ export default async function SchedulingDashboardPage() {
                     </div>
                   </div>
                   <ClaimOpenShiftButton openShiftId={row.id} />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* My pending claims (awaiting admin approval) */}
+      {myPendingClaims.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: ".16em",
+              color: SECONDARY,
+              textTransform: "uppercase",
+              marginBottom: 10,
+            }}
+          >
+            Your claims · Awaiting approval
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {myPendingClaims.map((row) => {
+              const shift = row.schedule_shifts
+              if (!shift) return null
+              return (
+                <div
+                  key={row.id}
+                  style={{
+                    background: SURFACE,
+                    border: `1px dashed ${BORDER}`,
+                    borderRadius: 14,
+                    padding: "12px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
+                    >
+                      {formatDateTime(shift.starts_at, tz)}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: SECONDARY, marginTop: 2 }}>
+                      {shift.departments?.name ?? "—"}
+                      {shift.role_label ? ` · ${shift.role_label}` : ""}
+                      {" · You claimed this shift — a manager needs to approve it."}
+                    </div>
+                  </div>
                 </div>
               )
             })}

@@ -52,16 +52,32 @@ export async function collectShiftWarnings(
   }
 
   // 2. Per-employee weekly-hours cap (employees.max_weekly_hours).
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("max_weekly_hours")
-    .eq("id", args.employeeId)
-    .eq("facility_id", args.facilityId)
-    .maybeSingle()
+  const [{ data: emp }, { data: facility }, { data: settings }] =
+    await Promise.all([
+      supabase
+        .from("employees")
+        .select("max_weekly_hours")
+        .eq("id", args.employeeId)
+        .eq("facility_id", args.facilityId)
+        .maybeSingle(),
+      supabase
+        .from("facilities")
+        .select("timezone")
+        .eq("id", args.facilityId)
+        .maybeSingle<{ timezone: string | null }>(),
+      supabase
+        .from("schedule_settings")
+        .select("week_start_day")
+        .eq("facility_id", args.facilityId)
+        .maybeSingle<{ week_start_day: number | null }>(),
+    ])
 
   const cap = emp?.max_weekly_hours
   if (cap != null) {
-    const { startIso, endIso } = complianceWeekWindow(args.startsAt)
+    const { startIso, endIso } = complianceWeekWindow(args.startsAt, {
+      timezone: facility?.timezone ?? null,
+      weekStartDay: settings?.week_start_day ?? 0,
+    })
     let query = supabase
       .from("schedule_shifts")
       .select("starts_at, ends_at, break_minutes")

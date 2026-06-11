@@ -15,7 +15,10 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-import { assignOpenShift } from "../_lib/admin-core-actions"
+import {
+  assignOpenShift,
+  decideOpenShiftClaim,
+} from "../_lib/admin-core-actions"
 import {
   formatDateOnly,
   formatTimeRange,
@@ -51,6 +54,9 @@ export type OpenShiftItem = {
   ends_at: string
   departmentName: string
   roleLabel: string | null
+  /** "open" (no claim yet) or "claimed" (awaiting admin approval). */
+  claimStatus: string
+  claimantName: string | null
 }
 
 export function PendingSwapsPanel({ rows }: { rows: PendingSwap[] }) {
@@ -283,7 +289,9 @@ function OpenShiftItemRow({
   const [employeeId, setEmployeeId] = useState("")
   const [pending, startTransition] = useTransition()
 
-  function run() {
+  const isClaimed = row.claimStatus === "claimed"
+
+  function runAssign() {
     if (!employeeId) {
       toast.error("Pick an employee.")
       return
@@ -294,6 +302,17 @@ function OpenShiftItemRow({
         toast.success(r.message ?? "Assigned.")
         setOpen(false)
         setEmployeeId("")
+      } else if (r.ok === false) {
+        toast.error(r.error)
+      }
+    })
+  }
+
+  function runDecide(approve: boolean) {
+    startTransition(async () => {
+      const r = await decideOpenShiftClaim(row.id, approve)
+      if (r.ok === true) {
+        toast.success(r.message ?? (approve ? "Approved." : "Declined."))
       } else if (r.ok === false) {
         toast.error(r.error)
       }
@@ -311,12 +330,38 @@ function OpenShiftItemRow({
             {row.departmentName}
             {row.roleLabel ? ` · ${row.roleLabel}` : ""}
           </div>
+          {isClaimed ? (
+            <div className="text-xs font-medium">
+              Claimed by {row.claimantName ?? "unknown"} — awaiting approval
+            </div>
+          ) : null}
         </div>
-        <Button size="sm" variant={open ? "outline" : "default"} onClick={() => setOpen((v) => !v)}>
-          {open ? "Cancel" : "Assign"}
-        </Button>
+        {isClaimed ? (
+          <div className="flex items-center gap-2">
+            <Badge variant="warning">claimed</Badge>
+            <Button size="sm" onClick={() => runDecide(true)} disabled={pending}>
+              {pending ? "Saving…" : "Approve claim"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => runDecide(false)}
+              disabled={pending}
+            >
+              Decline
+            </Button>
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant={open ? "outline" : "default"}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? "Cancel" : "Assign"}
+          </Button>
+        )}
       </div>
-      {open ? (
+      {open && !isClaimed ? (
         <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md border p-3">
           <Select value={employeeId} onValueChange={setEmployeeId}>
             <SelectTrigger className="w-64">
@@ -330,7 +375,7 @@ function OpenShiftItemRow({
               ))}
             </SelectContent>
           </Select>
-          <Button size="sm" onClick={run} disabled={pending}>
+          <Button size="sm" onClick={runAssign} disabled={pending}>
             {pending ? "Assigning…" : "Confirm"}
           </Button>
         </div>

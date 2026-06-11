@@ -104,6 +104,9 @@ comment on function public.purge_old_ice_depth_sessions() is
 -- authenticated explicitly: Supabase's default privileges grant EXECUTE on new
 -- functions to authenticated, which a `from public` revoke does not remove
 -- (mirrors migration 134; the rls_isolation harness asserts this gate).
+-- Revoke from authenticated explicitly: Supabase's default privileges grant
+-- EXECUTE on new functions to authenticated, which a `from public` revoke does
+-- not remove (mirrors migration 134; rls_isolation asserts this gate).
 revoke execute on function public.purge_old_ice_depth_sessions() from public;
 revoke execute on function public.purge_old_ice_depth_sessions() from anon;
 revoke execute on function public.purge_old_ice_depth_sessions() from authenticated;

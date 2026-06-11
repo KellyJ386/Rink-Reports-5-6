@@ -2,6 +2,8 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 
+import { dayKeyInTz } from "@/lib/timezone"
+
 import { SHORT_DAY_NAMES } from "../types"
 import { formatTime } from "./format-utils"
 
@@ -22,7 +24,6 @@ interface Props {
 
 const NAVY = "#003B6F"
 const GREEN = "#4DFF00"
-const GREEN_INK = "#1F6B00"
 const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 // Theme-responsive via CSS custom properties
 const SURFACE = "var(--card)"
@@ -80,17 +81,18 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
   const endLabel = weekEndDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
   const weekLabel = `${startLabel} – ${endLabel}`
 
+  // Bucket each shift onto the FACILITY's calendar day (times are displayed
+  // in the facility timezone, so the column must match).
   const shiftsByDay = new Map<string, ShiftItem[]>()
   for (const d of days) shiftsByDay.set(toISODate(d), [])
   for (const s of shifts) {
-    const shiftDate = new Date(s.starts_at)
-    const dayKey = toISODate(shiftDate)
+    const dayKey = dayKeyInTz(s.starts_at, timezone)
     if (shiftsByDay.has(dayKey)) {
       shiftsByDay.get(dayKey)!.push(s)
     }
   }
 
-  const today = toISODate(new Date())
+  const today = dayKeyInTz(new Date(), timezone)
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -161,7 +163,7 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
                 <div style={{
                   fontSize: 9.5, fontWeight: 700, letterSpacing: ".1em",
                   textTransform: "uppercase",
-                  color: isToday ? GREEN_INK : SECONDARY,
+                  color: isToday ? "var(--primary)" : SECONDARY,
                 }}>
                   {SHORT_DAY_NAMES[d.getDay()]}
                 </div>

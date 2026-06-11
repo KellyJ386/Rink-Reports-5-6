@@ -338,7 +338,7 @@ on conflict (employee_id, module_key, area_id) do nothing;
 
 -- Ice-depth layout + measurement point in Facility A, so the positive
 -- session-INSERT assertion below (alice submits her OWN reading) and the
--- depth >= 0 / low < high CHECK assertions (migration 136) have valid FK
+-- depth >= 0 / low < high CHECK assertions (migration 138) have valid FK
 -- targets. Seeded as postgres (BYPASSRLS).
 insert into public.ice_depth_layouts (id, facility_id, name, slug, sort_order, is_active, is_default)
 values ('aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
@@ -2064,6 +2064,174 @@ select pg_temp.expect_count(
   $$select count(*) from public.daily_report_checklist_items
     where facility_id = '33333333-3333-4333-8333-333333333333'$$,
   506, 'SEED-135: new facility gets all 506 checklist items');
+
+-- ---------------------------------------------------------------------------
+-- 2N. Scheduling write-side gates (migration 136).
+--
+-- The swap-request UPDATE policy used to contain a bare "requester = me" /
+-- "target = me" term that nullified its own status restriction, letting staff
+-- set ANY status (including manager_approved). Draft shifts were readable by
+-- any view-holder. Notification INSERT was open to any same-facility user.
+-- Assert the tightened policies: staff transitions are limited to their role
+-- (requester -> cancelled, target -> accepted/denied), drafts are admin-only,
+-- notification inserts require scheduling admin, and the new SECURITY DEFINER
+-- RPCs refuse non-admin callers.
+-- ---------------------------------------------------------------------------
+reset role;
+
+-- Alice gets scheduling view+submit (NOT admin) so the staff-side positive
+-- assertions exercise the module-access path.
+insert into public.user_permissions (
+  user_id, facility_id, module_name, action, enabled
+) values
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111', 'scheduling', 'view', true),
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111', 'scheduling', 'submit', true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+insert into public.departments (id, facility_id, name, slug, sort_order, is_active)
+values ('aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        '11111111-1111-1111-1111-111111111111', 'A Crew', 'a-crew', 1, true)
+on conflict (id) do nothing;
+
+-- One published shift each for Carol and Alice, plus one draft.
+insert into public.schedule_shifts (id, facility_id, department_id, employee_id, starts_at, ends_at, status)
+values
+  ('aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   now() + interval '1 day', now() + interval '1 day 4 hours', 'published'),
+  ('aaaa1111-5512-aaaa-aaaa-aaaa11110093',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+   null,
+   now() + interval '2 days', now() + interval '2 days 4 hours', 'draft'),
+  ('aaaa1111-5513-aaaa-aaaa-aaaa11110094',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '3 days', now() + interval '3 days 4 hours', 'published')
+on conflict (id) do nothing;
+
+-- Swap 1: Carol -> Alice (Alice is the target). Swap 2: Alice is requester.
+insert into public.schedule_swap_requests (
+  id, facility_id, requester_employee_id, requester_shift_id,
+  target_employee_id, status
+) values
+  ('aaaa1111-5711-aaaa-aaaa-aaaa11110095',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending'),
+  ('aaaa1111-5712-aaaa-aaaa-aaaa11110096',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'aaaa1111-5513-aaaa-aaaa-aaaa11110094',
+   null, 'pending')
+on conflict (id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Draft visibility: staff see published, never drafts.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+    where id in ('aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+                 'aaaa1111-5513-aaaa-aaaa-aaaa11110094')$$,
+  2, 'SCHED-136: staff CAN see published shifts in own facility');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+    where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
+  0, 'SCHED-136: staff CANNOT see draft shifts (publish is the gate)');
+
+-- Swap status transitions: neither role may self-approve.
+select pg_temp.expect_error(
+  $$update public.schedule_swap_requests
+       set status = 'manager_approved'
+     where id = 'aaaa1111-5711-aaaa-aaaa-aaaa11110095'$$,
+  'SCHED-136: swap TARGET cannot set manager_approved');
+select pg_temp.expect_error(
+  $$update public.schedule_swap_requests
+       set status = 'manager_approved'
+     where id = 'aaaa1111-5712-aaaa-aaaa-aaaa11110096'$$,
+  'SCHED-136: swap REQUESTER cannot set manager_approved');
+select pg_temp.expect_ok(
+  $$update public.schedule_swap_requests
+       set status = 'accepted', accepted_at = now()
+     where id = 'aaaa1111-5711-aaaa-aaaa-aaaa11110095'$$,
+  'SCHED-136: swap target CAN accept a pending swap');
+select pg_temp.expect_ok(
+  $$update public.schedule_swap_requests
+       set status = 'cancelled'
+     where id = 'aaaa1111-5712-aaaa-aaaa-aaaa11110096'$$,
+  'SCHED-136: swap requester CAN cancel their own swap');
+
+-- Notification forgery: plain staff cannot insert.
+select pg_temp.expect_error(
+  $$insert into public.schedule_notifications (facility_id, employee_id, notification_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-ca01-aaaa-aaaa-aaaa11110099', 'shift_reminder')$$,
+  'SCHED-136: staff CANNOT forge schedule_notifications');
+
+-- New RPCs refuse non-admin callers.
+select pg_temp.expect_error(
+  $$select public.scheduling_apply_swap('aaaa1111-5711-aaaa-aaaa-aaaa11110095')$$,
+  'SCHED-136: staff CANNOT execute scheduling_apply_swap');
+select pg_temp.expect_error(
+  $$select public.scheduling_approve_publish_request('aaaa1111-5711-aaaa-aaaa-aaaa11110095')$$,
+  'SCHED-136: staff CANNOT execute scheduling_approve_publish_request');
+
+reset role;
+
+-- Scheduling admin (Carol) positives: drafts visible, notifications writable.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+    where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
+  1, 'SCHED-136: scheduling admin STILL sees draft shifts');
+select pg_temp.expect_ok(
+  $$insert into public.schedule_notifications (facility_id, employee_id, notification_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'shift_reminder')$$,
+  'SCHED-136: scheduling admin CAN insert schedule_notifications');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2O. Migration-137 SECURITY DEFINER gates.
+--
+-- scheduling_decide_open_claim is admin-gated; scheduling_notify_swap_request
+-- may only fire for the CALLER'S OWN live swap (returns false otherwise, and
+-- must insert nothing).
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.scheduling_decide_open_claim(
+      'aaaa1111-5711-aaaa-aaaa-aaaa11110095', true)$$,
+  'SCHED-137: staff CANNOT execute scheduling_decide_open_claim');
+
+-- Alice is the TARGET (not requester) of swap ...95 — the helper must refuse.
+select pg_temp.expect_count(
+  $$select case when public.scheduling_notify_swap_request(
+      'aaaa1111-5711-aaaa-aaaa-aaaa11110095') then 1 else 0 end$$,
+  0, 'SCHED-137: non-requester CANNOT fire swap_request_received');
+
+reset role;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+    where swap_id = 'aaaa1111-5711-aaaa-aaaa-aaaa11110095'
+      and notification_type = 'swap_request_received'$$,
+  0, 'SCHED-137: refused notify helper inserted nothing');
 
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.
