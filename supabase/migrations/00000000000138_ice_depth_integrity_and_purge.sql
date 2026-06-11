@@ -100,6 +100,10 @@ comment on function public.purge_old_ice_depth_sessions() is
   'ice_depth_sessions older than keep_days for auto_purge facilities; children '
   'cascade. Invoked by the run-retention-purge cron as service_role.';
 
+-- service_role only (invoked by /api/cron/run-retention-purge). Revoke from
+-- authenticated explicitly: Supabase's default privileges grant EXECUTE on new
+-- functions to authenticated, which a `from public` revoke does not remove
+-- (mirrors migration 134; the rls_isolation harness asserts this gate).
 -- Revoke from authenticated explicitly: Supabase's default privileges grant
 -- EXECUTE on new functions to authenticated, which a `from public` revoke does
 -- not remove (mirrors migration 134; rls_isolation asserts this gate).
