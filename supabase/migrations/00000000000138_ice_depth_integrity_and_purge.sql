@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000136_ice_depth_integrity_and_purge.sql
+-- 00000000000138_ice_depth_integrity_and_purge.sql
 --
 -- Three ice-depth integrity / operations gaps surfaced by the 100% review:
 --
@@ -100,5 +100,10 @@ comment on function public.purge_old_ice_depth_sessions() is
   'ice_depth_sessions older than keep_days for auto_purge facilities; children '
   'cascade. Invoked by the run-retention-purge cron as service_role.';
 
-revoke execute on function public.purge_old_ice_depth_sessions() from public, anon;
+-- Revoke from authenticated explicitly: Supabase's default privileges grant
+-- EXECUTE on new functions to authenticated, which a `from public` revoke does
+-- not remove (mirrors migration 134; rls_isolation asserts this gate).
+revoke execute on function public.purge_old_ice_depth_sessions() from public;
+revoke execute on function public.purge_old_ice_depth_sessions() from anon;
+revoke execute on function public.purge_old_ice_depth_sessions() from authenticated;
 grant  execute on function public.purge_old_ice_depth_sessions() to service_role;
