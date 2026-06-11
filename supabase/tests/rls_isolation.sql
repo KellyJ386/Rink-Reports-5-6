@@ -338,7 +338,7 @@ on conflict (employee_id, module_key, area_id) do nothing;
 
 -- Ice-depth layout + measurement point in Facility A, so the positive
 -- session-INSERT assertion below (alice submits her OWN reading) and the
--- depth >= 0 / low < high CHECK assertions (migration 136) have valid FK
+-- depth >= 0 / low < high CHECK assertions (migration 138) have valid FK
 -- targets. Seeded as postgres (BYPASSRLS).
 insert into public.ice_depth_layouts (id, facility_id, name, slug, sort_order, is_active, is_default)
 values ('aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
@@ -1966,7 +1966,7 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 2m. Ice-depth nightly purge worker + integrity constraints (migration 136).
+-- 2m. Ice-depth nightly purge worker + integrity constraints (migration 138).
 --
 -- purge_old_ice_depth_sessions() is a SECURITY DEFINER bulk-deleter wired into
 -- the run-retention-purge cron. Like the migration-134 workers, the EXECUTE
@@ -1979,21 +1979,21 @@ select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
 select pg_temp.expect_error(
   $$select public.purge_old_ice_depth_sessions()$$,
-  'PURGE-136: authenticated CANNOT execute purge_old_ice_depth_sessions');
+  'PURGE-138: authenticated CANNOT execute purge_old_ice_depth_sessions');
 
 reset role;
 set local role anon;
 
 select pg_temp.expect_error(
   $$select public.purge_old_ice_depth_sessions()$$,
-  'PURGE-136: anon CANNOT execute purge_old_ice_depth_sessions');
+  'PURGE-138: anon CANNOT execute purge_old_ice_depth_sessions');
 
 reset role;
 set local role service_role;
 
 select pg_temp.expect_ok(
   $$select public.purge_old_ice_depth_sessions()$$,
-  'PURGE-136: service_role CAN execute purge_old_ice_depth_sessions');
+  'PURGE-138: service_role CAN execute purge_old_ice_depth_sessions');
 
 reset role;
 
@@ -2002,7 +2002,7 @@ reset role;
 select pg_temp.expect_error(
   $$insert into public.ice_depth_settings (facility_id, low_threshold, high_threshold)
     values ('11111111-1111-1111-1111-111111111111', 2.0, 1.0)$$,
-  'INTEGRITY-136: ice_depth_settings rejects low_threshold >= high_threshold');
+  'INTEGRITY-138: ice_depth_settings rejects low_threshold >= high_threshold');
 
 select pg_temp.expect_error(
   $$insert into public.ice_depth_measurements
@@ -2012,7 +2012,7 @@ select pg_temp.expect_error(
       from public.ice_depth_sessions s
      where s.facility_id = '11111111-1111-1111-1111-111111111111'
      limit 1$$,
-  'INTEGRITY-136: ice_depth_measurements rejects negative depth_value');
+  'INTEGRITY-138: ice_depth_measurements rejects negative depth_value');
 
 -- ---------------------------------------------------------------------------
 -- 2m. Daily-checklist seeder (migration 135).
