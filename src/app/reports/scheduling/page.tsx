@@ -24,13 +24,6 @@ const NAVY = "#003B6F"
 const NAVY_DARK = "#001A3A"
 const GREEN = "#4DFF00"
 const GREEN_DARK = "#3DB800"
-const RED = "#F42A2A"
-// Theme-responsive via CSS custom properties
-const SURFACE = "var(--card)"
-const ELEVATED = "var(--secondary)"
-const BORDER = "var(--border)"
-const SECONDARY = "var(--muted-foreground)"
-const FOREGROUND = "var(--foreground)"
 
 function NotAvailable({
   title,
@@ -258,26 +251,17 @@ export default async function SchedulingDashboardPage() {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 520,
-        margin: "0 auto",
-        padding: "24px 16px 48px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 0,
-      }}
-    >
+    <div className="mx-auto flex w-full max-w-[520px] flex-col px-4 pt-6 pb-12">
       {/* Breadcrumb */}
-      <p style={{ fontSize: 12, color: SECONDARY, marginBottom: 16 }}>
-        <Link href="/reports" style={{ color: SECONDARY, textDecoration: "none" }}>
+      <p className="mb-4 text-xs text-muted-foreground">
+        <Link href="/reports" className="text-muted-foreground no-underline">
           Reports
         </Link>
         {" / Scheduling"}
       </p>
 
       {/* Page header */}
-      <div style={{ marginBottom: 24 }}>
+      <div className="mb-6">
         <h1
           style={{
             fontFamily: DISPLAY_FONT,
@@ -285,9 +269,9 @@ export default async function SchedulingDashboardPage() {
             lineHeight: 1,
             letterSpacing: "0.01em",
             textTransform: "uppercase",
-            color: FOREGROUND,
             margin: "6px 0 0",
           }}
+          className="text-foreground"
         >
           Scheduling
         </h1>
@@ -306,7 +290,7 @@ export default async function SchedulingDashboardPage() {
             marginBottom: 16,
           }}
         >
-          {/* Green radial glow */}
+          {/* Green radial glow — dynamic gradient, left inline */}
           <div
             style={{
               position: "absolute",
@@ -365,13 +349,7 @@ export default async function SchedulingDashboardPage() {
             {nextShift.departments?.name ?? "—"}
             {nextShift.role_label ? ` · ${nextShift.role_label}` : ""}
           </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              marginTop: 16,
-            }}
-          >
+          <div className="mt-4 flex gap-2">
             <Link
               href="/reports/scheduling/swaps"
               style={{
@@ -452,14 +430,7 @@ export default async function SchedulingDashboardPage() {
       )}
 
       {/* Week strip */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
-          gap: 4,
-          marginBottom: 24,
-        }}
-      >
+      <div className="mb-6 grid grid-cols-7 gap-1">
         {weekDays.map((d) => (
           <div
             key={d.iso}
@@ -467,9 +438,9 @@ export default async function SchedulingDashboardPage() {
               padding: "8px 2px 6px",
               textAlign: "center",
               borderRadius: 10,
-              background: d.isNext ? GREEN : d.hasShift ? ELEVATED : "transparent",
-              border: `1px solid ${d.isNext ? GREEN : d.hasShift ? BORDER : BORDER}`,
-              color: d.isNext ? NAVY_DARK : FOREGROUND,
+              background: d.isNext ? GREEN : d.hasShift ? "var(--secondary)" : "transparent",
+              border: `1px solid ${d.isNext ? GREEN : "var(--border)"}`,
+              color: d.isNext ? NAVY_DARK : "var(--foreground)",
             }}
           >
             <div
@@ -497,7 +468,7 @@ export default async function SchedulingDashboardPage() {
                 height: 4,
                 borderRadius: 9999,
                 margin: "3px auto 0",
-                background: d.isNext ? NAVY_DARK : d.hasShift ? GREEN : BORDER,
+                background: d.isNext ? NAVY_DARK : d.hasShift ? GREEN : "var(--border)",
               }}
             />
           </div>
@@ -505,64 +476,31 @@ export default async function SchedulingDashboardPage() {
       </div>
 
       {/* Upcoming shifts */}
-      <div style={{ marginBottom: 24 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            marginBottom: 10,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: ".16em",
-              color: SECONDARY,
-              textTransform: "uppercase",
-            }}
-          >
+      <div className="mb-6">
+        <div className="mb-[10px] flex items-baseline justify-between">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
             Upcoming
           </div>
           <Link
             href="/reports/scheduling/my-schedule"
-            style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none" }}
+            className="text-xs text-primary no-underline"
           >
             View all →
           </Link>
         </div>
 
         {upcomingShifts.length === 0 ? (
-          <div
-            style={{
-              background: SURFACE,
-              border: `1px solid ${BORDER}`,
-              borderRadius: 14,
-              padding: "20px 16px",
-              textAlign: "center",
-              color: SECONDARY,
-              fontSize: 13,
-            }}
-          >
+          <div className="rounded-[14px] border border-border bg-card px-4 py-5 text-center text-[13px] text-muted-foreground">
             No upcoming shifts
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {upcomingShifts.map((s) => {
               const { day, date } = formatShiftDay(s)
               return (
                 <div
                   key={s.id}
-                  style={{
-                    background: SURFACE,
-                    border: `1px solid ${BORDER}`,
-                    borderRadius: 14,
-                    padding: "12px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
+                  className="flex items-center gap-3 rounded-[14px] border border-border bg-card px-[14px] py-3"
                 >
                   <div
                     style={{
@@ -598,19 +536,11 @@ export default async function SchedulingDashboardPage() {
                       {date}
                     </div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
-                    >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold text-foreground">
                       {formatShiftTime(s)}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 11.5,
-                        color: SECONDARY,
-                        marginTop: 2,
-                      }}
-                    >
+                    <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                       {s.departments?.name ?? "—"}
                       {s.role_label ? ` · ${s.role_label}` : ""}
                     </div>
@@ -620,11 +550,11 @@ export default async function SchedulingDashboardPage() {
                     height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={SECONDARY}
+                    stroke="currentColor"
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ flexShrink: 0 }}
+                    className="shrink-0 text-muted-foreground"
                   >
                     <path d="m9 18 6-6-6-6" />
                   </svg>
@@ -637,20 +567,11 @@ export default async function SchedulingDashboardPage() {
 
       {/* Open shifts */}
       {openShifts.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: ".16em",
-              color: SECONDARY,
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}
-          >
+        <div className="mb-6">
+          <div className="mb-[10px] text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
             Open · Pick up
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {openShifts.map((row) => {
               const shift = row.schedule_shifts
               if (!shift) return null
@@ -669,26 +590,23 @@ export default async function SchedulingDashboardPage() {
                   }}
                 >
                   <div
+                    className="grid shrink-0 place-items-center text-center"
                     style={{
                       width: 44,
                       height: 48,
                       borderRadius: 9,
-                      background: ELEVATED,
-                      border: `1px solid ${BORDER}`,
-                      color: FOREGROUND,
-                      display: "grid",
-                      placeItems: "center",
-                      flexShrink: 0,
-                      textAlign: "center",
+                      background: "var(--secondary)",
+                      border: "1px solid var(--border)",
+                      color: "var(--foreground)",
                     }}
                   >
                     <div
+                      className="text-muted-foreground"
                       style={{
                         fontSize: 8.5,
                         fontWeight: 800,
                         letterSpacing: ".1em",
                         textTransform: "uppercase",
-                        color: SECONDARY,
                       }}
                     >
                       {DAY_LABELS[dayParts.dayOfWeek]}
@@ -698,19 +616,17 @@ export default async function SchedulingDashboardPage() {
                         fontFamily: DISPLAY_FONT,
                         fontSize: 20,
                         lineHeight: 1,
-                        color: FOREGROUND,
+                        color: "var(--foreground)",
                       }}
                     >
                       {dayParts.dayOfMonth}
                     </div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
-                    >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold text-foreground">
                       {formatDateTime(shift.starts_at, tz)}
                     </div>
-                    <div style={{ fontSize: 11.5, color: SECONDARY, marginTop: 2 }}>
+                    <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                       {shift.departments?.name ?? "—"}
                       {shift.role_label ? ` · ${shift.role_label}` : ""}
                       {row.approval_required ? " · Approval req." : ""}
@@ -726,43 +642,24 @@ export default async function SchedulingDashboardPage() {
 
       {/* My pending claims (awaiting admin approval) */}
       {myPendingClaims.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: ".16em",
-              color: SECONDARY,
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}
-          >
+        <div className="mb-6">
+          <div className="mb-[10px] text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
             Your claims · Awaiting approval
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {myPendingClaims.map((row) => {
               const shift = row.schedule_shifts
               if (!shift) return null
               return (
                 <div
                   key={row.id}
-                  style={{
-                    background: SURFACE,
-                    border: `1px dashed ${BORDER}`,
-                    borderRadius: 14,
-                    padding: "12px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
+                  className="flex items-center gap-3 rounded-[14px] border border-dashed border-border bg-card px-[14px] py-3"
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}
-                    >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold text-foreground">
                       {formatDateTime(shift.starts_at, tz)}
                     </div>
-                    <div style={{ fontSize: 11.5, color: SECONDARY, marginTop: 2 }}>
+                    <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                       {shift.departments?.name ?? "—"}
                       {shift.role_label ? ` · ${shift.role_label}` : ""}
                       {" · You claimed this shift — a manager needs to approve it."}
@@ -777,25 +674,10 @@ export default async function SchedulingDashboardPage() {
 
       {/* Quick links */}
       <div>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: ".16em",
-            color: SECONDARY,
-            textTransform: "uppercase",
-            marginBottom: 10,
-          }}
-        >
+        <div className="mb-[10px] text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
           Quick links
         </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 8,
-          }}
-        >
+        <div className="grid grid-cols-2 gap-2">
           {[
             { href: "/reports/scheduling/my-schedule", label: "My schedule", desc: "All upcoming shifts" },
             { href: "/reports/scheduling/time-off", label: "Time off", desc: "Request & track" },
@@ -817,51 +699,24 @@ export default async function SchedulingDashboardPage() {
             <Link
               key={link.href}
               href={link.href}
-              style={{ textDecoration: "none" }}
+              className="no-underline"
             >
-              <div
-                style={{
-                  background: SURFACE,
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: 14,
-                  padding: "14px 14px",
-                  position: "relative",
-                }}
-              >
+              <div className="relative rounded-[14px] border border-border bg-card px-[14px] py-[14px]">
                 {link.badge ? (
                   <div
-                    style={{
-                      position: "absolute",
-                      top: 10,
-                      right: 10,
-                      minWidth: 18,
-                      height: 18,
-                      padding: "0 5px",
-                      borderRadius: 9999,
-                      background: RED,
-                      color: "#fff",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      display: "grid",
-                      placeItems: "center",
-                    }}
+                    className="absolute right-[10px] top-[10px] grid min-w-[18px] place-items-center rounded-full bg-destructive px-[5px] text-[10px] font-bold text-destructive-foreground"
+                    style={{ height: 18 }}
                   >
                     {link.badge}
                   </div>
                 ) : null}
                 <div
-                  style={{
-                    fontFamily: DISPLAY_FONT,
-                    fontSize: 15,
-                    color: FOREGROUND,
-                    textTransform: "uppercase",
-                    letterSpacing: ".02em",
-                    marginBottom: 2,
-                  }}
+                  style={{ fontFamily: DISPLAY_FONT, fontSize: 15 }}
+                  className="mb-0.5 uppercase tracking-[0.02em] text-foreground"
                 >
                   {link.label}
                 </div>
-                <div style={{ fontSize: 11.5, color: SECONDARY }}>{link.desc}</div>
+                <div className="text-[11.5px] text-muted-foreground">{link.desc}</div>
               </div>
             </Link>
           ))}

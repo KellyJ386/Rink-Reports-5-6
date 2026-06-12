@@ -2234,6 +2234,85 @@ select pg_temp.expect_count(
   0, 'SCHED-137: refused notify helper inserted nothing');
 
 -- ---------------------------------------------------------------------------
+-- 2P. Migration-140 double-booking EXCLUDE constraint
+--     (schedule_shifts_no_double_booking).
+--
+-- A GiST exclusion constraint must make it physically impossible to commit two
+-- overlapping assigned (draft/published) shifts for the SAME employee, while
+-- still allowing two shifts that merely TOUCH ('[)' bounds: one shift's ends_at
+-- == the next shift's starts_at). Exercised as postgres (BYPASSRLS) — table
+-- constraints fire regardless of role — reusing Alice's employee + department
+-- in Facility A. Far-future timestamps avoid colliding with the day+1/+2/+3
+-- shift fixtures seeded above.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Baseline assigned shift for Alice (10:00–14:00 on a far-future day).
+insert into public.schedule_shifts (id, facility_id, department_id, employee_id, starts_at, ends_at, status)
+values ('aaaa1111-5514-aaaa-aaaa-aaaa11110097',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        now() + interval '30 days' + interval '10 hours',
+        now() + interval '30 days' + interval '14 hours',
+        'published')
+on conflict (id) do nothing;
+
+-- Overlapping (12:00–16:00) assigned shift for the SAME employee must be
+-- rejected by the exclusion constraint (sqlstate 23P01).
+select pg_temp.expect_error(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '12 hours',
+            now() + interval '30 days' + interval '16 hours',
+            'published')$$,
+  'SCHED-140: overlapping assigned shift for same employee is rejected (exclusion 23P01)');
+
+-- Pin that the rejection is specifically the exclusion_violation (23P01), not an
+-- unrelated error masquerading as one.
+do $$
+begin
+  begin
+    insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '12 hours',
+            now() + interval '30 days' + interval '16 hours',
+            'published');
+    insert into _rls_failures (msg)
+    values ('FAIL: SCHED-140: overlapping insert unexpectedly succeeded');
+  exception
+    when exclusion_violation then
+      raise notice 'ok (23P01 as expected): SCHED-140 overlap raises exclusion_violation';
+    when others then
+      insert into _rls_failures (msg)
+      values (format('FAIL: SCHED-140: overlap raised %s, expected 23P01', sqlstate));
+  end;
+end$$;
+
+-- A touching (14:00–18:00) assigned shift — starts exactly when the baseline
+-- ends — must SUCCEED: '[)' half-open bounds do not treat boundary contact as
+-- an overlap.
+select pg_temp.expect_ok(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '14 hours',
+            now() + interval '30 days' + interval '18 hours',
+            'published')$$,
+  'SCHED-140: touching shift (ends_at == next starts_at) is allowed');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
