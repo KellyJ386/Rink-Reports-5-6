@@ -38,6 +38,10 @@ export function ThemeToggle({ className }: { className?: string }) {
 
   const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
   const Icon = theme === "dark" ? Sun : Moon
+  // Lucide icons stroke with currentColor, so this colors the icon's outline.
+  // Green moon / amber sun stay legible on the header's white toggle button.
+  const iconColor =
+    theme === "dark" ? "text-amber-500" : "text-[var(--green-600)]"
 
   return (
     <button
@@ -51,7 +55,11 @@ export function ThemeToggle({ className }: { className?: string }) {
         (className ?? "")
       }
     >
-      <Icon className="h-4 w-4" aria-hidden suppressHydrationWarning />
+      <Icon
+        className={"h-4 w-4 " + iconColor}
+        aria-hidden
+        suppressHydrationWarning
+      />
     </button>
   )
 }
