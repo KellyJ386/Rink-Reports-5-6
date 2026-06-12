@@ -17,7 +17,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SectionCard } from "@/components/ui/section-card"
-import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { Textarea } from "@/components/ui/textarea"
 import { readableForeground } from "@/lib/color-contrast"
 import { cn } from "@/lib/utils"
@@ -122,20 +122,9 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   const [note, setNote] = useState("")
   const [localId] = useState<string>(genLocalId)
   const [queued, setQueued] = useState(false)
-  const [isOnline, setIsOnline] = useState(true)
-
-  // Track connectivity so the sticky bar can show an offline hint. Default true
-  // for SSR; correct it on mount and on the browser online/offline events.
-  useEffect(() => {
-    const sync = () => setIsOnline(navigator.onLine)
-    sync()
-    window.addEventListener("online", sync)
-    window.addEventListener("offline", sync)
-    return () => {
-      window.removeEventListener("online", sync)
-      window.removeEventListener("offline", sync)
-    }
-  }, [])
+  // Connectivity for the sticky bar's offline hint — same hook the other
+  // report forms use (handleSubmit still reads navigator.onLine live).
+  const { isOnline } = useSyncQueue()
 
   const selectedArea =
     areas.find((a) => a.id === selectedAreaId) ?? areas[0]
@@ -167,9 +156,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   }
 
   function handleTemplateChange(templateId: string) {
-    // Ignore the spurious empty callback Radix Select fires when its item set
-    // changes on area switch — it would otherwise clobber an auto-selected shift.
-    if (!templateId) return
     setSelectedTemplateId(templateId)
     setChecked({})
   }
@@ -381,19 +367,17 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
                     onClick={() => handleTemplateChange(t.id)}
                     className={cn(
                       PILL_BASE,
+                      // Selected: module-accent border + soft tint (the same
+                      // treatment as SeverityRadioPill) — a solid module fill
+                      // can't meet AA contrast in dark mode, a tint always can.
                       selected
-                        ? "border-transparent bg-[var(--module-daily)] text-white"
+                        ? "border-[var(--module-daily)] bg-[var(--module-daily)]/15 text-foreground"
                         : "border-border bg-card text-foreground hover:bg-accent/40"
                     )}
                   >
                     <PillRadioDot selected={selected} />
                     {t.name}
-                    <span
-                      className={cn(
-                        "text-xs tabular-nums",
-                        selected ? "text-white/80" : "text-muted-foreground"
-                      )}
-                    >
+                    <span className="text-xs tabular-nums text-muted-foreground">
                       {t.items.length} {t.items.length === 1 ? "item" : "items"}
                     </span>
                   </button>
