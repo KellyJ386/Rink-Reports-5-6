@@ -171,7 +171,7 @@ export function GlobalHeader({
             <SyncStatusBadge />
           </div>
         )}
-        <div className="[&_button]:rounded-full [&_button]:text-white [&_button:hover]:bg-white/15">
+        <div className="[&_button]:rounded-full [&_button]:border-white/40 [&_button]:bg-white [&_button]:shadow-sm [&_button:hover]:bg-white/90">
           <ThemeToggle />
         </div>
         <DropdownMenu>
