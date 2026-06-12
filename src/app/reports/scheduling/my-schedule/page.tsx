@@ -169,15 +169,12 @@ export default async function MySchedulePage({
     .order("starts_at", { ascending: true })
 
   if (currentView === "week") {
-    // Week view date range. Drafts are never shown to staff — the publish
-    // step is the gate (RLS enforces this too; the filter keeps admins
-    // viewing their own staff schedule consistent).
+    // Week view date range
     const weekEnd = new Date(weekStart)
     weekEnd.setDate(weekEnd.getDate() + 7)
     query = query
       .gte("starts_at", weekStart.toISOString())
       .lt("starts_at", weekEnd.toISOString())
-      .neq("status", "draft")
   } else {
     query = query
       .gte("starts_at", fromDate.toISOString())
@@ -205,10 +202,6 @@ export default async function MySchedulePage({
   const NAVY = "#003B6F"
   const GREEN = "#4DFF00"
   const GREEN_INK = "#1F6B00"
-  const SURFACE = "var(--card)"
-  const BORDER = "var(--border)"
-  const SECONDARY = "var(--muted-foreground)"
-  const FOREGROUND = "var(--foreground)"
 
   const statusColors: Record<string, string> = {
     published: "#1F6B00",
@@ -217,22 +210,13 @@ export default async function MySchedulePage({
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 600,
-        margin: "0 auto",
-        padding: "24px 16px 48px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 20,
-      }}
-    >
+    <div className="mx-auto flex w-full max-w-[600px] flex-col gap-5 px-4 pt-6 pb-12">
       {/* Header */}
       <div>
-        <p style={{ fontSize: 12, color: SECONDARY, marginBottom: 12 }}>
+        <p className="mb-3 text-xs text-muted-foreground">
           <Link
             href="/reports/scheduling"
-            style={{ color: SECONDARY, textDecoration: "none" }}
+            className="text-muted-foreground no-underline"
           >
             Scheduling
           </Link>
@@ -245,26 +229,16 @@ export default async function MySchedulePage({
             lineHeight: 1,
             letterSpacing: "0.01em",
             textTransform: "uppercase",
-            color: FOREGROUND,
             margin: 0,
           }}
+          className="text-foreground"
         >
           My Schedule
         </h1>
       </div>
 
-      {/* View toggle */}
-      <div
-        style={{
-          display: "flex",
-          gap: 3,
-          background: SURFACE,
-          border: `1px solid ${BORDER}`,
-          borderRadius: 9,
-          padding: 3,
-          width: "fit-content",
-        }}
-      >
+      {/* View toggle — active tab uses computed GREEN color, left inline */}
+      <div className="flex w-fit gap-[3px] rounded-[9px] border border-border bg-card p-[3px]">
         {(["list", "week"] as const).map((v) => (
           <Link
             key={v}
@@ -275,7 +249,7 @@ export default async function MySchedulePage({
               fontWeight: 700,
               borderRadius: 6,
               background: currentView === v ? GREEN : "transparent",
-              color: currentView === v ? GREEN_INK : SECONDARY,
+              color: currentView === v ? GREEN_INK : "var(--muted-foreground)",
               cursor: "pointer",
               textTransform: "uppercase",
               letterSpacing: ".04em",
@@ -298,16 +272,7 @@ export default async function MySchedulePage({
           {/* Date filter */}
           <form
             method="get"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 10,
-              background: SURFACE,
-              border: `1px solid ${BORDER}`,
-              borderRadius: 14,
-              padding: "14px 16px",
-              alignItems: "flex-end",
-            }}
+            className="flex flex-wrap items-end gap-[10px] rounded-[14px] border border-border bg-card px-4 py-[14px]"
           >
             {[
               { id: "from", label: "From", defaultValue: toDateInput(fromDate), type: "date" },
@@ -315,17 +280,12 @@ export default async function MySchedulePage({
             ].map((f) => (
               <div
                 key={f.id}
-                style={{ display: "flex", flexDirection: "column", gap: 4, flex: "1 1 130px" }}
+                className="flex flex-col gap-1"
+                style={{ flex: "1 1 130px" }}
               >
                 <label
                   htmlFor={f.id}
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 800,
-                    letterSpacing: ".12em",
-                    color: SECONDARY,
-                    textTransform: "uppercase",
-                  }}
+                  className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground"
                 >
                   {f.label}
                 </label>
@@ -334,29 +294,17 @@ export default async function MySchedulePage({
                   name={f.id}
                   type={f.type}
                   defaultValue={f.defaultValue}
-                  style={{
-                    height: 40,
-                    border: `1px solid ${BORDER}`,
-                    borderRadius: 8,
-                    padding: "0 12px",
-                    fontSize: 13,
-                    color: FOREGROUND,
-                    outline: "none",
-                    background: SURFACE,
-                  }}
+                  className="h-10 rounded-lg border border-border bg-card px-3 text-[13px] text-foreground outline-none"
                 />
               </div>
             ))}
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: "1 1 130px" }}>
+            <div
+              className="flex flex-col gap-1"
+              style={{ flex: "1 1 130px" }}
+            >
               <label
                 htmlFor="status"
-                style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: ".12em",
-                  color: SECONDARY,
-                  textTransform: "uppercase",
-                }}
+                className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground"
               >
                 Status
               </label>
@@ -364,16 +312,7 @@ export default async function MySchedulePage({
                 id="status"
                 name="status"
                 defaultValue={statusFilter}
-                style={{
-                  height: 40,
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: 8,
-                  padding: "0 12px",
-                  fontSize: 13,
-                  color: FOREGROUND,
-                  outline: "none",
-                  background: SURFACE,
-                }}
+                className="h-10 rounded-lg border border-border bg-card px-3 text-[13px] text-foreground outline-none"
               >
                 <option value="published">Published</option>
                 <option value="all">All</option>
@@ -381,80 +320,41 @@ export default async function MySchedulePage({
             </div>
             <button
               type="submit"
-              style={{
-                height: 40,
-                padding: "0 20px",
-                borderRadius: 8,
-                border: 0,
-                background: NAVY,
-                color: "#fff",
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
+              className="h-10 shrink-0 cursor-pointer rounded-lg border-0 px-5 text-[13px] font-bold text-white"
+              style={{ background: NAVY }}
             >
               Apply
             </button>
           </form>
 
           {shifts.length === 0 ? (
-            <div
-              style={{
-                background: SURFACE,
-                border: `1px solid ${BORDER}`,
-                borderRadius: 14,
-                padding: "24px 16px",
-                textAlign: "center",
-                color: SECONDARY,
-                fontSize: 13,
-              }}
-            >
+            <div className="rounded-[14px] border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
               No shifts in this range
             </div>
           ) : (
-            <div
-              style={{
-                background: SURFACE,
-                border: `1px solid ${BORDER}`,
-                borderRadius: 14,
-                overflow: "hidden",
-                boxShadow: "0 1px 2px rgba(0,0,0,.04)",
-              }}
-            >
+            <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_2px_rgba(0,0,0,.04)]">
               {shifts.map((s, i) => {
                 const color = statusColors[s.status] ?? "#9DB2C8"
                 return (
                   <div
                     key={s.id}
+                    className="flex items-center gap-3 px-[14px] py-3"
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: "12px 14px",
                       borderBottom:
-                        i < shifts.length - 1 ? `1px solid ${BORDER}` : "none",
+                        i < shifts.length - 1 ? "1px solid var(--border)" : "none",
                       borderLeft: `3px solid ${color}`,
                     }}
                   >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: FOREGROUND }}>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-bold text-foreground">
                         {formatDateRange(s.starts_at, s.ends_at, tz)}
                       </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: 6,
-                          marginTop: 3,
-                          alignItems: "center",
-                        }}
-                      >
-                        <span style={{ fontSize: 11.5, color: SECONDARY }}>
+                      <div className="mt-[3px] flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11.5px] text-muted-foreground">
                           {s.departments?.name ?? "—"}
                         </span>
                         {s.role_label ? (
-                          <span style={{ fontSize: 11.5, color: SECONDARY }}>
+                          <span className="text-[11.5px] text-muted-foreground">
                             · {s.role_label}
                           </span>
                         ) : null}

@@ -32,6 +32,12 @@ function dbError(err: SupabaseError, fallback: string): string {
   if (err.code === "23503") {
     return "Related record not found or referenced by another row."
   }
+  // Exclusion-constraint backstop (migration 140): a write that would
+  // double-book the employee. Reuse the app-side 'double_booked' copy so the
+  // DB last-line-of-defense reads the same as the pre-validation.
+  if (err.code === "23P01") {
+    return formatViolations(["double_booked"])
+  }
   return err.message?.trim() || fallback
 }
 
