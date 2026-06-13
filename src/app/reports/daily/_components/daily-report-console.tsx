@@ -17,14 +17,7 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SectionCard } from "@/components/ui/section-card"
-import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { Textarea } from "@/components/ui/textarea"
 import { readableForeground } from "@/lib/color-contrast"
 import { cn } from "@/lib/utils"
@@ -129,6 +122,9 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   const [note, setNote] = useState("")
   const [localId] = useState<string>(genLocalId)
   const [queued, setQueued] = useState(false)
+  // Connectivity for the sticky bar's offline hint — same hook the other
+  // report forms use (handleSubmit still reads navigator.onLine live).
+  const { isOnline } = useSyncQueue()
 
   const selectedArea =
     areas.find((a) => a.id === selectedAreaId) ?? areas[0]
@@ -160,9 +156,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
   }
 
   function handleTemplateChange(templateId: string) {
-    // Ignore the spurious empty callback Radix Select fires when its item set
-    // changes on area switch — it would otherwise clobber an auto-selected shift.
-    if (!templateId) return
     setSelectedTemplateId(templateId)
     setChecked({})
   }
@@ -289,211 +282,261 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
 
       <FormError message={state.error} />
 
-      {/* Select Work Area — compact, single-select pill tabs */}
-      <Card className="gap-4 py-5">
+      {/* Shift setup — work area + shift type, the two coupled choices that
+          configure the checklist, merged into a single step. */}
+      <Card className="gap-5 py-5">
         <h2 className="px-6 text-lg font-semibold tracking-tight">
-          Select Work Area
+          Shift setup
         </h2>
-        <div
-          className="flex flex-wrap gap-2 px-6"
-          role="radiogroup"
-          aria-label="Work area"
-        >
-          {areas.map((area) => {
-            const color = area.color?.trim() || null
-            const selected = area.id === selectedArea?.id
-            const fg = color ? readableForeground(color) : null
-            return (
-              <button
-                key={area.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => handleAreaChange(area.id)}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  !color &&
-                    (selected
-                      ? "border-transparent bg-primary text-primary-foreground"
-                      : "border-border bg-card text-foreground hover:bg-accent/40"),
-                  // Colored areas: selected => solid fill, unselected => soft tint
-                  // of the same color so every tab visibly carries its area color
-                  // (the tint reads correctly in both light and dark themes).
-                  color && !selected && "text-foreground hover:opacity-90"
-                )}
-                style={
-                  color
-                    ? selected
-                      ? { backgroundColor: color, color: fg!, borderColor: color }
-                      : { backgroundColor: `${color}29`, borderColor: color }
-                    : undefined
-                }
-              >
-                <span
-                  aria-hidden
-                  className="flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-current"
+
+        {/* Work area — single-select color pills */}
+        <div className="flex flex-col gap-2 px-6">
+          <p
+            id="work-area-label"
+            className="text-sm font-semibold text-muted-foreground"
+          >
+            Work area
+          </p>
+          <div
+            className="flex flex-wrap gap-2"
+            role="radiogroup"
+            aria-labelledby="work-area-label"
+          >
+            {areas.map((area) => {
+              const color = area.color?.trim() || null
+              const selected = area.id === selectedArea?.id
+              const fg = color ? readableForeground(color) : null
+              return (
+                <button
+                  key={area.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => handleAreaChange(area.id)}
+                  className={cn(
+                    PILL_BASE,
+                    !color &&
+                      (selected
+                        ? "border-transparent bg-primary text-primary-foreground"
+                        : "border-border bg-card text-foreground hover:bg-accent/40"),
+                    // Colored areas: selected => solid fill, unselected => soft
+                    // tint of the same color so every tab visibly carries its
+                    // area color (reads correctly in both light and dark themes).
+                    color && !selected && "text-foreground hover:opacity-90"
+                  )}
+                  style={
+                    color
+                      ? selected
+                        ? { backgroundColor: color, color: fg!, borderColor: color }
+                        : { backgroundColor: `${color}29`, borderColor: color }
+                      : undefined
+                  }
                 >
-                  {selected ? (
-                    <span className="size-2 rounded-full bg-current" />
-                  ) : null}
-                </span>
-                {area.name}
-              </button>
-            )
-          })}
+                  <PillRadioDot selected={selected} />
+                  {area.name}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </Card>
 
-      {/* Select Shift — shift-type dropdown for the selected area */}
-      <Card className="gap-4 py-5">
-        <h2 className="px-6 text-lg font-semibold tracking-tight">
-          Select Shift
-        </h2>
-        <div className="px-6">
-          <Select
-            key={selectedArea?.id ?? "none"}
-            value={selectedTemplateId}
-            onValueChange={handleTemplateChange}
-            disabled={templates.length === 0}
+        {/* Shift — tappable pills (no dropdown). Item count helps staff pick. */}
+        <div className="flex flex-col gap-2 px-6">
+          <p
+            id="shift-label"
+            className="text-sm font-semibold text-muted-foreground"
           >
-            <SelectTrigger className="h-12 text-base">
-              <SelectValue
-                placeholder={
-                  templates.length === 0
-                    ? "No shifts available"
-                    : "Choose shift type…"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {templates.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            Shift
+          </p>
+          {templates.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No shifts available</p>
+          ) : (
+            <div
+              className="flex flex-wrap gap-2"
+              role="radiogroup"
+              aria-labelledby="shift-label"
+            >
+              {templates.map((t) => {
+                const selected = t.id === selectedTemplateId
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => handleTemplateChange(t.id)}
+                    className={cn(
+                      PILL_BASE,
+                      // Selected: module-accent border + soft tint (the same
+                      // treatment as SeverityRadioPill) — a solid module fill
+                      // can't meet AA contrast in dark mode, a tint always can.
+                      selected
+                        ? "border-[var(--module-daily)] bg-[var(--module-daily)]/15 text-foreground"
+                        : "border-border bg-card text-foreground hover:bg-accent/40"
+                    )}
+                  >
+                    <PillRadioDot selected={selected} />
+                    {t.name}
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {t.items.length} {t.items.length === 1 ? "item" : "items"}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </Card>
 
-      {/* Checklist + note + submit — revealed once a shift is chosen */}
+      {/* Checklist — always present so the page structure stays stable; shows a
+          hint until a shift is chosen, then loads that shift's items. */}
       {selectedTemplate ? (
-        <>
-          <Card
-            className="gap-4 py-5"
-            style={
-              accent
-                ? { borderLeftColor: accent, borderLeftWidth: 4 }
-                : undefined
-            }
-          >
-            <div className="flex flex-col gap-3 px-6">
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="text-lg font-semibold tracking-tight">
-                  Checklist
-                </h2>
-                {items.length > 0 ? (
-                  <span className="text-sm font-medium tabular-nums text-muted-foreground">
-                    {checkedCount} / {items.length} complete
-                  </span>
-                ) : null}
-              </div>
+        <Card
+          className="gap-4 py-5"
+          style={
+            accent ? { borderLeftColor: accent, borderLeftWidth: 4 } : undefined
+          }
+        >
+          <div className="flex flex-col gap-3 px-6">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold tracking-tight">Checklist</h2>
               {items.length > 0 ? (
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${pct}%`,
-                      backgroundColor: accent ?? "var(--primary)",
-                    }}
-                  />
-                </div>
+                <span className="text-sm font-medium tabular-nums text-muted-foreground">
+                  {checkedCount} / {items.length} complete
+                </span>
               ) : null}
             </div>
-            <div className="px-6">
-              {items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No checklist items on this template. You can still submit.
-                </p>
-              ) : (
-                <ul className="flex flex-col divide-y divide-border rounded-lg border bg-background">
-                  {items.map((item) => {
-                    const isChecked = !!checked[item.id]
-                    return (
-                      <li key={item.id}>
-                        <label
-                          className={cn(
-                            "flex cursor-pointer items-start gap-4 px-4 py-4 transition-colors",
-                            isChecked && !accent && "bg-accent/40"
-                          )}
-                          style={
-                            isChecked && accent
-                              ? { backgroundColor: `${accent}14` }
-                              : undefined
+            {items.length > 0 ? (
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: accent ?? "var(--module-daily)",
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
+          <div className="px-6">
+            {items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No checklist items on this template. You can still submit.
+              </p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-border rounded-lg border bg-background">
+                {items.map((item) => {
+                  const isChecked = !!checked[item.id]
+                  return (
+                    <li key={item.id}>
+                      <label
+                        className={cn(
+                          "flex cursor-pointer items-start gap-4 px-4 py-4 transition-colors",
+                          isChecked && !accent && "bg-accent/40"
+                        )}
+                        style={
+                          isChecked && accent
+                            ? { backgroundColor: `${accent}14` }
+                            : undefined
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) =>
+                            setChecked((prev) => ({
+                              ...prev,
+                              [item.id]: e.target.checked,
+                            }))
                           }
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) =>
-                              setChecked((prev) => ({
-                                ...prev,
-                                [item.id]: e.target.checked,
-                              }))
-                            }
-                            className={cn(
-                              "mt-1 size-6 shrink-0 cursor-pointer rounded border-input",
-                              !accent && "accent-primary"
-                            )}
-                            style={accent ? { accentColor: accent } : undefined}
-                          />
-                          <span className="flex flex-col gap-1">
-                            <span className="text-base font-medium leading-tight">
-                              {item.label}
-                            </span>
-                            {item.description ? (
-                              <span className="text-sm text-muted-foreground">
-                                {item.description}
-                              </span>
-                            ) : null}
+                          className={cn(
+                            "mt-1 size-6 shrink-0 cursor-pointer rounded border-input",
+                            !accent && "accent-primary"
+                          )}
+                          style={accent ? { accentColor: accent } : undefined}
+                        />
+                        <span className="flex flex-col gap-1">
+                          <span className="text-base font-medium leading-tight">
+                            {item.label}
                           </span>
-                        </label>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-          </Card>
-
-          <Card className="gap-3 py-5">
-            <div className="flex flex-col gap-2 px-6">
-              <label htmlFor="note" className="text-sm font-medium">
-                Note (optional)
-              </label>
-              <Textarea
-                id="note"
-                name="note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={4}
-                inputMode="text"
-                enterKeyHint="done"
-                placeholder="Anything to flag for managers?"
-              />
-            </div>
-          </Card>
-
-          <SubmitBar />
-        </>
+                          {item.description ? (
+                            <span className="text-sm text-muted-foreground">
+                              {item.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </Card>
       ) : (
         <Card className="py-8">
           <p className="px-6 text-sm text-muted-foreground">
-            Choose a shift type to see its checklist.
+            Pick a shift above to load its checklist.
           </p>
         </Card>
       )}
+
+      {/* Note — optional, only meaningful once a shift is in progress. */}
+      {selectedTemplate ? (
+        <Card className="gap-3 py-5">
+          <div className="flex flex-col gap-2 px-6">
+            <label htmlFor="note" className="text-sm font-medium">
+              Note (optional)
+            </label>
+            <Textarea
+              id="note"
+              name="note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={4}
+              inputMode="text"
+              enterKeyHint="done"
+              placeholder="Anything to flag for managers?"
+            />
+          </div>
+        </Card>
+      ) : null}
+
+      {/* Sticky submit bar — pinned progress + submit, disabled until a shift
+          is selected (mirrors the previous reveal-on-select behavior). */}
+      <div className="sticky bottom-0 z-[5] mt-1 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/90 px-3.5 py-3 shadow-[var(--shadow-elev-2)] backdrop-blur-md">
+        <div className="min-w-0 flex-[1_1_160px] text-xs text-muted-foreground">
+          {selectedTemplate && items.length > 0 ? (
+            <>
+              <strong className="font-bold tabular-nums text-foreground">
+                {checkedCount}/{items.length} complete
+              </strong>
+              {isOnline ? "" : " · offline — will sync when reconnected"}
+            </>
+          ) : selectedTemplate ? (
+            <>Ready to submit{isOnline ? "" : " · offline"}</>
+          ) : (
+            "Pick a work area and shift to begin"
+          )}
+        </div>
+        <SubmitBar disabled={!selectedTemplate} />
+      </div>
     </form>
+  )
+}
+
+// Shared pill chrome for the work-area and shift selectors.
+const PILL_BASE =
+  "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+
+function PillRadioDot({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className="flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-current"
+    >
+      {selected ? <span className="size-2 rounded-full bg-current" /> : null}
+    </span>
   )
 }
 
@@ -514,14 +557,14 @@ function MetaChip({
   )
 }
 
-function SubmitBar() {
+function SubmitBar({ disabled }: { disabled?: boolean }) {
   const { pending } = useFormStatus()
   return (
     <Button
       type="submit"
       size="lg"
-      disabled={pending}
-      className="h-12 w-full text-base"
+      disabled={pending || disabled}
+      className="h-12 text-base"
     >
       {pending ? "Submitting…" : "Submit"}
     </Button>
