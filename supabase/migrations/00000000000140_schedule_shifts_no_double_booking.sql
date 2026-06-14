@@ -26,6 +26,9 @@
 
 create schema if not exists extensions;
 create extension if not exists btree_gist with schema extensions;
+-- =============================================================================
+
+create extension if not exists btree_gist;
 alter table public.schedule_shifts
   drop constraint if exists schedule_shifts_no_double_booking;
 alter table public.schedule_shifts
