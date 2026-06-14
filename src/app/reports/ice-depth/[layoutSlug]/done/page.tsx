@@ -6,8 +6,6 @@ import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geom
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
-import { SendReportButton } from "./_components/send-report-button"
-
 export const dynamic = "force-dynamic"
 
 type SearchParams = { id?: string | string[] }
@@ -312,27 +310,10 @@ function DonePageBody({
 }: DonePageBodyProps) {
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100%",
-        background: "var(--background)",
-      }}
-    >
+    <div className="flex min-h-full flex-col bg-background">
       {/* Hero — green checkmark + submitted badge */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          padding: "40px 20px 28px",
-          borderBottom: "1px solid var(--border)",
-          gap: 14,
-          textAlign: "center",
-        }}
-      >
-        {/* Green circle checkmark */}
+      <div className="flex flex-col items-center gap-[14px] border-b border-border px-5 pb-7 pt-10 text-center">
+        {/* Green circle checkmark — branded color, left inline */}
         <div
           aria-hidden
           style={{
@@ -361,7 +342,7 @@ function DonePageBody({
           </svg>
         </div>
 
-        {/* SUBMITTED badge */}
+        {/* SUBMITTED badge — branded green, left inline */}
         <div
           style={{
             display: "inline-flex",
@@ -393,19 +374,13 @@ function DonePageBody({
           >
             {layout.name}
           </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12,
-              color: "var(--muted-foreground)",
-            }}
-          >
+          <div className="mt-1.5 text-xs text-muted-foreground">
             {formatTimestamp(session.submitted_at, tz)}
           </div>
         </div>
 
         {/* Stats pills */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+        <div className="flex flex-wrap justify-center gap-2">
           <StatPill
             color="#4DFF00"
             label="Optimal"
@@ -434,7 +409,7 @@ function DonePageBody({
       </div>
 
       {/* Rink + point list */}
-      <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="flex flex-col gap-4 px-4 py-5">
         {measurements.length > 0 && (
           <div className="mx-auto w-full max-w-[280px]" style={{ aspectRatio: "380/740" }}>
             <USARink
@@ -450,28 +425,15 @@ function DonePageBody({
         )}
 
         {measurements.length > 0 && (
-          <ul
-            style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
+          <ul className="m-0 list-none overflow-hidden rounded-xl border border-border bg-card p-0">
             {measurements.map((m, i) => {
               const sev = (m.severity as SeverityKey) ?? "ok"
               const color = DONE_COLORS[sev]
               return (
                 <li
                   key={m.id}
+                  className="flex items-center gap-3 px-[14px] py-[11px]"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "11px 14px",
                     borderBottom:
                       i < measurements.length - 1
                         ? "1px solid var(--border)"
@@ -496,8 +458,8 @@ function DonePageBody({
                   >
                     {m.point_number_snapshot}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-foreground">
                       {m.label_snapshot ?? `Point ${m.point_number_snapshot}`}
                     </div>
                     <div
@@ -512,7 +474,7 @@ function DonePageBody({
                       {SEV_LABEL[sev]}
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                  <div className="flex items-baseline gap-[3px]">
                     <span
                       style={{
                         fontVariantNumeric: "tabular-nums",
@@ -524,7 +486,7 @@ function DonePageBody({
                     >
                       {m.depth_value}
                     </span>
-                    <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{unit}</span>
+                    <span className="text-[11px] text-muted-foreground">{unit}</span>
                   </div>
                 </li>
               )
@@ -533,51 +495,24 @@ function DonePageBody({
         )}
 
         {measurements.length === 0 && (
-          <div
-            style={{
-              padding: "24px 16px",
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              textAlign: "center",
-              fontSize: 13,
-              color: "var(--muted-foreground)",
-            }}
-          >
+          <div className="rounded-xl border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
             No measurements were recorded in this session.
           </div>
         )}
 
         {session.notes && (
-          <div
-            style={{
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              padding: "14px 16px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "var(--muted-foreground)",
-                marginBottom: 6,
-              }}
-            >
+          <div className="rounded-xl border border-border bg-card px-4 py-[14px]">
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
               Notes
             </div>
-            <p style={{ fontSize: 13, color: "var(--foreground)", whiteSpace: "pre-wrap", margin: 0 }}>
+            <p className="m-0 whitespace-pre-wrap text-[13px] text-foreground">
               {session.notes}
             </p>
           </div>
         )}
 
         {/* CTAs */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 16 }}>
-          <SendReportButton sessionId={session.id} />
+        <div className="flex flex-col gap-[10px] pb-4">
           <Link
             href="/reports/ice-depth"
             style={{
@@ -602,20 +537,7 @@ function DonePageBody({
           </Link>
           <Link
             href="/dashboard"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "100%",
-              minHeight: 44,
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--muted-foreground)",
-              fontSize: 14,
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
+            className="flex min-h-11 w-full items-center justify-center rounded-[10px] border border-border bg-transparent text-sm font-semibold no-underline text-muted-foreground"
           >
             Back to Dashboard
           </Link>

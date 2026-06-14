@@ -5562,6 +5562,7 @@ export type Database = {
           open_shift_first_come: boolean
           overtime_weekly_hours: number | null
           require_job_area_qualification: boolean
+          swap_expiry_hours: number
           swap_requires_manager_approval: boolean
           updated_at: string | null
           week_start_day: number
@@ -5581,6 +5582,7 @@ export type Database = {
           open_shift_first_come?: boolean
           overtime_weekly_hours?: number | null
           require_job_area_qualification?: boolean
+          swap_expiry_hours?: number
           swap_requires_manager_approval?: boolean
           updated_at?: string | null
           week_start_day?: number
@@ -5600,6 +5602,7 @@ export type Database = {
           open_shift_first_come?: boolean
           overtime_weekly_hours?: number | null
           require_job_area_qualification?: boolean
+          swap_expiry_hours?: number
           swap_requires_manager_approval?: boolean
           updated_at?: string | null
           week_start_day?: number
@@ -5734,6 +5737,7 @@ export type Database = {
           created_at: string
           decided_at: string | null
           decision_note: string | null
+          expires_at: string | null
           facility_id: string
           id: string
           manager_approver_employee_id: string | null
@@ -5750,6 +5754,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decision_note?: string | null
+          expires_at?: string | null
           facility_id: string
           id?: string
           manager_approver_employee_id?: string | null
@@ -5766,6 +5771,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decision_note?: string | null
+          expires_at?: string | null
           facility_id?: string
           id?: string
           manager_approver_employee_id?: string | null
@@ -6457,6 +6463,14 @@ export type Database = {
       scheduling_decide_open_claim: {
         Args: { p_approve: boolean; p_note?: string; p_open_shift_id: string }
         Returns: Json
+      }
+      scheduling_expire_open_claims: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
+      scheduling_expire_stale_swaps: {
+        Args: { p_limit?: number }
+        Returns: number
       }
       scheduling_notify_swap_request: {
         Args: { p_swap_id: string }
