@@ -1643,6 +1643,48 @@ select pg_temp.expect_error(
     values ('22222222-2222-2222-2222-222222222222', 'Cross Admin', 'cross-admin')$$,
   'INC: incident-module admin still CANNOT insert a facility_space in facility B');
 
+-- facility_spaces write broadening (migration 141): facility_spaces is now a
+-- shared list, so an Air Quality (or Accident Reports) module admin may manage
+-- it too — not just an incident admin. Use Erin, who holds ONLY air_quality
+-- admin in facility A (no facility-admin, no incident admin), to prove the new
+-- branch specifically. Cross-facility isolation must still hold.
+set local role postgres;
+insert into auth.users (id, email)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'erin@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        '11111111-1111-1111-1111-111111111111', 'erin@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'eeee4444-eeee-eeee-eeee-eeeeeeeeeeee'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid,
+       r.id, 'Erin', 'Evans', 'erin@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        '11111111-1111-1111-1111-111111111111',
+        'air_quality', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'AQ Admin Space', 'aq-admin-space')$$,
+  'AQ: air_quality-module admin CAN insert a facility_space in own facility (migration 141)');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'AQ Cross', 'aq-cross')$$,
+  'AQ: air_quality-module admin still CANNOT insert a facility_space in facility B');
+
 -- ---------------------------------------------------------------------------
 -- REFRIG: Refrigeration hardening (migrations 110-114).
 --

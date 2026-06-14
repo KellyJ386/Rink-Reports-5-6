@@ -86,14 +86,12 @@ type DropdownRow = {
 }
 
 function partition(rows: DropdownRow[]): {
-  locations: DropdownOption[]
   activities: DropdownOption[]
   severities: DropdownOption[]
   medicalAttentions: DropdownOption[]
   injuryTypes: DropdownOption[]
   bodyParts: BodyPartOption[]
 } {
-  const locations: DropdownOption[] = []
   const activities: DropdownOption[] = []
   const severities: DropdownOption[] = []
   const medicalAttentions: DropdownOption[] = []
@@ -107,9 +105,6 @@ function partition(rows: DropdownRow[]): {
       color: r.color,
     }
     switch (r.category) {
-      case "location":
-        locations.push(opt)
-        break
       case "activity":
         activities.push(opt)
         break
@@ -141,7 +136,6 @@ function partition(rows: DropdownRow[]): {
     }
   }
   return {
-    locations,
     activities,
     severities,
     medicalAttentions,
@@ -183,10 +177,19 @@ export default async function AccidentsHomePage() {
 
   const [
     dropdownRowsRaw,
+    { data: spaceRows },
     { data: workersCompRow },
     { data: facility },
   ] = await Promise.all([
     getAccidentDropdowns(employeeRow.facility_id),
+    // Location options come from the shared facility_spaces list.
+    supabase
+      .from("facility_spaces")
+      .select("id, name, slug, sort_order, is_active")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
     supabase
       .from("accident_workers_comp_settings")
       .select("instructions, is_active")
@@ -202,13 +205,15 @@ export default async function AccidentsHomePage() {
 
   const dropdownRows = (dropdownRowsRaw ?? []) as DropdownRow[]
   const {
-    locations,
     activities,
     severities,
     medicalAttentions,
     injuryTypes,
     bodyParts,
   } = partition(dropdownRows)
+  const locations: DropdownOption[] = (
+    (spaceRows ?? []) as Array<{ id: string; name: string; slug: string }>
+  ).map((s) => ({ id: s.id, key: s.slug, display_name: s.name, color: null }))
 
   if (
     severities.length === 0 ||
