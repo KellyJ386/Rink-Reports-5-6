@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { BulkImportCard } from "@/components/admin/bulk-import-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,7 +22,6 @@ import {
 } from "../actions"
 import type { FacilitySpaceRow } from "../types"
 
-import { BulkImportCard } from "./bulk-import-card"
 import { SpaceForm } from "./space-form"
 
 const SPACE_CSV_PLACEHOLDER = `name,slug,sort_order
@@ -79,8 +79,9 @@ export function SpacesTab({ spaces }: Props) {
               <CardTitle>No facility spaces yet</CardTitle>
               <CardDescription>
                 Seed a generic starter set (Main Rink, Lobby, Locker Room, Pro
-                Shop, Parking Lot) or create your own below. This list is shared
-                facility-wide and feeds the incident report&apos;s space picker.
+                Shop, Parking Lot, …) or create your own below. This list is
+                shared facility-wide and feeds the space/location pickers in
+                Incident Reports, Accident Reports, and Air Quality.
               </CardDescription>
             </CardHeader>
             <CardContent>

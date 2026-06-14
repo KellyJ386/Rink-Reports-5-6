@@ -18,7 +18,6 @@ type SupabaseError = { code?: string; message?: string } | null
 
 const SEVERITY_KEY_RE = /^[a-z0-9_]+$/
 const ACTIVITY_KEY_RE = /^[a-z0-9_]+$/
-const SPACE_SLUG_RE = /^[a-z0-9]+([_-][a-z0-9]+)*$/
 
 function slugify(input: string): string {
   return input
@@ -555,172 +554,12 @@ export async function deleteIncidentActivity(id: string): Promise<SimpleResult> 
 }
 
 // ============================================================================
-// Facility Spaces (shared facility-wide list; writes require facility admin)
-// ============================================================================
-
-export async function createFacilitySpace(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-
-    const name = nonEmpty(formData.get("name"))
-    if (!name) return { ok: false, error: "Name is required." }
-    const rawSlug = nonEmpty(formData.get("slug"))
-    const slug = rawSlug ?? slugify(name)
-    if (!SPACE_SLUG_RE.test(slug)) {
-      return {
-        ok: false,
-        error:
-          "Slug must be lowercase letters, digits, hyphens, or underscores (e.g. main-rink).",
-      }
-    }
-    const sort_order = asInt(formData.get("sort_order")) ?? 0
-
-    const supabase = await createClient()
-    const { error } = await supabase.from("facility_spaces").insert({
-      facility_id: facility.facilityId,
-      name,
-      slug,
-      sort_order,
-    })
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to create space.") }
-    }
-    revalidatePath("/admin/incident-reports")
-    return { ok: true, message: "Facility space created." }
-  } catch (e) {
-    logServerError("admin/incident-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-export async function updateFacilitySpace(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    const id = nonEmpty(formData.get("id"))
-    if (!id) return { ok: false, error: "Missing space id." }
-
-    const name = nonEmpty(formData.get("name"))
-    if (!name) return { ok: false, error: "Name is required." }
-    const rawSlug = nonEmpty(formData.get("slug"))
-    const slug = rawSlug ?? slugify(name)
-    if (!SPACE_SLUG_RE.test(slug)) {
-      return {
-        ok: false,
-        error:
-          "Slug must be lowercase letters, digits, hyphens, or underscores (e.g. main-rink).",
-      }
-    }
-    const sort_order = asInt(formData.get("sort_order"))
-    const is_active = formData.get("is_active") === "on"
-
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("facility_spaces")
-      .update({
-        name,
-        slug,
-        ...(sort_order !== null ? { sort_order } : {}),
-        is_active,
-      })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update space.") }
-    }
-    revalidatePath("/admin/incident-reports")
-    return { ok: true, message: "Facility space updated." }
-  } catch (e) {
-    logServerError("admin/incident-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-export async function setFacilitySpaceActive(
-  id: string,
-  is_active: boolean,
-): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing space id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("facility_spaces")
-      .update({ is_active })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update space.") }
-    }
-    revalidatePath("/admin/incident-reports")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/incident-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-export async function deleteFacilitySpace(id: string): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing space id." }
-    const supabase = await createClient()
-
-    // incident_report_spaces.space_id is `on delete restrict`, so a delete
-    // would error if any report references it. Count first for a clear message.
-    const { count } = await supabase
-      .from("incident_report_spaces")
-      .select("id", { count: "exact", head: true })
-      .eq("space_id", id)
-    if ((count ?? 0) > 0) {
-      return {
-        ok: false,
-        error: `Cannot delete; in use by ${count} report${count === 1 ? "" : "s"}. Deactivate instead.`,
-      }
-    }
-
-    const { error } = await supabase
-      .from("facility_spaces")
-      .delete()
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      if (error.code === "23503") {
-        return {
-          ok: false,
-          error:
-            "Cannot delete; in use by existing reports. Deactivate instead.",
-        }
-      }
-      return { ok: false, error: dbError(error, "Failed to delete space.") }
-    }
-    revalidatePath("/admin/incident-reports")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/incident-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-// ============================================================================
-// Seed defaults — activities & facility spaces
+// Seed defaults — activities
 //
 // Mirrors seedIncidentDefaults: the DB SECURITY DEFINER seeders are
 // service_role-only, so we replicate their inserts inline under the admin's
-// session. Idempotent via the same unique constraints.
+// session. Idempotent via the same unique constraints. (Facility spaces are
+// seeded from the shared /admin/spaces module.)
 // ============================================================================
 
 const DEFAULT_ACTIVITIES: ReadonlyArray<{
@@ -733,18 +572,6 @@ const DEFAULT_ACTIVITIES: ReadonlyArray<{
   { key: "figure_skating", display_name: "Figure Skating", sort_order: 3 },
   { key: "learn_to_skate", display_name: "Learn to Skate", sort_order: 4 },
   { key: "maintenance", display_name: "Maintenance", sort_order: 5 },
-]
-
-const DEFAULT_SPACES: ReadonlyArray<{
-  name: string
-  slug: string
-  sort_order: number
-}> = [
-  { name: "Main Rink", slug: "main_rink", sort_order: 1 },
-  { name: "Lobby", slug: "lobby", sort_order: 2 },
-  { name: "Locker Room", slug: "locker_room", sort_order: 3 },
-  { name: "Pro Shop", slug: "pro_shop", sort_order: 4 },
-  { name: "Parking Lot", slug: "parking_lot", sort_order: 5 },
 ]
 
 export async function seedIncidentActivities(): Promise<SimpleResult> {
@@ -765,33 +592,6 @@ export async function seedIncidentActivities(): Promise<SimpleResult> {
       .upsert(rows, { onConflict: "facility_id,key", ignoreDuplicates: true })
     if (error) {
       return { ok: false, error: dbError(error, "Failed to seed activities.") }
-    }
-    revalidatePath("/admin/incident-reports")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/incident-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-export async function seedFacilitySpaces(): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    const supabase = await createClient()
-    const rows = DEFAULT_SPACES.map((s) => ({
-      facility_id: facility.facilityId,
-      name: s.name,
-      slug: s.slug,
-      sort_order: s.sort_order,
-      is_active: true,
-    }))
-    const { error } = await supabase
-      .from("facility_spaces")
-      .upsert(rows, { onConflict: "facility_id,slug", ignoreDuplicates: true })
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to seed spaces.") }
     }
     revalidatePath("/admin/incident-reports")
     return { ok: true }
@@ -888,79 +688,6 @@ export async function bulkImportIncidentActivities(
       .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to import activities.") }
-    }
-    const inserted = data?.length ?? 0
-    revalidatePath("/admin/incident-reports")
-    return { ok: true, inserted, skipped: rows.length - inserted, errors }
-  } catch (e) {
-    logServerError("admin/incident-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-/**
- * Bulk-import facility spaces from CSV. Columns: `name[, slug][, sort_order]`.
- * Duplicate slugs (existing or within the file) are skipped, not overwritten.
- */
-export async function bulkImportFacilitySpaces(
-  csv: string,
-): Promise<BulkImportResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-
-    const lines = parseCsvLines(csv)
-    if (lines.length === 0) return { ok: false, error: "No rows found." }
-    if (lines[0]![0]?.toLowerCase() === "name") lines.shift()
-
-    const errors: string[] = []
-    const seen = new Set<string>()
-    const rows: Array<{
-      facility_id: string
-      name: string
-      slug: string
-      sort_order: number
-      is_active: boolean
-    }> = []
-
-    lines.forEach((cells, i) => {
-      const lineNo = i + 1
-      const name = cells[0] ?? ""
-      if (!name) {
-        errors.push(`Row ${lineNo}: name is required.`)
-        return
-      }
-      const slug = cells[1] ? slugify(cells[1]) : slugify(name)
-      if (!SPACE_SLUG_RE.test(slug)) {
-        errors.push(`Row ${lineNo}: could not derive a valid slug from "${name}".`)
-        return
-      }
-      if (seen.has(slug)) return
-      seen.add(slug)
-      const sort_order = cells[2] && Number.isFinite(Number(cells[2]))
-        ? Math.trunc(Number(cells[2]))
-        : i
-      rows.push({
-        facility_id: facility.facilityId,
-        name,
-        slug,
-        sort_order,
-        is_active: true,
-      })
-    })
-
-    if (rows.length === 0) {
-      return { ok: false, error: errors[0] ?? "No valid rows to import." }
-    }
-
-    const supabase = await createClient()
-    const { data, error } = await supabase
-      .from("facility_spaces")
-      .upsert(rows, { onConflict: "facility_id,slug", ignoreDuplicates: true })
-      .select("id")
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to import spaces.") }
     }
     const inserted = data?.length ?? 0
     revalidatePath("/admin/incident-reports")
