@@ -80,7 +80,7 @@ export default async function AirQualityHomePage() {
   }
 
   const { data: locationsRaw } = await supabase
-    .from("air_quality_locations")
+    .from("facility_spaces")
     .select("id, name, slug, sort_order, is_active")
     .eq("facility_id", employeeRow.facility_id)
     .eq("is_active", true)

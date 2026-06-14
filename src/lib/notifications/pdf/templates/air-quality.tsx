@@ -188,7 +188,7 @@ export async function renderAirQualityPdf(
   let location_name: string | null = null
   if (row.location_id) {
     const { data } = await sb
-      .from("air_quality_locations")
+      .from("facility_spaces")
       .select("name")
       .eq("id", row.location_id)
       .eq("facility_id", row.facility_id)

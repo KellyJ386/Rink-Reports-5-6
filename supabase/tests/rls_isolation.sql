@@ -414,7 +414,8 @@ on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------
 
 -- Config rows needed as FK targets for the B-side submissions below.
-insert into public.air_quality_locations (id, facility_id, name, slug, sort_order, is_active)
+-- Air quality now references the shared facility_spaces list (migration 143).
+insert into public.facility_spaces (id, facility_id, name, slug, sort_order, is_active)
 values ('bbbb2222-a91c-bbbb-bbbb-bbbb22220071',
         '22222222-2222-2222-2222-222222222222', 'B Rink Air', 'b-rink-air', 1, true)
 on conflict (id) do nothing;
