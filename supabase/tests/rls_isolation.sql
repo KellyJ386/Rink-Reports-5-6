@@ -2065,6 +2065,19 @@ select pg_temp.expect_count(
     where facility_id = '33333333-3333-4333-8333-333333333333'$$,
   506, 'SEED-135: new facility gets all 506 checklist items');
 
+-- Migration 139 renamed the middle phase Operational -> Daily: each of the 17
+-- areas seeds Opening / Daily / Closing, and no 'Operational' template remains.
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_templates
+    where facility_id = '33333333-3333-4333-8333-333333333333'
+      and name = 'Daily'$$,
+  17, 'SEED-139: new facility seeds a Daily phase for every area');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_templates
+    where facility_id = '33333333-3333-4333-8333-333333333333'
+      and name = 'Operational'$$,
+  0, 'SEED-139: no legacy Operational phase remains after rename');
+
 -- ---------------------------------------------------------------------------
 -- 2N. Scheduling write-side gates (migration 136).
 --
