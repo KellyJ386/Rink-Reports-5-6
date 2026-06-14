@@ -37,6 +37,7 @@ import {
   deleteLocation,
   deleteReadingType,
   deleteThreshold,
+  importLocations,
   importReadingTypes,
   moveReadingType,
   setEquipmentActive,
@@ -61,6 +62,7 @@ import type {
 } from "../types"
 import { SEVERITIES } from "../types"
 
+import { locationImportSpec } from "./locations-import"
 import { readingTypeImportSpec } from "./reading-types-import"
 import { SeedDefaultsCard } from "./seed-defaults-card"
 
@@ -81,6 +83,9 @@ export function SetupTab({ data }: { data: SetupData }) {
     return (
       <div className="flex flex-col gap-4">
         <SeedDefaultsCard />
+        <div className="flex justify-end">
+          <LocationsBulkUpload />
+        </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <LocationCreateCard />
           <ReadingTypeCreateCard />
@@ -130,6 +135,24 @@ export function SetupTab({ data }: { data: SetupData }) {
 // Locations — list + create
 // ---------------------------------------------------------------------------
 
+function LocationsBulkUpload() {
+  const router = useRouter()
+  const importSchema = useMemo<ImportSchema>(
+    () => ({
+      ...locationImportSpec,
+      onImport: (rows) => importLocations(rows),
+    }),
+    [],
+  )
+  return (
+    <BulkUploadPanel
+      schema={importSchema}
+      triggerLabel="Bulk upload locations"
+      onImported={() => router.refresh()}
+    />
+  )
+}
+
 function LocationsList({
   locations,
   activeLocationId,
@@ -140,7 +163,10 @@ function LocationsList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Locations</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Locations</CardTitle>
+          <LocationsBulkUpload />
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-1 p-2">
         {locations.length === 0 ? (

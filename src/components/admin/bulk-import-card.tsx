@@ -12,7 +12,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
-import type { BulkImportResult } from "../types"
+// Shared minimal CSV bulk-import card. Used by several admin config surfaces
+// (incident activities, facility spaces, …). Each caller supplies a server
+// action that parses + inserts and returns this result shape.
+export type BulkImportResult =
+  | { ok: true; inserted: number; skipped: number; errors: string[] }
+  | { ok: false; error: string }
 
 type Props = {
   title: string

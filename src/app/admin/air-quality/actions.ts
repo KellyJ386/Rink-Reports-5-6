@@ -8,6 +8,10 @@ import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 import {
+  locationImportSpec,
+  type LocationImportRow,
+} from "./_components/locations-import"
+import {
   readingTypeImportSpec,
   type ReadingTypeImportRow,
 } from "./_components/reading-types-import"
@@ -92,6 +96,87 @@ async function resolveFacility(): Promise<
 // ============================================================================
 // Locations
 // ============================================================================
+
+export async function importLocations(
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
+
+    // Re-validate every row server-side; never trust the client payload.
+    // Slug is auto-derived from name when blank, then deduped within the file
+    // (the DB unique(facility_id, slug) catches collisions with existing rows).
+    const parsed: Array<LocationImportRow & { slug: string }> = []
+    const seen = new Set<string>()
+    for (const r of rows) {
+      const res = locationImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
+      }
+      const row = res.data as LocationImportRow
+      const slug = row.slug && row.slug.length > 0 ? row.slug : slugify(row.name)
+      if (!SLUG_RE.test(slug)) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"}: could not derive a valid slug from "${row.name}".`,
+        }
+      }
+      if (seen.has(slug)) {
+        return { ok: false, error: `Duplicate slug "${slug}" in the file.` }
+      }
+      seen.add(slug)
+      parsed.push({ ...row, slug })
+    }
+
+    const supabase = await createClient()
+    const { data: maxRow } = await supabase
+      .from("air_quality_locations")
+      .select("sort_order")
+      .eq("facility_id", facility.facilityId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const start = (maxRow?.sort_order ?? -1) + 1
+
+    const insertRows = parsed.map((row, i) => ({
+      facility_id: facility.facilityId,
+      name: row.name,
+      slug: row.slug,
+      sort_order: row.sort_order || start + i,
+      is_active: row.is_active,
+    }))
+
+    const { error } = await supabase
+      .from("air_quality_locations")
+      .insert(insertRows)
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "One or more location slugs already exist for this facility.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to import locations.") }
+    }
+    revalidatePath("/admin/air-quality")
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} location(s).`,
+    }
+  } catch (e) {
+    logServerError("admin/air-quality/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
 
 export async function createLocation(
   _prev: ActionState,

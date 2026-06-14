@@ -316,7 +316,7 @@ export type Database = {
             foreignKeyName: "accident_reports_location_dropdown_id_fkey"
             columns: ["location_dropdown_id"]
             isOneToOne: false
-            referencedRelation: "accident_dropdowns"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
           {

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { BulkImportCard } from "@/components/admin/bulk-import-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,7 +23,6 @@ import {
 import type { ActivityRow } from "../types"
 
 import { ActivityForm } from "./activity-form"
-import { BulkImportCard } from "./bulk-import-card"
 
 const ACTIVITY_CSV_PLACEHOLDER = `display_name,key,color,sort_order
 Open Hockey,open_hockey,,1
