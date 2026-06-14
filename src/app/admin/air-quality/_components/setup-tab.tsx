@@ -30,22 +30,17 @@ import { cn } from "@/lib/utils"
 
 import {
   createEquipment,
-  createLocation,
   createReadingType,
   createThreshold,
   deleteEquipment,
-  deleteLocation,
   deleteReadingType,
   deleteThreshold,
-  importLocations,
   importReadingTypes,
   moveReadingType,
   setEquipmentActive,
-  setLocationActive,
   setReadingTypeActive,
   setThresholdActive,
   updateEquipment,
-  updateLocation,
   updateReadingType,
   updateThreshold,
 } from "../actions"
@@ -62,7 +57,6 @@ import type {
 } from "../types"
 import { SEVERITIES } from "../types"
 
-import { locationImportSpec } from "./locations-import"
 import { readingTypeImportSpec } from "./reading-types-import"
 import { SeedDefaultsCard } from "./seed-defaults-card"
 
@@ -83,11 +77,8 @@ export function SetupTab({ data }: { data: SetupData }) {
     return (
       <div className="flex flex-col gap-4">
         <SeedDefaultsCard />
-        <div className="flex justify-end">
-          <LocationsBulkUpload />
-        </div>
+        <ManageSpacesNote />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <LocationCreateCard />
           <ReadingTypeCreateCard />
         </div>
       </div>
@@ -106,7 +97,6 @@ export function SetupTab({ data }: { data: SetupData }) {
           locations={locations}
           activeLocationId={activeLocationId}
         />
-        <LocationCreateCard />
       </div>
       <div className="flex flex-col gap-6">
         <FacilityEquipmentCard equipment={facilityEquipment} />
@@ -132,24 +122,27 @@ export function SetupTab({ data }: { data: SetupData }) {
 }
 
 // ---------------------------------------------------------------------------
-// Locations — list + create
+// Locations (read-only here) — the shared list is managed at /admin/spaces.
+// This tab only picks a space to scope equipment + thresholds against.
 // ---------------------------------------------------------------------------
 
-function LocationsBulkUpload() {
-  const router = useRouter()
-  const importSchema = useMemo<ImportSchema>(
-    () => ({
-      ...locationImportSpec,
-      onImport: (rows) => importLocations(rows),
-    }),
-    [],
-  )
+function ManageSpacesNote() {
   return (
-    <BulkUploadPanel
-      schema={importSchema}
-      triggerLabel="Bulk upload locations"
-      onImported={() => router.refresh()}
-    />
+    <Card>
+      <CardHeader>
+        <CardTitle>Locations come from Facility Spaces</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-muted-foreground text-sm">
+          Air Quality locations are the shared facility spaces. Add, rename, or
+          bulk-import them in{" "}
+          <Link href="/admin/spaces" className="text-primary hover:underline">
+            Facility Spaces
+          </Link>
+          ; they appear here automatically for scoping equipment and thresholds.
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -165,13 +158,19 @@ function LocationsList({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>Locations</CardTitle>
-          <LocationsBulkUpload />
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/spaces">Manage spaces</Link>
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-1 p-2">
         {locations.length === 0 ? (
           <p className="text-muted-foreground p-2 text-sm">
-            No locations yet.
+            No facility spaces yet. Add them in{" "}
+            <Link href="/admin/spaces" className="text-primary hover:underline">
+              Facility Spaces
+            </Link>
+            .
           </p>
         ) : (
           locations.map((l) => (
@@ -218,50 +217,6 @@ function LocationsList({
   )
 }
 
-function LocationCreateCard() {
-  const [state, action, pending] = useActionState(createLocation, NULL_STATE)
-  useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Location created.")
-    if (state.ok === false) toast.error(state.error)
-  }, [state])
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Add location</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form action={action} className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="new-loc-name">Name</Label>
-            <Input
-              id="new-loc-name"
-              name="name"
-              required
-              placeholder="e.g. Main Rink"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="new-loc-slug">
-              Slug{" "}
-              <span className="text-muted-foreground font-normal">
-                (optional)
-              </span>
-            </Label>
-            <Input
-              id="new-loc-slug"
-              name="slug"
-              placeholder="auto-generated from name"
-            />
-          </div>
-          <Button type="submit" disabled={pending} size="sm">
-            {pending ? "Adding…" : "Add location"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Location detail pane
 // ---------------------------------------------------------------------------
@@ -282,40 +237,8 @@ function LocationDetailPane({ detail }: { detail: LocationDetail }) {
 }
 
 function LocationHeader({ location }: { location: LocationRow }) {
-  const [editing, setEditing] = useState(false)
-  const [state, action, pending] = useActionState(updateLocation, NULL_STATE)
-  const [activePending, startActiveTransition] = useTransition()
-  const [delPending, startDelTransition] = useTransition()
-
-  useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Location updated.")
-    if (state.ok === false) toast.error(state.error)
-  }, [state])
-
-  function onToggleActive() {
-    startActiveTransition(async () => {
-      const r = await setLocationActive(location.id, !location.is_active)
-      if (!r.ok) toast.error(r.error)
-    })
-  }
-  function onDelete() {
-    if (
-      !confirm(
-        "Delete this location? This will fail if equipment, reports, or thresholds reference it. Deactivate instead if needed.",
-      )
-    ) {
-      return
-    }
-    startDelTransition(async () => {
-      const r = await deleteLocation(location.id)
-      if (!r.ok) toast.error(r.error)
-      else {
-        toast.success("Location deleted.")
-        window.location.href = "/admin/air-quality?tab=setup"
-      }
-    })
-  }
-
+  // Read-only: the space itself (name/slug/active) is managed in Facility
+  // Spaces. Here it's just the heading for the equipment scoped to it.
   return (
     <Card>
       <CardHeader>
@@ -326,70 +249,11 @@ function LocationHeader({ location }: { location: LocationRow }) {
               <Badge variant="secondary" className="uppercase">inactive</Badge>
             )}
           </CardTitle>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditing((v) => !v)}
-            >
-              {editing ? "Cancel" : "Rename"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onToggleActive}
-              disabled={activePending}
-            >
-              {location.is_active ? "Deactivate" : "Activate"}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={onDelete}
-              disabled={delPending}
-            >
-              Delete
-            </Button>
-          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/spaces">Manage in Facility Spaces</Link>
+          </Button>
         </div>
       </CardHeader>
-      {editing && (
-        <CardContent>
-          <form action={action} className="flex flex-wrap items-end gap-3">
-            <input type="hidden" name="id" value={location.id} />
-            <div className="flex flex-col gap-1">
-              <Label htmlFor={`loc-name-${location.id}`}>Name</Label>
-              <Input
-                id={`loc-name-${location.id}`}
-                name="name"
-                defaultValue={location.name}
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor={`loc-slug-${location.id}`}>Slug</Label>
-              <Input
-                id={`loc-slug-${location.id}`}
-                name="slug"
-                defaultValue={location.slug}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor={`loc-sort-${location.id}`}>Sort</Label>
-              <Input
-                id={`loc-sort-${location.id}`}
-                name="sort_order"
-                type="number"
-                defaultValue={location.sort_order}
-                className="w-24"
-              />
-            </div>
-            <Button type="submit" size="sm" disabled={pending}>
-              {pending ? "Saving…" : "Save"}
-            </Button>
-          </form>
-        </CardContent>
-      )}
     </Card>
   )
 }

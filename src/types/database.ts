@@ -585,7 +585,7 @@ export type Database = {
             foreignKeyName: "air_quality_equipment_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
-            referencedRelation: "air_quality_locations"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -638,47 +638,6 @@ export type Database = {
             columns: ["report_id"]
             isOneToOne: false
             referencedRelation: "air_quality_reports"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      air_quality_locations: {
-        Row: {
-          created_at: string
-          facility_id: string
-          id: string
-          is_active: boolean
-          name: string
-          slug: string
-          sort_order: number
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          facility_id: string
-          id?: string
-          is_active?: boolean
-          name: string
-          slug: string
-          sort_order?: number
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          facility_id?: string
-          id?: string
-          is_active?: boolean
-          name?: string
-          slug?: string
-          sort_order?: number
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "air_quality_locations_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]
@@ -882,7 +841,7 @@ export type Database = {
             foreignKeyName: "air_quality_reports_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
-            referencedRelation: "air_quality_locations"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -989,7 +948,7 @@ export type Database = {
             foreignKeyName: "air_quality_thresholds_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
-            referencedRelation: "air_quality_locations"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
           {
