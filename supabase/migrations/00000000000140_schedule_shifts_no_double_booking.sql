@@ -18,6 +18,14 @@
 --
 -- A pre-flight prod audit found 0 overlapping pairs, so this constraint can be
 -- added without a data cleanup step.
+--
+-- btree_gist is installed into the `extensions` schema (Supabase convention,
+-- matching the base pgcrypto/citext/pg_trgm install) so its ~240 gbt_* support
+-- functions do NOT land in `public` and pollute the generated database.ts types.
+-- =============================================================================
+
+create schema if not exists extensions;
+create extension if not exists btree_gist with schema extensions;
 -- =============================================================================
 
 create extension if not exists btree_gist;
