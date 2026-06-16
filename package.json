@@ -54,6 +54,9 @@
     "vitest": "^3.2.4"
   },
   "pnpm": {
+    "overrides": {
+      "ws": "^8.21.0"
+    },
     "auditConfig": {
       "ignoreGhsas": [
         "GHSA-4r6h-8v6p-xvw6",
