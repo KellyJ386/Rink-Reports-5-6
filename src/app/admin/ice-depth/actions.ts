@@ -911,13 +911,18 @@ export async function deleteIceDepthSession(
     const current = await requireAdmin()
     if (!sessionId) return { ok: false, error: "Missing session id." }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
     let query = supabase
       .from("ice_depth_sessions")
       .delete()
       .eq("id", sessionId)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
+    // Non-super-admins must be facility-scoped (an explicit requirement, not
+    // inferred from a null facility_id); super admins delete cross-facility by
+    // intent. RLS backstops either path.
+    if (!current.profile?.is_super_admin) {
+      if (!current.profile?.facility_id) {
+        return { ok: false, error: "No facility assigned to your account." }
+      }
+      query = query.eq("facility_id", current.profile.facility_id)
     }
     const { error } = await query
     if (error) {

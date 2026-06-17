@@ -23,6 +23,9 @@ function validInput(overrides: Partial<IncidentInput> = {}): IncidentInput {
     space_ids: ["space-1"],
     witnesses: [],
     witnessMissingContact: false,
+    ambulance_flag: false,
+    persons_involved: null,
+    follow_up_required: false,
     ...overrides,
   }
 }
@@ -93,6 +96,34 @@ describe("buildInputFromPayload", () => {
       { name: "Ann", phone: "555", email: null, statement: null },
     ])
   })
+
+  it("defaults the new escalation fields when absent", () => {
+    const out = buildInputFromPayload({ reporter_name: "Pat" })!
+    expect(out.ambulance_flag).toBe(false)
+    expect(out.persons_involved).toBeNull()
+    expect(out.follow_up_required).toBe(false)
+  })
+
+  it("coerces booleans and an integer count from the payload", () => {
+    const out = buildInputFromPayload({
+      ambulance_flag: true,
+      persons_involved: 3,
+      follow_up_required: "true",
+    })!
+    expect(out.ambulance_flag).toBe(true)
+    expect(out.persons_involved).toBe(3)
+    expect(out.follow_up_required).toBe(true)
+  })
+
+  it("treats a blank count as null and a bad count as NaN", () => {
+    expect(buildInputFromPayload({ persons_involved: "" })!.persons_involved).toBeNull()
+    expect(
+      Number.isNaN(buildInputFromPayload({ persons_involved: -1 })!.persons_involved),
+    ).toBe(true)
+    expect(
+      Number.isNaN(buildInputFromPayload({ persons_involved: "1.5" })!.persons_involved),
+    ).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -112,9 +143,15 @@ describe("buildInputFromForm", () => {
       JSON.stringify([{ name: "Ann", phone: "555" }]),
     )
     fd.set("spaces_json", JSON.stringify(["s1", "s1", "s2"]))
+    fd.set("ambulance_flag", "true")
+    fd.set("persons_involved", "2")
+    fd.set("follow_up_required", "false")
 
     const out = buildInputFromForm(fd)
     expect(out.reporter_name).toBe("Pat")
+    expect(out.ambulance_flag).toBe(true)
+    expect(out.persons_involved).toBe(2)
+    expect(out.follow_up_required).toBe(false)
     expect(out.witnesses).toEqual([
       { name: "Ann", phone: "555", email: null, statement: null },
     ])
@@ -221,6 +258,21 @@ describe("validateIncidentInput", () => {
       validInput({ space_ids: [], location_other: "Parking lot" }),
     )
     expect(withOther.error).toBeUndefined()
+  })
+
+  it("accepts a null/valid persons_involved, rejects a NaN one", () => {
+    expect(
+      validateIncidentInput(validInput({ persons_involved: null })).fieldErrors
+        .persons_involved,
+    ).toBeUndefined()
+    expect(
+      validateIncidentInput(validInput({ persons_involved: 0 })).fieldErrors
+        .persons_involved,
+    ).toBeUndefined()
+    expect(
+      validateIncidentInput(validInput({ persons_involved: Number.NaN }))
+        .fieldErrors.persons_involved,
+    ).toBeDefined()
   })
 
   it("witness-contact error takes precedence over the space error", () => {

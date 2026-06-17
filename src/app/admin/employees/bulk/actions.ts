@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
+import {
+  callerHierarchyFloor,
+  canAssignRoleLevel,
+} from "@/lib/permissions/role-assignment"
 import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
@@ -93,11 +97,18 @@ export async function bulkCreateEmployees(args: {
     // Load the facility's roles and existing employee emails so server-side
     // validation matches the client's (and catches anything tampered with).
     const [{ data: rolesRaw }, { data: empEmailsRaw }] = await Promise.all([
-      supabase.from("roles").select("id, key, display_name").eq("facility_id", facilityId),
+      supabase
+        .from("roles")
+        .select("id, key, display_name, hierarchy_level")
+        .eq("facility_id", facilityId),
       supabase.from("employees").select("email").eq("facility_id", facilityId),
     ])
 
     const roleIds = new Set((rolesRaw ?? []).map((r) => r.id as string))
+    // Tier of each role, for the privilege-escalation guard below.
+    const roleLevels = new Map(
+      (rolesRaw ?? []).map((r) => [r.id as string, r.hierarchy_level as number | null]),
+    )
     const existingEmails = new Set(
       (empEmailsRaw ?? [])
         .map((r) => (r.email as string | null)?.trim().toLowerCase())
@@ -123,6 +134,11 @@ export async function bulkCreateEmployees(args: {
     const current = await getCurrentUser()
     const createdBy = current?.profile?.id ?? null
 
+    // Privilege guard inputs (computed once, applied per row): a non-super-admin
+    // must not bulk-assign an admin-tier role and mint another facility admin.
+    const isSuperAdmin = current?.profile?.is_super_admin ?? false
+    const callerFloor = isSuperAdmin ? null : await callerHierarchyFloor(facilityId)
+
     const results: BulkRowResult[] = []
 
     for (let i = 0; i < rows.length; i++) {
@@ -137,6 +153,20 @@ export async function bulkCreateEmployees(args: {
       if (Object.keys(errors).length > 0) {
         const firstField = Object.keys(errors)[0] as keyof typeof errors
         const message = `${firstField}: ${errors[firstField]}`
+        results.push({
+          index: i,
+          name,
+          status: "failed",
+          reason: { code: "VALIDATION", message },
+          ok: false,
+          error: message,
+        })
+        continue
+      }
+
+      // Block non-super-admins from assigning an admin-tier (or higher) role.
+      if (!canAssignRoleLevel(roleLevels.get(row.roleId) ?? null, callerFloor, isSuperAdmin)) {
+        const message = "roleId: Only a super admin can assign an admin-tier role."
         results.push({
           index: i,
           name,

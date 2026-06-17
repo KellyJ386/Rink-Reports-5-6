@@ -15,9 +15,10 @@ interface AppSidebarProps {
   isAdmin: boolean
   email: string | null
   fullName: string | null
+  enabledModules?: string[] | null
 }
 
-export function AppSidebar({ isAdmin, email, fullName }: AppSidebarProps) {
+export function AppSidebar({ isAdmin, email, fullName, enabledModules }: AppSidebarProps) {
   const initials = getInitials(fullName, email)
   const displayName = fullName?.trim() || email || "User"
 
@@ -43,7 +44,7 @@ export function AppSidebar({ isAdmin, email, fullName }: AppSidebarProps) {
 
       {/* Nav */}
       <ScrollArea className="flex-1">
-        <AppSidebarNav isAdmin={isAdmin} />
+        <AppSidebarNav isAdmin={isAdmin} enabledModules={enabledModules} />
       </ScrollArea>
 
       {/* User card */}

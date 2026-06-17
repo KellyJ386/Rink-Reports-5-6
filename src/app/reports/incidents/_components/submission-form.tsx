@@ -51,6 +51,9 @@ export type IncidentFormInitial = {
   description: string
   immediateActions: string
   witnesses: Witness[]
+  ambulanceFlag: boolean
+  personsInvolved: string
+  followUpRequired: boolean
 }
 
 type FormAction = (
@@ -133,6 +136,15 @@ export function SubmissionForm({
   const [description, setDescription] = useState(initial?.description ?? "")
   const [immediateActions, setImmediateActions] = useState(
     initial?.immediateActions ?? "",
+  )
+  const [ambulanceFlag, setAmbulanceFlag] = useState(
+    initial?.ambulanceFlag ?? false,
+  )
+  const [personsInvolved, setPersonsInvolved] = useState(
+    initial?.personsInvolved ?? "",
+  )
+  const [followUpRequired, setFollowUpRequired] = useState(
+    initial?.followUpRequired ?? false,
   )
 
   const [spaceSearch, setSpaceSearch] = useState("")
@@ -256,6 +268,9 @@ export function SubmissionForm({
       activity_other: activityValue === ACTIVITY_OTHER ? activityOther.trim() : "",
       location_other: otherSpace ? locationOther.trim() : "",
       immediate_actions: immediateActions.trim(),
+      ambulance_flag: ambulanceFlag,
+      persons_involved: personsInvolved.trim(),
+      follow_up_required: followUpRequired,
       space_ids: selectedSpaceIds,
       witnesses: activeWitnesses.map((w) => ({
         name: w.name.trim(),
@@ -273,6 +288,9 @@ export function SubmissionForm({
     setActivityOther("")
     setDescription("")
     setImmediateActions("")
+    setAmbulanceFlag(false)
+    setPersonsInvolved("")
+    setFollowUpRequired(false)
     setSpaceSearch("")
     setSelectedSpaceIds([])
     setOtherSpace(false)
@@ -358,6 +376,16 @@ export function SubmissionForm({
           type="hidden"
           name="location_other"
           value={otherSpace ? locationOther : ""}
+        />
+        <input
+          type="hidden"
+          name="ambulance_flag"
+          value={ambulanceFlag ? "true" : "false"}
+        />
+        <input
+          type="hidden"
+          name="follow_up_required"
+          value={followUpRequired ? "true" : "false"}
         />
         <input
           type="hidden"
@@ -632,6 +660,78 @@ export function SubmissionForm({
                 onChange={(e) => setImmediateActions(e.target.value)}
                 className="text-base"
               />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label id="ambulance_flag_label">
+                  Was an ambulance called?
+                </Label>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={ambulanceFlag}
+                  aria-labelledby="ambulance_flag_label"
+                  onClick={() => setAmbulanceFlag((v) => !v)}
+                  className={
+                    "h-12 rounded-lg border px-4 text-base font-medium transition-colors " +
+                    (ambulanceFlag
+                      ? "border-primary bg-primary/15 text-foreground"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted")
+                  }
+                >
+                  {ambulanceFlag ? "Yes — ambulance called" : "No"}
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="persons_involved">
+                  Number of people involved (optional)
+                </Label>
+                <Input
+                  id="persons_involved"
+                  name="persons_involved"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="e.g. 2"
+                  aria-invalid={
+                    state.fieldErrors?.persons_involved ? "true" : undefined
+                  }
+                  aria-describedby={
+                    state.fieldErrors?.persons_involved
+                      ? "persons_involved-error"
+                      : undefined
+                  }
+                  value={personsInvolved}
+                  onChange={(e) =>
+                    setPersonsInvolved(e.target.value.replace(/[^\d]/g, ""))
+                  }
+                  className="h-12 text-base"
+                />
+                <FieldError
+                  id="persons_involved-error"
+                  message={state.fieldErrors?.persons_involved}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label id="follow_up_required_label">Follow-up required</Label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={followUpRequired}
+                aria-labelledby="follow_up_required_label"
+                onClick={() => setFollowUpRequired((v) => !v)}
+                className={
+                  "h-12 rounded-lg border px-4 text-base font-medium transition-colors sm:max-w-xs " +
+                  (followUpRequired
+                    ? "border-primary bg-primary/15 text-foreground"
+                    : "border-border bg-card text-muted-foreground hover:bg-muted")
+                }
+              >
+                {followUpRequired ? "Yes — follow-up required" : "No"}
+              </button>
             </div>
           </div>
         </Card>

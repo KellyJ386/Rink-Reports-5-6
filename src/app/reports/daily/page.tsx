@@ -1,7 +1,10 @@
+import Link from "next/link"
 import type { ReactNode } from "react"
+import { History } from "lucide-react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -71,6 +74,14 @@ export default async function DailyReportsPage() {
           />
         }
         title="Daily Reports"
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/reports/daily/history">
+              <History className="h-4 w-4" aria-hidden />
+              View history
+            </Link>
+          </Button>
+        }
       />
       {children}
     </div>

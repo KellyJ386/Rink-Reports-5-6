@@ -154,6 +154,17 @@ export function ReportDetail({ detail, backHref }: Props) {
             <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
             <Field label="Reporter name">{report.reporter_name}</Field>
             <Field label="Reporter phone">{report.reporter_phone}</Field>
+            <Field label="Ambulance called">
+              <BoolBadge value={report.ambulance_flag} alertWhenTrue />
+            </Field>
+            <Field label="People involved">
+              {report.persons_involved === null
+                ? "—"
+                : report.persons_involved}
+            </Field>
+            <Field label="Follow-up required">
+              <BoolBadge value={report.follow_up_required} />
+            </Field>
             {report.location && (
               <Field label="Location (legacy)">{report.location}</Field>
             )}
@@ -377,6 +388,27 @@ function Field({
       <dt className="text-muted-foreground text-xs font-medium">{label}</dt>
       <dd className="text-sm">{children}</dd>
     </div>
+  )
+}
+
+function BoolBadge({
+  value,
+  alertWhenTrue = false,
+}: {
+  value: boolean
+  alertWhenTrue?: boolean
+}) {
+  const tone = value
+    ? alertWhenTrue
+      ? "bg-destructive/15 text-destructive"
+      : "bg-primary/15 text-primary"
+    : "bg-muted text-muted-foreground"
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {value ? "Yes" : "No"}
+    </span>
   )
 }
 

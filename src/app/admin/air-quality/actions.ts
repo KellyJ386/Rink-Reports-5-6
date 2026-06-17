@@ -6,6 +6,7 @@ import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { dbError } from "@/lib/db-error"
 
 import {
   readingTypeImportSpec,
@@ -13,8 +14,6 @@ import {
 } from "./_components/reading-types-import"
 import type { ActionState, Severity, SimpleResult } from "./types"
 import { isSeverity } from "./types"
-
-type SupabaseError = { code?: string; message?: string } | null
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
@@ -61,20 +60,6 @@ function asNumber(value: FormDataEntryValue | null): number | null {
 
 function asBool(value: FormDataEntryValue | null): boolean {
   return value === "on" || value === "true" || value === "1"
-}
-
-function dbError(err: SupabaseError, fallback: string): string {
-  if (!err) return fallback
-  if (err.code === "23505") {
-    return "That value conflicts with an existing record (duplicate)."
-  }
-  if (err.code === "23503") {
-    return "Cannot complete: a related record prevents this change."
-  }
-  if (err.code === "P0001") {
-    return err.message?.trim() || fallback
-  }
-  return err.message?.trim() || fallback
 }
 
 async function resolveFacility(): Promise<
@@ -1017,13 +1002,18 @@ export async function deleteAirQualityReport(
     const current = await requireAdmin()
     if (!reportId) return { ok: false, error: "Missing report id." }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
     let query = supabase
       .from("air_quality_reports")
       .delete()
       .eq("id", reportId)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
+    // Non-super-admins must be facility-scoped (an explicit requirement, not
+    // inferred from a null facility_id); super admins delete cross-facility by
+    // intent. RLS backstops either path.
+    if (!current.profile?.is_super_admin) {
+      if (!current.profile?.facility_id) {
+        return { ok: false, error: "No facility assigned to your account." }
+      }
+      query = query.eq("facility_id", current.profile.facility_id)
     }
     const { error } = await query
     if (error) {
