@@ -42,6 +42,8 @@ type GlobalHeaderProps = {
   facilityName: string | null
   tempF: number | null
   tempLocation: string | null
+  // Staff variant only: enabled module keys for the facility (null = show all).
+  enabledModules?: string[] | null
 }
 
 function formatDate(d: Date): string {
@@ -87,6 +89,7 @@ export function GlobalHeader({
   facilityName,
   tempF,
   tempLocation,
+  enabledModules,
 }: GlobalHeaderProps) {
   const router = useRouter()
   const nowMs = useSyncExternalStore(
@@ -127,6 +130,7 @@ export function GlobalHeader({
             isAdmin={isAdmin}
             email={email}
             fullName={fullName}
+            enabledModules={enabledModules}
           />
         )}
       </div>

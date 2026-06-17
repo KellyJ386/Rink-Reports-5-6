@@ -9,6 +9,7 @@ import {
   FileDown,
   FileText,
   FolderOpen,
+  LayoutGrid,
   MapPin,
   MessageSquare,
   Network,
@@ -37,6 +38,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     label: "Setup",
     items: [
       { label: "Facility", href: "/admin/facility", icon: Building2 },
+      { label: "Modules", href: "/admin/modules", icon: LayoutGrid },
       { label: "People", href: "/admin/employees", icon: Users },
       { label: "Departments", href: "/admin/departments", icon: Network },
       { label: "Facility Spaces", href: "/admin/spaces", icon: MapPin },

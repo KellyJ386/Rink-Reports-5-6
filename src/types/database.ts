@@ -2498,6 +2498,41 @@ export type Database = {
           },
         ]
       }
+      facility_modules: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          facility_id: string
+          id: string
+          module_key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          facility_id: string
+          id?: string
+          module_key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          facility_id?: string
+          id?: string
+          module_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_modules_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facility_spaces: {
         Row: {
           created_at: string

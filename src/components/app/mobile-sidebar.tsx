@@ -26,9 +26,10 @@ interface AppMobileSidebarProps {
   isAdmin: boolean
   email: string | null
   fullName: string | null
+  enabledModules?: string[] | null
 }
 
-export function AppMobileSidebar({ isAdmin, email, fullName }: AppMobileSidebarProps) {
+export function AppMobileSidebar({ isAdmin, email, fullName, enabledModules }: AppMobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
   const initials = getInitials(fullName, email)
   const displayName = fullName?.trim() || email || "User"
@@ -68,7 +69,11 @@ export function AppMobileSidebar({ isAdmin, email, fullName }: AppMobileSidebarP
 
         {/* Nav */}
         <ScrollArea className="flex-1">
-          <AppSidebarNav isAdmin={isAdmin} onNavigate={() => setOpen(false)} />
+          <AppSidebarNav
+            isAdmin={isAdmin}
+            enabledModules={enabledModules}
+            onNavigate={() => setOpen(false)}
+          />
         </ScrollArea>
 
         {/* User card */}
