@@ -61,7 +61,7 @@ function Kpi({
           ? "text-destructive-soft-foreground"
           : "text-foreground"
   return (
-    <Card variant="elevated" className="relative gap-1 overflow-hidden px-4 py-4">
+    <Card className="relative gap-1 overflow-hidden px-4 py-4">
       <div className="absolute right-3 top-3 text-muted-foreground/70" aria-hidden>
         {icon}
       </div>
@@ -391,7 +391,7 @@ export function ShiftDetail({
   })
 
   return (
-    <Card variant="elevated" className="relative gap-3 p-4">
+    <Card className="relative gap-3 p-4">
       <button
         type="button"
         onClick={onClose}

@@ -10,7 +10,7 @@ export default function Loading() {
           Loading users&hellip;
         </p>
       </div>
-      <ul className="divide-y divide-slate-800 rounded-md border border-slate-700">
+      <ul className="divide-y divide-border rounded-md border border-border">
         {skeletonRows.map((_, i) => (
           <li key={i} className="px-4 py-3">
             <div className="bg-muted h-4 w-48 animate-pulse rounded" />

@@ -14,6 +14,8 @@
 export const rr = {
   green: "#4DFF00",
   greenInk: "#1A9B00",
+  greenHover: "#45E600", // primary-button hover (green darkened ~10%)
+  greenShadow: "#2E9900", // primary-button hard press lip
   navy: "#002244",
   navyDark: "#001630",
   bg: "#F5F6F8",

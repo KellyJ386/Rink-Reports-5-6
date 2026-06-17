@@ -28,7 +28,6 @@ export default async function AdminLayout({
           variant="admin"
           email={email}
           fullName={fullName}
-          isAdmin
           facilityName={facilityName}
           tempF={tempF}
           tempLocation={tempLocation}

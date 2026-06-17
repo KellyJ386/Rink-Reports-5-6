@@ -107,7 +107,7 @@ function ModuleTile({
         className="group block rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/55"
       >
         <div
-          className="relative flex h-full min-h-[200px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-2)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[var(--shadow-elev-3)]"
+          className="relative flex h-full min-h-[200px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5"
           style={{
             background:
               "linear-gradient(160deg, color-mix(in oklab, var(--module-accent) 100%, white 10%) 0%, var(--module-accent) 55%, color-mix(in oklab, var(--module-accent) 85%, black 15%) 100%)",
