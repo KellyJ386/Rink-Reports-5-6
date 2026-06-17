@@ -31,6 +31,7 @@
      (bg-primary, border-border, bg-rr-green …) instead of inlining hex. */
   --rr-green:        #4DFF00;
   --rr-green-ink:    #1A9B00;
+  --rr-green-hover:  #45E600;   /* primary-button hover (green −10%) */
   --rr-green-shadow: #2E9900;   /* primary-button hard press lip */
   --rr-navy:         #002244;
   --rr-navy-dark:    #001630;
@@ -148,7 +149,7 @@
   /* Primary — RinkReports green; on it sits deep-navy ink */
   --primary:              var(--rr-green);
   --primary-foreground:   var(--rr-navy-dark);
-  --primary-hover:        color-mix(in srgb, var(--rr-green) 90%, #000);
+  --primary-hover:        var(--rr-green-hover);   /* #45E600 — green −10%  */
   --primary-shadow:       var(--rr-green-shadow);  /* hard 2px press lip   */
 
   /* Secondary surface */
@@ -361,7 +362,7 @@
   --input-bg:             #FFFFFF;
   --primary:              var(--rr-green);
   --primary-foreground:   var(--rr-navy-dark);
-  --primary-hover:        color-mix(in srgb, var(--rr-green) 90%, #000);
+  --primary-hover:        var(--rr-green-hover);   /* #45E600 — green −10%  */
   --primary-shadow:       var(--rr-green-shadow);
   --secondary:            var(--rr-bg2);
   --secondary-foreground: var(--rr-navy);
