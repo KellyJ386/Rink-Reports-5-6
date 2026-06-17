@@ -377,7 +377,7 @@ export default async function AdminDashboardPage({
                 <div className="flex items-start gap-3">
                   {item.done ? (
                     <Check
-                      className="mt-0.5 size-4 text-emerald-500"
+                      className="mt-0.5 size-4 text-rr-green-ink"
                       aria-hidden
                     />
                   ) : (

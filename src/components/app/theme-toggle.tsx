@@ -41,7 +41,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   // Lucide icons stroke with currentColor, so this colors the icon's outline.
   // Green moon / amber sun stay legible on the header's white toggle button.
   const iconColor =
-    theme === "dark" ? "text-amber-500" : "text-[var(--green-600)]"
+    theme === "dark" ? "text-amber-500" : "text-rr-green-ink"
 
   return (
     <button

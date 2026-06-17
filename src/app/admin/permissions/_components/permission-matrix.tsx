@@ -147,7 +147,7 @@ export function PermissionMatrix({
                       disabled={pending}
                       onChange={(e) => toggle(m, a, e.target.checked)}
                       aria-label={`${MODULE_LABELS[m]} – ${USER_ACTION_LABELS[a]}`}
-                      className="size-4 cursor-pointer accent-[var(--green-500)]"
+                      className="size-4 cursor-pointer accent-[var(--rr-green)]"
                     />
                   </td>
                 ))}
