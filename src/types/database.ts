@@ -3819,18 +3819,21 @@ export type Database = {
         Row: {
           activity_id: string | null
           activity_other: string | null
+          ambulance_flag: boolean
           archived_at: string | null
           created_at: string
           description: string
           edit_window_ends_at: string
           employee_id: string | null
           facility_id: string
+          follow_up_required: boolean
           id: string
           immediate_actions: string | null
           incident_type_id: string | null
           location: string | null
           location_other: string | null
           occurred_at: string
+          persons_involved: number | null
           reporter_name: string
           reporter_phone: string | null
           resolved_at: string | null
@@ -3843,18 +3846,21 @@ export type Database = {
         Insert: {
           activity_id?: string | null
           activity_other?: string | null
+          ambulance_flag?: boolean
           archived_at?: string | null
           created_at?: string
           description: string
           edit_window_ends_at?: string
           employee_id?: string | null
           facility_id: string
+          follow_up_required?: boolean
           id?: string
           immediate_actions?: string | null
           incident_type_id?: string | null
           location?: string | null
           location_other?: string | null
           occurred_at?: string
+          persons_involved?: number | null
           reporter_name: string
           reporter_phone?: string | null
           resolved_at?: string | null
@@ -3867,18 +3873,21 @@ export type Database = {
         Update: {
           activity_id?: string | null
           activity_other?: string | null
+          ambulance_flag?: boolean
           archived_at?: string | null
           created_at?: string
           description?: string
           edit_window_ends_at?: string
           employee_id?: string | null
           facility_id?: string
+          follow_up_required?: boolean
           id?: string
           immediate_actions?: string | null
           incident_type_id?: string | null
           location?: string | null
           location_other?: string | null
           occurred_at?: string
+          persons_involved?: number | null
           reporter_name?: string
           reporter_phone?: string | null
           resolved_at?: string | null
