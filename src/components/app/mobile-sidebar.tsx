@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { Menu } from "lucide-react"
 
 import {
@@ -12,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Wordmark } from "@/components/wordmark"
 import { AppSidebarNav } from "./sidebar-nav"
 
 function getInitials(fullName: string | null, email: string | null): string {
@@ -26,21 +26,36 @@ interface AppMobileSidebarProps {
   isAdmin: boolean
   email: string | null
   fullName: string | null
+  /**
+   * Custom trigger element (rendered via `asChild`). The bottom tab bar passes
+   * its "Menu" tab here so it opens the same nav sheet. Defaults to the
+   * standalone hamburger button when omitted.
+   */
+  trigger?: React.ReactNode
 }
 
-export function AppMobileSidebar({ isAdmin, email, fullName }: AppMobileSidebarProps) {
+export function AppMobileSidebar({
+  isAdmin,
+  email,
+  fullName,
+  trigger,
+}: AppMobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
   const initials = getInitials(fullName, email)
   const displayName = fullName?.trim() || email || "User"
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger
-        aria-label="Open navigation"
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground lg:hidden"
-      >
-        <Menu className="h-4 w-4" />
-      </SheetTrigger>
+      {trigger ? (
+        <SheetTrigger asChild>{trigger}</SheetTrigger>
+      ) : (
+        <SheetTrigger
+          aria-label="Open navigation"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground lg:hidden"
+        >
+          <Menu className="h-4 w-4" />
+        </SheetTrigger>
+      )}
       <SheetContent
         side="left"
         className="flex w-72 max-w-full flex-col bg-sidebar p-0 text-sidebar-foreground"
@@ -48,21 +63,7 @@ export function AppMobileSidebar({ isAdmin, email, fullName }: AppMobileSidebarP
         {/* Logo */}
         <SheetHeader className="border-b border-sidebar-border px-4 py-3">
           <SheetTitle>
-            <Link
-              href="/dashboard"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-3 text-sidebar-foreground"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-black">
-                R
-              </span>
-              <span
-                className="text-sm font-black uppercase tracking-widest"
-                style={{ fontFamily: "var(--font-anton), Anton, Impact, sans-serif" }}
-              >
-                Rink Reports
-              </span>
-            </Link>
+            <Wordmark href="/dashboard" onClick={() => setOpen(false)} />
           </SheetTitle>
         </SheetHeader>
 

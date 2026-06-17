@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { AppSidebar } from "@/components/app/sidebar"
+import { AppBottomTabBar } from "@/components/app/bottom-tab-bar"
 import { GlobalHeader } from "@/components/app/global-header"
 import { Toaster } from "@/components/ui/sonner"
 import { getIsAdmin, requireUser } from "@/lib/auth"
@@ -28,18 +29,18 @@ export default async function AccountLayout({
           variant="staff"
           email={email}
           fullName={fullName}
-          isAdmin={isAdmin}
           facilityName={facilityName}
           tempF={tempF}
           tempLocation={tempLocation}
         />
         <main
           id="main-content"
-          className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl"
+          className="flex-1 pb-20 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl lg:pb-0"
         >
           {children}
         </main>
       </div>
+      <AppBottomTabBar isAdmin={isAdmin} email={email} fullName={fullName} />
       <Toaster />
     </div>
   )

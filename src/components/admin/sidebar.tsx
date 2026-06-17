@@ -1,6 +1,5 @@
-import Link from "next/link"
-
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Wordmark } from "@/components/wordmark"
 import { SidebarNav } from "./sidebar-nav"
 
 function getInitials(fullName: string | null, email: string | null): string {
@@ -27,17 +26,7 @@ export function Sidebar({ email = null, fullName = null }: SidebarProps) {
     >
       {/* Logo */}
       <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-        <Link href="/admin" className="flex items-center gap-3">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-black">
-            R
-          </span>
-          <span
-            className="text-sm font-black uppercase tracking-widest text-sidebar-foreground"
-            style={{ fontFamily: "var(--font-anton), Anton, Impact, sans-serif" }}
-          >
-            Rink Reports
-          </span>
-        </Link>
+        <Wordmark href="/admin" />
       </div>
 
       {/* Nav */}
