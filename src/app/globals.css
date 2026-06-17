@@ -22,8 +22,32 @@
 
 :root {
   /* ─────────── Brand anchors ─────────── */
-  --action-green: #69BE28;
-  --rink-navy:    #002244;
+  --action-green: var(--rr-green);   /* #4DFF00 — replaces legacy #69BE28 */
+  --rink-navy:    var(--rr-navy);    /* #002244 */
+
+  /* ─────────── RinkReports tokens (mirror of src/lib/tokens.ts) ───────────
+     Canonical brand palette. Keep these hexes in sync with that file; the
+     semantic layer below maps onto them so components use utility classes
+     (bg-primary, border-border, bg-rr-green …) instead of inlining hex. */
+  --rr-green:        #4DFF00;
+  --rr-green-ink:    #1A9B00;
+  --rr-green-shadow: #2E9900;   /* primary-button hard press lip */
+  --rr-navy:         #002244;
+  --rr-navy-dark:    #001630;
+  --rr-bg:           #F5F6F8;
+  --rr-bg2:          #ECEEF1;
+  --rr-line:         #E2E5EA;
+  --rr-line-soft:    #EEF0F3;
+  --rr-grey:         #8A92A0;
+  --rr-grey-dark:    #5A6273;
+  --rr-yellow:       #FFD600;
+  --rr-red:          #F42A2A;
+
+  /* Font roles. Anton = display/dates, JetBrains Mono = data/times. The
+     --font-* sources are injected on <html> by next/font (layout.tsx). */
+  --font-display: var(--font-anton), Anton, Impact, "Arial Narrow", sans-serif;
+  --font-mono:    var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
+                  SFMono-Regular, Menlo, monospace;
 
   /* ─────────── Green ramp (★ anchor = 500) ─────────── */
   --green-50:  #F2FBE4;
@@ -108,36 +132,36 @@
   --radius: 0.625rem;
 
   /* Surfaces */
-  --background:           var(--ice-50);     /* page canvas        #F7FAFC */
+  --background:           var(--rr-bg);      /* page canvas        #F5F6F8 */
   --foreground:           #1B2733;           /* body text          16:1    */
   --card:                 #FFFFFF;           /* cards, modals              */
   --card-foreground:      #1B2733;
-  --surface-elevated:     var(--ice-100);    /* sunken inputs/panels       */
+  --surface-elevated:     var(--rr-bg2);     /* sunken inputs/panels       */
   --surface-tinted:       #EAF4F8;           /* info/highlight wash        */
   --popover:              #FFFFFF;
   --popover-foreground:   #1B2733;
 
   /* Strong heading ink */
-  --foreground-strong:    var(--navy-700);   /* #002244 — headings         */
-  --foreground-subtle:    var(--ice-500);    /* #7A8694 — placeholders     */
+  --foreground-strong:    var(--rr-navy);    /* #002244 — headings         */
+  --foreground-subtle:    var(--rr-grey);    /* #8A92A0 — placeholders     */
 
-  /* Primary — action-green; on it sits navy ink */
-  --primary:              var(--green-500);
-  --primary-foreground:   var(--navy-700);
-  --primary-hover:        var(--green-600);
-  --primary-shadow:       var(--green-700);  /* hard-bottom press shadow   */
+  /* Primary — RinkReports green; on it sits deep-navy ink */
+  --primary:              var(--rr-green);
+  --primary-foreground:   var(--rr-navy-dark);
+  --primary-hover:        color-mix(in srgb, var(--rr-green) 90%, #000);
+  --primary-shadow:       var(--rr-green-shadow);  /* hard 2px press lip   */
 
   /* Secondary surface */
-  --secondary:            var(--ice-100);
-  --secondary-foreground: var(--navy-700);
+  --secondary:            var(--rr-bg2);
+  --secondary-foreground: var(--rr-navy);
 
   /* Muted */
-  --muted:                var(--ice-100);
-  --muted-foreground:     var(--ice-600);    /* #57626F — 7.5:1 on #F7FAFC */
+  --muted:                var(--rr-bg2);
+  --muted-foreground:     var(--rr-grey-dark); /* #5A6273 — 7:1 on #F5F6F8 */
 
   /* Accent (hover surface) */
-  --accent:               var(--ice-200);
-  --accent-foreground:    var(--navy-700);
+  --accent:               var(--rr-line-soft);
+  --accent-foreground:    var(--rr-navy);
 
   /* Input surface — white in light (= card), sunken in dark (per spec) */
   --input-bg:             #FFFFFF;
@@ -152,24 +176,24 @@
   --accent-special:               var(--violet-400);
   --accent-special-foreground:    #FFFFFF;
 
-  /* Borders + focus ring (green) */
-  --border:               var(--ice-200);   /* #E1E8EF                    */
-  --input:                var(--ice-300);   /* #CCD5DE — input borders    */
-  --ring:                 var(--green-500); /* green focus per spec       */
+  /* Borders + focus ring (green). Borders are always 1px solid rr.line. */
+  --border:               var(--rr-line);   /* #E2E5EA                    */
+  --input:                var(--rr-line);   /* inputs share the line       */
+  --ring:                 var(--rr-green);  /* green focus per spec        */
 
-  /* Destructive (= crimson-400 per spec) */
-  --destructive:          var(--crimson-400);
+  /* Destructive (RinkReports red) */
+  --destructive:          var(--rr-red);
   --destructive-foreground: #FFFFFF;
   --destructive-soft:     var(--crimson-50);
   --destructive-soft-foreground: var(--crimson-600);
 
   /* Status — fg + -soft for pill backgrounds */
-  --success:              var(--green-500);
-  --success-foreground:   var(--navy-700);
+  --success:              var(--rr-green);
+  --success-foreground:   var(--rr-navy-dark);
   --success-soft:         var(--green-50);
   --success-soft-foreground: var(--green-700);
 
-  --warning:              var(--amber-400);
+  --warning:              var(--rr-yellow);
   --warning-foreground:   var(--navy-800);
   --warning-soft:         var(--amber-50);
   --warning-soft-foreground: var(--amber-500);
@@ -180,7 +204,7 @@
   --info-soft-foreground: var(--sky-700);
 
   /* Charts — colorblind-safe order matching spec accent hues */
-  --chart-1: var(--green-500);
+  --chart-1: var(--rr-green);
   --chart-2: var(--sky-400);
   --chart-3: var(--amber-400);
   --chart-4: var(--coral-400);
@@ -190,12 +214,12 @@
   --sidebar:                      var(--navy-700);  /* #002244             */
   --sidebar-foreground:           #FFFFFF;
   --sidebar-foreground-muted:     rgba(255,255,255,0.72);
-  --sidebar-primary:              var(--green-500);
-  --sidebar-primary-foreground:   var(--navy-700);
+  --sidebar-primary:              var(--rr-green);
+  --sidebar-primary-foreground:   var(--rr-navy-dark);
   --sidebar-accent:               var(--navy-500);  /* #103E6E active row  */
   --sidebar-accent-foreground:    #FFFFFF;
   --sidebar-border:               rgba(255,255,255,0.14);
-  --sidebar-ring:                 var(--green-500);
+  --sidebar-ring:                 var(--rr-green);
 
   /* Brand-navy / brand-teal aliases retained for components that already use them */
   --brand-navy:                   var(--navy-700);
@@ -237,10 +261,10 @@
   --foreground-subtle:    #6F87A3;            /* placeholders, hints       */
   --input-bg:             #0C1D35;            /* sunken below card surface */
 
-  --primary:              var(--green-300);   /* #9DDA50 — punchier on dark */
-  --primary-foreground:   var(--navy-800);    /* #00182F                    */
-  --primary-hover:        var(--green-200);
-  --primary-shadow:       var(--green-600);
+  --primary:              var(--rr-green);    /* #4DFF00 — brand green       */
+  --primary-foreground:   var(--rr-navy-dark);/* #001630                     */
+  --primary-hover:        color-mix(in srgb, var(--rr-green) 82%, #000);
+  --primary-shadow:       var(--rr-green-shadow);
 
   --secondary:            #11243F;
   --secondary-foreground: #F1F6FB;
@@ -260,19 +284,19 @@
 
   --border:               #1E3E66;
   --input:                #2C5286;
-  --ring:                 var(--green-300);
+  --ring:                 var(--rr-green);
 
-  --destructive:          var(--crimson-300);
-  --destructive-foreground: var(--navy-800);
+  --destructive:          var(--rr-red);
+  --destructive-foreground: #FFFFFF;
   --destructive-soft:     rgba(255,90,110,0.12);
   --destructive-soft-foreground: var(--crimson-200);
 
-  --success:              var(--green-300);
-  --success-foreground:   var(--navy-800);
+  --success:              var(--rr-green);
+  --success-foreground:   var(--rr-navy-dark);
   --success-soft:         rgba(157,218,80,0.12);
   --success-soft-foreground: var(--green-200);
 
-  --warning:              var(--amber-300);
+  --warning:              var(--rr-yellow);
   --warning-foreground:   var(--navy-800);
   --warning-soft:         rgba(255,201,64,0.12);
   --warning-soft-foreground: var(--amber-200);
@@ -282,7 +306,7 @@
   --info-soft:            rgba(94,190,240,0.12);
   --info-soft-foreground: var(--sky-200);
 
-  --chart-1: var(--green-300);
+  --chart-1: var(--rr-green);
   --chart-2: var(--sky-300);
   --chart-3: var(--amber-300);
   --chart-4: var(--coral-300);
@@ -291,12 +315,12 @@
   --sidebar:                      #061328;          /* deeper than bg-app  */
   --sidebar-foreground:           #FFFFFF;
   --sidebar-foreground-muted:     rgba(255,255,255,0.72);
-  --sidebar-primary:              var(--green-300);
-  --sidebar-primary-foreground:   var(--navy-800);
+  --sidebar-primary:              var(--rr-green);
+  --sidebar-primary-foreground:   var(--rr-navy-dark);
   --sidebar-accent:               #1E3E66;
   --sidebar-accent-foreground:    #F1F6FB;
   --sidebar-border:               rgba(255,255,255,0.10);
-  --sidebar-ring:                 var(--green-300);
+  --sidebar-ring:                 var(--rr-green);
 
   --brand-navy:                   var(--sky-300);
   --brand-navy-foreground:        var(--navy-800);
@@ -324,45 +348,45 @@
 
 /* `.light` mirror of :root for explicit-class toggling */
 .light {
-  --background:           var(--ice-50);
+  --background:           var(--rr-bg);
   --foreground:           #1B2733;
   --card:                 #FFFFFF;
   --card-foreground:      #1B2733;
-  --surface-elevated:     var(--ice-100);
+  --surface-elevated:     var(--rr-bg2);
   --surface-tinted:       #EAF4F8;
   --popover:              #FFFFFF;
   --popover-foreground:   #1B2733;
-  --foreground-strong:    var(--navy-700);
-  --foreground-subtle:    var(--ice-500);
+  --foreground-strong:    var(--rr-navy);
+  --foreground-subtle:    var(--rr-grey);
   --input-bg:             #FFFFFF;
-  --primary:              var(--green-500);
-  --primary-foreground:   var(--navy-700);
-  --primary-hover:        var(--green-600);
-  --primary-shadow:       var(--green-700);
-  --secondary:            var(--ice-100);
-  --secondary-foreground: var(--navy-700);
-  --muted:                var(--ice-100);
-  --muted-foreground:     var(--ice-600);
-  --accent:               var(--ice-200);
-  --accent-foreground:    var(--navy-700);
+  --primary:              var(--rr-green);
+  --primary-foreground:   var(--rr-navy-dark);
+  --primary-hover:        color-mix(in srgb, var(--rr-green) 90%, #000);
+  --primary-shadow:       var(--rr-green-shadow);
+  --secondary:            var(--rr-bg2);
+  --secondary-foreground: var(--rr-navy);
+  --muted:                var(--rr-bg2);
+  --muted-foreground:     var(--rr-grey-dark);
+  --accent:               var(--rr-line-soft);
+  --accent-foreground:    var(--rr-navy);
   --accent-brand:                 var(--sky-400);
   --accent-brand-foreground:      #FFFFFF;
   --accent-warm:                  var(--coral-400);
   --accent-warm-foreground:       #FFFFFF;
   --accent-special:               var(--violet-400);
   --accent-special-foreground:    #FFFFFF;
-  --border:               var(--ice-200);
-  --input:                var(--ice-300);
-  --ring:                 var(--green-500);
-  --destructive:          var(--crimson-400);
+  --border:               var(--rr-line);
+  --input:                var(--rr-line);
+  --ring:                 var(--rr-green);
+  --destructive:          var(--rr-red);
   --destructive-foreground: #FFFFFF;
   --destructive-soft:     var(--crimson-50);
   --destructive-soft-foreground: var(--crimson-600);
-  --success:              var(--green-500);
-  --success-foreground:   var(--navy-700);
+  --success:              var(--rr-green);
+  --success-foreground:   var(--rr-navy-dark);
   --success-soft:         var(--green-50);
   --success-soft-foreground: var(--green-700);
-  --warning:              var(--amber-400);
+  --warning:              var(--rr-yellow);
   --warning-foreground:   var(--navy-800);
   --warning-soft:         var(--amber-50);
   --warning-soft-foreground: var(--amber-500);
@@ -370,7 +394,7 @@
   --info-foreground:      #FFFFFF;
   --info-soft:            var(--sky-50);
   --info-soft-foreground: var(--sky-700);
-  --chart-1: var(--green-500);
+  --chart-1: var(--rr-green);
   --chart-2: var(--sky-400);
   --chart-3: var(--amber-400);
   --chart-4: var(--coral-400);
@@ -378,12 +402,12 @@
   --sidebar:                      var(--navy-700);
   --sidebar-foreground:           #FFFFFF;
   --sidebar-foreground-muted:     rgba(255,255,255,0.72);
-  --sidebar-primary:              var(--green-500);
-  --sidebar-primary-foreground:   var(--navy-700);
+  --sidebar-primary:              var(--rr-green);
+  --sidebar-primary-foreground:   var(--rr-navy-dark);
   --sidebar-accent:               var(--navy-500);
   --sidebar-accent-foreground:    #FFFFFF;
   --sidebar-border:               rgba(255,255,255,0.14);
-  --sidebar-ring:                 var(--green-500);
+  --sidebar-ring:                 var(--rr-green);
   --brand-navy:                   var(--navy-700);
   --brand-navy-foreground:        #FFFFFF;
   --brand-teal:                   var(--sky-500);
@@ -488,21 +512,40 @@
   --color-module-scheduling: var(--module-scheduling);
   --color-module-paperwork: var(--module-paperwork);
 
-  /* Elevation scale — soft on light, deeper alpha on dark (set below) */
-  --shadow-elev-1: 0 1px 2px 0 rgba(0,34,68,0.06);
+  /* RinkReports raw-token utilities — bg-rr-green, text-rr-navy-dark,
+     border-rr-line, etc. (faithful access to the rr.* palette). */
+  --color-rr-green: var(--rr-green);
+  --color-rr-green-ink: var(--rr-green-ink);
+  --color-rr-navy: var(--rr-navy);
+  --color-rr-navy-dark: var(--rr-navy-dark);
+  --color-rr-bg: var(--rr-bg);
+  --color-rr-bg2: var(--rr-bg2);
+  --color-rr-line: var(--rr-line);
+  --color-rr-line-soft: var(--rr-line-soft);
+  --color-rr-grey: var(--rr-grey);
+  --color-rr-grey-dark: var(--rr-grey-dark);
+  --color-rr-yellow: var(--rr-yellow);
+  --color-rr-red: var(--rr-red);
+
+  /* Font utilities — font-display (Anton) and font-mono (JetBrains Mono). */
+  --font-display: var(--font-anton), Anton, Impact, "Arial Narrow", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
+               SFMono-Regular, Menlo, monospace;
+
+  /* Elevation scale — capped at the design rule's max blur on light
+     (0 1px 3px rgba(0,0,0,.05)); deeper alpha on dark (set below). */
+  --shadow-elev-1: 0 1px 3px 0 rgba(0,0,0,0.05);
   --shadow-elev-2: 0 4px 12px -2px rgba(0,34,68,0.10),
                    0 2px 4px -2px rgba(0,34,68,0.06);
   --shadow-elev-3: 0 12px 32px -8px rgba(0,34,68,0.18),
                    0 4px 8px -4px rgba(0,34,68,0.10);
 
-  /* Signature "pressable" primary-button shadow from the spec —
-     hard 2px navy lip + soft green glow. */
+  /* Signature "pressable" primary-button shadow — hard 2px green lip
+     (0 2px 0 0 #2E9900), no blur, per the design spec. */
   --shadow-press-primary:
-    0 2px 0 0 var(--primary-shadow),
-    0 4px 8px rgba(105,190,40,0.30);
+    0 2px 0 0 var(--primary-shadow);
   --shadow-press-warm:
-    0 2px 0 0 var(--coral-700),
-    0 4px 8px rgba(255,123,79,0.30);
+    0 2px 0 0 var(--coral-700);
 }
 
 .dark {
@@ -512,11 +555,9 @@
   --shadow-elev-3: 0 16px 40px -8px rgba(0,0,0,0.60),
                    0 6px 12px -4px rgba(0,0,0,0.38);
   --shadow-press-primary:
-    0 2px 0 0 var(--primary-shadow),
-    0 4px 12px rgba(157,218,80,0.35);
+    0 2px 0 0 var(--primary-shadow);
   --shadow-press-warm:
-    0 2px 0 0 var(--coral-700),
-    0 4px 12px rgba(255,150,112,0.30);
+    0 2px 0 0 var(--coral-700);
 }
 
 @layer base {
@@ -529,7 +570,10 @@
     padding-right: env(safe-area-inset-right);
   }
   .font-display {
-    font-family: var(--font-anton), Anton, Impact, "Arial Narrow", sans-serif;
+    font-family: var(--font-display);
+  }
+  .font-mono {
+    font-family: var(--font-mono);
   }
 }
 

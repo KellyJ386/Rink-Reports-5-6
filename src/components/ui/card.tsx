@@ -4,18 +4,20 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const cardVariants = cva(
-  "text-card-foreground flex flex-col gap-6 rounded-xl py-6 transition-shadow duration-150",
+  // RinkReports card: white surface, 1px solid rr.line border, radius 14,
+  // soft elev-1 shadow (0 1px 3px rgba(0,0,0,.05)).
+  "text-card-foreground flex flex-col gap-6 rounded-[14px] py-6 transition-shadow duration-150",
   {
     variants: {
       variant: {
         default:
-          "bg-card border border-border/60 shadow-[var(--shadow-elev-1)]",
+          "bg-card border border-border shadow-[var(--shadow-elev-1)]",
         elevated:
-          "bg-card border border-border/60 shadow-[var(--shadow-elev-2)] hover:shadow-[var(--shadow-elev-3)]",
+          "bg-card border border-border shadow-[var(--shadow-elev-2)] hover:shadow-[var(--shadow-elev-3)]",
         glass:
-          "bg-card/70 backdrop-blur-md border border-border/40 shadow-[var(--shadow-elev-2)]",
+          "bg-card/70 backdrop-blur-md border border-border shadow-[var(--shadow-elev-2)]",
         flat:
-          "bg-card border border-border/40",
+          "bg-card border border-border",
       },
     },
     defaultVariants: { variant: "default" },

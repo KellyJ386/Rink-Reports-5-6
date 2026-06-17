@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Anton, Geist, Geist_Mono } from "next/font/google"
+import { Anton, Geist, Geist_Mono, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { PostHogProvider } from "@/components/app/posthog-provider"
 import { SwRegister } from "@/components/app/sw-register"
@@ -18,6 +18,12 @@ const geistMono = Geist_Mono({
 const anton = Anton({
   variable: "--font-anton",
   weight: "400",
+  subsets: ["latin"],
+})
+
+// Data / times font — exposed as --font-mono (see globals.css font roles).
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
 })
 
@@ -51,7 +57,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${anton.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${anton.variable} ${jetbrainsMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
