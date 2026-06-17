@@ -157,7 +157,7 @@ export function RetentionRowForm({
           <p className="text-sm text-destructive">{saveState.error}</p>
         )}
         {saveState.ok === true && (
-          <p className="text-sm text-green-600 dark:text-green-400">
+          <p className="text-sm text-success-soft-foreground">
             {saveState.message}
           </p>
         )}
@@ -235,7 +235,7 @@ export function RetentionRowForm({
             <p className="text-sm text-destructive">{purgeState.error}</p>
           )}
           {purgeState.ok === true && (
-            <p className="text-sm text-green-600 dark:text-green-400">
+            <p className="text-sm text-success-soft-foreground">
               {purgeState.message}
             </p>
           )}
