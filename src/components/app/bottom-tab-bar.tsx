@@ -11,6 +11,8 @@ interface AppBottomTabBarProps {
   isAdmin: boolean
   email: string | null
   fullName: string | null
+  /** Enabled module keys for the facility (null = show all). */
+  enabledModules?: string[] | null
 }
 
 // Staff-only mobile bottom navigation (hidden ≥ lg, where the sidebar takes
@@ -20,6 +22,7 @@ export function AppBottomTabBar({
   isAdmin,
   email,
   fullName,
+  enabledModules,
 }: AppBottomTabBarProps) {
   const pathname = usePathname()
 
@@ -60,6 +63,7 @@ export function AppBottomTabBar({
         isAdmin={isAdmin}
         email={email}
         fullName={fullName}
+        enabledModules={enabledModules}
         trigger={
           <button type="button" aria-label="Open menu" className={tabCls(false)}>
             <Menu className="h-5 w-5" aria-hidden />

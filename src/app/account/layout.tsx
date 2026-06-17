@@ -39,7 +39,6 @@ export default async function AccountLayout({
           facilityName={facilityName}
           tempF={tempF}
           tempLocation={tempLocation}
-          enabledModules={enabledModules}
         />
         <main
           id="main-content"
@@ -48,7 +47,12 @@ export default async function AccountLayout({
           {children}
         </main>
       </div>
-      <AppBottomTabBar isAdmin={isAdmin} email={email} fullName={fullName} />
+      <AppBottomTabBar
+        isAdmin={isAdmin}
+        email={email}
+        fullName={fullName}
+        enabledModules={enabledModules}
+      />
       <Toaster />
     </div>
   )

@@ -43,11 +43,15 @@ export default async function ReportsLayout({
           facilityName={facilityName}
           tempF={tempF}
           tempLocation={tempLocation}
-          enabledModules={enabledModules}
         />
         <main id="main-content" className="flex-1 pb-20 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl lg:pb-0">{children}</main>
       </div>
-      <AppBottomTabBar isAdmin={isAdmin} email={email} fullName={fullName} />
+      <AppBottomTabBar
+        isAdmin={isAdmin}
+        email={email}
+        fullName={fullName}
+        enabledModules={enabledModules}
+      />
       <Toaster />
     </div>
   )

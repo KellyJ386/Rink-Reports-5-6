@@ -32,6 +32,8 @@ interface AppMobileSidebarProps {
    * standalone hamburger button when omitted.
    */
   trigger?: React.ReactNode
+  /** Staff variant only: enabled module keys for the facility (null = show all). */
+  enabledModules?: string[] | null
 }
 
 export function AppMobileSidebar({
@@ -39,11 +41,8 @@ export function AppMobileSidebar({
   email,
   fullName,
   trigger,
+  enabledModules,
 }: AppMobileSidebarProps) {
-  enabledModules?: string[] | null
-}
-
-export function AppMobileSidebar({ isAdmin, email, fullName, enabledModules }: AppMobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
   const initials = getInitials(fullName, email)
   const displayName = fullName?.trim() || email || "User"
