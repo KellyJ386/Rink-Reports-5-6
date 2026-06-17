@@ -72,6 +72,56 @@ Added `src/app/reports/facility-paperwork/loading.tsx` (only report module that
 lacked one). Note: group-level `error.tsx` already exists at `src/app/reports`
 and `src/app/admin`, so per-module error boundaries are largely already covered.
 
+### Delete-path facility scoping standardized (#7) ✅
+`deleteSubmission` / `deleteIceDepthSession` / `deleteAirQualityReport` no longer
+infer authorization from a null `facility_id`; non-super-admins are explicitly
+facility-scoped (hard error if no facility), super admins delete cross-facility
+by intent. RLS still backstops.
+
+### Incident emergency fields (#6) ✅ (DB + UI + escalation)
+Migration 145 (applied to prod + recorded): `ambulance_flag`, `persons_involved`
+(>=0), `follow_up_required` on `incident_reports`. Wired into the staff form
+(toggles + numeric), admin detail (Yes/No badges + value), and the edit/offline
+paths. When `ambulance_flag` is set, submit escalates via the existing
+`communication_alerts` (critical, requires-ack) + a severity-tagged
+`dispatchRulesForSubmission` — mirroring the accident `medical_attention`
+pattern (no new recipient UI).
+
+### Daily Reports staff submission history ✅
+New read-only `/reports/daily/history` (+ loading) listing the facility's recent
+submissions under the existing `daily_report_submissions_select` RLS policy
+(per-area "view" gate enforced); "View history" link on the daily landing page.
+
+### Scheduling admin UI gaps ✅
+The two facility-level weekly caps were already editable; the genuinely-missing
+setter was the per-employee `employees.max_weekly_hours` (enforced by the grid,
+no UI) — added to the employee form. The scheduling grid's "Month" view
+placeholder toast was replaced with a real read-only month calendar built from
+the board's already-loaded window.
+
+### Admin dashboard windows + widgets (#9) ✅
+Overview now shows correct, consistent last-7d / last-30d submission counts for
+all nine modules (parallel `count: "exact", head: true` queries, facility-scoped),
+and a read-only offline-sync-queue health widget (counts by `sync_status`).
+
+### dbError DRY (#8) ✅ (partial, by design)
+Extracted `src/lib/db-error.ts` (superset handling 23505/23503/P0001/message).
+Migrated the 6 call sites whose behavior it reproduces exactly; intentionally
+left ~29 sites whose local variant differs (message-only, custom per-code copy,
+or special codes like 23P01/42501) to guarantee zero behavior change. Documented
+in the commit.
+
+### Still open (need owner input / systemic / blocked)
+- **#5 Ice Ops `AnySupabase` + full type resync** — left in place. Now that prod
+  == migrations, run `pnpm types:write` against the live DB and commit; then the
+  20 `as any` casts in `admin/ice-operations/actions.ts` can be removed cleanly.
+  (Couldn't run the repo's generator here without DB creds / pg-meta parity.)
+- **Brand tokens** — needs the canonical color from the design owner.
+- **Migration ledger / duplicate-`139` prefix** — the live ledger mixes numeric
+  + timestamp versions across 123–140; safest fixed as one deliberate reconcile
+  pass (mirroring `reconcile_migration_history.sql`), not piecemeal.
+- **Offline schedule readability** — intentionally unmet (kiosk-security design).
+
 ## Follow-ups discovered (not in original audit, out of scope here)
 - **Pre-existing type drift**: `src/types/database.ts` differs from the live
   schema in places unrelated to this work — `ip` column nullability on
