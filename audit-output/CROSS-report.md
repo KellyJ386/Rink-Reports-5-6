@@ -1,8 +1,8 @@
-# RinkReports 5-6 — Cross-Module Integration Audit (Agent-CROSS)
+# RinkReports 5-6 — Cross-Module Integration Audit (Agent-CROSS) [REVISED]
 
-- **Supabase project audited:** `bqbdgwlhbhabsibjgwmk`
+- **Supabase project audited:** `bqbdgwlhbhabsibjgwmk` (only).
 - **Mode:** AUDIT-ONLY. No code/migration/schema writes were performed. Only this report + the DONE marker were written.
-- **Date:** 2026-06-17
+- **Date:** 2026-06-17 (revised run)
 - **Prior audit context absorbed:** SCHEMA-report, SEC-report, BUILD-report, OFFLINE-report (all in `audit-output/`).
 
 Severity legend: 🔴 CRITICAL · 🟡 WARNING · 🟢 PASSING / minor
