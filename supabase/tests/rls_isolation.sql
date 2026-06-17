@@ -414,7 +414,8 @@ on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------
 
 -- Config rows needed as FK targets for the B-side submissions below.
-insert into public.air_quality_locations (id, facility_id, name, slug, sort_order, is_active)
+-- Air quality now references the shared facility_spaces list (migration 143).
+insert into public.facility_spaces (id, facility_id, name, slug, sort_order, is_active)
 values ('bbbb2222-a91c-bbbb-bbbb-bbbb22220071',
         '22222222-2222-2222-2222-222222222222', 'B Rink Air', 'b-rink-air', 1, true)
 on conflict (id) do nothing;
@@ -1643,6 +1644,48 @@ select pg_temp.expect_error(
     values ('22222222-2222-2222-2222-222222222222', 'Cross Admin', 'cross-admin')$$,
   'INC: incident-module admin still CANNOT insert a facility_space in facility B');
 
+-- facility_spaces write broadening (migration 141): facility_spaces is now a
+-- shared list, so an Air Quality (or Accident Reports) module admin may manage
+-- it too — not just an incident admin. Use Erin, who holds ONLY air_quality
+-- admin in facility A (no facility-admin, no incident admin), to prove the new
+-- branch specifically. Cross-facility isolation must still hold.
+set local role postgres;
+insert into auth.users (id, email)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'erin@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        '11111111-1111-1111-1111-111111111111', 'erin@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'eeee4444-eeee-eeee-eeee-eeeeeeeeeeee'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid,
+       r.id, 'Erin', 'Evans', 'erin@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        '11111111-1111-1111-1111-111111111111',
+        'air_quality', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'AQ Admin Space', 'aq-admin-space')$$,
+  'AQ: air_quality-module admin CAN insert a facility_space in own facility (migration 141)');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'AQ Cross', 'aq-cross')$$,
+  'AQ: air_quality-module admin still CANNOT insert a facility_space in facility B');
+
 -- ---------------------------------------------------------------------------
 -- REFRIG: Refrigeration hardening (migrations 110-114).
 --
@@ -2245,6 +2288,85 @@ select pg_temp.expect_count(
     where swap_id = 'aaaa1111-5711-aaaa-aaaa-aaaa11110095'
       and notification_type = 'swap_request_received'$$,
   0, 'SCHED-137: refused notify helper inserted nothing');
+
+-- ---------------------------------------------------------------------------
+-- 2P. Migration-140 double-booking EXCLUDE constraint
+--     (schedule_shifts_no_double_booking).
+--
+-- A GiST exclusion constraint must make it physically impossible to commit two
+-- overlapping assigned (draft/published) shifts for the SAME employee, while
+-- still allowing two shifts that merely TOUCH ('[)' bounds: one shift's ends_at
+-- == the next shift's starts_at). Exercised as postgres (BYPASSRLS) — table
+-- constraints fire regardless of role — reusing Alice's employee + department
+-- in Facility A. Far-future timestamps avoid colliding with the day+1/+2/+3
+-- shift fixtures seeded above.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Baseline assigned shift for Alice (10:00–14:00 on a far-future day).
+insert into public.schedule_shifts (id, facility_id, department_id, employee_id, starts_at, ends_at, status)
+values ('aaaa1111-5514-aaaa-aaaa-aaaa11110097',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        now() + interval '30 days' + interval '10 hours',
+        now() + interval '30 days' + interval '14 hours',
+        'published')
+on conflict (id) do nothing;
+
+-- Overlapping (12:00–16:00) assigned shift for the SAME employee must be
+-- rejected by the exclusion constraint (sqlstate 23P01).
+select pg_temp.expect_error(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '12 hours',
+            now() + interval '30 days' + interval '16 hours',
+            'published')$$,
+  'SCHED-140: overlapping assigned shift for same employee is rejected (exclusion 23P01)');
+
+-- Pin that the rejection is specifically the exclusion_violation (23P01), not an
+-- unrelated error masquerading as one.
+do $$
+begin
+  begin
+    insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '12 hours',
+            now() + interval '30 days' + interval '16 hours',
+            'published');
+    insert into _rls_failures (msg)
+    values ('FAIL: SCHED-140: overlapping insert unexpectedly succeeded');
+  exception
+    when exclusion_violation then
+      raise notice 'ok (23P01 as expected): SCHED-140 overlap raises exclusion_violation';
+    when others then
+      insert into _rls_failures (msg)
+      values (format('FAIL: SCHED-140: overlap raised %s, expected 23P01', sqlstate));
+  end;
+end$$;
+
+-- A touching (14:00–18:00) assigned shift — starts exactly when the baseline
+-- ends — must SUCCEED: '[)' half-open bounds do not treat boundary contact as
+-- an overlap.
+select pg_temp.expect_ok(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '14 hours',
+            now() + interval '30 days' + interval '18 hours',
+            'published')$$,
+  'SCHED-140: touching shift (ends_at == next starts_at) is allowed');
+
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.

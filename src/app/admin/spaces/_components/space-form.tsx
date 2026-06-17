@@ -72,7 +72,7 @@ function SpaceFormBody({ onOpenChange, editing }: Props) {
         <SheetDescription>
           {isEdit
             ? "Update the space's name, slug, sort order, or activation."
-            : "Facility spaces are the physical areas reporters tag on a report (e.g. Main Rink, Lobby)."}
+            : "Facility spaces are the physical areas reporters tag on a report (e.g. Main Rink, Lobby). Shared across Incidents, Accidents, and Air Quality."}
         </SheetDescription>
       </SheetHeader>
 

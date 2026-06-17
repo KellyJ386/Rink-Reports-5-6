@@ -78,7 +78,7 @@ export default async function IncidentReportPage({
   const { data: report } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, occurred_at, submitted_at, status, severity_level_id, activity_id, activity_other, location_other, immediate_actions, reporter_name, reporter_phone, description",
+      "id, facility_id, employee_id, edit_window_ends_at, occurred_at, submitted_at, status, severity_level_id, activity_id, activity_other, location_other, immediate_actions, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
     )
     .eq("id", id)
     .maybeSingle()
@@ -197,6 +197,22 @@ export default async function IncidentReportPage({
             <Row label="Reported at" value={fmt(report.submitted_at)} />
             <Row label="Reporter" value={report.reporter_name} />
             <Row label="Phone" value={report.reporter_phone ?? "—"} />
+            <Row
+              label="Ambulance called"
+              value={report.ambulance_flag ? "Yes" : "No"}
+            />
+            <Row
+              label="People involved"
+              value={
+                report.persons_involved === null
+                  ? "—"
+                  : String(report.persons_involved)
+              }
+            />
+            <Row
+              label="Follow-up required"
+              value={report.follow_up_required ? "Yes" : "No"}
+            />
             <div className="flex flex-col gap-1 border-b border-border pb-2">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
                 Description
@@ -257,6 +273,10 @@ export default async function IncidentReportPage({
     description: report.description,
     immediateActions: report.immediate_actions ?? "",
     witnesses,
+    ambulanceFlag: report.ambulance_flag,
+    personsInvolved:
+      report.persons_involved === null ? "" : String(report.persons_involved),
+    followUpRequired: report.follow_up_required,
   }
 
   const updateAction = updateIncidentReport.bind(null, report.id)

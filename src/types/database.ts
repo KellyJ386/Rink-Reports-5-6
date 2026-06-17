@@ -316,7 +316,7 @@ export type Database = {
             foreignKeyName: "accident_reports_location_dropdown_id_fkey"
             columns: ["location_dropdown_id"]
             isOneToOne: false
-            referencedRelation: "accident_dropdowns"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
           {
@@ -585,7 +585,7 @@ export type Database = {
             foreignKeyName: "air_quality_equipment_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
-            referencedRelation: "air_quality_locations"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -638,47 +638,6 @@ export type Database = {
             columns: ["report_id"]
             isOneToOne: false
             referencedRelation: "air_quality_reports"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      air_quality_locations: {
-        Row: {
-          created_at: string
-          facility_id: string
-          id: string
-          is_active: boolean
-          name: string
-          slug: string
-          sort_order: number
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          facility_id: string
-          id?: string
-          is_active?: boolean
-          name: string
-          slug: string
-          sort_order?: number
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          facility_id?: string
-          id?: string
-          is_active?: boolean
-          name?: string
-          slug?: string
-          sort_order?: number
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "air_quality_locations_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]
@@ -882,7 +841,7 @@ export type Database = {
             foreignKeyName: "air_quality_reports_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
-            referencedRelation: "air_quality_locations"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -989,7 +948,7 @@ export type Database = {
             foreignKeyName: "air_quality_thresholds_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
-            referencedRelation: "air_quality_locations"
+            referencedRelation: "facility_spaces"
             referencedColumns: ["id"]
           },
           {
@@ -2539,6 +2498,41 @@ export type Database = {
           },
         ]
       }
+      facility_modules: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          facility_id: string
+          id: string
+          module_key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          facility_id: string
+          id?: string
+          module_key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          facility_id?: string
+          id?: string
+          module_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_modules_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facility_spaces: {
         Row: {
           created_at: string
@@ -3825,18 +3819,21 @@ export type Database = {
         Row: {
           activity_id: string | null
           activity_other: string | null
+          ambulance_flag: boolean
           archived_at: string | null
           created_at: string
           description: string
           edit_window_ends_at: string
           employee_id: string | null
           facility_id: string
+          follow_up_required: boolean
           id: string
           immediate_actions: string | null
           incident_type_id: string | null
           location: string | null
           location_other: string | null
           occurred_at: string
+          persons_involved: number | null
           reporter_name: string
           reporter_phone: string | null
           resolved_at: string | null
@@ -3849,18 +3846,21 @@ export type Database = {
         Insert: {
           activity_id?: string | null
           activity_other?: string | null
+          ambulance_flag?: boolean
           archived_at?: string | null
           created_at?: string
           description: string
           edit_window_ends_at?: string
           employee_id?: string | null
           facility_id: string
+          follow_up_required?: boolean
           id?: string
           immediate_actions?: string | null
           incident_type_id?: string | null
           location?: string | null
           location_other?: string | null
           occurred_at?: string
+          persons_involved?: number | null
           reporter_name: string
           reporter_phone?: string | null
           resolved_at?: string | null
@@ -3873,18 +3873,21 @@ export type Database = {
         Update: {
           activity_id?: string | null
           activity_other?: string | null
+          ambulance_flag?: boolean
           archived_at?: string | null
           created_at?: string
           description?: string
           edit_window_ends_at?: string
           employee_id?: string | null
           facility_id?: string
+          follow_up_required?: boolean
           id?: string
           immediate_actions?: string | null
           incident_type_id?: string | null
           location?: string | null
           location_other?: string | null
           occurred_at?: string
+          persons_involved?: number | null
           reporter_name?: string
           reporter_phone?: string | null
           resolved_at?: string | null
@@ -5562,6 +5565,7 @@ export type Database = {
           open_shift_first_come: boolean
           overtime_weekly_hours: number | null
           require_job_area_qualification: boolean
+          swap_expiry_hours: number
           swap_requires_manager_approval: boolean
           updated_at: string | null
           week_start_day: number
@@ -5581,6 +5585,7 @@ export type Database = {
           open_shift_first_come?: boolean
           overtime_weekly_hours?: number | null
           require_job_area_qualification?: boolean
+          swap_expiry_hours?: number
           swap_requires_manager_approval?: boolean
           updated_at?: string | null
           week_start_day?: number
@@ -5600,6 +5605,7 @@ export type Database = {
           open_shift_first_come?: boolean
           overtime_weekly_hours?: number | null
           require_job_area_qualification?: boolean
+          swap_expiry_hours?: number
           swap_requires_manager_approval?: boolean
           updated_at?: string | null
           week_start_day?: number
@@ -5734,6 +5740,7 @@ export type Database = {
           created_at: string
           decided_at: string | null
           decision_note: string | null
+          expires_at: string | null
           facility_id: string
           id: string
           manager_approver_employee_id: string | null
@@ -5750,6 +5757,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decision_note?: string | null
+          expires_at?: string | null
           facility_id: string
           id?: string
           manager_approver_employee_id?: string | null
@@ -5766,6 +5774,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decision_note?: string | null
+          expires_at?: string | null
           facility_id?: string
           id?: string
           manager_approver_employee_id?: string | null
@@ -6457,6 +6466,14 @@ export type Database = {
       scheduling_decide_open_claim: {
         Args: { p_approve: boolean; p_note?: string; p_open_shift_id: string }
         Returns: Json
+      }
+      scheduling_expire_open_claims: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
+      scheduling_expire_stale_swaps: {
+        Args: { p_limit?: number }
+        Returns: number
       }
       scheduling_notify_swap_request: {
         Args: { p_swap_id: string }

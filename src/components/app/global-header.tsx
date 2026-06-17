@@ -43,6 +43,8 @@ type GlobalHeaderProps = {
   facilityName: string | null
   tempF: number | null
   tempLocation: string | null
+  // Staff variant only: enabled module keys for the facility (null = show all).
+  enabledModules?: string[] | null
 }
 
 function formatDate(d: Date): string {
@@ -87,6 +89,7 @@ export function GlobalHeader({
   facilityName,
   tempF,
   tempLocation,
+  enabledModules,
 }: GlobalHeaderProps) {
   const router = useRouter()
   const nowMs = useSyncExternalStore(
@@ -121,6 +124,15 @@ export function GlobalHeader({
       ) : (
         <Wordmark href="/dashboard" size="sm" className="lg:hidden" />
       )}
+        ) : (
+          <AppMobileSidebar
+            isAdmin={isAdmin}
+            email={email}
+            fullName={fullName}
+            enabledModules={enabledModules}
+          />
+        )}
+      </div>
 
       {/* Center: uniform context info as subtle chips — User · Facility · Date/Time · Temp */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-medium">

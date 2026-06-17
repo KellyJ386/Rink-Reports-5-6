@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
+import { assertCanAssignRole } from "@/lib/permissions/role-assignment"
 import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { checkSiteUrlEnv } from "@/lib/supabase/admin"
@@ -75,6 +76,21 @@ function parseFormInput(
   const phoneRaw = nonEmpty(formData.get("phone"))
   if (phoneRaw && phoneRaw.length > 30) return { ok: false, error: "Phone number is too long." }
 
+  // Per-employee weekly-hours cap (optional). Whole hours, 1..168 — mirrors the
+  // employees_max_weekly_hours_check constraint so the form gets a clean error.
+  let max_weekly_hours: number | null = null
+  const maxHoursRaw = nonEmpty(formData.get("max_weekly_hours"))
+  if (maxHoursRaw !== null) {
+    const n = Number(maxHoursRaw)
+    if (!Number.isInteger(n) || n < 1 || n > 168) {
+      return {
+        ok: false,
+        error: "Max weekly hours must be a whole number between 1 and 168.",
+      }
+    }
+    max_weekly_hours = n
+  }
+
   const isMinor = formData.get("is_minor") === "on"
   const needsLogin = formData.get("needs_login") === "on"
 
@@ -132,6 +148,7 @@ function parseFormInput(
       emergency_contact_name: emergency_name,
       emergency_contact_phone: emergency_phone,
       hire_date: nonEmpty(formData.get("hire_date")),
+      max_weekly_hours,
       job_area_ids,
       primary_job_area_id,
       job_areas_submitted,
@@ -193,6 +210,18 @@ export async function createEmployee(
     const current = await getCurrentUser()
     const createdBy = current?.profile?.id ?? null
 
+    // Privilege guard: a non-super-admin must not assign an admin-tier (or
+    // higher) role, which would mint another facility admin. RLS only blocks
+    // cross-facility writes, so this intra-facility escalation has to be caught
+    // in app code (mirrors createRole's hierarchy-floor guard).
+    const roleGuard = await assertCanAssignRole(
+      supabase,
+      facility.facilityId,
+      input.role_id,
+      current?.profile?.is_super_admin ?? false,
+    )
+    if (!roleGuard.ok) return { ok: false, error: roleGuard.error }
+
     // Atomically creates the employee row + department links + job-area links
     // in one DB transaction (shared with the bulk-add path), eliminating the
     // previous best-effort rollback pattern. Job areas are validated in app
@@ -218,6 +247,22 @@ export async function createEmployee(
       return { ok: false, error: created.error }
     }
     const employeeId = created.employeeId
+
+    // Per-employee weekly-hours cap isn't part of the create_employee_complete
+    // RPC signature, so set it with a follow-up scoped update when provided.
+    if (input.max_weekly_hours !== null) {
+      const { error: capErr } = await supabase
+        .from("employees")
+        .update({ max_weekly_hours: input.max_weekly_hours })
+        .eq("id", employeeId as string)
+        .eq("facility_id", facility.facilityId)
+      if (capErr) {
+        return {
+          ok: false,
+          error: dbError(capErr, "Employee created, but the weekly-hours cap couldn't be saved."),
+        }
+      }
+    }
 
     // Provision a login only when the admin opted in ("Needs system login").
     // On success we link employees.user_id and seed this role's default
@@ -282,6 +327,18 @@ export async function updateEmployee(
     const input = parsed.value
 
     const supabase = await createClient()
+    const current = await getCurrentUser()
+
+    // Privilege guard (see createEmployee): block non-super-admins from
+    // promoting an employee into an admin-tier role they couldn't themselves
+    // grant.
+    const roleGuard = await assertCanAssignRole(
+      supabase,
+      facility.facilityId,
+      input.role_id,
+      current?.profile?.is_super_admin ?? false,
+    )
+    if (!roleGuard.ok) return { ok: false, error: roleGuard.error }
 
     // Capture the pre-update role + login link so we can re-seed permissions
     // when (and only when) the role actually changes for a provisioned user.
@@ -305,6 +362,7 @@ export async function updateEmployee(
         emergency_contact_name: input.emergency_contact_name,
         emergency_contact_phone: input.emergency_contact_phone,
         hire_date: input.hire_date,
+        max_weekly_hours: input.max_weekly_hours,
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)

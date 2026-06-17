@@ -75,7 +75,7 @@ export default async function AirQualityDonePage({
         .eq("id", report.facility_id)
         .maybeSingle(),
       supabase
-        .from("air_quality_locations")
+        .from("facility_spaces")
         .select("name")
         .eq("id", report.location_id)
         .maybeSingle(),

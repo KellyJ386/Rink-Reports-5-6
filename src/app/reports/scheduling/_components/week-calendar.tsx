@@ -25,12 +25,6 @@ interface Props {
 const NAVY = "#003B6F"
 const GREEN = "#4DFF00"
 const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-// Theme-responsive via CSS custom properties
-const SURFACE = "var(--card)"
-const ELEVATED = "var(--secondary)"
-const BORDER = "var(--border)"
-const SECONDARY = "var(--muted-foreground)"
-const FOREGROUND = "var(--foreground)"
 
 function toISODate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -95,27 +89,19 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
   const today = dayKeyInTz(new Date(), timezone)
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="flex flex-col gap-3">
       {/* Week nav */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div className="flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={prevWeek}
-          style={{
-            width: 36, height: 36, borderRadius: 8, border: `1px solid ${BORDER}`,
-            background: SURFACE, color: FOREGROUND, cursor: "pointer",
-            display: "grid", placeItems: "center",
-          }}
+          className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg border border-border bg-card text-foreground"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
-        <div style={{
-          padding: "0 14px", height: 36, borderRadius: 8, background: SURFACE,
-          border: `1px solid ${BORDER}`, display: "flex", alignItems: "center",
-          color: FOREGROUND, fontSize: 13, fontWeight: 600, gap: 6,
-        }}>
+        <div className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-[14px] text-[13px] font-semibold text-foreground">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
           </svg>
@@ -124,11 +110,7 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
         <button
           type="button"
           onClick={nextWeek}
-          style={{
-            width: 36, height: 36, borderRadius: 8, border: `1px solid ${BORDER}`,
-            background: SURFACE, color: FOREGROUND, cursor: "pointer",
-            display: "grid", placeItems: "center",
-          }}
+          className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg border border-border bg-card text-foreground"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m9 18 6-6-6-6" />
@@ -137,48 +119,42 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
       </div>
 
       {/* Grid */}
-      <div style={{
-        background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 14,
-        overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.05)",
-      }}>
+      <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_3px_rgba(0,0,0,.05)]">
         {/* Day headers */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-          borderBottom: `1px solid ${BORDER}`,
-        }}>
+        <div
+          className="grid border-b border-border"
+          style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
+        >
           {days.map((d) => {
             const key = toISODate(d)
             const isToday = key === today
             return (
               <div
                 key={key}
+                className="border-r border-border px-2 py-[10px] text-center"
                 style={{
-                  borderRight: `1px solid ${BORDER}`,
-                  padding: "10px 8px",
-                  textAlign: "center",
-                  background: isToday ? "rgba(77,255,0,.08)" : SURFACE,
+                  background: isToday ? "rgba(77,255,0,.08)" : "var(--card)",
                 }}
               >
-                <div style={{
-                  fontSize: 9.5, fontWeight: 700, letterSpacing: ".1em",
-                  textTransform: "uppercase",
-                  color: isToday ? "var(--primary)" : SECONDARY,
-                }}>
+                <div
+                  className="text-[9.5px] font-bold uppercase tracking-[0.1em]"
+                  style={{
+                    color: isToday ? "var(--primary)" : "var(--muted-foreground)",
+                  }}
+                >
                   {SHORT_DAY_NAMES[d.getDay()]}
                 </div>
-                <div style={{
-                  fontFamily: DISPLAY_FONT,
-                  fontSize: 22, lineHeight: 1.1,
-                  color: FOREGROUND,
-                }}>
+                <div
+                  className="text-[22px] leading-[1.1] text-foreground"
+                  style={{ fontFamily: DISPLAY_FONT }}
+                >
                   {d.getDate()}
                 </div>
                 {isToday && (
-                  <div style={{
-                    width: 6, height: 6, borderRadius: 9999,
-                    background: GREEN, margin: "3px auto 0",
-                  }} />
+                  <div
+                    className="mx-auto mt-[3px]"
+                    style={{ width: 6, height: 6, borderRadius: 9999, background: GREEN }}
+                  />
                 )}
               </div>
             )
@@ -186,11 +162,10 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
         </div>
 
         {/* Shift cells */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-          minHeight: 120,
-        }}>
+        <div
+          className="grid min-h-[120px]"
+          style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
+        >
           {days.map((d) => {
             const key = toISODate(d)
             const dayShifts = shiftsByDay.get(key) ?? []
@@ -198,21 +173,13 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
             return (
               <div
                 key={key}
+                className="flex min-h-[120px] flex-col gap-1 border-r border-border p-1.5"
                 style={{
-                  borderRight: `1px solid ${BORDER}`,
-                  minHeight: 120,
-                  padding: 6,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                  background: isToday ? "rgba(77,255,0,.04)" : SURFACE,
+                  background: isToday ? "rgba(77,255,0,.04)" : "var(--card)",
                 }}
               >
                 {dayShifts.length === 0 && (
-                  <span style={{
-                    display: "block", marginTop: 8, fontSize: 11,
-                    color: BORDER, textAlign: "center",
-                  }}>—</span>
+                  <span className="mt-2 block text-center text-[11px] text-border">—</span>
                 )}
                 {dayShifts.map((s) => {
                   const isPublished = s.status === "published"
@@ -224,7 +191,7 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
                         borderRadius: 7,
                         padding: "5px 7px",
                         background: isCancelled
-                          ? ELEVATED
+                          ? "var(--secondary)"
                           : isPublished
                           ? "rgba(0,59,111,.15)"
                           : "rgba(14,165,233,.15)",
@@ -232,21 +199,23 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
                         opacity: isCancelled ? 0.55 : 1,
                       }}
                     >
-                      <div style={{
-                        fontSize: 10.5, fontWeight: 700,
-                        color: isCancelled ? SECONDARY : FOREGROUND,
-                        textDecoration: isCancelled ? "line-through" : "none",
-                        fontVariantNumeric: "tabular-nums",
-                      }}>
+                      <div
+                        className="text-[10.5px] font-bold"
+                        style={{
+                          color: isCancelled ? "var(--muted-foreground)" : "var(--foreground)",
+                          textDecoration: isCancelled ? "line-through" : "none",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
                         {formatTime(s.starts_at, timezone)}–{formatTime(s.ends_at, timezone)}
                       </div>
                       {s.departments?.name ? (
-                        <div style={{ fontSize: 10, color: SECONDARY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div className="mt-px overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-muted-foreground">
                           {s.departments.name}
                         </div>
                       ) : null}
                       {s.role_label ? (
-                        <div style={{ fontSize: 9.5, color: SECONDARY, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: 0.7 }}>
+                        <div className="mt-px overflow-hidden text-ellipsis whitespace-nowrap text-[9.5px] text-muted-foreground opacity-70">
                           {s.role_label}
                         </div>
                       ) : null}

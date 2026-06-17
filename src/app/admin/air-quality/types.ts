@@ -4,7 +4,8 @@
 
 import type { Tables } from "@/types/database"
 
-export type LocationRow = Tables<"air_quality_locations">
+// Air Quality now uses the shared facility_spaces list (migration 143).
+export type LocationRow = Tables<"facility_spaces">
 export type EquipmentRow = Tables<"air_quality_equipment">
 export type ReadingTypeRow = Tables<"air_quality_reading_types">
 export type ThresholdRow = Tables<"air_quality_thresholds">

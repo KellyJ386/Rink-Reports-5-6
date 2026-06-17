@@ -17,6 +17,12 @@ type SupabaseError = { code?: string; message?: string } | null
 
 function dbError(err: SupabaseError, fallback: string): string {
   if (!err) return fallback
+  // Exclusion-constraint backstop (migration 140): an assignment that would
+  // double-book the employee. Surface the same friendly copy as the app-side
+  // 'double_booked' pre-validation (formatViolations(["double_booked"])).
+  if (err.code === "23P01") {
+    return "This assignment overlaps another shift this employee is already on."
+  }
   // Map RLS / permission errors to friendly text.
   const msg = err.message?.trim() ?? ""
   if (

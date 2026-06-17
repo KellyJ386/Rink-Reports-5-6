@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next"
 import { Anton, Geist, Geist_Mono, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { PostHogProvider } from "@/components/app/posthog-provider"
+import { PwaInstallPrompt } from "@/components/app/pwa-install-prompt"
 import { SwRegister } from "@/components/app/sw-register"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -82,6 +83,7 @@ export default function RootLayout({
         </a>
         {children}
         <SwRegister />
+        <PwaInstallPrompt />
         <PostHogProvider />
         <Toaster />
       </body>

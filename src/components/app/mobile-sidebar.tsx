@@ -40,6 +40,10 @@ export function AppMobileSidebar({
   fullName,
   trigger,
 }: AppMobileSidebarProps) {
+  enabledModules?: string[] | null
+}
+
+export function AppMobileSidebar({ isAdmin, email, fullName, enabledModules }: AppMobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
   const initials = getInitials(fullName, email)
   const displayName = fullName?.trim() || email || "User"
@@ -69,7 +73,11 @@ export function AppMobileSidebar({
 
         {/* Nav */}
         <ScrollArea className="flex-1">
-          <AppSidebarNav isAdmin={isAdmin} onNavigate={() => setOpen(false)} />
+          <AppSidebarNav
+            isAdmin={isAdmin}
+            enabledModules={enabledModules}
+            onNavigate={() => setOpen(false)}
+          />
         </ScrollArea>
 
         {/* User card */}

@@ -35,6 +35,16 @@ function isUserAction(value: string): value is UserAction {
   return (USER_ACTIONS as readonly string[]).includes(value)
 }
 
+// The admin/admin cell is exactly what requireAdmin() keys off, so enabling it
+// grants Admin Center access (i.e. mints another facility admin). Only super
+// admins may turn it on — RLS only blocks cross-facility writes, so this
+// intra-facility escalation must be caught in app code. Granting the `admin`
+// action on a *report* module (configure that module) is normal delegation and
+// stays allowed.
+function isAdminConsoleGrant(moduleName: string, action: string): boolean {
+  return moduleName === "admin" && action === "admin"
+}
+
 /**
  * Upsert a single permission cell for one (user, facility, module, action).
  * The unique constraint user_permissions_unique drives the upsert.
@@ -47,12 +57,24 @@ export async function upsertUserPermission(input: {
   enabled: boolean
 }): Promise<ActionResult> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
     if (!isModuleName(input.moduleName)) {
       return { ok: false, error: `Invalid module: ${input.moduleName}` }
     }
     if (!isUserAction(input.action)) {
       return { ok: false, error: `Invalid action: ${input.action}` }
+    }
+
+    const isSuperAdmin = profile?.is_super_admin ?? false
+    if (!isSuperAdmin) {
+      // Defense-in-depth: a facility admin may only manage permissions within
+      // their own facility, and may never grant Admin Center access.
+      if (input.facilityId !== profile?.facility_id) {
+        return { ok: false, error: "You can only manage permissions within your own facility." }
+      }
+      if (input.enabled && isAdminConsoleGrant(input.moduleName, input.action)) {
+        return { ok: false, error: "Only a super admin can grant Admin Center access." }
+      }
     }
 
     const supabase = await createClient()
@@ -91,19 +113,29 @@ export async function applyPresetToUser(input: {
   preset: Preset
 }): Promise<ActionResult> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
+    const isSuperAdmin = profile?.is_super_admin ?? false
+    if (!isSuperAdmin && input.facilityId !== profile?.facility_id) {
+      return { ok: false, error: "You can only manage permissions within your own facility." }
+    }
+
     const supabase = await createClient()
     const matrix = presetMatrix(input.preset)
 
     const rows: CellRow[] = []
     for (const m of MODULE_NAMES) {
       for (const a of USER_ACTIONS) {
+        // A non-super-admin can apply a broad preset but can never grant Admin
+        // Center access through it (the full_access preset would otherwise set
+        // admin/admin = true).
+        const enabled =
+          !isSuperAdmin && isAdminConsoleGrant(m, a) ? false : matrix[m][a]
         rows.push({
           user_id: input.userId,
           facility_id: input.facilityId,
           module_name: m,
           action: a,
-          enabled: matrix[m][a],
+          enabled,
           source: "manual_override",
         })
       }
@@ -138,7 +170,8 @@ export async function bulkImportUserPermissionsCsv(
   csv: string,
 ): Promise<BulkImportResult> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
+    const isSuperAdmin = profile?.is_super_admin ?? false
     const supabase = await createClient()
 
     const parsed = parseCsv(csv)
@@ -185,6 +218,21 @@ export async function bulkImportUserPermissionsCsv(
       }
       const enabled =
         enabledRaw === "true" || enabledRaw === "1" || enabledRaw === "yes"
+
+      // Non-super-admins can't escape the matrix guards via CSV: skip rows
+      // outside their facility or any row that would grant Admin Center access.
+      if (!isSuperAdmin) {
+        if (facilityId !== profile?.facility_id) {
+          skipped++
+          errors.push(`Line ${lineNo}: facility outside your scope`)
+          return
+        }
+        if (enabled && isAdminConsoleGrant(moduleName, action)) {
+          skipped++
+          errors.push(`Line ${lineNo}: only a super admin can grant Admin Center access`)
+          return
+        }
+      }
 
       rows.push({
         user_id: userId,

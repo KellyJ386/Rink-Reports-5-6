@@ -39,25 +39,14 @@ export function DiagramNav({
 
   return (
     <div
+      className="grid gap-2 px-3 pt-3"
       style={{
-        padding: "12px 12px 0",
-        display: "grid",
         gridTemplateColumns: rinks.length > 1 ? "1fr 1fr" : "1fr",
-        gap: 8,
       }}
     >
       {rinks.length > 1 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <label
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              color: "var(--muted-foreground)",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              paddingLeft: 4,
-            }}
-          >
+        <div className="flex flex-col gap-1.5">
+          <label className="pl-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-muted-foreground">
             Rink
           </label>
           <Select
@@ -92,17 +81,8 @@ export function DiagramNav({
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label
-          style={{
-            fontSize: 10,
-            fontWeight: 800,
-            color: "var(--muted-foreground)",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            paddingLeft: 4,
-          }}
-        >
+      <div className="flex flex-col gap-1.5">
+        <label className="pl-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-muted-foreground">
           Diagram
         </label>
         <Select

@@ -108,8 +108,9 @@ export async function HistoryTabLoader({
   const fromDate = params.from || defaultFromDate()
   const toDate = params.to || ""
 
-  // Lookups for filter dropdowns and badge rendering.
-  const [dropdownsRes, empsRes] = await Promise.all([
+  // Lookups for filter dropdowns and badge rendering. Location options come
+  // from the shared facility_spaces list; everything else from accident_dropdowns.
+  const [dropdownsRes, spacesRes, empsRes] = await Promise.all([
     supabase
       .from("accident_dropdowns")
       .select("id, key, display_name, color, category")
@@ -117,6 +118,13 @@ export async function HistoryTabLoader({
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("display_name", { ascending: true }),
+    supabase
+      .from("facility_spaces")
+      .select("id, name, slug")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
     supabase
       .from("employees")
       .select("id, first_name, last_name")
@@ -127,10 +135,21 @@ export async function HistoryTabLoader({
   const dropdowns = (dropdownsRes.data ?? []) as DropdownLite[]
   const employees = (empsRes.data ?? []) as EmployeeLite[]
 
+  // Map facility_spaces into the DropdownLite shape the views/filters expect.
+  const locations: DropdownLite[] = (
+    (spacesRes.data ?? []) as Array<{ id: string; name: string; slug: string }>
+  ).map((s) => ({
+    id: s.id,
+    key: s.slug,
+    display_name: s.name,
+    color: null,
+    category: "location",
+  }))
+  const spacesById = new Map(locations.map((l) => [l.id, l]))
+
   const dropdownsById = new Map(dropdowns.map((d) => [d.id, d]))
   const severities = dropdowns.filter((d) => d.category === "severity")
   const bodyParts = dropdowns.filter((d) => d.category === "body_part")
-  const locations = dropdowns.filter((d) => d.category === "location")
   const activities = dropdowns.filter((d) => d.category === "activity")
   const medicals = dropdowns.filter((d) => d.category === "medical_attention")
 
@@ -205,7 +224,7 @@ export async function HistoryTabLoader({
       ? (dropdownsById.get(r.primary_injury_type_dropdown_id) ?? null)
       : null,
     location: r.location_dropdown_id
-      ? (dropdownsById.get(r.location_dropdown_id) ?? null)
+      ? (spacesById.get(r.location_dropdown_id) ?? null)
       : null,
     activity: r.activity_dropdown_id
       ? (dropdownsById.get(r.activity_dropdown_id) ?? null)
@@ -299,7 +318,7 @@ export async function HistoryTabLoader({
             null)
           : null,
         location: baseReport.location_dropdown_id
-          ? (dropdownsById.get(baseReport.location_dropdown_id) ?? null)
+          ? (spacesById.get(baseReport.location_dropdown_id) ?? null)
           : null,
         activity: baseReport.activity_dropdown_id
           ? (dropdownsById.get(baseReport.activity_dropdown_id) ?? null)
