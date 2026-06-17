@@ -5,32 +5,34 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-bold tracking-tight transition-[transform,box-shadow,background-color,color] duration-150 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[var(--ring)]/40 focus-visible:ring-[3px] focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-invalid:ring-destructive/30 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[8px] text-sm font-extrabold uppercase tracking-[0.06em] transition-[transform,box-shadow,background-color,color] duration-150 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[var(--ring)]/40 focus-visible:ring-[3px] focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-invalid:ring-destructive/30 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
-        // Signature pressable primary — green gradient + hard-bottom lip + soft green glow.
-        // Spec: linear-gradient(180deg, green-400, green-500) light · (green-200, green-300) dark.
+        // Primary — flat RinkReports green, deep-navy ink, hard 2px green lip.
         default:
-          "bg-gradient-to-b from-[var(--green-400)] to-[var(--green-500)] text-primary-foreground shadow-[var(--shadow-press-primary)] hover:from-[var(--green-500)] hover:to-[var(--green-600)] active:translate-y-px dark:from-[var(--green-200)] dark:to-[var(--green-300)] dark:text-[var(--navy-800)]",
+          "bg-primary text-primary-foreground shadow-[var(--shadow-press-primary)] hover:bg-[var(--primary-hover)] active:translate-y-px",
+        // back-compat alias (the gradient look is retired; primary is now flat)
         gradient:
-          "bg-gradient-to-b from-[var(--green-400)] to-[var(--green-500)] text-primary-foreground shadow-[var(--shadow-press-primary)] hover:from-[var(--green-500)] hover:to-[var(--green-600)] active:translate-y-px dark:from-[var(--green-200)] dark:to-[var(--green-300)] dark:text-[var(--navy-800)]",
+          "bg-primary text-primary-foreground shadow-[var(--shadow-press-primary)] hover:bg-[var(--primary-hover)] active:translate-y-px",
         warm:
-          "bg-gradient-to-b from-[var(--coral-300)] to-[var(--coral-400)] text-white shadow-[var(--shadow-press-warm)] hover:from-[var(--coral-400)] hover:to-[var(--coral-500)] active:translate-y-px dark:from-[var(--coral-200)] dark:to-[var(--coral-300)] dark:text-[var(--navy-800)]",
+          "bg-accent-warm text-[var(--accent-warm-foreground)] shadow-[var(--shadow-press-warm)] hover:opacity-95 active:translate-y-px",
         destructive:
           "bg-destructive text-destructive-foreground shadow-[var(--shadow-elev-1)] hover:bg-destructive/92 focus-visible:ring-destructive/35",
+        // Secondary / outline — white surface, navy ink, 1px line border.
         outline:
-          "border border-input bg-card text-foreground shadow-[var(--shadow-elev-1)] hover:bg-accent hover:text-accent-foreground hover:border-input dark:bg-card/60 dark:hover:bg-accent/70",
+          "border border-border bg-card text-foreground-strong shadow-[var(--shadow-elev-1)] hover:bg-accent",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-[var(--shadow-elev-1)] border border-input hover:bg-accent",
+          "border border-border bg-card text-foreground-strong shadow-[var(--shadow-elev-1)] hover:bg-accent",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/70",
-        link: "text-[var(--accent-brand)] underline-offset-4 hover:underline",
+          "text-foreground-strong hover:bg-accent",
+        // Link is text-only: opt out of the pressable uppercase chrome.
+        link: "font-semibold normal-case tracking-normal text-[var(--accent-brand)] underline-offset-4 hover:underline",
       },
       size: {
         default: "h-11 px-[18px] py-2 has-[>svg]:px-3",
-        sm: "h-9 rounded-md gap-1.5 px-3 text-xs has-[>svg]:px-2.5",
-        lg: "h-12 rounded-md px-6 text-base has-[>svg]:px-4",
+        sm: "h-9 gap-1.5 px-3 text-xs has-[>svg]:px-2.5",
+        lg: "h-12 px-6 text-base has-[>svg]:px-4",
         icon: "size-11",
       },
     },
