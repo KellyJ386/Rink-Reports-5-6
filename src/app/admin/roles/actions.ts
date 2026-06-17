@@ -9,6 +9,7 @@ import {
   type ModuleName,
   type UserAction,
 } from "@/lib/permissions"
+import { callerHierarchyFloor } from "@/lib/permissions/role-assignment"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 
@@ -102,42 +103,10 @@ export async function setRoleModuleAction(
   }
 }
 
-/**
- * Returns the caller's effective role hierarchy_level **inside the given
- * facility** (the lowest one across their active employee rows there), or
- * null when the caller is a platform super admin / has no employee row in
- * that facility.
- *
- * Scoping by facility is important: a user can hold legitimate employee
- * rows in multiple facilities at different ranks. The floor that gates
- * createRole / setRoleHierarchy must reflect the caller's rank in the
- * facility the action is targeting, NOT the highest-ranked role they
- * hold anywhere. Otherwise a low-rank admin in facility A who happens
- * to be a manager in facility B could mint a role in A below their A-rank.
- *
- * Convention in this codebase: LOWER number = HIGHER rank. So a caller
- * with level 100 must not create or re-rank a role to anything below 100.
- */
-async function callerHierarchyFloor(
-  facilityId: string,
-): Promise<number | null> {
-  const { profile } = await requireAdmin()
-  if (profile?.is_super_admin) return null
-
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from("employees")
-    .select("roles!inner(hierarchy_level)")
-    .eq("user_id", profile!.id)
-    .eq("facility_id", facilityId)
-    .eq("is_active", true)
-    .order("roles(hierarchy_level)", { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
-  const lvl = (data as { roles: { hierarchy_level: number } | null } | null)?.roles?.hierarchy_level
-  return typeof lvl === "number" ? lvl : null
-}
+// `callerHierarchyFloor` (the rank floor that gates createRole /
+// setRoleHierarchy and now employee role assignment) lives in
+// @/lib/permissions/role-assignment so the employee + permission paths share
+// the exact same privilege-escalation guard.
 
 // -----------------------------------------------------------------------------
 // Create a new (custom) role within a facility.

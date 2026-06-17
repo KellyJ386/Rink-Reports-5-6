@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { inviteEmployeeByEmail } from "@/lib/auth/invite-employee"
+import { assertCanAssignRole } from "@/lib/permissions/role-assignment"
 import { seedRolePermissionDefaults } from "@/lib/permissions/seed"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { checkSiteUrlEnv } from "@/lib/supabase/admin"
@@ -193,6 +194,18 @@ export async function createEmployee(
     const current = await getCurrentUser()
     const createdBy = current?.profile?.id ?? null
 
+    // Privilege guard: a non-super-admin must not assign an admin-tier (or
+    // higher) role, which would mint another facility admin. RLS only blocks
+    // cross-facility writes, so this intra-facility escalation has to be caught
+    // in app code (mirrors createRole's hierarchy-floor guard).
+    const roleGuard = await assertCanAssignRole(
+      supabase,
+      facility.facilityId,
+      input.role_id,
+      current?.profile?.is_super_admin ?? false,
+    )
+    if (!roleGuard.ok) return { ok: false, error: roleGuard.error }
+
     // Atomically creates the employee row + department links + job-area links
     // in one DB transaction (shared with the bulk-add path), eliminating the
     // previous best-effort rollback pattern. Job areas are validated in app
@@ -282,6 +295,18 @@ export async function updateEmployee(
     const input = parsed.value
 
     const supabase = await createClient()
+    const current = await getCurrentUser()
+
+    // Privilege guard (see createEmployee): block non-super-admins from
+    // promoting an employee into an admin-tier role they couldn't themselves
+    // grant.
+    const roleGuard = await assertCanAssignRole(
+      supabase,
+      facility.facilityId,
+      input.role_id,
+      current?.profile?.is_super_admin ?? false,
+    )
+    if (!roleGuard.ok) return { ok: false, error: roleGuard.error }
 
     // Capture the pre-update role + login link so we can re-seed permissions
     // when (and only when) the role actually changes for a provisioned user.
