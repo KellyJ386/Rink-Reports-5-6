@@ -226,7 +226,7 @@ export function ExportSettingsForm({ settings }: Props) {
         <p className="text-sm text-destructive">{state.error}</p>
       )}
       {state.ok === true && (
-        <p className="text-sm text-green-600 dark:text-green-400">
+        <p className="text-sm text-success-soft-foreground">
           {state.message}
         </p>
       )}

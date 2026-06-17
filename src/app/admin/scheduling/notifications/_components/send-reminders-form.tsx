@@ -57,7 +57,7 @@ export function SendRemindersForm() {
             <p className="w-full text-sm text-destructive">{state.error}</p>
           )}
           {state.ok === true && (
-            <p className="w-full text-sm text-green-600 dark:text-green-400">
+            <p className="w-full text-sm text-success-soft-foreground">
               {(state as ActionState & { message?: string }).message}
             </p>
           )}
