@@ -13,6 +13,7 @@ export type IncidentFieldName =
   | "occurred_at"
   | "severity_level_id"
   | "description"
+  | "persons_involved"
 
 export type WitnessInput = {
   name: string
@@ -34,6 +35,9 @@ export type IncidentInput = {
   space_ids: string[]
   witnesses: WitnessInput[]
   witnessMissingContact: boolean
+  ambulance_flag: boolean
+  persons_involved: number | null
+  follow_up_required: boolean
 }
 
 export type IncidentValidation = {
@@ -53,6 +57,28 @@ export type SubmissionFormState = {
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : ""
+}
+
+/** Coerce a checkbox/JSON value into a strict boolean. Form checkboxes send
+ * "on"/"true"/"1" when checked and omit the key entirely when unchecked. */
+function bool(v: unknown): boolean {
+  if (typeof v === "boolean") return v
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase()
+    return s === "on" || s === "true" || s === "1" || s === "yes"
+  }
+  return false
+}
+
+/** Parse an optional non-negative integer. Blank/absent → null. A present but
+ * non-integer or negative value is surfaced as NaN so validation can flag it. */
+function optionalCount(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  const s = typeof v === "number" ? String(v) : str(v)
+  if (s === "") return null
+  const n = Number(s)
+  if (!Number.isInteger(n) || n < 0) return Number.NaN
+  return n
 }
 
 function normalizeWitnesses(raw: unknown): {
@@ -123,6 +149,9 @@ export function buildInputFromForm(formData: FormData): IncidentInput {
     space_ids: normalizeSpaceIds(spacesRaw),
     witnesses: rows,
     witnessMissingContact: missingContact,
+    ambulance_flag: bool(formData.get("ambulance_flag")),
+    persons_involved: optionalCount(formData.get("persons_involved")),
+    follow_up_required: bool(formData.get("follow_up_required")),
   }
 }
 
@@ -144,6 +173,9 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
     space_ids: normalizeSpaceIds(obj.space_ids),
     witnesses: rows,
     witnessMissingContact: missingContact,
+    ambulance_flag: bool(obj.ambulance_flag),
+    persons_involved: optionalCount(obj.persons_involved),
+    follow_up_required: bool(obj.follow_up_required),
   }
 }
 
@@ -167,6 +199,10 @@ export function validateIncidentInput(input: IncidentInput): IncidentValidation 
     fieldErrors.description = "Please describe what happened."
   } else if (input.description.length > DESCRIPTION_MAX) {
     fieldErrors.description = `Description must be ${DESCRIPTION_MAX} characters or fewer.`
+  }
+  if (input.persons_involved !== null && Number.isNaN(input.persons_involved)) {
+    fieldErrors.persons_involved =
+      "Enter a whole number of people (0 or more), or leave it blank."
   }
 
   let error: string | undefined

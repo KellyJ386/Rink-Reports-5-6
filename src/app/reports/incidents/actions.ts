@@ -104,7 +104,7 @@ export async function updateIncidentReport(
   const { data: existing, error: fetchErr } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, reporter_name, reporter_phone, description",
+      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
     )
     .eq("id", reportId)
     .maybeSingle()
@@ -151,6 +151,9 @@ export async function updateIncidentReport(
       reporter_name: input.reporter_name,
       reporter_phone: input.reporter_phone,
       description: input.description,
+      ambulance_flag: input.ambulance_flag,
+      persons_involved: input.persons_involved,
+      follow_up_required: input.follow_up_required,
     })
     .eq("id", reportId)
   if (updErr) return { error: dbError(updErr, "Failed to update report.") }
@@ -220,6 +223,9 @@ export async function updateIncidentReport(
       reporter_name: existing.reporter_name,
       reporter_phone: existing.reporter_phone,
       description: existing.description,
+      ambulance_flag: existing.ambulance_flag,
+      persons_involved: existing.persons_involved,
+      follow_up_required: existing.follow_up_required,
       space_ids: (existingSpaceRows ?? []).map((s) => s.space_id),
       witnesses: existingWitnessRows ?? [],
     },
@@ -233,6 +239,9 @@ export async function updateIncidentReport(
       reporter_name: input.reporter_name,
       reporter_phone: input.reporter_phone,
       description: input.description,
+      ambulance_flag: input.ambulance_flag,
+      persons_involved: input.persons_involved,
+      follow_up_required: input.follow_up_required,
       space_ids: refs.validSpaceIds,
       witnesses: input.witnesses,
     },
