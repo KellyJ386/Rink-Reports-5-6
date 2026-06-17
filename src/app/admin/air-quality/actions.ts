@@ -1017,13 +1017,18 @@ export async function deleteAirQualityReport(
     const current = await requireAdmin()
     if (!reportId) return { ok: false, error: "Missing report id." }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
     let query = supabase
       .from("air_quality_reports")
       .delete()
       .eq("id", reportId)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
+    // Non-super-admins must be facility-scoped (an explicit requirement, not
+    // inferred from a null facility_id); super admins delete cross-facility by
+    // intent. RLS backstops either path.
+    if (!current.profile?.is_super_admin) {
+      if (!current.profile?.facility_id) {
+        return { ok: false, error: "No facility assigned to your account." }
+      }
+      query = query.eq("facility_id", current.profile.facility_id)
     }
     const { error } = await query
     if (error) {
