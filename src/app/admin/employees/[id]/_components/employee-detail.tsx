@@ -359,11 +359,11 @@ function CertificationsTab({ data }: { data: EmployeeDetailData }) {
                         <Badge
                           className={
                             status.tone === "danger"
-                              ? "bg-rose-800/60 text-rose-100"
+                              ? "bg-destructive-soft text-destructive-soft-foreground"
                               : status.tone === "warn"
-                                ? "bg-amber-800/60 text-amber-100"
+                                ? "bg-warning-soft text-warning-soft-foreground"
                                 : status.tone === "ok"
-                                  ? "bg-emerald-800/60 text-emerald-100"
+                                  ? "bg-success-soft text-success-soft-foreground"
                                   : "bg-muted text-muted-foreground"
                           }
                         >
