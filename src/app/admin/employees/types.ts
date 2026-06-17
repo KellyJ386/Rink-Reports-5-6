@@ -37,6 +37,10 @@ export type EmployeeFormInput = {
   emergency_contact_name: string | null
   emergency_contact_phone: string | null
   hire_date: string | null
+  // Per-employee weekly scheduled-hours cap (whole hours, 1..168). NULL = no
+  // individual cap; the scheduling grid's weekly-hours warning then falls back
+  // to the facility-level schedule_settings thresholds. (employees.max_weekly_hours)
+  max_weekly_hours: number | null
   // Job-area assignments (Employee Scheduling). Complete desired set (max 4);
   // primary must be one of job_area_ids or it's ignored. Empty when the form
   // doesn't submit areas yet.

@@ -76,6 +76,21 @@ function parseFormInput(
   const phoneRaw = nonEmpty(formData.get("phone"))
   if (phoneRaw && phoneRaw.length > 30) return { ok: false, error: "Phone number is too long." }
 
+  // Per-employee weekly-hours cap (optional). Whole hours, 1..168 — mirrors the
+  // employees_max_weekly_hours_check constraint so the form gets a clean error.
+  let max_weekly_hours: number | null = null
+  const maxHoursRaw = nonEmpty(formData.get("max_weekly_hours"))
+  if (maxHoursRaw !== null) {
+    const n = Number(maxHoursRaw)
+    if (!Number.isInteger(n) || n < 1 || n > 168) {
+      return {
+        ok: false,
+        error: "Max weekly hours must be a whole number between 1 and 168.",
+      }
+    }
+    max_weekly_hours = n
+  }
+
   const isMinor = formData.get("is_minor") === "on"
   const needsLogin = formData.get("needs_login") === "on"
 
@@ -133,6 +148,7 @@ function parseFormInput(
       emergency_contact_name: emergency_name,
       emergency_contact_phone: emergency_phone,
       hire_date: nonEmpty(formData.get("hire_date")),
+      max_weekly_hours,
       job_area_ids,
       primary_job_area_id,
       job_areas_submitted,
@@ -232,6 +248,22 @@ export async function createEmployee(
     }
     const employeeId = created.employeeId
 
+    // Per-employee weekly-hours cap isn't part of the create_employee_complete
+    // RPC signature, so set it with a follow-up scoped update when provided.
+    if (input.max_weekly_hours !== null) {
+      const { error: capErr } = await supabase
+        .from("employees")
+        .update({ max_weekly_hours: input.max_weekly_hours })
+        .eq("id", employeeId as string)
+        .eq("facility_id", facility.facilityId)
+      if (capErr) {
+        return {
+          ok: false,
+          error: dbError(capErr, "Employee created, but the weekly-hours cap couldn't be saved."),
+        }
+      }
+    }
+
     // Provision a login only when the admin opted in ("Needs system login").
     // On success we link employees.user_id and seed this role's default
     // permissions. Failures here do NOT roll back the employee record — the
@@ -330,6 +362,7 @@ export async function updateEmployee(
         emergency_contact_name: input.emergency_contact_name,
         emergency_contact_phone: input.emergency_contact_phone,
         hire_date: input.hire_date,
+        max_weekly_hours: input.max_weekly_hours,
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)

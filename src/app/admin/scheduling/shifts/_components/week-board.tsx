@@ -62,6 +62,7 @@ import {
   ToolbarToggle,
 } from "./board-pieces"
 import { WeekGrid } from "./week-grid"
+import { MonthGrid } from "./month-grid"
 import {
   dtoToEvent,
   type BoardView,
@@ -498,8 +499,17 @@ export function WeekBoard(props: WeekBoardProps) {
   // ---- Toolbar actions ----
   const navigate = useCallback(
     (delta: number) => {
-      const span = view === "day" ? 1 : 7
-      const next = addLocalDays(anchor, delta * span)
+      let next: Date
+      if (view === "month") {
+        // Jump whole months, anchored to the 1st so the displayed grid shifts
+        // cleanly. The page preloads a ±28-day window, so stepping a month away
+        // re-fetches via the date query param.
+        next = new Date(anchor.getFullYear(), anchor.getMonth() + delta, 1)
+        next.setHours(0, 0, 0, 0)
+      } else {
+        const span = view === "day" ? 1 : 7
+        next = addLocalDays(anchor, delta * span)
+      }
       router.replace(`${pathname}?date=${isoDateKey(next)}`, { scroll: false })
     },
     [anchor, view, router, pathname],
@@ -510,11 +520,17 @@ export function WeekBoard(props: WeekBoardProps) {
     })
   }, [router, pathname])
 
+  // Month view is read-only; clicking a day drops into the editable week view
+  // anchored on that date.
+  const handleSelectDay = useCallback(
+    (day: Date) => {
+      setView("week")
+      router.replace(`${pathname}?date=${isoDateKey(day)}`, { scroll: false })
+    },
+    [router, pathname],
+  )
+
   const onViewChange = useCallback((v: BoardView) => {
-    if (v === "month") {
-      toast.info("Month view is coming soon — showing the week.")
-      return
-    }
     setView(v)
   }, [])
 
@@ -557,6 +573,12 @@ export function WeekBoard(props: WeekBoardProps) {
   }, [weekEvents, props.employees, jobAreaNameById, days])
 
   const weekRangeLabel = useMemo(() => {
+    if (view === "month") {
+      return anchor.toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+      })
+    }
     const first = days[0]
     const last = days[days.length - 1]
     const fmt = (d: Date) =>
@@ -568,7 +590,7 @@ export function WeekBoard(props: WeekBoardProps) {
           day: "numeric",
         })
       : `${fmt(first)} – ${fmt(last)} · ${last.getFullYear()}`
-  }, [days, view])
+  }, [days, view, anchor])
 
   return (
     <div className="flex flex-col gap-4">
@@ -673,7 +695,19 @@ export function WeekBoard(props: WeekBoardProps) {
         </Button>
       </div>
 
-      {/* Grid + right rail */}
+      {view === "month" ? (
+        <MonthGrid
+          events={events}
+          employees={props.employees}
+          jobAreaOrder={jobAreaOrder}
+          jobAreaNameById={jobAreaNameById}
+          anchor={anchor}
+          weekStartDay={props.weekStartDay}
+          colorBy={colorBy}
+          onSelectDay={handleSelectDay}
+        />
+      ) : (
+      /* Grid + right rail */
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <WeekGrid
           events={events}
@@ -747,6 +781,7 @@ export function WeekBoard(props: WeekBoardProps) {
           </Link>
         </div>
       </div>
+      )}
 
       {popover ? (
         <AssignPopover
