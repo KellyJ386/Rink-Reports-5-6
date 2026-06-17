@@ -46,6 +46,32 @@ Air Quality is now functional on production.
 - **Admin UI**: `/admin/modules` page + `setFacilityModuleEnabled` server
   action (facility_id server-injected; RLS-guarded) + nav entry under Setup.
 
+## Follow-up pass (post-C1–C4)
+
+### Production migration drift — DEEPER than the audit reported ✅ FIXED (production DB)
+While resolving the type follow-up, discovered the live DB was missing **all of
+migrations 134–139a** (the live ledger jumped 133 → 139b → 140). Confirmed
+missing and replayed each to production (idempotent, verified per migration),
+recorded under versions `00000000000134`–`00000000000139`:
+- **134** purge_old_notification_outbox / purge_old_offline_sync_queue
+- **135** seed_default_daily_report_checklists + create_facility_with_roles wiring
+- **136** scheduling_apply_swap / scheduling_approve_publish_request + RLS hardening
+- **137** facility-local rules engine + scheduling_decide_open_claim / scheduling_notify_swap_request
+- **138** ice_depth CHECK constraints (low<high, depth>=0) + purge_old_ice_depth_sessions
+- **139a** Operational→Daily template rename (17 live rows) + Daily-phase seeder
+Impact fixed: scheduling swap-apply / publish-approval / open-shift-claim flows
+(were calling non-existent RPCs in prod), new-facility checklist seeding, retention
+purge workers, and the Daily phase label. Live is now consistent through migration 144.
+
+### Dead dependency removed ✅
+`react-big-calendar` + `@types/react-big-calendar` (zero `src/` imports — replaced
+by the bespoke pointer-events grid; only comment references remained).
+
+### Loading boundary ✅
+Added `src/app/reports/facility-paperwork/loading.tsx` (only report module that
+lacked one). Note: group-level `error.tsx` already exists at `src/app/reports`
+and `src/app/admin`, so per-module error boundaries are largely already covered.
+
 ## Follow-ups discovered (not in original audit, out of scope here)
 - **Pre-existing type drift**: `src/types/database.ts` differs from the live
   schema in places unrelated to this work — `ip` column nullability on
