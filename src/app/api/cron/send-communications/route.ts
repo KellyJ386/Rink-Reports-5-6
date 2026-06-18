@@ -135,8 +135,6 @@ async function loadPending(
   supabase: SupabaseClient<Database>,
 ): Promise<RecipientRow[]> {
   const nowIso = new Date().toISOString()
-  // email_attempts / email_next_attempt_at are added in migration 62 and
-  // not yet in generated DB types — cast to bypass typing for those columns.
   const { data, error } = await supabase
     .from("communication_recipients")
     .select(
@@ -152,8 +150,17 @@ async function loadPending(
     return []
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => {
+  type EmployeeRel = { email: string | null }
+  type MessageRel = { subject: string | null; body: string; pdf_url: string | null }
+  type PendingQueryRow = {
+    id: string
+    message_id: string
+    email_attempts: number | null
+    employees: EmployeeRel | EmployeeRel[] | null
+    communication_messages: MessageRel | MessageRel[] | null
+  }
+
+  return ((data ?? []) as PendingQueryRow[]).map((r) => {
     const emp = Array.isArray(r.employees) ? r.employees[0] : r.employees
     const msg = Array.isArray(r.communication_messages)
       ? r.communication_messages[0]

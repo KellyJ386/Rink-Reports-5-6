@@ -709,6 +709,13 @@ export async function updateSchedulingSettings(
     if (!Number.isFinite(dsm) || dsm <= 0) {
       return { ok: false, error: "Default shift minutes must be positive." }
     }
+    const seh = Number(values.swap_expiry_hours)
+    if (!Number.isInteger(seh) || seh <= 0) {
+      return {
+        ok: false,
+        error: "Swap expiry hours must be a positive whole number.",
+      }
+    }
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -723,6 +730,7 @@ export async function updateSchedulingSettings(
           minimum_break_minutes: values.minimum_break_minutes,
           minimum_break_after_hours: values.minimum_break_after_hours,
           swap_requires_manager_approval: values.swap_requires_manager_approval,
+          swap_expiry_hours: seh,
           open_shift_first_come: values.open_shift_first_come,
           notify_on_publish: values.notify_on_publish,
           notify_on_overtime: values.notify_on_overtime,

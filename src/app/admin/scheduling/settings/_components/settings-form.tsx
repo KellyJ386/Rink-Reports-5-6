@@ -61,6 +61,9 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       ? ""
       : String(settings.minimum_break_after_hours)
   )
+  const [swapExpiryHours, setSwapExpiryHours] = useState<string>(
+    String(settings.swap_expiry_hours ?? 72)
+  )
   const [swapRequiresManagerApproval, setSwapRequiresManagerApproval] =
     useState<boolean>(settings.swap_requires_manager_approval)
   const [openShiftFirstCome, setOpenShiftFirstCome] = useState<boolean>(
@@ -94,6 +97,11 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       toast.error("Default shift minutes must be a positive number.")
       return
     }
+    const seh = Number(swapExpiryHours)
+    if (!Number.isInteger(seh) || seh <= 0) {
+      toast.error("Swap expiry hours must be a positive whole number.")
+      return
+    }
     startTransition(async () => {
       const r = await updateSchedulingSettings({
         week_start_day: weekStartDay,
@@ -103,6 +111,7 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         minimum_break_minutes: nullableNumber(minimumBreakMinutes),
         minimum_break_after_hours: nullableNumber(minimumBreakAfterHours),
         swap_requires_manager_approval: swapRequiresManagerApproval,
+        swap_expiry_hours: seh,
         open_shift_first_come: openShiftFirstCome,
         notify_on_publish: notifyOnPublish,
         notify_on_overtime: notifyOnOvertime,
@@ -179,6 +188,19 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             onChange={(e) => setMinimumBreakAfterHours(e.target.value)}
             placeholder="(none)"
           />
+        </Field>
+        <Field label="Swap request expiry (hours)">
+          <Input
+            type="number"
+            min={1}
+            value={swapExpiryHours}
+            onChange={(e) => setSwapExpiryHours(e.target.value)}
+            placeholder="72"
+          />
+          <p className="text-muted-foreground text-xs">
+            Undecided swap requests lapse to “expired” after this window
+            (capped at the shift’s start). Default 72.
+          </p>
         </Field>
       </div>
 

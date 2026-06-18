@@ -45,6 +45,7 @@ export type SchedulingSettingsInput = {
   minimum_break_minutes: number | null
   minimum_break_after_hours: number | null
   swap_requires_manager_approval: boolean
+  swap_expiry_hours: number
   open_shift_first_come: boolean
   notify_on_publish: boolean
   notify_on_overtime: boolean
