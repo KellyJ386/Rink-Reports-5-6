@@ -280,10 +280,10 @@ export default async function Home() {
             }}
           >
             <Image
-              src="/rink-reports-logo.svg"
+              src="/rink-reports-logo.png"
               alt="Rink Reports"
-              width={768}
-              height={362}
+              width={1352}
+              height={594}
               priority
               style={{
                 width: "100%",
