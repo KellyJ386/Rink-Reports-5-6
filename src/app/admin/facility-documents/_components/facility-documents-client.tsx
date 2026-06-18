@@ -21,8 +21,11 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   FACILITY_DOCUMENT_CATEGORIES,
+  MAX_DOCUMENT_BYTES,
   facilityDocumentCategoryLabel,
+  fileExtension,
   formatFileSize,
+  isAllowedDocumentExtension,
 } from "@/lib/facility-documents"
 
 import {
@@ -52,12 +55,41 @@ export function FacilityDocumentsClient({
 // Bulk upload
 // ---------------------------------------------------------------------------
 
+type RejectedFile = { name: string; reason: string }
+
 function UploadCard({ facilityId }: { facilityId: string }) {
   const router = useRouter()
   const formRef = useRef<HTMLFormElement>(null)
   const [category, setCategory] = useState<string>("")
-  const [selectedNames, setSelectedNames] = useState<string[]>([])
+  const [validFiles, setValidFiles] = useState<File[]>([])
+  const [rejected, setRejected] = useState<RejectedFile[]>([])
   const [pending, startTransition] = useTransition()
+
+  // Validate on selection so oversized/unsupported files are caught before they
+  // are uploaded, not after a full transfer (the server enforces the same
+  // limits as a backstop). Mirrors the server's "skip bad, upload good" policy.
+  function handleFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? [])
+    const ok: File[] = []
+    const bad: RejectedFile[] = []
+    for (const f of picked) {
+      if (!isAllowedDocumentExtension(f.name)) {
+        bad.push({
+          name: f.name,
+          reason: `unsupported type (.${fileExtension(f.name) || "?"})`,
+        })
+      } else if (f.size > MAX_DOCUMENT_BYTES) {
+        bad.push({
+          name: f.name,
+          reason: `over ${formatFileSize(MAX_DOCUMENT_BYTES)} (${formatFileSize(f.size)})`,
+        })
+      } else {
+        ok.push(f)
+      }
+    }
+    setValidFiles(ok)
+    setRejected(bad)
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -65,18 +97,27 @@ function UploadCard({ facilityId }: { facilityId: string }) {
       toast.error("Choose a category first.")
       return
     }
-    if (selectedNames.length === 0) {
-      toast.error("Choose at least one file to upload.")
+    if (validFiles.length === 0) {
+      toast.error(
+        rejected.length > 0
+          ? "Every selected file was rejected. Choose supported files under the size limit."
+          : "Choose at least one file to upload.",
+      )
       return
     }
+    // Send only the files that passed validation; oversized/unsupported ones
+    // never leave the browser.
     const formData = new FormData(e.currentTarget)
+    formData.delete("files")
+    for (const f of validFiles) formData.append("files", f)
     startTransition(async () => {
       const result = await uploadDocuments({ ok: null }, formData)
       if (result.ok) {
         toast.success(result.message ?? "Documents uploaded.")
         formRef.current?.reset()
         setCategory("")
-        setSelectedNames([])
+        setValidFiles([])
+        setRejected([])
         router.refresh()
       } else if (result.ok === false) {
         toast.error(result.error)
@@ -124,11 +165,7 @@ function UploadCard({ facilityId }: { facilityId: string }) {
               type="file"
               multiple
               className="h-12 cursor-pointer py-2.5 file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
-              onChange={(e) =>
-                setSelectedNames(
-                  Array.from(e.target.files ?? []).map((f) => f.name),
-                )
-              }
+              onChange={handleFilesChange}
             />
           </div>
         </div>
@@ -144,17 +181,27 @@ function UploadCard({ facilityId }: { facilityId: string }) {
           />
         </div>
 
-        {selectedNames.length > 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {selectedNames.length} file
-            {selectedNames.length === 1 ? "" : "s"} selected:{" "}
-            <span className="text-foreground">{selectedNames.join(", ")}</span>
-          </p>
-        ) : (
+        {validFiles.length === 0 && rejected.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            PDF, Word, Excel, PowerPoint, text, or image files up to 25 MB each.
+            PDF, Word, Excel, PowerPoint, text, or image files up to{" "}
+            {formatFileSize(MAX_DOCUMENT_BYTES)} each.
           </p>
-        )}
+        ) : null}
+        {validFiles.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {validFiles.length} file
+            {validFiles.length === 1 ? "" : "s"} ready:{" "}
+            <span className="text-foreground">
+              {validFiles.map((f) => f.name).join(", ")}
+            </span>
+          </p>
+        ) : null}
+        {rejected.length > 0 ? (
+          <p className="text-sm text-destructive">
+            {rejected.length} file{rejected.length === 1 ? "" : "s"} skipped:{" "}
+            {rejected.map((r) => `${r.name} — ${r.reason}`).join("; ")}
+          </p>
+        ) : null}
 
         <div>
           <Button type="submit" disabled={pending}>
