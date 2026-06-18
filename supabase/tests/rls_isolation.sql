@@ -1686,6 +1686,118 @@ select pg_temp.expect_error(
     values ('22222222-2222-2222-2222-222222222222', 'AQ Cross', 'aq-cross')$$,
   'AQ: air_quality-module admin still CANNOT insert a facility_space in facility B');
 
+-- facility_spaces write broadening (migration 141), accident_reports branch.
+-- Frank holds ONLY accident_reports admin in facility A (no facility-admin, no
+-- incident/air_quality admin) — proves the third consuming-module branch.
+set local role postgres;
+insert into auth.users (id, email)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'frank@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff',
+        '11111111-1111-1111-1111-111111111111', 'frank@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'ffff4444-ffff-ffff-ffff-ffffffffffff'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid,
+       r.id, 'Frank', 'Foster', 'frank@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff',
+        '11111111-1111-1111-1111-111111111111',
+        'accident_reports', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ffffffff-ffff-ffff-ffff-ffffffffffff","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ffffffff-ffff-ffff-ffff-ffffffffffff', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'ACC Admin Space', 'acc-admin-space')$$,
+  'ACC: accident_reports-module admin CAN insert a facility_space in own facility (migration 141)');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'ACC Cross', 'acc-cross')$$,
+  'ACC: accident_reports-module admin still CANNOT insert a facility_space in facility B');
+
+-- Negative bound (migration 141): the broadening is limited to facility admins
+-- and admins of the three consuming modules. Gwen holds ONLY refrigeration admin
+-- (a NON-consuming module) and is plain staff, so she must NOT be able to manage
+-- the shared list even in her own facility.
+set local role postgres;
+insert into auth.users (id, email)
+values ('99999999-9999-9999-9999-999999999999', 'gwen@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('99999999-9999-9999-9999-999999999999',
+        '11111111-1111-1111-1111-111111111111', 'gwen@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select '99994444-9999-9999-9999-999999999999'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       '99999999-9999-9999-9999-999999999999'::uuid,
+       r.id, 'Gwen', 'Gray', 'gwen@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('99999999-9999-9999-9999-999999999999',
+        '11111111-1111-1111-1111-111111111111',
+        'refrigeration', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"99999999-9999-9999-9999-999999999999","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', '99999999-9999-9999-9999-999999999999', true);
+
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'Gwen Space', 'gwen-space')$$,
+  'SPACES: a non-consuming-module admin (refrigeration only) CANNOT manage facility_spaces (migration 141 bound)');
+
+-- ---------------------------------------------------------------------------
+-- SPACES: schema guards for the facility_spaces FK retargets / table drop
+-- (migrations 142 + 143). These read catalogs only, so run as postgres.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- 142: accidents now reference the shared list; the old 'location' dropdown
+-- rows are gone and the FK points at facility_spaces.
+select pg_temp.expect_count(
+  $$select count(*)::int from public.accident_dropdowns where category = 'location'$$,
+  0, 'ACC: legacy location accident_dropdowns removed (migration 142)');
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_constraint c
+      join pg_class ft on ft.oid = c.confrelid
+    where c.conname = 'accident_reports_location_dropdown_id_fkey'
+      and ft.relname = 'facility_spaces'$$,
+  1, 'ACC: location_dropdown_id FK retargeted to facility_spaces (migration 142)');
+
+-- 143: air_quality_locations is dropped and the three AQ FKs point at
+-- facility_spaces.
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_class
+    where relname = 'air_quality_locations'
+      and relnamespace = 'public'::regnamespace$$,
+  0, 'AQ: air_quality_locations table dropped (migration 143)');
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_constraint c
+      join pg_class ft on ft.oid = c.confrelid
+    where c.conname in (
+            'air_quality_equipment_location_id_fkey',
+            'air_quality_thresholds_location_id_fkey',
+            'air_quality_reports_location_id_fkey')
+      and ft.relname = 'facility_spaces'$$,
+  3, 'AQ: equipment/thresholds/reports location FKs retargeted to facility_spaces (migration 143)');
+
 -- ---------------------------------------------------------------------------
 -- REFRIG: Refrigeration hardening (migrations 110-114).
 --
