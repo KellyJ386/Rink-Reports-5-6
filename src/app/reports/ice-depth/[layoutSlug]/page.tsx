@@ -182,7 +182,14 @@ export default async function IceDepthLayoutSubmissionPage({
   return (
     <div className="flex min-h-full flex-col bg-background">
       {/* Module header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 pt-4 pb-3">
+      <div
+        className="flex items-center gap-3 border-b border-l-4 border-border border-l-module-ice-depth px-4 pt-4 pb-3"
+        style={{
+          ["--module-accent" as string]: "var(--module-ice-depth)",
+          backgroundImage:
+            "linear-gradient(120deg, color-mix(in oklab, var(--module-accent) 14%, transparent) 0%, transparent 70%)",
+        }}
+      >
         <Button
           asChild
           variant="outline"

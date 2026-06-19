@@ -51,6 +51,7 @@ export function IceOpsShell({
       <PageHeader
         variant="display"
         module="ice-ops"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[

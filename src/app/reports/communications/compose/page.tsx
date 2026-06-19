@@ -117,6 +117,7 @@ export default async function CommunicationsComposePage() {
       <PageHeader
         variant="display"
         module="comms"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[

@@ -271,7 +271,7 @@ export function SubmissionForm({
       {complianceRules.length > 0 ? (
         <details
           open
-          className="group rounded-xl border bg-card"
+          className="group rounded-xl border border-l-4 border-l-module-air bg-card"
         >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <div className="flex flex-col">
@@ -336,7 +336,7 @@ export function SubmissionForm({
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+      <div className="flex flex-col gap-4 rounded-xl border border-l-4 border-l-module-air bg-card p-4">
         <div>
           <h2 className="text-base font-semibold">Readings</h2>
           <p className="text-xs text-muted-foreground">
@@ -453,7 +453,7 @@ function CollapsibleSection({
   children: ReactNode
 }) {
   return (
-    <details className="group rounded-xl border bg-card">
+    <details className="group rounded-xl border border-l-4 border-l-module-air bg-card">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <div className="flex flex-col">
           <span className="text-base font-semibold">{title}</span>

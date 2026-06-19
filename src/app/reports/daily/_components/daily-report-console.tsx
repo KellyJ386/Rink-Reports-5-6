@@ -284,7 +284,7 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
 
       {/* Shift setup — work area + shift type, the two coupled choices that
           configure the checklist, merged into a single step. */}
-      <Card className="gap-5 py-5">
+      <Card className="gap-5 border-l-4 border-l-module-daily py-5">
         <h2 className="px-6 text-lg font-semibold tracking-tight">
           Shift setup
         </h2>

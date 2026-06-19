@@ -397,7 +397,7 @@ export function SubmissionForm({
         {/* ---------------------------------------------------------------- */}
         {/* When & Where */}
         {/* ---------------------------------------------------------------- */}
-        <Card className="gap-4 py-5">
+        <Card className="gap-4 border-l-4 border-l-module-incidents py-5">
           <h2 className="px-6 text-lg font-semibold tracking-tight">
             When &amp; where
           </h2>
@@ -492,7 +492,7 @@ export function SubmissionForm({
         {/* ---------------------------------------------------------------- */}
         {/* What happened */}
         {/* ---------------------------------------------------------------- */}
-        <Card className="gap-4 py-5">
+        <Card className="gap-4 border-l-4 border-l-module-incidents py-5">
           <h2 className="px-6 text-lg font-semibold tracking-tight">
             What happened
           </h2>
@@ -682,7 +682,7 @@ export function SubmissionForm({
         {/* ---------------------------------------------------------------- */}
         {/* Witnesses */}
         {/* ---------------------------------------------------------------- */}
-        <Card className="gap-4 py-5">
+        <Card className="gap-4 border-l-4 border-l-module-incidents py-5">
           <div className="flex items-center justify-between px-6">
             <h2 className="text-lg font-semibold tracking-tight">
               Witnesses (optional)

@@ -342,7 +342,7 @@ export default async function OperationTypePage({
   }
 
   return renderShellLayout(
-    <Card>
+    <Card className="border-l-4 border-l-module-ice-ops">
       <CardHeader>
         <CardTitle>{FORM_TITLES[operationType]}</CardTitle>
         <CardDescription>

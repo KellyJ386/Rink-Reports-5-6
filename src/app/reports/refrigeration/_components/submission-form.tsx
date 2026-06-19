@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { MetaChip } from "@/components/ui/meta-chip"
 import { PageHeader } from "@/components/ui/page-header"
 import { RequiredMark } from "@/components/ui/required-mark"
 import { SectionCard } from "@/components/ui/section-card"
@@ -443,6 +444,7 @@ export function SubmissionForm({
       <PageHeader
         variant="display"
         module="refrig"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[
@@ -477,19 +479,28 @@ export function SubmissionForm({
         as="div"
         className="flex-row flex-wrap items-center gap-x-3 gap-y-2 p-4 text-sm"
       >
-        <MetaChip icon={<User className="h-4 w-4" aria-hidden />}>
+        <MetaChip module="refrig" icon={<User className="h-4 w-4" aria-hidden />}>
           {userName}
         </MetaChip>
-        <MetaChip icon={<Building2 className="h-4 w-4" aria-hidden />}>
+        <MetaChip
+          module="refrig"
+          icon={<Building2 className="h-4 w-4" aria-hidden />}
+        >
           {facilityName}
         </MetaChip>
-        <MetaChip icon={<Calendar className="h-4 w-4" aria-hidden />}>
+        <MetaChip
+          module="refrig"
+          icon={<Calendar className="h-4 w-4" aria-hidden />}
+        >
           {now ? formatDate(now) : "—"}
         </MetaChip>
-        <MetaChip icon={<Clock className="h-4 w-4" aria-hidden />}>
+        <MetaChip module="refrig" icon={<Clock className="h-4 w-4" aria-hidden />}>
           {now ? formatTime(now) : "—"}
         </MetaChip>
-        <MetaChip icon={<Thermometer className="h-4 w-4" aria-hidden />}>
+        <MetaChip
+          module="refrig"
+          icon={<Thermometer className="h-4 w-4" aria-hidden />}
+        >
           {tempLabel}
         </MetaChip>
       </SectionCard>
@@ -562,7 +573,10 @@ export function SubmissionForm({
           section.sectionLevelFields.length > 0 ||
           section.equipment.some((eq) => eq.fields.length > 0)
         return (
-          <Card key={section.id} className="gap-4 py-5">
+          <Card
+            key={section.id}
+            className="gap-4 border-l-4 border-l-module-refrig py-5"
+          >
             <h2 className="px-6 text-lg font-semibold tracking-tight">
               {section.name}
             </h2>
@@ -659,23 +673,6 @@ export function SubmissionForm({
 
       <SubmitBar isOnline={isOnline} />
     </form>
-  )
-}
-
-function MetaChip({
-  icon,
-  children,
-}: {
-  icon: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <span className="flex items-center gap-2 text-muted-foreground">
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        {icon}
-      </span>
-      <span className="font-medium text-foreground">{children}</span>
-    </span>
   )
 }
 

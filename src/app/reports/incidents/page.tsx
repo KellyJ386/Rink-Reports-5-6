@@ -201,6 +201,7 @@ export default async function IncidentsHomePage() {
       <PageHeader
         variant="display"
         module="incidents"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[

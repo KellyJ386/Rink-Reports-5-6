@@ -103,6 +103,7 @@ export default async function AirQualityHomePage() {
       <PageHeader
         variant="display"
         module="air"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[

@@ -65,6 +65,7 @@ export default async function DailyReportsPage() {
       <PageHeader
         variant="display"
         module="daily"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[
