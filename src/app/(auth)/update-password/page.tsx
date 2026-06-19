@@ -12,7 +12,17 @@ export const metadata = {
   title: "Set your password | MFO / Rink Reports",
 }
 
-export default function UpdatePasswordPage() {
+const LINK_EXPIRED_MESSAGE =
+  "Your link has expired or has already been used. Ask your administrator to re-send it."
+
+export default async function UpdatePasswordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>
+}) {
+  const { error } = await searchParams
+  const linkError = error === "link_expired" ? LINK_EXPIRED_MESSAGE : undefined
+
   return (
     <Card>
       <CardHeader>
@@ -22,7 +32,7 @@ export default function UpdatePasswordPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <UpdatePasswordForm />
+        <UpdatePasswordForm initialError={linkError} />
       </CardContent>
     </Card>
   )

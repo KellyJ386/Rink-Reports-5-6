@@ -102,7 +102,7 @@ export async function sendPasswordReset(
   const { data, error } = await admin.auth.admin.generateLink({
     type: "recovery",
     email: email.trim(),
-    options: { redirectTo: `${site.siteUrl}/update-password` },
+    options: { redirectTo: `${site.siteUrl}/callback?next=/update-password` },
   })
 
   if (error) {
