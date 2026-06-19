@@ -57,14 +57,14 @@ function NotAvailable({
   )
 }
 
+// Only the statuses the app actually produces: pending -> accepted ->
+// manager_approved (terminal "applied" state), or denied/cancelled.
 function statusBadgeVariant(status: string): BadgeProps["variant"] {
   switch (status) {
-    case "applied":
     case "manager_approved":
     case "accepted":
       return "success"
     case "denied":
-    case "expired":
       return "error"
     case "cancelled":
       return "outline"
@@ -74,14 +74,12 @@ function statusBadgeVariant(status: string): BadgeProps["variant"] {
 }
 
 function statusLabel(status: string): string {
-  const map: Record<SwapStatus, string> = {
+  const map: Partial<Record<SwapStatus, string>> = {
     pending: "Pending",
     accepted: "Accepted",
-    manager_approved: "Manager approved",
-    applied: "Applied",
+    manager_approved: "Approved & applied",
     cancelled: "Cancelled",
     denied: "Denied",
-    expired: "Expired",
   }
   return map[status as SwapStatus] ?? status
 }
@@ -156,6 +154,7 @@ export default async function SwapsPage() {
     { data: incomingRaw },
     { data: myUpcomingRaw },
     { data: coworkersRaw },
+    { data: coworkerShiftsRaw },
     { data: facility },
   ] = await Promise.all([
     supabase
@@ -164,14 +163,16 @@ export default async function SwapsPage() {
         "id, status, decision_note, created_at, requester_employee_id, target_employee_id, requester:requester_employee_id(first_name, last_name), target:target_employee_id(first_name, last_name), requester_shift:requester_shift_id(id, starts_at, ends_at, role_label), target_shift:target_shift_id(id, starts_at, ends_at, role_label)"
       )
       .eq("requester_employee_id", employeeRow.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(50),
     supabase
       .from("schedule_swap_requests")
       .select(
         "id, status, decision_note, created_at, requester_employee_id, target_employee_id, requester:requester_employee_id(first_name, last_name), target:target_employee_id(first_name, last_name), requester_shift:requester_shift_id(id, starts_at, ends_at, role_label), target_shift:target_shift_id(id, starts_at, ends_at, role_label)"
       )
       .eq("target_employee_id", employeeRow.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(50),
     supabase
       .from("schedule_shifts")
       .select(
@@ -181,14 +182,29 @@ export default async function SwapsPage() {
       .eq("status", "published")
       .gte("starts_at", now.toISOString())
       .lte("starts_at", in60.toISOString())
-      .order("starts_at", { ascending: true }),
+      .order("starts_at", { ascending: true })
+      .limit(100),
     supabase
       .from("employees")
       .select("id, first_name, last_name")
       .eq("facility_id", employeeRow.facility_id)
       .eq("is_active", true)
       .neq("id", employeeRow.id)
-      .order("first_name", { ascending: true }),
+      .order("first_name", { ascending: true })
+      .limit(500),
+    // Coworkers' upcoming published shifts so "their shift to take" is a
+    // picker rather than a raw UUID field.
+    supabase
+      .from("schedule_shifts")
+      .select("id, employee_id, starts_at, ends_at, role_label")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("status", "published")
+      .neq("employee_id", employeeRow.id)
+      .not("employee_id", "is", null)
+      .gte("starts_at", now.toISOString())
+      .lte("starts_at", in60.toISOString())
+      .order("starts_at", { ascending: true })
+      .limit(500),
     supabase
       .from("facilities")
       .select("timezone")
@@ -220,6 +236,23 @@ export default async function SwapsPage() {
     id: c.id,
     label:
       [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || "Coworker",
+  }))
+
+  type CoworkerShiftRow = {
+    id: string
+    employee_id: string
+    starts_at: string
+    ends_at: string
+    role_label: string | null
+  }
+  const coworkerShifts = (
+    (coworkerShiftsRaw ?? []) as unknown as CoworkerShiftRow[]
+  ).map((s) => ({
+    id: s.id,
+    employee_id: s.employee_id,
+    starts_at: s.starts_at,
+    ends_at: s.ends_at,
+    role_label: s.role_label,
   }))
 
   function ShiftSummary({
@@ -264,7 +297,7 @@ export default async function SwapsPage() {
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-medium text-muted-foreground">
-              {side === "outgoing" ? "Their shift" : "Their shift"}
+              Their shift
             </span>
             <ShiftSummary shift={theirShift} />
           </div>
@@ -297,7 +330,12 @@ export default async function SwapsPage() {
         </h1>
       </div>
 
-      <SwapForm myShifts={myShifts} coworkers={coworkers} timezone={tz} />
+      <SwapForm
+        myShifts={myShifts}
+        coworkers={coworkers}
+        coworkerShifts={coworkerShifts}
+        timezone={tz}
+      />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold tracking-tight">Outgoing</h2>

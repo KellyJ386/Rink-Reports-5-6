@@ -27,6 +27,31 @@ export type {
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
+// ---------------------------------------------------------------------------
+// Reporter identity (from login, never from client input)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the reporter's name + phone from the authenticated user's profile
+ * row. The incident form no longer collects these — they're sourced from the
+ * login so a reporter can't spoof someone else's identity. Callers inject the
+ * result into `IncidentInput` before persisting.
+ */
+export async function resolveReporterIdentity(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<{ reporter_name: string; reporter_phone: string }> {
+  const { data } = await supabase
+    .from("users")
+    .select("full_name, phone")
+    .eq("id", userId)
+    .maybeSingle()
+  return {
+    reporter_name: (data?.full_name ?? "").trim(),
+    reporter_phone: (data?.phone ?? "").trim(),
+  }
+}
+
 export type ResolvedRefs =
   | { ok: true; resolvedActivityId: string | null; validSpaceIds: string[] }
   | { ok: false; error: string }
@@ -127,6 +152,9 @@ export async function persistIncident(
       reporter_name: input.reporter_name,
       reporter_phone: input.reporter_phone,
       description: input.description,
+      ambulance_flag: input.ambulance_flag,
+      persons_involved: input.persons_involved,
+      follow_up_required: input.follow_up_required,
       status: "submitted",
       submitted_at: new Date().toISOString(),
     })
@@ -194,6 +222,9 @@ export async function persistIncident(
       reporter_name: input.reporter_name,
       reporter_phone: input.reporter_phone,
       description: input.description,
+      ambulance_flag: input.ambulance_flag,
+      persons_involved: input.persons_involved,
+      follow_up_required: input.follow_up_required,
       space_ids: refs.validSpaceIds,
       witnesses: input.witnesses,
     },
@@ -202,12 +233,40 @@ export async function persistIncident(
     return cleanupAndFail(dbError(logErr, "Failed to record change log."))
   }
 
-  // Best-effort notification fan-out — never blocks the submission.
+  // Ambulance escalation — mirrors the accident "medical_attention" alert. When
+  // an ambulance was called we raise a critical, acknowledgement-requiring
+  // communication_alert so it surfaces above the routine fan-out. Best-effort:
+  // a failed alert never blocks the report itself.
+  if (input.ambulance_flag) {
+    const summary = `Ambulance called — reported by ${
+      input.reporter_name
+    }. ${input.description.slice(0, 200)}${
+      input.description.length > 200 ? "…" : ""
+    }`
+    await supabase.from("communication_alerts").insert({
+      facility_id: facilityId,
+      source_module: "incident_reports",
+      source_record_id: reportId,
+      severity: "critical",
+      title: "Incident report — ambulance called",
+      body: summary,
+      created_by_employee_id: employeeId,
+      requires_acknowledgement: true,
+    })
+  }
+
+  // Best-effort notification fan-out — never blocks the submission. When an
+  // ambulance was called we tag the dispatch as "critical" so facilities can
+  // route a higher-priority recipient set via communication_routing_rules
+  // (severity-scoped rules) without any new recipient UI.
   await dispatchRulesForSubmission({
     facilityId,
     sourceModule: "incident_reports",
     sourceRecordId: reportId,
-    subject: `Incident report submitted by ${input.reporter_name}`,
+    severity: input.ambulance_flag ? "critical" : undefined,
+    subject: input.ambulance_flag
+      ? `Ambulance called — incident reported by ${input.reporter_name}`
+      : `Incident report submitted by ${input.reporter_name}`,
     body: input.description,
   })
 

@@ -55,9 +55,9 @@ Module accent tokens: `--module-daily`, `--module-ice-depth`,
 
 | Token | Utility | Use |
 | --- | --- | --- |
-| `--shadow-elev-1` | `shadow-[var(--shadow-elev-1)]` | Section cards, inputs, list rows |
-| `--shadow-elev-2` | `shadow-[var(--shadow-elev-2)]` | Elevated cards, popovers |
-| `--shadow-elev-3` | `shadow-[var(--shadow-elev-3)]` | Hover on elevated, modals |
+| `--shadow-elev-1` | `shadow-[var(--shadow-elev-1)]` | Cards (the only shadow a `<Card>` may carry), inputs, list rows |
+| `--shadow-elev-2` | `shadow-[var(--shadow-elev-2)]` | Overlay chrome only — sidebars, popovers, sticky bars (not cards) |
+| `--shadow-elev-3` | `shadow-[var(--shadow-elev-3)]` | Modals, dialogs, raised select/menu surfaces |
 | `--shadow-press-primary` | (built into `<Button variant="default">`) | The signature green-gradient press shadow |
 
 Radius scale: `--radius` (10px base) exposed as `rounded-sm/md/lg/xl`.

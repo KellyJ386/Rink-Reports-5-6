@@ -169,9 +169,9 @@ export function AvailabilityForm({
 
       {fixedDay === undefined ? (
         <div className="flex flex-col gap-2">
-          <Label>Day of week</Label>
+          <Label id="avail-day-label">Day of week</Label>
           <Select value={day} onValueChange={setDay}>
-            <SelectTrigger>
+            <SelectTrigger aria-labelledby="avail-day-label">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -211,9 +211,9 @@ export function AvailabilityForm({
         </div>
       </div>
       <div className="flex flex-col gap-2">
-        <Label>Type</Label>
+        <Label id="avail-type-label">Type</Label>
         <Select value={type} onValueChange={setType}>
-          <SelectTrigger>
+          <SelectTrigger aria-labelledby="avail-type-label">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -225,12 +225,12 @@ export function AvailabilityForm({
       </div>
       {jobAreas.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <Label>Area / department you want to work</Label>
+          <Label id="avail-area-label">Area / department you want to work</Label>
           <Select
             value={jobAreaId === "" ? NO_AREA : jobAreaId}
             onValueChange={(v) => setJobAreaId(v === NO_AREA ? "" : v)}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-labelledby="avail-area-label">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

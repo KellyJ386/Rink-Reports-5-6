@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { Menu } from "lucide-react"
 
 import {
@@ -12,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Wordmark } from "@/components/wordmark"
 import { SidebarNav } from "./sidebar-nav"
 
 function getInitials(fullName: string | null, email: string | null): string {
@@ -47,21 +47,7 @@ export function MobileSidebar({ email = null, fullName = null }: MobileSidebarPr
         {/* Logo */}
         <SheetHeader className="border-b border-sidebar-border px-4 py-3">
           <SheetTitle>
-            <Link
-              href="/admin"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-3 text-sidebar-foreground"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-sm font-black">
-                R
-              </span>
-              <span
-                className="text-sm font-black uppercase tracking-widest"
-                style={{ fontFamily: "var(--font-anton), Anton, Impact, sans-serif" }}
-              >
-                Rink Reports
-              </span>
-            </Link>
+            <Wordmark href="/admin" onClick={() => setOpen(false)} />
           </SheetTitle>
         </SheetHeader>
 

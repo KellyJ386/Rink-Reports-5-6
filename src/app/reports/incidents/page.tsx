@@ -137,7 +137,6 @@ export default async function IncidentsHomePage() {
     { data: severityLevels },
     { data: activityRows },
     { data: spaceRows },
-    { data: userRow },
     { data: facility },
   ] = await Promise.all([
     supabase
@@ -161,11 +160,6 @@ export default async function IncidentsHomePage() {
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
-    supabase
-      .from("users")
-      .select("full_name, phone")
-      .eq("id", current.authUser.id)
-      .maybeSingle(),
     supabase
       .from("facilities")
       .select("timezone")
@@ -220,8 +214,6 @@ export default async function IncidentsHomePage() {
       />
 
       <SubmissionForm
-        defaultReporterName={userRow?.full_name ?? ""}
-        defaultReporterPhone={userRow?.phone ?? ""}
         severityLevels={severities.map((s) => ({
           id: s.id,
           display_name: s.display_name,

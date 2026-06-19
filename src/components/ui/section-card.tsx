@@ -77,7 +77,7 @@ export function SectionHead({
     <header className={cn("mb-4 flex items-center gap-3.5", className)}>
       {typeof n === "number" ? (
         <div
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--navy-700)] font-display text-lg text-white"
+          className="grid size-9 shrink-0 place-items-center rounded-full bg-rr-navy font-display text-lg text-white"
           aria-hidden="true"
         >
           {n}

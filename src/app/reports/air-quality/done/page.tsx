@@ -30,11 +30,11 @@ function formatTimestamp(iso: string, timezone: string | null): string {
 function severityClass(severity: string | null): string {
   switch (severity) {
     case "critical":
-      return "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200"
+      return "bg-destructive-soft text-destructive-soft-foreground"
     case "high":
-      return "bg-orange-100 text-orange-900 dark:bg-orange-900/30 dark:text-orange-200"
+      return "bg-warning-soft text-warning-soft-foreground"
     case "warn":
-      return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+      return "bg-info-soft text-info-soft-foreground"
     default:
       return "bg-muted text-foreground"
   }
@@ -75,7 +75,7 @@ export default async function AirQualityDonePage({
         .eq("id", report.facility_id)
         .maybeSingle(),
       supabase
-        .from("air_quality_locations")
+        .from("facility_spaces")
         .select("name")
         .eq("id", report.location_id)
         .maybeSingle(),

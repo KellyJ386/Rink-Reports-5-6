@@ -19,10 +19,12 @@ export type EmployeeLite = {
   last_name: string
 }
 
+// Location is intentionally NOT a category here: accident "location" now comes
+// from the shared facility_spaces list (managed at /admin/spaces), not from
+// accident_dropdowns. See migration 142.
 export const DROPDOWN_CATEGORIES = [
   "injury_type",
   "body_part",
-  "location",
   "activity",
   "medical_attention",
   "severity",
@@ -32,7 +34,6 @@ export type DropdownCategory = (typeof DROPDOWN_CATEGORIES)[number]
 export const DROPDOWN_CATEGORY_LABELS: Record<DropdownCategory, string> = {
   injury_type: "Injury Type",
   body_part: "Body Part",
-  location: "Location",
   activity: "Activity",
   medical_attention: "Medical Attention",
   severity: "Severity",

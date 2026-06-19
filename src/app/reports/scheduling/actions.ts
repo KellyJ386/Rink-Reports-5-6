@@ -17,6 +17,12 @@ type SupabaseError = { code?: string; message?: string } | null
 
 function dbError(err: SupabaseError, fallback: string): string {
   if (!err) return fallback
+  // Exclusion-constraint backstop (migration 140): an assignment that would
+  // double-book the employee. Surface the same friendly copy as the app-side
+  // 'double_booked' pre-validation (formatViolations(["double_booked"])).
+  if (err.code === "23P01") {
+    return "This assignment overlaps another shift this employee is already on."
+  }
   // Map RLS / permission errors to friendly text.
   const msg = err.message?.trim() ?? ""
   if (
@@ -421,21 +427,34 @@ export async function submitSwapRequest(
     }
   }
 
-  const { error } = await supabase.from("schedule_swap_requests").insert({
-    facility_id: auth.employee.facility_id,
-    requester_employee_id: auth.employee.id,
-    requester_shift_id: requesterShiftId,
-    target_employee_id: targetEmployeeId.length > 0 ? targetEmployeeId : null,
-    target_shift_id: targetShiftId.length > 0 ? targetShiftId : null,
-    decision_note: note.length > 0 ? note : null,
-    status: "pending",
-  })
+  const { data: created, error } = await supabase
+    .from("schedule_swap_requests")
+    .insert({
+      facility_id: auth.employee.facility_id,
+      requester_employee_id: auth.employee.id,
+      requester_shift_id: requesterShiftId,
+      target_employee_id: targetEmployeeId.length > 0 ? targetEmployeeId : null,
+      target_shift_id: targetShiftId.length > 0 ? targetShiftId : null,
+      decision_note: note.length > 0 ? note : null,
+      status: "pending",
+    })
+    .select("id")
+    .single()
 
-  if (error) {
+  if (error || !created) {
     return {
       status: "error",
       error: dbError(error, "Failed to submit swap request."),
     }
+  }
+
+  // Tell the chosen coworker (best-effort; the swap stands either way). The
+  // SECURITY DEFINER helper exists because staff can't write notifications
+  // directly.
+  if (targetEmployeeId.length > 0) {
+    await supabase.rpc("scheduling_notify_swap_request", {
+      p_swap_id: created.id,
+    })
   }
 
   revalidatePath("/reports/scheduling/swaps")

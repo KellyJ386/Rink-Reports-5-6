@@ -6,6 +6,7 @@ import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { dbError } from "@/lib/db-error"
 
 import {
   readingTypeImportSpec,
@@ -13,8 +14,6 @@ import {
 } from "./_components/reading-types-import"
 import type { ActionState, Severity, SimpleResult } from "./types"
 import { isSeverity } from "./types"
-
-type SupabaseError = { code?: string; message?: string } | null
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
@@ -63,20 +62,6 @@ function asBool(value: FormDataEntryValue | null): boolean {
   return value === "on" || value === "true" || value === "1"
 }
 
-function dbError(err: SupabaseError, fallback: string): string {
-  if (!err) return fallback
-  if (err.code === "23505") {
-    return "That value conflicts with an existing record (duplicate)."
-  }
-  if (err.code === "23503") {
-    return "Cannot complete: a related record prevents this change."
-  }
-  if (err.code === "P0001") {
-    return err.message?.trim() || fallback
-  }
-  return err.message?.trim() || fallback
-}
-
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
@@ -90,159 +75,10 @@ async function resolveFacility(): Promise<
 }
 
 // ============================================================================
-// Locations
+// Locations are managed via the shared Facility Spaces admin (/admin/spaces).
+// Air Quality only consumes facility_spaces (migration 143); equipment and
+// thresholds below are scoped to a space.
 // ============================================================================
-
-export async function createLocation(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-
-    const name = nonEmpty(formData.get("name"))
-    if (!name) return { ok: false, error: "Name is required." }
-    const rawSlug = nonEmpty(formData.get("slug"))
-    const slug = rawSlug ?? slugify(name)
-    if (!SLUG_RE.test(slug)) {
-      return {
-        ok: false,
-        error:
-          "Slug must be lowercase letters, digits, and hyphens (e.g. main-rink).",
-      }
-    }
-    const sort_order = asInt(formData.get("sort_order")) ?? 0
-
-    const supabase = await createClient()
-    const { error } = await supabase.from("air_quality_locations").insert({
-      facility_id: facility.facilityId,
-      name,
-      slug,
-      sort_order,
-    })
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to create location.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true, message: "Location created." }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function updateLocation(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    const id = nonEmpty(formData.get("id"))
-    if (!id) return { ok: false, error: "Missing location id." }
-    const name = nonEmpty(formData.get("name"))
-    if (!name) return { ok: false, error: "Name is required." }
-    const rawSlug = nonEmpty(formData.get("slug"))
-    const slug = rawSlug ?? slugify(name)
-    if (!SLUG_RE.test(slug)) {
-      return {
-        ok: false,
-        error:
-          "Slug must be lowercase letters, digits, and hyphens (e.g. main-rink).",
-      }
-    }
-    const sort_order = asInt(formData.get("sort_order"))
-
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("air_quality_locations")
-      .update({
-        name,
-        slug,
-        ...(sort_order !== null ? { sort_order } : {}),
-      })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update location.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true, message: "Location updated." }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function setLocationActive(
-  id: string,
-  is_active: boolean,
-): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing location id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("air_quality_locations")
-      .update({ is_active })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update location.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function deleteLocation(id: string): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing location id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("air_quality_locations")
-      .delete()
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      if (error.code === "23503") {
-        return {
-          ok: false,
-          error: "Location in use; deactivate instead.",
-        }
-      }
-      return { ok: false, error: dbError(error, "Failed to delete location.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
 
 // ============================================================================
 // Equipment
@@ -1166,13 +1002,18 @@ export async function deleteAirQualityReport(
     const current = await requireAdmin()
     if (!reportId) return { ok: false, error: "Missing report id." }
     const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
     let query = supabase
       .from("air_quality_reports")
       .delete()
       .eq("id", reportId)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
+    // Non-super-admins must be facility-scoped (an explicit requirement, not
+    // inferred from a null facility_id); super admins delete cross-facility by
+    // intent. RLS backstops either path.
+    if (!current.profile?.is_super_admin) {
+      if (!current.profile?.facility_id) {
+        return { ok: false, error: "No facility assigned to your account." }
+      }
+      query = query.eq("facility_id", current.profile.facility_id)
     }
     const { error } = await query
     if (error) {

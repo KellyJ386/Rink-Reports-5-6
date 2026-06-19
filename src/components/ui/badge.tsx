@@ -4,30 +4,33 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
+  // RinkReports badge: 9px · 800wt · .08em · UPPERCASE pill.
+  "inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase leading-none tracking-[0.08em] transition-colors",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground",
-        destructive:
-          "border-transparent bg-destructive text-white",
-        outline:
-          "border-border text-foreground",
-        // Pills use the punchier -100/-800 palette per Palette Refresh spec
-        // (status banners keep the softer -50 via the *-soft tokens).
+        // Brief variants
+        neutral:
+          "bg-muted text-muted-foreground",
         success:
-          "border-transparent bg-[var(--green-100)] text-[var(--green-800)] dark:bg-[rgba(157,218,80,0.18)] dark:text-[var(--green-200)]",
+          "bg-success-soft text-success-soft-foreground",
         warning:
-          "border-transparent bg-[var(--amber-100)] text-[var(--amber-600)] dark:bg-[rgba(255,201,64,0.18)] dark:text-[var(--amber-200)]",
+          "bg-warning-soft text-warning-soft-foreground",
         error:
-          "border-transparent bg-[var(--crimson-100)] text-[var(--crimson-600)] dark:bg-[rgba(255,90,110,0.18)] dark:text-[var(--crimson-200)]",
+          "bg-destructive-soft text-destructive-soft-foreground",
+        // Retained for existing call sites
+        default:
+          "bg-primary text-primary-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground",
+        destructive:
+          "bg-destructive text-destructive-foreground",
+        outline:
+          "border border-border text-foreground",
         info:
-          "border-transparent bg-[var(--sky-100)] text-[var(--sky-700)] dark:bg-[rgba(94,190,240,0.18)] dark:text-[var(--sky-200)]",
+          "bg-info-soft text-info-soft-foreground",
         special:
-          "border-transparent bg-[var(--violet-100)] text-[var(--violet-600)] dark:bg-[rgba(154,130,255,0.18)] dark:text-[var(--violet-200)]",
+          "bg-[var(--violet-100)] text-[var(--violet-600)] dark:bg-[rgba(154,130,255,0.18)] dark:text-[var(--violet-200)]",
       },
     },
     defaultVariants: {

@@ -10,6 +10,7 @@ import {
   buildInputFromPayload,
   persistIncident,
   resolveIncidentRefs,
+  resolveReporterIdentity,
   validateIncidentInput,
 } from "@/app/reports/incidents/_lib/submit"
 import {
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
       startedAtIso,
       facilityId: profile.facility_id,
       employeeId: employee.id,
+      userId: profile.id,
     })
   }
 
@@ -227,6 +229,7 @@ type IncidentReplayArgs = {
   startedAtIso: string
   facilityId: string
   employeeId: string
+  userId: string
 }
 
 /**
@@ -243,11 +246,18 @@ async function handleIncidentReplay({
   startedAtIso,
   facilityId,
   employeeId,
+  userId,
 }: IncidentReplayArgs): Promise<NextResponse> {
   const input = buildInputFromPayload(payload)
   if (!input) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
   }
+
+  // Reporter identity comes from the login, not the queued payload.
+  const reporter = await resolveReporterIdentity(supabase, userId)
+  input.reporter_name = reporter.reporter_name
+  input.reporter_phone = reporter.reporter_phone
+
   const { fieldErrors, error: validationError } = validateIncidentInput(input)
   if (Object.keys(fieldErrors).length > 0 || validationError) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 })

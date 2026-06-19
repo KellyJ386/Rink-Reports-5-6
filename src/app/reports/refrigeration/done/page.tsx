@@ -98,7 +98,7 @@ export default async function RefrigerationDonePage({
               {valuesCount} value{valuesCount === 1 ? "" : "s"} recorded
             </span>
             {oorCount > 0 ? (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+              <span className="rounded-full bg-warning-soft px-3 py-1 text-xs font-medium text-warning-soft-foreground">
                 {oorCount} out-of-range
               </span>
             ) : null}

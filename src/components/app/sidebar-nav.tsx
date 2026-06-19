@@ -24,29 +24,42 @@ interface NavItem {
   href: string
   icon: typeof LayoutDashboard
   exact?: boolean
+  // The facility_modules key this entry maps to. Undefined = always shown
+  // (Dashboard). When set, the item is hidden if the facility has the module
+  // disabled.
+  moduleKey?: string
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard",        href: "/dashboard",              icon: LayoutDashboard, exact: true },
-  { label: "Daily Reports",    href: "/reports/daily",          icon: ClipboardList },
-  { label: "Ice Depth",        href: "/reports/ice-depth",      icon: Ruler },
-  { label: "Ice Operations",   href: "/reports/ice-operations", icon: Snowflake },
-  { label: "Refrigeration",    href: "/reports/refrigeration",  icon: Thermometer },
-  { label: "Air Quality",      href: "/reports/air-quality",    icon: Wind },
-  { label: "Incidents",        href: "/reports/incidents",      icon: AlertCircle },
-  { label: "Accidents",        href: "/reports/accidents",      icon: AlertTriangle },
-  { label: "Scheduling",       href: "/reports/scheduling",     icon: Calendar },
-  { label: "Communications",   href: "/reports/communications", icon: Mail },
-  { label: "Facility Paperwork", href: "/reports/facility-paperwork", icon: FolderOpen },
+  { label: "Daily Reports",    href: "/reports/daily",          icon: ClipboardList, moduleKey: "daily_reports" },
+  { label: "Ice Depth",        href: "/reports/ice-depth",      icon: Ruler, moduleKey: "ice_depth" },
+  { label: "Ice Operations",   href: "/reports/ice-operations", icon: Snowflake, moduleKey: "ice_operations" },
+  { label: "Refrigeration",    href: "/reports/refrigeration",  icon: Thermometer, moduleKey: "refrigeration" },
+  { label: "Air Quality",      href: "/reports/air-quality",    icon: Wind, moduleKey: "air_quality" },
+  { label: "Incidents",        href: "/reports/incidents",      icon: AlertCircle, moduleKey: "incident_reports" },
+  { label: "Accidents",        href: "/reports/accidents",      icon: AlertTriangle, moduleKey: "accident_reports" },
+  { label: "Scheduling",       href: "/reports/scheduling",     icon: Calendar, moduleKey: "scheduling" },
+  { label: "Communications",   href: "/reports/communications", icon: Mail, moduleKey: "communications" },
+  { label: "Facility Paperwork", href: "/reports/facility-paperwork", icon: FolderOpen, moduleKey: "facility_paperwork" },
 ]
 
 interface AppSidebarNavProps {
   isAdmin: boolean
+  // Enabled module keys for the facility, or null to show all (fail-open).
+  enabledModules?: string[] | null
   onNavigate?: () => void
 }
 
-export function AppSidebarNav({ isAdmin, onNavigate }: AppSidebarNavProps) {
+export function AppSidebarNav({ isAdmin, enabledModules, onNavigate }: AppSidebarNavProps) {
   const pathname = usePathname()
+
+  const visibleItems = NAV_ITEMS.filter(
+    (item) =>
+      !item.moduleKey ||
+      enabledModules == null ||
+      enabledModules.includes(item.moduleKey),
+  )
 
   const isActive = (href: string, exact = false) => {
     if (exact) return pathname === href
@@ -63,7 +76,7 @@ export function AppSidebarNav({ isAdmin, onNavigate }: AppSidebarNavProps) {
 
   return (
     <nav aria-label="Main navigation" className="flex flex-col py-3">
-      {NAV_ITEMS.map((item) => {
+      {visibleItems.map((item) => {
         const Icon = item.icon
         const active = isActive(item.href, item.exact)
         return (

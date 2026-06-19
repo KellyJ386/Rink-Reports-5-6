@@ -8,11 +8,10 @@ export const DESCRIPTION_MAX = 500
 export const MAX_WITNESSES = 3
 
 export type IncidentFieldName =
-  | "reporter_name"
-  | "reporter_phone"
   | "occurred_at"
   | "severity_level_id"
   | "description"
+  | "persons_involved"
 
 export type WitnessInput = {
   name: string
@@ -22,6 +21,10 @@ export type WitnessInput = {
 }
 
 export type IncidentInput = {
+  // Reporter identity is NOT user-entered: it's resolved server-side from the
+  // authenticated user's login profile (see resolveReporterIdentity in
+  // submit.ts) and injected before persist. The form/payload parsers leave
+  // these blank.
   reporter_name: string
   reporter_phone: string
   description: string
@@ -34,6 +37,9 @@ export type IncidentInput = {
   space_ids: string[]
   witnesses: WitnessInput[]
   witnessMissingContact: boolean
+  ambulance_flag: boolean
+  persons_involved: number | null
+  follow_up_required: boolean
 }
 
 export type IncidentValidation = {
@@ -53,6 +59,28 @@ export type SubmissionFormState = {
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : ""
+}
+
+/** Coerce a checkbox/JSON value into a strict boolean. Form checkboxes send
+ * "on"/"true"/"1" when checked and omit the key entirely when unchecked. */
+function bool(v: unknown): boolean {
+  if (typeof v === "boolean") return v
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase()
+    return s === "on" || s === "true" || s === "1" || s === "yes"
+  }
+  return false
+}
+
+/** Parse an optional non-negative integer. Blank/absent → null. A present but
+ * non-integer or negative value is surfaced as NaN so validation can flag it. */
+function optionalCount(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  const s = typeof v === "number" ? String(v) : str(v)
+  if (s === "") return null
+  const n = Number(s)
+  if (!Number.isInteger(n) || n < 0) return Number.NaN
+  return n
 }
 
 function normalizeWitnesses(raw: unknown): {
@@ -111,8 +139,9 @@ export function buildInputFromForm(formData: FormData): IncidentInput {
   }
   const { rows, missingContact } = normalizeWitnesses(witnessesRaw)
   return {
-    reporter_name: get("reporter_name"),
-    reporter_phone: get("reporter_phone"),
+    // Reporter identity comes from the login, injected server-side.
+    reporter_name: "",
+    reporter_phone: "",
     description: get("description"),
     occurred_at: get("occurred_at"),
     severity_level_id: get("severity_level_id"),
@@ -123,6 +152,9 @@ export function buildInputFromForm(formData: FormData): IncidentInput {
     space_ids: normalizeSpaceIds(spacesRaw),
     witnesses: rows,
     witnessMissingContact: missingContact,
+    ambulance_flag: bool(formData.get("ambulance_flag")),
+    persons_involved: optionalCount(formData.get("persons_involved")),
+    follow_up_required: bool(formData.get("follow_up_required")),
   }
 }
 
@@ -132,8 +164,10 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
   const obj = raw as Record<string, unknown>
   const { rows, missingContact } = normalizeWitnesses(obj.witnesses)
   return {
-    reporter_name: str(obj.reporter_name),
-    reporter_phone: str(obj.reporter_phone),
+    // Reporter identity comes from the login, injected server-side; any value
+    // in the (untrusted) payload is ignored.
+    reporter_name: "",
+    reporter_phone: "",
     description: str(obj.description),
     occurred_at: str(obj.occurred_at),
     severity_level_id: str(obj.severity_level_id),
@@ -144,6 +178,9 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
     space_ids: normalizeSpaceIds(obj.space_ids),
     witnesses: rows,
     witnessMissingContact: missingContact,
+    ambulance_flag: bool(obj.ambulance_flag),
+    persons_involved: optionalCount(obj.persons_involved),
+    follow_up_required: bool(obj.follow_up_required),
   }
 }
 
@@ -153,9 +190,6 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
 
 export function validateIncidentInput(input: IncidentInput): IncidentValidation {
   const fieldErrors: Partial<Record<IncidentFieldName, string>> = {}
-  if (!input.reporter_name) fieldErrors.reporter_name = "Please enter your name."
-  if (!input.reporter_phone)
-    fieldErrors.reporter_phone = "Please enter a phone number."
   if (!input.occurred_at) {
     fieldErrors.occurred_at = "Please choose when the incident happened."
   } else if (Number.isNaN(new Date(input.occurred_at).getTime())) {
@@ -167,6 +201,10 @@ export function validateIncidentInput(input: IncidentInput): IncidentValidation 
     fieldErrors.description = "Please describe what happened."
   } else if (input.description.length > DESCRIPTION_MAX) {
     fieldErrors.description = `Description must be ${DESCRIPTION_MAX} characters or fewer.`
+  }
+  if (input.persons_involved !== null && Number.isNaN(input.persons_involved)) {
+    fieldErrors.persons_involved =
+      "Enter a whole number of people (0 or more), or leave it blank."
   }
 
   let error: string | undefined

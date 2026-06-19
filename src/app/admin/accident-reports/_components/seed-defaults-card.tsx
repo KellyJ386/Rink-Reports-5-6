@@ -33,10 +33,10 @@ export function SeedDefaultsCard() {
       <CardHeader>
         <CardTitle>No accident dropdowns yet</CardTitle>
         <CardDescription>
-          Seed the canonical set across all six categories (injury type, body
-          part, location, activity, medical attention, severity). Idempotent:
-          safe to run more than once. You can edit, deactivate, or delete
-          individual values afterwards.
+          Seed the canonical set across all categories (injury type, body part,
+          activity, medical attention, severity). Idempotent: safe to run more
+          than once. You can edit, deactivate, or delete individual values
+          afterwards. Location options live in Facility Spaces.
         </CardDescription>
       </CardHeader>
       <CardContent>

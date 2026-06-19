@@ -32,7 +32,6 @@ export function StatCard({
 
   return (
     <Card
-      variant="elevated"
       className={cn("gap-2 px-5 py-5", className)}
       {...props}
     >

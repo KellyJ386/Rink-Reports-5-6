@@ -336,6 +336,23 @@ values
    'daily_reports', 'aaaa1111-da01-aaaa-aaaa-aaaa11110011', true, true)
 on conflict (employee_id, module_key, area_id) do nothing;
 
+-- Ice-depth layout + measurement point in Facility A, so the positive
+-- session-INSERT assertion below (alice submits her OWN reading) and the
+-- depth >= 0 / low < high CHECK assertions (migration 138) have valid FK
+-- targets. Seeded as postgres (BYPASSRLS).
+insert into public.ice_depth_layouts (id, facility_id, name, slug, sort_order, is_active, is_default)
+values ('aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+        '11111111-1111-1111-1111-111111111111', 'A Sheet', 'a-sheet', 1, true, true)
+on conflict (id) do nothing;
+
+insert into public.ice_depth_points
+  (id, facility_id, layout_id, point_number, label, x_position, y_position, sort_order, is_active)
+values ('aaaa1111-1c01-aaaa-aaaa-aaaa11110073',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+        1, 'Center', 0.5, 0.5, 1, true)
+on conflict (id) do nothing;
+
 -- NOTE (migrations 91 + 99): The config-table SELECT policies (ice_depth, communications,
 -- ice_operations, refrigeration, ...) gate on public.has_module_access(<module>).
 -- BEFORE migration 90 that helper read the deprecated module_permissions.can_view
@@ -397,7 +414,8 @@ on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------
 
 -- Config rows needed as FK targets for the B-side submissions below.
-insert into public.air_quality_locations (id, facility_id, name, slug, sort_order, is_active)
+-- Air quality now references the shared facility_spaces list (migration 143).
+insert into public.facility_spaces (id, facility_id, name, slug, sort_order, is_active)
 values ('bbbb2222-a91c-bbbb-bbbb-bbbb22220071',
         '22222222-2222-2222-2222-222222222222', 'B Rink Air', 'b-rink-air', 1, true)
 on conflict (id) do nothing;
@@ -798,6 +816,23 @@ select pg_temp.expect_error(
     values
       ('22222222-2222-2222-2222-222222222222', 'Sneaky Rink', 'sneaky')$$,
   'ice_depth: alice CANNOT INSERT a rink into facility B');
+
+-- Ice Depth sessions: the INSERT policy (migration 71) lets a module-submitter
+-- record a reading in their OWN facility. The cross-facility negative is pinned
+-- in section 2L; this positive case ensures the submit gate does not
+-- over-restrict legitimate staff (the regression that would silently break the
+-- entire staff submission flow). employee attribution is enforced in app code
+-- (submit.ts), not this policy.
+select pg_temp.expect_ok(
+  $$insert into public.ice_depth_sessions
+      (facility_id, layout_id, employee_id,
+       measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+       'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       'inches', 1.0, 2.0)$$,
+  'ice_depth: alice CAN INSERT a session in her own facility (submit gate)');
 
 -- ---------------------------------------------------------------------------
 -- Facility Paperwork (migration 85): documents are browsable by any employee
@@ -1609,6 +1644,160 @@ select pg_temp.expect_error(
     values ('22222222-2222-2222-2222-222222222222', 'Cross Admin', 'cross-admin')$$,
   'INC: incident-module admin still CANNOT insert a facility_space in facility B');
 
+-- facility_spaces write broadening (migration 141): facility_spaces is now a
+-- shared list, so an Air Quality (or Accident Reports) module admin may manage
+-- it too — not just an incident admin. Use Erin, who holds ONLY air_quality
+-- admin in facility A (no facility-admin, no incident admin), to prove the new
+-- branch specifically. Cross-facility isolation must still hold.
+set local role postgres;
+insert into auth.users (id, email)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'erin@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        '11111111-1111-1111-1111-111111111111', 'erin@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'eeee4444-eeee-eeee-eeee-eeeeeeeeeeee'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid,
+       r.id, 'Erin', 'Evans', 'erin@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+        '11111111-1111-1111-1111-111111111111',
+        'air_quality', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'AQ Admin Space', 'aq-admin-space')$$,
+  'AQ: air_quality-module admin CAN insert a facility_space in own facility (migration 141)');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'AQ Cross', 'aq-cross')$$,
+  'AQ: air_quality-module admin still CANNOT insert a facility_space in facility B');
+
+-- facility_spaces write broadening (migration 141), accident_reports branch.
+-- Frank holds ONLY accident_reports admin in facility A (no facility-admin, no
+-- incident/air_quality admin) — proves the third consuming-module branch.
+set local role postgres;
+insert into auth.users (id, email)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'frank@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff',
+        '11111111-1111-1111-1111-111111111111', 'frank@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'ffff4444-ffff-ffff-ffff-ffffffffffff'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid,
+       r.id, 'Frank', 'Foster', 'frank@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff',
+        '11111111-1111-1111-1111-111111111111',
+        'accident_reports', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ffffffff-ffff-ffff-ffff-ffffffffffff","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ffffffff-ffff-ffff-ffff-ffffffffffff', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'ACC Admin Space', 'acc-admin-space')$$,
+  'ACC: accident_reports-module admin CAN insert a facility_space in own facility (migration 141)');
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('22222222-2222-2222-2222-222222222222', 'ACC Cross', 'acc-cross')$$,
+  'ACC: accident_reports-module admin still CANNOT insert a facility_space in facility B');
+
+-- Negative bound (migration 141): the broadening is limited to facility admins
+-- and admins of the three consuming modules. Gwen holds ONLY refrigeration admin
+-- (a NON-consuming module) and is plain staff, so she must NOT be able to manage
+-- the shared list even in her own facility.
+set local role postgres;
+insert into auth.users (id, email)
+values ('99999999-9999-9999-9999-999999999999', 'gwen@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('99999999-9999-9999-9999-999999999999',
+        '11111111-1111-1111-1111-111111111111', 'gwen@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select '99994444-9999-9999-9999-999999999999'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       '99999999-9999-9999-9999-999999999999'::uuid,
+       r.id, 'Gwen', 'Gray', 'gwen@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('99999999-9999-9999-9999-999999999999',
+        '11111111-1111-1111-1111-111111111111',
+        'refrigeration', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"99999999-9999-9999-9999-999999999999","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', '99999999-9999-9999-9999-999999999999', true);
+
+select pg_temp.expect_error(
+  $$insert into public.facility_spaces (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'Gwen Space', 'gwen-space')$$,
+  'SPACES: a non-consuming-module admin (refrigeration only) CANNOT manage facility_spaces (migration 141 bound)');
+
+-- ---------------------------------------------------------------------------
+-- SPACES: schema guards for the facility_spaces FK retargets / table drop
+-- (migrations 142 + 143). These read catalogs only, so run as postgres.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- 142: accidents now reference the shared list; the old 'location' dropdown
+-- rows are gone and the FK points at facility_spaces.
+select pg_temp.expect_count(
+  $$select count(*)::int from public.accident_dropdowns where category = 'location'$$,
+  0, 'ACC: legacy location accident_dropdowns removed (migration 142)');
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_constraint c
+      join pg_class ft on ft.oid = c.confrelid
+    where c.conname = 'accident_reports_location_dropdown_id_fkey'
+      and ft.relname = 'facility_spaces'$$,
+  1, 'ACC: location_dropdown_id FK retargeted to facility_spaces (migration 142)');
+
+-- 143: air_quality_locations is dropped and the three AQ FKs point at
+-- facility_spaces.
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_class
+    where relname = 'air_quality_locations'
+      and relnamespace = 'public'::regnamespace$$,
+  0, 'AQ: air_quality_locations table dropped (migration 143)');
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_constraint c
+      join pg_class ft on ft.oid = c.confrelid
+    where c.conname in (
+            'air_quality_equipment_location_id_fkey',
+            'air_quality_thresholds_location_id_fkey',
+            'air_quality_reports_location_id_fkey')
+      and ft.relname = 'facility_spaces'$$,
+  3, 'AQ: equipment/thresholds/reports location FKs retargeted to facility_spaces (migration 143)');
+
 -- ---------------------------------------------------------------------------
 -- REFRIG: Refrigeration hardening (migrations 110-114).
 --
@@ -1932,6 +2121,55 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2m. Ice-depth nightly purge worker + integrity constraints (migration 138).
+--
+-- purge_old_ice_depth_sessions() is a SECURITY DEFINER bulk-deleter wired into
+-- the run-retention-purge cron. Like the migration-134 workers, the EXECUTE
+-- grant (service_role only) IS the gate. The CHECK constraints are the DB
+-- floor under the app-layer guards in compute.ts / the admin settings form.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.purge_old_ice_depth_sessions()$$,
+  'PURGE-138: authenticated CANNOT execute purge_old_ice_depth_sessions');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.purge_old_ice_depth_sessions()$$,
+  'PURGE-138: anon CANNOT execute purge_old_ice_depth_sessions');
+
+reset role;
+set local role service_role;
+
+select pg_temp.expect_ok(
+  $$select public.purge_old_ice_depth_sessions()$$,
+  'PURGE-138: service_role CAN execute purge_old_ice_depth_sessions');
+
+reset role;
+
+-- Integrity CHECKs run as postgres (BYPASSRLS) so only the constraint — not a
+-- policy — can reject the write.
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_settings (facility_id, low_threshold, high_threshold)
+    values ('11111111-1111-1111-1111-111111111111', 2.0, 1.0)$$,
+  'INTEGRITY-138: ice_depth_settings rejects low_threshold >= high_threshold');
+
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_measurements
+      (facility_id, session_id, point_number_snapshot, x_snapshot, y_snapshot,
+       depth_value, severity)
+    select '11111111-1111-1111-1111-111111111111', s.id, 1, 0.5, 0.5, -1, 'low'
+      from public.ice_depth_sessions s
+     where s.facility_id = '11111111-1111-1111-1111-111111111111'
+     limit 1$$,
+  'INTEGRITY-138: ice_depth_measurements rejects negative depth_value');
+
+-- ---------------------------------------------------------------------------
 -- 2m. Daily-checklist seeder (migration 135).
 --
 -- seed_default_daily_report_checklists is SECURITY DEFINER and writes a
@@ -1981,6 +2219,19 @@ select pg_temp.expect_count(
   $$select count(*) from public.daily_report_checklist_items
     where facility_id = '33333333-3333-4333-8333-333333333333'$$,
   506, 'SEED-135: new facility gets all 506 checklist items');
+
+-- Migration 139 renamed the middle phase Operational -> Daily: each of the 17
+-- areas seeds Opening / Daily / Closing, and no 'Operational' template remains.
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_templates
+    where facility_id = '33333333-3333-4333-8333-333333333333'
+      and name = 'Daily'$$,
+  17, 'SEED-139: new facility seeds a Daily phase for every area');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_templates
+    where facility_id = '33333333-3333-4333-8333-333333333333'
+      and name = 'Operational'$$,
+  0, 'SEED-139: no legacy Operational phase remains after rename');
 
 -- ---------------------------------------------------------------------------
 -- 2N. Scheduling write-side gates (migration 136).
@@ -2117,6 +2368,115 @@ select pg_temp.expect_ok(
     values ('11111111-1111-1111-1111-111111111111',
             'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'shift_reminder')$$,
   'SCHED-136: scheduling admin CAN insert schedule_notifications');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2O. Migration-137 SECURITY DEFINER gates.
+--
+-- scheduling_decide_open_claim is admin-gated; scheduling_notify_swap_request
+-- may only fire for the CALLER'S OWN live swap (returns false otherwise, and
+-- must insert nothing).
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.scheduling_decide_open_claim(
+      'aaaa1111-5711-aaaa-aaaa-aaaa11110095', true)$$,
+  'SCHED-137: staff CANNOT execute scheduling_decide_open_claim');
+
+-- Alice is the TARGET (not requester) of swap ...95 — the helper must refuse.
+select pg_temp.expect_count(
+  $$select case when public.scheduling_notify_swap_request(
+      'aaaa1111-5711-aaaa-aaaa-aaaa11110095') then 1 else 0 end$$,
+  0, 'SCHED-137: non-requester CANNOT fire swap_request_received');
+
+reset role;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+    where swap_id = 'aaaa1111-5711-aaaa-aaaa-aaaa11110095'
+      and notification_type = 'swap_request_received'$$,
+  0, 'SCHED-137: refused notify helper inserted nothing');
+
+-- ---------------------------------------------------------------------------
+-- 2P. Migration-140 double-booking EXCLUDE constraint
+--     (schedule_shifts_no_double_booking).
+--
+-- A GiST exclusion constraint must make it physically impossible to commit two
+-- overlapping assigned (draft/published) shifts for the SAME employee, while
+-- still allowing two shifts that merely TOUCH ('[)' bounds: one shift's ends_at
+-- == the next shift's starts_at). Exercised as postgres (BYPASSRLS) — table
+-- constraints fire regardless of role — reusing Alice's employee + department
+-- in Facility A. Far-future timestamps avoid colliding with the day+1/+2/+3
+-- shift fixtures seeded above.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Baseline assigned shift for Alice (10:00–14:00 on a far-future day).
+insert into public.schedule_shifts (id, facility_id, department_id, employee_id, starts_at, ends_at, status)
+values ('aaaa1111-5514-aaaa-aaaa-aaaa11110097',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        now() + interval '30 days' + interval '10 hours',
+        now() + interval '30 days' + interval '14 hours',
+        'published')
+on conflict (id) do nothing;
+
+-- Overlapping (12:00–16:00) assigned shift for the SAME employee must be
+-- rejected by the exclusion constraint (sqlstate 23P01).
+select pg_temp.expect_error(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '12 hours',
+            now() + interval '30 days' + interval '16 hours',
+            'published')$$,
+  'SCHED-140: overlapping assigned shift for same employee is rejected (exclusion 23P01)');
+
+-- Pin that the rejection is specifically the exclusion_violation (23P01), not an
+-- unrelated error masquerading as one.
+do $$
+begin
+  begin
+    insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '12 hours',
+            now() + interval '30 days' + interval '16 hours',
+            'published');
+    insert into _rls_failures (msg)
+    values ('FAIL: SCHED-140: overlapping insert unexpectedly succeeded');
+  exception
+    when exclusion_violation then
+      raise notice 'ok (23P01 as expected): SCHED-140 overlap raises exclusion_violation';
+    when others then
+      insert into _rls_failures (msg)
+      values (format('FAIL: SCHED-140: overlap raised %s, expected 23P01', sqlstate));
+  end;
+end$$;
+
+-- A touching (14:00–18:00) assigned shift — starts exactly when the baseline
+-- ends — must SUCCEED: '[)' half-open bounds do not treat boundary contact as
+-- an overlap.
+select pg_temp.expect_ok(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, employee_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            now() + interval '30 days' + interval '14 hours',
+            now() + interval '30 days' + interval '18 hours',
+            'published')$$,
+  'SCHED-140: touching shift (ends_at == next starts_at) is allowed');
 
 reset role;
 

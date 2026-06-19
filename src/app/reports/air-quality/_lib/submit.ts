@@ -61,7 +61,7 @@ export async function persistAirQuality(
 
   // Verify the location belongs to this facility and is active.
   const { data: location, error: locErr } = await supabase
-    .from("air_quality_locations")
+    .from("facility_spaces")
     .select("id, name, is_active, facility_id")
     .eq("id", location_id)
     .eq("facility_id", facilityId)

@@ -7,6 +7,7 @@
 import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
+import { logServerError } from "@/lib/observability/log-server-error"
 
 import type { Severity } from "../types"
 import {
@@ -229,19 +230,30 @@ export async function persistIceDepth(
       bodyParts.push(`Low (≤ ${lowThresholdSnapshot}): ${summary.low_count}`)
       bodyParts.push(`High (> ${highThresholdSnapshot}): ${summary.high_count}`)
       if (input.notes) bodyParts.push(`Notes: ${input.notes}`)
-      await supabase.from("communication_alerts").insert({
-        facility_id: facilityId,
-        source_module: "ice_depth",
-        source_record_id: sessionId,
-        severity,
-        title,
-        body: bodyParts.join("\n"),
-        created_by_employee_id: employeeId,
-        requires_acknowledgement: true,
-      })
+      const { error: alertErr } = await supabase
+        .from("communication_alerts")
+        .insert({
+          facility_id: facilityId,
+          source_module: "ice_depth",
+          source_record_id: sessionId,
+          severity,
+          title,
+          body: bodyParts.join("\n"),
+          created_by_employee_id: employeeId,
+          requires_acknowledgement: true,
+        })
+      // Alerts are best-effort and never fail the submission, but a silently
+      // dropped alert is an ops problem — surface it in the logs.
+      if (alertErr) {
+        logServerError("ice-depth/persist:alert-insert", alertErr, {
+          session_id: sessionId,
+          facility_id: facilityId,
+        })
+      }
     }
-  } catch {
-    // Alerts are best-effort; do not fail the submission.
+  } catch (err) {
+    // Alerts are best-effort; do not fail the submission, but record why.
+    logServerError("ice-depth/persist:alert", err, { session_id: sessionId })
   }
 
   // Ice depth does NOT fan out on submit. The report is saved here; the

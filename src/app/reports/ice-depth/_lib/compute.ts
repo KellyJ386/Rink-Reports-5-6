@@ -60,7 +60,10 @@ export function parseMeasurements(raw: unknown): SubmittedMeasurement[] | null {
         : typeof obj.depth_value === "string"
           ? Number(obj.depth_value)
           : Number.NaN
-    if (!Number.isFinite(depth)) return null
+    // Depth is a physical measurement: finite and never negative. Offline
+    // payloads are untrusted, so reject the whole submission rather than
+    // silently persisting a bad reading (mirrors the DB CHECK in mig 138).
+    if (!Number.isFinite(depth) || depth < 0) return null
     out.push({ point_id: obj.point_id, depth_value: depth })
   }
   return out

@@ -153,7 +153,7 @@ async function SetupTabLoader({
   const supabase = await createClient()
   const [locsRes, equipRes, rtRes, thresholdsRes] = await Promise.all([
     supabase
-      .from("air_quality_locations")
+      .from("facility_spaces")
       .select("*")
       .eq("facility_id", facilityId)
       .order("sort_order", { ascending: true })
@@ -298,7 +298,7 @@ async function HistoryTabLoader({
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true }),
     supabase
-      .from("air_quality_locations")
+      .from("facility_spaces")
       .select("*")
       .eq("facility_id", facilityId)
       .order("name", { ascending: true }),

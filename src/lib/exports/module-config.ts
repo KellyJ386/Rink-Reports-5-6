@@ -411,7 +411,7 @@ const buildAirQuality: ModuleBuilder = async ({ sb, facilityId, range, settings 
   const subIds = subs.map((s) => s.id)
   const [emps, locRes, readRes] = await Promise.all([
     loadEmployeeNames(sb, facilityId, subs.map((s) => s.employee_id)),
-    sb.from("air_quality_locations").select("id, name").eq("facility_id", facilityId),
+    sb.from("facility_spaces").select("id, name").eq("facility_id", facilityId),
     subIds.length
       ? sb
           .from("air_quality_readings")

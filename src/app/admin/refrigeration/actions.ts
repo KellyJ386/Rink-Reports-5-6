@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { dbError } from "@/lib/db-error"
 
 import type {
   ActionState,
@@ -14,8 +15,6 @@ import type {
   SimpleResult,
 } from "./types"
 import { isFieldType, isSeverity } from "./types"
-
-type SupabaseError = { code?: string; message?: string } | null
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
@@ -58,20 +57,6 @@ function asNumber(value: FormDataEntryValue | null): number | null {
   if (s === null) return null
   const n = Number(s)
   return Number.isFinite(n) ? n : null
-}
-
-function dbError(err: SupabaseError, fallback: string): string {
-  if (!err) return fallback
-  if (err.code === "23505") {
-    return "That value conflicts with an existing record (duplicate)."
-  }
-  if (err.code === "23503") {
-    return "Cannot complete: a related record prevents this change."
-  }
-  if (err.code === "P0001") {
-    return err.message?.trim() || fallback
-  }
-  return err.message?.trim() || fallback
 }
 
 async function resolveFacility(): Promise<

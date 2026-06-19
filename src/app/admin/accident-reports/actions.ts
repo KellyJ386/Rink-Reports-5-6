@@ -449,17 +449,6 @@ const SEED_INJURY: ReadonlyArray<SeedRow> = [
   { category: "injury_type", key: "other", display_name: "Other", sort_order: 10 },
 ]
 
-const SEED_LOCATION: ReadonlyArray<SeedRow> = [
-  { category: "location", key: "ice_surface", display_name: "Ice Surface", sort_order: 1 },
-  { category: "location", key: "bench", display_name: "Bench", sort_order: 2 },
-  { category: "location", key: "locker_room", display_name: "Locker Room", sort_order: 3 },
-  { category: "location", key: "lobby", display_name: "Lobby", sort_order: 4 },
-  { category: "location", key: "concession", display_name: "Concession", sort_order: 5 },
-  { category: "location", key: "parking_lot", display_name: "Parking Lot", sort_order: 6 },
-  { category: "location", key: "boardroom", display_name: "Boardroom", sort_order: 7 },
-  { category: "location", key: "other", display_name: "Other", sort_order: 8 },
-]
-
 const SEED_ACTIVITY: ReadonlyArray<SeedRow> = [
   { category: "activity", key: "skating", display_name: "Skating", sort_order: 1 },
   { category: "activity", key: "coaching", display_name: "Coaching", sort_order: 2 },
@@ -476,16 +465,15 @@ const ALL_SEEDS: ReadonlyArray<SeedRow> = [
   ...SEED_SEVERITY,
   ...SEED_MEDICAL,
   ...SEED_INJURY,
-  ...SEED_LOCATION,
   ...SEED_ACTIVITY,
 ]
 
 // Sanity check — ensure the literal seeds cover all categories and any new
-// category added later forces an update here.
+// category added later forces an update here. (Location lives in
+// facility_spaces now, not accident_dropdowns.)
 const _ALL_CATEGORIES_COVERED: Record<DropdownCategory, true> = {
   injury_type: true,
   body_part: true,
-  location: true,
   activity: true,
   medical_attention: true,
   severity: true,

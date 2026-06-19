@@ -87,7 +87,7 @@ function UserRow({
           <p className="text-xs text-destructive">{toggleState.error}</p>
         )}
         {toggleState.ok === true && (
-          <p className="text-xs text-green-600 dark:text-green-400">
+          <p className="text-xs text-success-soft-foreground">
             {toggleState.message}
           </p>
         )}
@@ -95,7 +95,7 @@ function UserRow({
           <p className="text-xs text-destructive">{resetState.error}</p>
         )}
         {resetState.ok === true && (
-          <p className="text-xs text-green-600 dark:text-green-400">
+          <p className="text-xs text-success-soft-foreground">
             {resetState.message}
           </p>
         )}

@@ -1,12 +1,12 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { Check } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { USARink } from "@/components/ice-depth/usa-rink"
 import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geometry"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-
-import { SendReportButton } from "./_components/send-report-button"
 
 export const dynamic = "force-dynamic"
 
@@ -32,10 +32,20 @@ function formatTimestamp(iso: string, timezone: string | null): string {
 
 type SeverityKey = "ok" | "low" | "high"
 
+// Severity data palette — the app's semantic tokens so the markers and list
+// adapt to light/dark. These land on SVG fill/stroke attributes in USARink
+// (var() resolves there in modern browsers) and as color-mix tints below.
 const DONE_COLORS: Record<SeverityKey, string> = {
-  ok:   "#4DFF00",
-  low:  "#F42A2A",
-  high: "#FFB800",
+  ok:   "var(--success)",
+  low:  "var(--destructive)",
+  high: "var(--warning)",
+}
+
+// Per-severity Tailwind classes for the stat pills + list (token-driven).
+const SEV_PILL_CLASS: Record<SeverityKey, string> = {
+  ok:   "text-success border-success/30 bg-success/10",
+  low:  "text-destructive border-destructive/30 bg-destructive/10",
+  high: "text-warning border-warning/30 bg-warning/10",
 }
 
 const SEV_LABEL: Record<SeverityKey, string> = {
@@ -312,71 +322,23 @@ function DonePageBody({
 }: DonePageBodyProps) {
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100%",
-        background: "var(--background)",
-      }}
-    >
-      {/* Hero — green checkmark + submitted badge */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          padding: "40px 20px 28px",
-          borderBottom: "1px solid var(--border)",
-          gap: 14,
-          textAlign: "center",
-        }}
-      >
-        {/* Green circle checkmark */}
+    <div className="flex min-h-full flex-col bg-background">
+      {/* Hero — success checkmark + submitted badge */}
+      <div className="flex flex-col items-center gap-[14px] border-b border-border px-5 pb-7 pt-10 text-center">
+        {/* Success circle checkmark */}
         <div
           aria-hidden
+          className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-success bg-success/10"
           style={{
-            width: 80,
-            height: 80,
-            borderRadius: "50%",
-            background: "rgba(77,255,0,0.12)",
-            border: "2px solid #4DFF00",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 0 32px rgba(77,255,0,0.20)",
+            boxShadow:
+              "0 0 32px color-mix(in srgb, var(--success) 20%, transparent)",
           }}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#4DFF00"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ width: 40, height: 40 }}
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check className="h-10 w-10 text-success" strokeWidth={3} />
         </div>
 
         {/* SUBMITTED badge */}
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            padding: "4px 16px",
-            borderRadius: 9999,
-            background: "rgba(77,255,0,0.12)",
-            border: "1px solid rgba(77,255,0,0.3)",
-            color: "#4DFF00",
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-          }}
-        >
+        <div className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-4 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-success">
           Submitted
         </div>
 
@@ -393,39 +355,33 @@ function DonePageBody({
           >
             {layout.name}
           </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12,
-              color: "var(--muted-foreground)",
-            }}
-          >
+          <div className="mt-1.5 text-xs text-muted-foreground">
             {formatTimestamp(session.submitted_at, tz)}
           </div>
         </div>
 
         {/* Stats pills */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+        <div className="flex flex-wrap justify-center gap-2">
           <StatPill
-            color="#4DFF00"
+            tone="ok"
             label="Optimal"
             value={totalOk}
             active={totalOk > 0}
           />
           <StatPill
-            color="#F42A2A"
+            tone="low"
             label="Below min"
             value={totalLow}
             active={totalLow > 0}
           />
           <StatPill
-            color="#FFB800"
+            tone="high"
             label="Above target"
             value={totalHigh}
             active={totalHigh > 0}
           />
           <StatPill
-            color="var(--muted-foreground)"
+            tone="muted"
             label="Total"
             value={session.total_measurements ?? 0}
             active={false}
@@ -434,7 +390,7 @@ function DonePageBody({
       </div>
 
       {/* Rink + point list */}
-      <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="flex flex-col gap-4 px-4 py-5">
         {measurements.length > 0 && (
           <div className="mx-auto w-full max-w-[280px]" style={{ aspectRatio: "380/740" }}>
             <USARink
@@ -443,35 +399,22 @@ function DonePageBody({
               logoUrl={layout.logo_url ?? null}
               style={{
                 borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid var(--border)",
               }}
             />
           </div>
         )}
 
         {measurements.length > 0 && (
-          <ul
-            style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
+          <ul className="m-0 list-none overflow-hidden rounded-xl border border-border bg-card p-0">
             {measurements.map((m, i) => {
               const sev = (m.severity as SeverityKey) ?? "ok"
               const color = DONE_COLORS[sev]
               return (
                 <li
                   key={m.id}
+                  className="flex items-center gap-3 px-[14px] py-[11px]"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "11px 14px",
                     borderBottom:
                       i < measurements.length - 1
                         ? "1px solid var(--border)"
@@ -483,8 +426,8 @@ function DonePageBody({
                       width: 32,
                       height: 32,
                       borderRadius: 9999,
-                      background: `${color}22`,
-                      border: `1px solid ${color}55`,
+                      background: `color-mix(in srgb, ${color} 14%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${color} 34%, transparent)`,
                       color: color,
                       display: "flex",
                       alignItems: "center",
@@ -496,8 +439,8 @@ function DonePageBody({
                   >
                     {m.point_number_snapshot}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-foreground">
                       {m.label_snapshot ?? `Point ${m.point_number_snapshot}`}
                     </div>
                     <div
@@ -512,7 +455,7 @@ function DonePageBody({
                       {SEV_LABEL[sev]}
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                  <div className="flex items-baseline gap-[3px]">
                     <span
                       style={{
                         fontVariantNumeric: "tabular-nums",
@@ -524,7 +467,7 @@ function DonePageBody({
                     >
                       {m.depth_value}
                     </span>
-                    <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{unit}</span>
+                    <span className="text-[11px] text-muted-foreground">{unit}</span>
                   </div>
                 </li>
               )
@@ -533,92 +476,40 @@ function DonePageBody({
         )}
 
         {measurements.length === 0 && (
-          <div
-            style={{
-              padding: "24px 16px",
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              textAlign: "center",
-              fontSize: 13,
-              color: "var(--muted-foreground)",
-            }}
-          >
+          <div className="rounded-xl border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
             No measurements were recorded in this session.
           </div>
         )}
 
         {session.notes && (
-          <div
-            style={{
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              padding: "14px 16px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "var(--muted-foreground)",
-                marginBottom: 6,
-              }}
-            >
+          <div className="rounded-xl border border-border bg-card px-4 py-[14px]">
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
               Notes
             </div>
-            <p style={{ fontSize: 13, color: "var(--foreground)", whiteSpace: "pre-wrap", margin: 0 }}>
+            <p className="m-0 whitespace-pre-wrap text-[13px] text-foreground">
               {session.notes}
             </p>
           </div>
         )}
 
         {/* CTAs */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 16 }}>
-          <SendReportButton sessionId={session.id} />
-          <Link
-            href="/reports/ice-depth"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "100%",
-              minHeight: 52,
-              borderRadius: 10,
-              background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
-              color: "#051200",
-              fontFamily: DISPLAY_FONT,
-              fontSize: 18,
-              fontWeight: 900,
-              textTransform: "uppercase",
-              letterSpacing: "0.02em",
-              textDecoration: "none",
-              boxShadow: "0 2px 0 0 #2E9900, 0 4px 12px rgba(77,255,0,0.25)",
-            }}
+        <div className="flex flex-col gap-[10px] pb-4">
+          <Button
+            asChild
+            size="lg"
+            className="min-h-[52px] w-full text-lg uppercase tracking-[0.02em]"
+            style={{ fontFamily: DISPLAY_FONT }}
           >
-            Submit Another
-          </Link>
-          <Link
-            href="/dashboard"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "100%",
-              minHeight: 44,
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--muted-foreground)",
-              fontSize: 14,
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
+            <Link href="/reports/ice-depth">Submit Another</Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="lg"
+            className="min-h-11 w-full text-sm font-semibold text-muted-foreground"
           >
-            Back to Dashboard
-          </Link>
+            <Link href="/dashboard">Back to Dashboard</Link>
+          </Button>
         </div>
       </div>
     </div>
@@ -626,49 +517,31 @@ function DonePageBody({
 }
 
 function StatPill({
-  color,
+  tone,
   label,
   value,
   active,
 }: {
-  color: string
+  tone: SeverityKey | "muted"
   label: string
   value: number
   active: boolean
 }) {
-  const activeColor = active ? color : "var(--muted-foreground)"
+  const toneClass =
+    active && tone !== "muted"
+      ? SEV_PILL_CLASS[tone]
+      : "text-muted-foreground border-border bg-muted/40"
   return (
     <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "4px 12px",
-        borderRadius: 9999,
-        background: active ? `${color}15` : "rgba(255,255,255,0.04)",
-        border: `1px solid ${active ? `${color}30` : "rgba(255,255,255,0.08)"}`,
-      }}
+      className={`inline-flex items-center gap-[5px] rounded-full border px-3 py-1 ${toneClass}`}
     >
       <span
-        style={{
-          fontFamily: "var(--font-geist-mono), monospace",
-          fontSize: 14,
-          fontWeight: 700,
-          color: activeColor,
-        }}
+        className="text-sm font-bold"
+        style={{ fontFamily: "var(--font-geist-mono), monospace" }}
       >
         {value}
       </span>
-      <span
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-          color: activeColor,
-          opacity: 0.8,
-        }}
-      >
+      <span className="text-[10px] font-bold uppercase tracking-[0.06em] opacity-80">
         {label}
       </span>
     </div>

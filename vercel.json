@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/run-retention-purge",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/expire-scheduling",
+      "schedule": "4-59/10 * * * *"
     }
   ]
 }

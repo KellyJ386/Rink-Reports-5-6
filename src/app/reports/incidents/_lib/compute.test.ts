@@ -23,6 +23,9 @@ function validInput(overrides: Partial<IncidentInput> = {}): IncidentInput {
     space_ids: ["space-1"],
     witnesses: [],
     witnessMissingContact: false,
+    ambulance_flag: false,
+    persons_involved: null,
+    follow_up_required: false,
     ...overrides,
   }
 }
@@ -39,16 +42,24 @@ describe("buildInputFromPayload", () => {
   })
 
   it("coerces missing/non-string fields to empty strings", () => {
-    const out = buildInputFromPayload({ reporter_name: 7, description: null })!
-    expect(out.reporter_name).toBe("")
+    const out = buildInputFromPayload({ description: null })!
     expect(out.description).toBe("")
     expect(out.space_ids).toEqual([])
     expect(out.witnesses).toEqual([])
   })
 
+  it("ignores any reporter identity in the payload (sourced from login)", () => {
+    const out = buildInputFromPayload({
+      reporter_name: "  Spoofed  ",
+      reporter_phone: "555-9999",
+    })!
+    expect(out.reporter_name).toBe("")
+    expect(out.reporter_phone).toBe("")
+  })
+
   it("trims string fields", () => {
-    const out = buildInputFromPayload({ reporter_name: "  Pat  " })!
-    expect(out.reporter_name).toBe("Pat")
+    const out = buildInputFromPayload({ description: "  desc  " })!
+    expect(out.description).toBe("desc")
   })
 
   it("dedupes and trims space ids, dropping non-strings and blanks", () => {
@@ -93,6 +104,34 @@ describe("buildInputFromPayload", () => {
       { name: "Ann", phone: "555", email: null, statement: null },
     ])
   })
+
+  it("defaults the new escalation fields when absent", () => {
+    const out = buildInputFromPayload({ reporter_name: "Pat" })!
+    expect(out.ambulance_flag).toBe(false)
+    expect(out.persons_involved).toBeNull()
+    expect(out.follow_up_required).toBe(false)
+  })
+
+  it("coerces booleans and an integer count from the payload", () => {
+    const out = buildInputFromPayload({
+      ambulance_flag: true,
+      persons_involved: 3,
+      follow_up_required: "true",
+    })!
+    expect(out.ambulance_flag).toBe(true)
+    expect(out.persons_involved).toBe(3)
+    expect(out.follow_up_required).toBe(true)
+  })
+
+  it("treats a blank count as null and a bad count as NaN", () => {
+    expect(buildInputFromPayload({ persons_involved: "" })!.persons_involved).toBeNull()
+    expect(
+      Number.isNaN(buildInputFromPayload({ persons_involved: -1 })!.persons_involved),
+    ).toBe(true)
+    expect(
+      Number.isNaN(buildInputFromPayload({ persons_involved: "1.5" })!.persons_involved),
+    ).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -102,8 +141,6 @@ describe("buildInputFromPayload", () => {
 describe("buildInputFromForm", () => {
   it("parses fields, witnesses_json, and spaces_json", () => {
     const fd = new FormData()
-    fd.set("reporter_name", " Pat ")
-    fd.set("reporter_phone", "555-0100")
     fd.set("description", "desc")
     fd.set("occurred_at", "2026-06-08T14:30")
     fd.set("severity_level_id", "sev-1")
@@ -112,9 +149,17 @@ describe("buildInputFromForm", () => {
       JSON.stringify([{ name: "Ann", phone: "555" }]),
     )
     fd.set("spaces_json", JSON.stringify(["s1", "s1", "s2"]))
+    fd.set("ambulance_flag", "true")
+    fd.set("persons_involved", "2")
+    fd.set("follow_up_required", "false")
 
     const out = buildInputFromForm(fd)
-    expect(out.reporter_name).toBe("Pat")
+    // Reporter identity is never read from the form — injected server-side.
+    expect(out.reporter_name).toBe("")
+    expect(out.reporter_phone).toBe("")
+    expect(out.ambulance_flag).toBe(true)
+    expect(out.persons_involved).toBe(2)
+    expect(out.follow_up_required).toBe(false)
     expect(out.witnesses).toEqual([
       { name: "Ann", phone: "555", email: null, statement: null },
     ])
@@ -133,8 +178,6 @@ describe("buildInputFromForm", () => {
 
   it("online (form) and offline (payload) parse to the same shape", () => {
     const fd = new FormData()
-    fd.set("reporter_name", "Pat")
-    fd.set("reporter_phone", "555")
     fd.set("description", "desc")
     fd.set("occurred_at", "2026-06-08T14:30")
     fd.set("severity_level_id", "sev-1")
@@ -143,8 +186,6 @@ describe("buildInputFromForm", () => {
 
     const fromForm = buildInputFromForm(fd)
     const fromPayload = buildInputFromPayload({
-      reporter_name: "Pat",
-      reporter_phone: "555",
       description: "desc",
       occurred_at: "2026-06-08T14:30",
       severity_level_id: "sev-1",
@@ -169,8 +210,6 @@ describe("validateIncidentInput", () => {
   it("requires every core field", () => {
     const { fieldErrors } = validateIncidentInput(
       validInput({
-        reporter_name: "",
-        reporter_phone: "",
         occurred_at: "",
         severity_level_id: "",
         description: "",
@@ -179,8 +218,6 @@ describe("validateIncidentInput", () => {
     expect(Object.keys(fieldErrors).sort()).toEqual([
       "description",
       "occurred_at",
-      "reporter_name",
-      "reporter_phone",
       "severity_level_id",
     ])
   })
@@ -221,6 +258,21 @@ describe("validateIncidentInput", () => {
       validInput({ space_ids: [], location_other: "Parking lot" }),
     )
     expect(withOther.error).toBeUndefined()
+  })
+
+  it("accepts a null/valid persons_involved, rejects a NaN one", () => {
+    expect(
+      validateIncidentInput(validInput({ persons_involved: null })).fieldErrors
+        .persons_involved,
+    ).toBeUndefined()
+    expect(
+      validateIncidentInput(validInput({ persons_involved: 0 })).fieldErrors
+        .persons_involved,
+    ).toBeUndefined()
+    expect(
+      validateIncidentInput(validInput({ persons_involved: Number.NaN }))
+        .fieldErrors.persons_involved,
+    ).toBeDefined()
   })
 
   it("witness-contact error takes precedence over the space error", () => {

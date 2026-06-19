@@ -23,13 +23,15 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { SyncStatusBadge } from "@/components/offline/sync-status-badge"
 import { ThemeToggle } from "@/components/app/theme-toggle"
-import { AppMobileSidebar } from "@/components/app/mobile-sidebar"
 import { MobileSidebar as AdminMobileSidebar } from "@/components/admin/mobile-sidebar"
+import { Wordmark } from "@/components/wordmark"
 
-// Single header used across the whole app (admin + reports). Action Green bar
-// with white text, showing User · Facility · Date/Time · Temperature. The only
-// per-context difference is which mobile sidebar opens and whether the sync
-// badge / admin "Back to Dashboard" affordance shows.
+// Single header used across the whole app (admin + reports). Clean white bar
+// (bg-card) under a 1px rr.line bottom border, showing User · Facility ·
+// Date/Time · Temperature as subtle chips. Per-context differences: the staff
+// header shows the RinkReports wordmark on mobile (the bottom tab bar owns
+// nav there), while admin keeps a hamburger that opens its sidebar; staff
+// shows the sync badge, admin a "Back to Dashboard" affordance.
 //
 // Temperature is the facility's *outdoor/local* weather (Open-Meteo, geocoded
 // from city/state) — the app has no building/ice temperature feed.
@@ -38,7 +40,6 @@ type GlobalHeaderProps = {
   variant: "admin" | "staff"
   email: string | null
   fullName: string | null
-  isAdmin: boolean
   facilityName: string | null
   tempF: number | null
   tempLocation: string | null
@@ -83,7 +84,6 @@ export function GlobalHeader({
   variant,
   email,
   fullName,
-  isAdmin,
   facilityName,
   tempF,
   tempLocation,
@@ -111,45 +111,36 @@ export function GlobalHeader({
       : "Temp unavailable"
 
   return (
-    <header
-      className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/10 px-4 text-white shadow-md shadow-black/5 backdrop-saturate-150 lg:px-6 print:hidden"
-      style={{
-        backgroundImage:
-          "linear-gradient(180deg, var(--green-400) 0%, var(--green-500) 55%, var(--green-600) 100%)",
-      }}
-    >
-      {/* Left: mobile sidebar trigger (per-context) */}
-      <div className="lg:hidden [&_button]:text-white [&_button:hover]:bg-white/15">
-        {variant === "admin" ? (
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-card px-4 text-foreground lg:px-6 print:hidden">
+      {/* Left: admin gets a hamburger; staff shows the wordmark on mobile
+          (the bottom tab bar owns navigation there). */}
+      {variant === "admin" ? (
+        <div className="lg:hidden">
           <AdminMobileSidebar email={email} fullName={fullName} />
-        ) : (
-          <AppMobileSidebar
-            isAdmin={isAdmin}
-            email={email}
-            fullName={fullName}
-          />
-        )}
-      </div>
+        </div>
+      ) : (
+        <Wordmark href="/dashboard" size="sm" className="lg:hidden" />
+      )}
 
       {/* Center: uniform context info as subtle chips — User · Facility · Date/Time · Temp */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-medium">
-        <span className="flex min-w-0 items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 ring-1 ring-inset ring-white/15 shadow-sm">
-          <UserIcon className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
+        <span className="hidden min-w-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground sm:flex">
+          <UserIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="truncate">{userLabel}</span>
         </span>
         {facilityName ? (
-          <span className="hidden min-w-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 ring-1 ring-inset ring-white/10 sm:flex">
-            <Building2 className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
+          <span className="hidden min-w-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground sm:flex">
+            <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className="truncate">{facilityName}</span>
           </span>
         ) : null}
-        <span className="hidden items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 ring-1 ring-inset ring-white/10 md:flex">
-          <Clock className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
+        <span className="hidden items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground md:flex">
+          <Clock className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
           <span>{now ? formatDate(now) : "—"}</span>
           <span className="tabular-nums">{now ? formatTime(now) : ""}</span>
         </span>
-        <span className="hidden items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 ring-1 ring-inset ring-white/10 lg:flex">
-          <Thermometer className="h-4 w-4 shrink-0 text-white/90" aria-hidden />
+        <span className="hidden items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground lg:flex">
+          <Thermometer className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
           <span>{tempLabel}</span>
         </span>
       </div>
@@ -161,25 +152,21 @@ export function GlobalHeader({
             type="button"
             onClick={() => router.push("/dashboard")}
             aria-label="Back to Dashboard"
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 text-sm font-medium shadow-sm transition-colors hover:bg-white/20"
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">Dashboard</span>
           </button>
         ) : (
-          <div className="text-white">
-            <SyncStatusBadge />
-          </div>
+          <SyncStatusBadge />
         )}
-        <div className="[&_button]:rounded-full [&_button]:border-white/40 [&_button]:bg-white [&_button]:shadow-sm [&_button:hover]:bg-white/90">
-          <ThemeToggle />
-        </div>
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Open user menu"
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-1.5 text-sm shadow-sm transition-colors hover:bg-white/20 sm:pr-3"
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-background px-1.5 text-sm text-foreground transition-colors hover:bg-accent sm:pr-3"
           >
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-[var(--green-700)] shadow-sm ring-2 ring-white/40">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rr-green text-xs font-bold text-rr-navy-dark">
               {initials}
             </span>
             <span className="hidden max-w-[160px] truncate sm:inline">
@@ -204,7 +191,19 @@ export function GlobalHeader({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <form action="/logout" method="post">
-              <DropdownMenuItem type="submit" className="w-full">
+              <DropdownMenuItem
+                type="submit"
+                className="w-full"
+                onClick={(e) => {
+                  // Submit the form ourselves *before* the menu closes.
+                  // DropdownMenuItem's onClick calls setOpen(false), which
+                  // unmounts DropdownMenuContent (and this form) synchronously
+                  // — detaching the form from the DOM aborts the browser's
+                  // native submit, so sign-out would silently do nothing.
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }}
+              >
                 <LogOut className="h-4 w-4" aria-hidden />
                 <span>Sign out</span>
               </DropdownMenuItem>

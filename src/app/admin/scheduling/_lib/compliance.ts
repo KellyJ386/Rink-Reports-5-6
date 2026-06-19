@@ -1,8 +1,10 @@
 // Pure compliance math for shift assignment: net worked hours, the
-// Sunday-anchored UTC week window used for weekly summing, and the
-// minor/overtime threshold evaluation. NO server-only imports live here, so
-// this module is safe to unit-test in isolation (see compliance.test.ts);
+// facility-local week window used for weekly summing, and the minor/overtime
+// threshold evaluation. NO server-only imports live here, so this module is
+// safe to unit-test in isolation (see compliance.test.ts);
 // admin-core-actions.ts and grid-warnings.ts add the Supabase I/O.
+
+import { addDaysToKey, dayKeyInTz, wallTimeToUtc } from "@/lib/timezone"
 
 export type SettingsForCompliance = {
   minor_max_weekly_hours: number | null
@@ -27,28 +29,43 @@ export function shiftHours(s: ShiftForHours): number {
   return Math.max(0, minutes / 60)
 }
 
-/**
- * Start (UTC midnight) of the Sunday-anchored week containing `date`.
- * Compliance hour-summing always uses Sun–Sat regardless of the facility's
- * display week, matching the window used by scheduling_assignment_violations().
- */
-export function startOfWeekUTC(date: string): Date {
-  const d = new Date(date)
-  const start = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
-  )
-  start.setUTCDate(start.getUTCDate() - d.getUTCDay())
-  return start
+export type WeekWindowOptions = {
+  /** IANA facility timezone; null falls back to the runtime's local zone. */
+  timezone: string | null
+  /** 0 = Sunday … 6 = Saturday (schedule_settings.week_start_day). */
+  weekStartDay?: number
 }
 
-/** [start, end) ISO bounds of the compliance week containing `startsAt`. */
-export function complianceWeekWindow(startsAt: string): {
+/**
+ * [start, end) ISO bounds of the compliance week containing `startsAt`,
+ * computed on the FACILITY's calendar: the week runs from local midnight of
+ * the facility's week-start day to local midnight seven days later (so a
+ * Saturday-evening shift in a US facility counts toward the right week, and
+ * DST weeks are 167/169 real hours). Matches the window used by
+ * scheduling_assignment_violations() (migration 137).
+ */
+export function complianceWeekWindow(
+  startsAt: string,
+  opts: WeekWindowOptions
+): {
   startIso: string
   endIso: string
 } {
-  const start = startOfWeekUTC(startsAt)
-  const end = new Date(start)
-  end.setUTCDate(end.getUTCDate() + 7)
+  const weekStartDay = ((opts.weekStartDay ?? 0) % 7 + 7) % 7
+  const dayKey = dayKeyInTz(startsAt, opts.timezone)
+  const [y, m, d] = dayKey.split("-").map(Number)
+  const dow = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
+  const weekStartKey = addDaysToKey(dayKey, -((dow - weekStartDay + 7) % 7))
+  const start = wallTimeToUtc(`${weekStartKey}T00:00:00`, opts.timezone)
+  const end = wallTimeToUtc(
+    `${addDaysToKey(weekStartKey, 7)}T00:00:00`,
+    opts.timezone
+  )
+  if (!start || !end) {
+    // Unreachable for well-formed keys; keep a deterministic fallback.
+    const s = new Date(startsAt)
+    return { startIso: s.toISOString(), endIso: s.toISOString() }
+  }
   return { startIso: start.toISOString(), endIso: end.toISOString() }
 }
 

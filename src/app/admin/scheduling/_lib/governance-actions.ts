@@ -32,6 +32,12 @@ function dbError(err: SupabaseError, fallback: string): string {
   if (err.code === "23503") {
     return "Related record not found or referenced by another row."
   }
+  // Exclusion-constraint backstop (migration 140): a write that would
+  // double-book the employee. Reuse the app-side 'double_booked' copy so the
+  // DB last-line-of-defense reads the same as the pre-validation.
+  if (err.code === "23P01") {
+    return formatViolations(["double_booked"])
+  }
   return err.message?.trim() || fallback
 }
 
@@ -268,6 +274,19 @@ export async function assignSwapTarget(
     if (error) {
       return { ok: false, error: dbError(error, "Failed to assign target.") }
     }
+
+    // Best-effort heads-up to the assigned employee.
+    await supabase.from("schedule_notifications").insert({
+      facility_id: ctx.facilityId,
+      employee_id: targetEmployeeId,
+      notification_type: "swap_request_received",
+      swap_id: id,
+      payload: {
+        message:
+          "A manager assigned you to cover a coworker's shift — pending final approval.",
+      },
+    })
+
     revalidateGovernance()
     return { ok: true, message: "Target assigned." }
   } catch (e) {
@@ -369,13 +388,20 @@ export async function denySwap(
       return { ok: false, error: dbError(error, "Failed to deny swap.") }
     }
 
-    await supabase.from("schedule_notifications").insert({
-      facility_id: ctx.facilityId,
-      employee_id: swap.row.requester_employee_id,
-      notification_type: "swap_denied",
-      swap_id: id,
-      payload: { decision_note: note?.trim() ? note.trim() : null },
-    })
+    // Notify the requester — and the target too, if one had accepted.
+    const denialRecipients = [
+      swap.row.requester_employee_id,
+      ...(swap.row.target_employee_id ? [swap.row.target_employee_id] : []),
+    ]
+    await supabase.from("schedule_notifications").insert(
+      denialRecipients.map((employeeId) => ({
+        facility_id: ctx.facilityId,
+        employee_id: employeeId,
+        notification_type: "swap_denied" as const,
+        swap_id: id,
+        payload: { decision_note: note?.trim() ? note.trim() : null },
+      }))
+    )
 
     revalidateGovernance()
     return { ok: true, message: "Swap denied." }
@@ -683,6 +709,13 @@ export async function updateSchedulingSettings(
     if (!Number.isFinite(dsm) || dsm <= 0) {
       return { ok: false, error: "Default shift minutes must be positive." }
     }
+    const seh = Number(values.swap_expiry_hours)
+    if (!Number.isInteger(seh) || seh <= 0) {
+      return {
+        ok: false,
+        error: "Swap expiry hours must be a positive whole number.",
+      }
+    }
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -697,6 +730,7 @@ export async function updateSchedulingSettings(
           minimum_break_minutes: values.minimum_break_minutes,
           minimum_break_after_hours: values.minimum_break_after_hours,
           swap_requires_manager_approval: values.swap_requires_manager_approval,
+          swap_expiry_hours: seh,
           open_shift_first_come: values.open_shift_first_come,
           notify_on_publish: values.notify_on_publish,
           notify_on_overtime: values.notify_on_overtime,

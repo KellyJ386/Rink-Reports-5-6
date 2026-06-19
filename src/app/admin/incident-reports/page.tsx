@@ -17,7 +17,6 @@ import { createClient } from "@/lib/supabase/server"
 import { ActivitiesTab } from "./_components/activities-tab"
 import { HistoryTab } from "./_components/history-tab"
 import { SeveritiesTab } from "./_components/severities-tab"
-import { SpacesTab } from "./_components/spaces-tab"
 import type {
   ActivityRow,
   ChangeLogRow,
@@ -111,8 +110,6 @@ export default async function IncidentReportsAdminPage({
       {tab === "activities" && (
         <ActivitiesTabLoader facilityId={facilityId} />
       )}
-
-      {tab === "spaces" && <SpacesTabLoader facilityId={facilityId} />}
     </div>
   )
 }
@@ -163,18 +160,6 @@ async function ActivitiesTabLoader({ facilityId }: { facilityId: string }) {
     .order("display_name", { ascending: true })
   const activities = (data ?? []) as ActivityRow[]
   return <ActivitiesTab activities={activities} />
-}
-
-async function SpacesTabLoader({ facilityId }: { facilityId: string }) {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from("facility_spaces")
-    .select("*")
-    .eq("facility_id", facilityId)
-    .order("sort_order", { ascending: true })
-    .order("name", { ascending: true })
-  const spaces = (data ?? []) as FacilitySpaceRow[]
-  return <SpacesTab spaces={spaces} />
 }
 
 async function HistoryTabLoader({

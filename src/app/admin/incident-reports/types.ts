@@ -61,11 +61,10 @@ export type BulkImportResult =
   | { ok: true; inserted: number; skipped: number; errors: string[] }
   | { ok: false; error: string }
 
-export type Tab = "history" | "severities" | "activities" | "spaces"
+export type Tab = "history" | "severities" | "activities"
 
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "history", label: "History" },
   { key: "severities", label: "Severity Levels" },
   { key: "activities", label: "Activities" },
-  { key: "spaces", label: "Facility Spaces" },
 ]
