@@ -6491,6 +6491,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: undefined
       }
+      seed_default_facility_modules: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_facility_spaces: {
         Args: { p_facility_id: string }
         Returns: undefined
