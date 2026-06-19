@@ -527,7 +527,7 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
 
 // Shared pill chrome for the work-area and shift selectors.
 const PILL_BASE =
-  "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:[...]"
 
 function PillRadioDot({ selected }: { selected: boolean }) {
   return (
