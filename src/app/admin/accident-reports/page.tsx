@@ -1,3 +1,4 @@
+import { MapPin } from "lucide-react"
 import Link from "next/link"
 
 import {
@@ -118,8 +119,18 @@ function Header() {
   return (
     <PageHeader
       title="Accident Reports Admin"
-      description="Review submitted accident reports, manage dropdown values, and edit Workers' Compensation instructions. Original reports are immutable."
-      actions={<ExportButton moduleKey="accident_reports" />}
+      description="Review submitted accident reports, manage dropdown values, and edit Workers' Compensation instructions. The Location options live in the shared Facility Spaces list. Original reports are immutable."
+      actions={
+        <>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/spaces">
+              <MapPin />
+              Manage locations
+            </Link>
+          </Button>
+          <ExportButton moduleKey="accident_reports" />
+        </>
+      }
     />
   )
 }
