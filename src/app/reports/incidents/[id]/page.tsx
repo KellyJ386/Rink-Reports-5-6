@@ -257,8 +257,6 @@ export default async function IncidentReportPage({
   }
 
   const initial: IncidentFormInitial = {
-    reporterName: report.reporter_name,
-    reporterPhone: report.reporter_phone ?? "",
     occurredAtLocal: isoToDateTimeLocal(report.occurred_at),
     severityLevelId: report.severity_level_id ?? "",
     activityValue: report.activity_id
@@ -308,8 +306,6 @@ export default async function IncidentReportPage({
         mode="edit"
         action={updateAction}
         initial={initial}
-        defaultReporterName={report.reporter_name}
-        defaultReporterPhone={report.reporter_phone ?? ""}
         severityLevels={severities}
         activities={activities}
         spaces={spaces}

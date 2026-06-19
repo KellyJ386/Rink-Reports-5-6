@@ -11,6 +11,7 @@ import {
   buildInputFromForm,
   persistIncident,
   resolveIncidentRefs,
+  resolveReporterIdentity,
   validateIncidentInput,
   type SubmissionFormState,
 } from "./_lib/submit"
@@ -56,6 +57,11 @@ export async function submitIncidentReport(
   if (!(await currentUserCan(supabase, "incident_reports", "submit"))) {
     return { error: "You don't have permission to submit incident reports." }
   }
+
+  // Reporter identity comes from the login, not the form.
+  const reporter = await resolveReporterIdentity(supabase, current.authUser.id)
+  input.reporter_name = reporter.reporter_name
+  input.reporter_phone = reporter.reporter_phone
 
   const refs = await resolveIncidentRefs(supabase, employeeRow.facility_id, input)
   if (!refs.ok) return { error: refs.error }
@@ -116,6 +122,11 @@ export async function updateIncidentReport(
   if (new Date(existing.edit_window_ends_at).getTime() <= Date.now()) {
     return { error: "The edit window for this report has closed." }
   }
+
+  // Reporter identity is fixed at submission (from login) and not editable;
+  // carry the original values through so the update doesn't blank them.
+  input.reporter_name = existing.reporter_name
+  input.reporter_phone = existing.reporter_phone ?? ""
 
   const facilityId = existing.facility_id
   const refs = await resolveIncidentRefs(supabase, facilityId, input)

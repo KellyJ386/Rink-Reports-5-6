@@ -42,16 +42,24 @@ describe("buildInputFromPayload", () => {
   })
 
   it("coerces missing/non-string fields to empty strings", () => {
-    const out = buildInputFromPayload({ reporter_name: 7, description: null })!
-    expect(out.reporter_name).toBe("")
+    const out = buildInputFromPayload({ description: null })!
     expect(out.description).toBe("")
     expect(out.space_ids).toEqual([])
     expect(out.witnesses).toEqual([])
   })
 
+  it("ignores any reporter identity in the payload (sourced from login)", () => {
+    const out = buildInputFromPayload({
+      reporter_name: "  Spoofed  ",
+      reporter_phone: "555-9999",
+    })!
+    expect(out.reporter_name).toBe("")
+    expect(out.reporter_phone).toBe("")
+  })
+
   it("trims string fields", () => {
-    const out = buildInputFromPayload({ reporter_name: "  Pat  " })!
-    expect(out.reporter_name).toBe("Pat")
+    const out = buildInputFromPayload({ description: "  desc  " })!
+    expect(out.description).toBe("desc")
   })
 
   it("dedupes and trims space ids, dropping non-strings and blanks", () => {
@@ -133,8 +141,6 @@ describe("buildInputFromPayload", () => {
 describe("buildInputFromForm", () => {
   it("parses fields, witnesses_json, and spaces_json", () => {
     const fd = new FormData()
-    fd.set("reporter_name", " Pat ")
-    fd.set("reporter_phone", "555-0100")
     fd.set("description", "desc")
     fd.set("occurred_at", "2026-06-08T14:30")
     fd.set("severity_level_id", "sev-1")
@@ -148,7 +154,9 @@ describe("buildInputFromForm", () => {
     fd.set("follow_up_required", "false")
 
     const out = buildInputFromForm(fd)
-    expect(out.reporter_name).toBe("Pat")
+    // Reporter identity is never read from the form — injected server-side.
+    expect(out.reporter_name).toBe("")
+    expect(out.reporter_phone).toBe("")
     expect(out.ambulance_flag).toBe(true)
     expect(out.persons_involved).toBe(2)
     expect(out.follow_up_required).toBe(false)
@@ -170,8 +178,6 @@ describe("buildInputFromForm", () => {
 
   it("online (form) and offline (payload) parse to the same shape", () => {
     const fd = new FormData()
-    fd.set("reporter_name", "Pat")
-    fd.set("reporter_phone", "555")
     fd.set("description", "desc")
     fd.set("occurred_at", "2026-06-08T14:30")
     fd.set("severity_level_id", "sev-1")
@@ -180,8 +186,6 @@ describe("buildInputFromForm", () => {
 
     const fromForm = buildInputFromForm(fd)
     const fromPayload = buildInputFromPayload({
-      reporter_name: "Pat",
-      reporter_phone: "555",
       description: "desc",
       occurred_at: "2026-06-08T14:30",
       severity_level_id: "sev-1",
@@ -206,8 +210,6 @@ describe("validateIncidentInput", () => {
   it("requires every core field", () => {
     const { fieldErrors } = validateIncidentInput(
       validInput({
-        reporter_name: "",
-        reporter_phone: "",
         occurred_at: "",
         severity_level_id: "",
         description: "",
@@ -216,8 +218,6 @@ describe("validateIncidentInput", () => {
     expect(Object.keys(fieldErrors).sort()).toEqual([
       "description",
       "occurred_at",
-      "reporter_name",
-      "reporter_phone",
       "severity_level_id",
     ])
   })
