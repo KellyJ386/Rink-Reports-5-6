@@ -27,6 +27,31 @@ export type {
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
+// ---------------------------------------------------------------------------
+// Reporter identity (from login, never from client input)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the reporter's name + phone from the authenticated user's profile
+ * row. The incident form no longer collects these — they're sourced from the
+ * login so a reporter can't spoof someone else's identity. Callers inject the
+ * result into `IncidentInput` before persisting.
+ */
+export async function resolveReporterIdentity(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<{ reporter_name: string; reporter_phone: string }> {
+  const { data } = await supabase
+    .from("users")
+    .select("full_name, phone")
+    .eq("id", userId)
+    .maybeSingle()
+  return {
+    reporter_name: (data?.full_name ?? "").trim(),
+    reporter_phone: (data?.phone ?? "").trim(),
+  }
+}
+
 export type ResolvedRefs =
   | { ok: true; resolvedActivityId: string | null; validSpaceIds: string[] }
   | { ok: false; error: string }

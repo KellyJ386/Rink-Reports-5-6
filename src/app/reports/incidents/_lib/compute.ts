@@ -8,8 +8,6 @@ export const DESCRIPTION_MAX = 500
 export const MAX_WITNESSES = 3
 
 export type IncidentFieldName =
-  | "reporter_name"
-  | "reporter_phone"
   | "occurred_at"
   | "severity_level_id"
   | "description"
@@ -23,6 +21,10 @@ export type WitnessInput = {
 }
 
 export type IncidentInput = {
+  // Reporter identity is NOT user-entered: it's resolved server-side from the
+  // authenticated user's login profile (see resolveReporterIdentity in
+  // submit.ts) and injected before persist. The form/payload parsers leave
+  // these blank.
   reporter_name: string
   reporter_phone: string
   description: string
@@ -137,8 +139,9 @@ export function buildInputFromForm(formData: FormData): IncidentInput {
   }
   const { rows, missingContact } = normalizeWitnesses(witnessesRaw)
   return {
-    reporter_name: get("reporter_name"),
-    reporter_phone: get("reporter_phone"),
+    // Reporter identity comes from the login, injected server-side.
+    reporter_name: "",
+    reporter_phone: "",
     description: get("description"),
     occurred_at: get("occurred_at"),
     severity_level_id: get("severity_level_id"),
@@ -161,8 +164,10 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
   const obj = raw as Record<string, unknown>
   const { rows, missingContact } = normalizeWitnesses(obj.witnesses)
   return {
-    reporter_name: str(obj.reporter_name),
-    reporter_phone: str(obj.reporter_phone),
+    // Reporter identity comes from the login, injected server-side; any value
+    // in the (untrusted) payload is ignored.
+    reporter_name: "",
+    reporter_phone: "",
     description: str(obj.description),
     occurred_at: str(obj.occurred_at),
     severity_level_id: str(obj.severity_level_id),
@@ -185,9 +190,6 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
 
 export function validateIncidentInput(input: IncidentInput): IncidentValidation {
   const fieldErrors: Partial<Record<IncidentFieldName, string>> = {}
-  if (!input.reporter_name) fieldErrors.reporter_name = "Please enter your name."
-  if (!input.reporter_phone)
-    fieldErrors.reporter_phone = "Please enter a phone number."
   if (!input.occurred_at) {
     fieldErrors.occurred_at = "Please choose when the incident happened."
   } else if (Number.isNaN(new Date(input.occurred_at).getTime())) {
