@@ -53,7 +53,7 @@ export async function inviteEmployeeByEmail(params: {
   if (!site.ok) {
     return { ok: false, error: `Email invitations aren't available: ${site.error.message}` }
   }
-  const redirectTo = `${site.siteUrl}/update-password`
+  const redirectTo = `${site.siteUrl}/callback?next=/update-password`
 
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo,

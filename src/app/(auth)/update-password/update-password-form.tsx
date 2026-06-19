@@ -11,7 +11,11 @@ import { updatePasswordAction, type UpdatePasswordState } from "./actions"
 
 const initialState: UpdatePasswordState = {}
 
-export function UpdatePasswordForm() {
+export function UpdatePasswordForm({
+  initialError,
+}: {
+  initialError?: string
+}) {
   const [state, formAction] = useActionState(
     updatePasswordAction,
     initialState,
@@ -19,7 +23,7 @@ export function UpdatePasswordForm() {
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
-      <FormError message={state.error} />
+      <FormError message={state.error ?? initialError} />
       <div className="flex flex-col gap-2">
         <Label htmlFor="password">New password</Label>
         <Input
