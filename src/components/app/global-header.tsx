@@ -191,7 +191,19 @@ export function GlobalHeader({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <form action="/logout" method="post">
-              <DropdownMenuItem type="submit" className="w-full">
+              <DropdownMenuItem
+                type="submit"
+                className="w-full"
+                onClick={(e) => {
+                  // Submit the form ourselves *before* the menu closes.
+                  // DropdownMenuItem's onClick calls setOpen(false), which
+                  // unmounts DropdownMenuContent (and this form) synchronously
+                  // — detaching the form from the DOM aborts the browser's
+                  // native submit, so sign-out would silently do nothing.
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }}
+              >
                 <LogOut className="h-4 w-4" aria-hidden />
                 <span>Sign out</span>
               </DropdownMenuItem>
