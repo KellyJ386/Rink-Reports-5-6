@@ -410,7 +410,7 @@ export function SubmissionForm({
         <ReportHeaderCard draftId="DRAFT" />
 
         {/* 1 · Person involved */}
-        <SectionCard>
+        <SectionCard module="accidents" accentBorder>
           <SectionHead n={1} title="Person involved" />
           <div className="flex flex-col gap-4">
             <FormField
@@ -482,7 +482,7 @@ export function SubmissionForm({
         </SectionCard>
 
         {/* 2 · What happened */}
-        <SectionCard>
+        <SectionCard module="accidents" accentBorder>
           <SectionHead
             n={2}
             title="What happened"
@@ -574,7 +574,7 @@ export function SubmissionForm({
         </SectionCard>
 
         {/* 3 · Where & when */}
-        <SectionCard>
+        <SectionCard module="accidents" accentBorder>
           <SectionHead n={3} title="Where & when" />
           <div className="flex flex-col gap-4">
             <FormField
@@ -615,7 +615,7 @@ export function SubmissionForm({
         </SectionCard>
 
         {/* 4 · Witnesses */}
-        <SectionCard>
+        <SectionCard module="accidents" accentBorder>
           <SectionHead
             n={4}
             title="Witnesses"
@@ -706,7 +706,7 @@ export function SubmissionForm({
         </SectionCard>
 
         {/* 5 · Workers' comp */}
-        <SectionCard>
+        <SectionCard module="accidents" accentBorder>
           <SectionHead
             n={5}
             title="Workers' comp"

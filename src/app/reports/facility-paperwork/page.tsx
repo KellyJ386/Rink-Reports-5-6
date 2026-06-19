@@ -116,7 +116,17 @@ export default async function FacilityPaperworkPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
-      <div className="flex flex-col gap-1">
+      <div
+        className="flex flex-col gap-1 overflow-hidden rounded-2xl border-l-4 border-l-module-paperwork px-4 py-4"
+        style={{
+          ["--module-accent" as string]: "var(--module-paperwork)",
+          backgroundImage:
+            "linear-gradient(120deg, color-mix(in oklab, var(--module-accent) 14%, transparent) 0%, transparent 70%)",
+        }}
+      >
+        <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-module-paperwork">
+          Facility
+        </p>
         <h1 className="text-2xl font-semibold tracking-tight">
           Facility Paperwork
         </h1>

@@ -244,6 +244,7 @@ export default async function AccidentsHomePage() {
       <PageHeader
         variant="display"
         module="accidents"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[

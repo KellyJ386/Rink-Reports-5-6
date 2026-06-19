@@ -1,36 +1,14 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import {
+  MODULE_ACCENT_VAR,
+  MODULE_BORDER_L,
+  MODULE_TEXT,
+  type ModuleKey,
+} from "@/components/ui/module-theme"
 
-export type ModuleKey =
-  | "daily"
-  | "ice-depth"
-  | "ice-ops"
-  | "incidents"
-  | "accidents"
-  | "refrig"
-  | "air"
-  | "comms"
-  | "scheduling"
-  | "paperwork"
-
-/**
- * Static map so Tailwind's JIT scanner sees each literal utility class.
- * Don't switch to a template-literal lookup — the scanner can't infer
- * `text-module-${key}` at build time and the classes won't ship.
- */
-const MODULE_EYEBROW_COLOR: Record<ModuleKey, string> = {
-  daily: "text-module-daily",
-  "ice-depth": "text-module-ice-depth",
-  "ice-ops": "text-module-ice-ops",
-  incidents: "text-module-incidents",
-  accidents: "text-module-accidents",
-  refrig: "text-module-refrig",
-  air: "text-module-air",
-  comms: "text-module-comms",
-  scheduling: "text-module-scheduling",
-  paperwork: "text-module-paperwork",
-}
+export type { ModuleKey }
 
 interface PageHeaderProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
@@ -47,6 +25,12 @@ interface PageHeaderProps
   variant?: "default" | "display"
   /** Selects the eyebrow accent color via `text-module-*`. */
   module?: ModuleKey
+  /**
+   * Display-only: render a subtle module-colored band (soft `color-mix` wash +
+   * accent left-rule) behind the title. Requires `module`. Off by default so
+   * existing display headers (e.g. admin) are untouched.
+   */
+  band?: boolean
 }
 
 export function PageHeader({
@@ -57,21 +41,17 @@ export function PageHeader({
   breadcrumb,
   variant = "default",
   module,
+  band = false,
   className,
   ...props
 }: PageHeaderProps) {
   if (variant === "display") {
     const eyebrowColor = module
-      ? MODULE_EYEBROW_COLOR[module]
+      ? MODULE_TEXT[module]
       : "text-muted-foreground"
-    return (
-      <div
-        className={cn(
-          "flex flex-col gap-3 pb-2 sm:flex-row sm:items-end sm:justify-between sm:gap-6",
-          className,
-        )}
-        {...props}
-      >
+    const showBand = band && module
+    const inner = (
+      <>
         <div className="min-w-0">
           {breadcrumb ? <div className="mb-3">{breadcrumb}</div> : null}
           {eyebrow ? (
@@ -98,6 +78,36 @@ export function PageHeader({
             {actions}
           </div>
         ) : null}
+      </>
+    )
+    if (showBand) {
+      return (
+        <div
+          className={cn(
+            "flex flex-col gap-3 overflow-hidden rounded-2xl border-l-4 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6 sm:px-6 sm:py-5",
+            MODULE_BORDER_L[module],
+            className,
+          )}
+          style={{
+            ["--module-accent" as string]: `var(${MODULE_ACCENT_VAR[module]})`,
+            backgroundImage:
+              "linear-gradient(120deg, color-mix(in oklab, var(--module-accent) 14%, transparent) 0%, transparent 70%)",
+          }}
+          {...props}
+        >
+          {inner}
+        </div>
+      )
+    }
+    return (
+      <div
+        className={cn(
+          "flex flex-col gap-3 pb-2 sm:flex-row sm:items-end sm:justify-between sm:gap-6",
+          className,
+        )}
+        {...props}
+      >
+        {inner}
       </div>
     )
   }

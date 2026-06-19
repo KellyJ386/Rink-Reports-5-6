@@ -290,7 +290,7 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
       <FormError message={state.error} />
 
       {/* Select Work Area — compact, single-select pill tabs */}
-      <Card className="gap-4 py-5">
+      <Card className="gap-4 border-l-4 border-l-module-daily py-5">
         <h2 className="px-6 text-lg font-semibold tracking-tight">
           Select Work Area
         </h2>
@@ -345,7 +345,7 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
       </Card>
 
       {/* Select Shift — shift-type dropdown for the selected area */}
-      <Card className="gap-4 py-5">
+      <Card className="gap-4 border-l-4 border-l-module-daily py-5">
         <h2 className="px-6 text-lg font-semibold tracking-tight">
           Select Shift
         </h2>

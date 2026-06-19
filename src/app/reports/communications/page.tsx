@@ -482,6 +482,7 @@ export default async function CommunicationsInboxPage({
       <PageHeader
         variant="display"
         module="comms"
+        band
         breadcrumb={
           <Breadcrumb
             segments={[

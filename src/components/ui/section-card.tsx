@@ -1,6 +1,12 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import {
+  MODULE_ACCENT_VAR,
+  MODULE_BORDER_L,
+  MODULE_TEXT,
+  type ModuleKey,
+} from "@/components/ui/module-theme"
 
 /**
  * Canonical visual chrome shared by SectionCard and disclosure-style
@@ -12,17 +18,27 @@ export const sectionCardClasses =
 
 interface SectionCardProps extends React.HTMLAttributes<HTMLElement> {
   as?: "section" | "div" | "article"
+  /** Per-module theming key. With `accentBorder`, paints a colored left rule. */
+  module?: ModuleKey
+  /** When true (and `module` set), adds a module-colored left accent border. */
+  accentBorder?: boolean
 }
 
 export function SectionCard({
   as = "section",
+  module,
+  accentBorder = false,
   className,
   children,
   ...props
 }: SectionCardProps) {
   const Comp = as as React.ElementType
+  const accent =
+    accentBorder && module
+      ? cn("border-l-4", MODULE_BORDER_L[module])
+      : undefined
   return (
-    <Comp className={cn(sectionCardClasses, className)} {...props}>
+    <Comp className={cn(sectionCardClasses, accent, className)} {...props}>
       {children}
     </Comp>
   )
@@ -34,8 +50,13 @@ interface SectionHeadProps {
   sub?: React.ReactNode
   eyebrow?: React.ReactNode
   icon?: React.ReactNode
-  /** Module accent CSS var name (e.g. "--module-accidents"); colors the eyebrow. */
+  /**
+   * Module accent CSS var name (e.g. "--module-accidents"); colors the eyebrow.
+   * Prefer `module` for new code — kept for back-compat.
+   */
   accent?: string
+  /** Per-module theming key; colors the eyebrow and the icon badge background. */
+  module?: ModuleKey
   className?: string
 }
 
@@ -46,8 +67,12 @@ export function SectionHead({
   eyebrow,
   icon,
   accent,
+  module,
   className,
 }: SectionHeadProps) {
+  // `module` takes precedence; fall back to the legacy `accent` CSS-var string.
+  const accentVar = module ? `var(${MODULE_ACCENT_VAR[module]})` : accent ? `var(${accent})` : undefined
+  const eyebrowClass = module ? MODULE_TEXT[module] : undefined
   return (
     <header className={cn("mb-4 flex items-center gap-3.5", className)}>
       {typeof n === "number" ? (
@@ -60,7 +85,7 @@ export function SectionHead({
       ) : icon ? (
         <div
           className="grid size-11 shrink-0 place-items-center rounded-[10px] text-white"
-          style={accent ? { background: `var(${accent})` } : undefined}
+          style={accentVar ? { background: accentVar } : undefined}
           aria-hidden="true"
         >
           {icon}
@@ -69,8 +94,11 @@ export function SectionHead({
       <div className="min-w-0">
         {eyebrow ? (
           <div
-            className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground"
-            style={accent ? { color: `var(${accent})` } : undefined}
+            className={cn(
+              "text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground",
+              eyebrowClass,
+            )}
+            style={!module && accent ? { color: `var(${accent})` } : undefined}
           >
             {eyebrow}
           </div>
