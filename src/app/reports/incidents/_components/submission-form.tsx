@@ -395,50 +395,6 @@ export function SubmissionForm({
         <FormError message={state.error ?? clientError ?? undefined} />
 
         {/* ---------------------------------------------------------------- */}
-        {/* Reporter */}
-        {/* ---------------------------------------------------------------- */}
-        <Card className="gap-4 border-l-4 border-l-module-incidents py-5">
-          <h2 className="px-6 text-lg font-semibold tracking-tight">Reporter</h2>
-          <div className="grid gap-4 px-6 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="reporter_name">Your name<RequiredMark /></Label>
-              <Input
-                id="reporter_name"
-                name="reporter_name"
-                required
-                aria-invalid={state.fieldErrors?.reporter_name ? "true" : undefined}
-                aria-describedby={state.fieldErrors?.reporter_name ? "reporter_name-error" : undefined}
-                autoComplete="name"
-                enterKeyHint="next"
-                value={reporterName}
-                onChange={(e) => setReporterName(e.target.value)}
-                className="h-12 text-base"
-              />
-              <FieldError id="reporter_name-error" message={state.fieldErrors?.reporter_name} />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="reporter_phone">Phone number<RequiredMark /></Label>
-              <Input
-                id="reporter_phone"
-                name="reporter_phone"
-                required
-                aria-invalid={state.fieldErrors?.reporter_phone ? "true" : undefined}
-                aria-describedby={state.fieldErrors?.reporter_phone ? "reporter_phone-error" : undefined}
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                enterKeyHint="next"
-                value={reporterPhone}
-                onChange={(e) => setReporterPhone(e.target.value)}
-                className="h-12 text-base"
-              />
-              <FieldError id="reporter_phone-error" message={state.fieldErrors?.reporter_phone} />
-            </div>
-          </div>
-        </Card>
-
-        {/* ---------------------------------------------------------------- */}
         {/* When & Where */}
         {/* ---------------------------------------------------------------- */}
         <Card className="gap-4 border-l-4 border-l-module-incidents py-5">

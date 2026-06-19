@@ -282,11 +282,9 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
 
       <FormError message={state.error} />
 
-      {/* Select Work Area — compact, single-select pill tabs */}
-      <Card className="gap-4 border-l-4 border-l-module-daily py-5">
       {/* Shift setup — work area + shift type, the two coupled choices that
           configure the checklist, merged into a single step. */}
-      <Card className="gap-5 py-5">
+      <Card className="gap-5 border-l-4 border-l-module-daily py-5">
         <h2 className="px-6 text-lg font-semibold tracking-tight">
           Shift setup
         </h2>
@@ -342,17 +340,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
           </div>
         </div>
 
-      {/* Select Shift — shift-type dropdown for the selected area */}
-      <Card className="gap-4 border-l-4 border-l-module-daily py-5">
-        <h2 className="px-6 text-lg font-semibold tracking-tight">
-          Select Shift
-        </h2>
-        <div className="px-6">
-          <Select
-            key={selectedArea?.id ?? "none"}
-            value={selectedTemplateId}
-            onValueChange={handleTemplateChange}
-            disabled={templates.length === 0}
         {/* Shift — tappable pills (no dropdown). Item count helps staff pick. */}
         <div className="flex flex-col gap-2 px-6">
           <p
