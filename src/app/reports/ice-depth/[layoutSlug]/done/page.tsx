@@ -7,6 +7,7 @@ import { USARink } from "@/components/ice-depth/usa-rink"
 import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geometry"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { PrintDiagramButton } from "./_components/print-diagram-button"
 
 export const dynamic = "force-dynamic"
 
@@ -323,8 +324,35 @@ function DonePageBody({
 
   return (
     <div className="flex min-h-full flex-col bg-background">
+      {/* Print: show only the rink diagram, full-page on US Letter portrait. */}
+      <style>{`@media print {
+        .ice-print-hide { display: none !important; }
+        .ice-print-area { padding: 0 !important; }
+        .ice-print-diagram { max-width: none !important; height: 9.4in !important; width: auto !important; aspect-ratio: 380 / 740; margin: 0 auto !important; border: none !important; }
+        .ice-print-diagram svg { border: none !important; border-radius: 0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        @page { size: letter portrait; margin: 0.5in; }
+      }`}</style>
+
+      {/* Print-only caption (rink name + timestamp) above the diagram. */}
+      <div className="hidden text-center print:block">
+        <div
+          style={{
+            fontFamily: DISPLAY_FONT,
+            fontSize: "24px",
+            textTransform: "uppercase",
+            color: "#000",
+            lineHeight: 1,
+          }}
+        >
+          {layout.name}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {formatTimestamp(session.submitted_at, tz)}
+        </div>
+      </div>
+
       {/* Hero — success checkmark + submitted badge */}
-      <div className="flex flex-col items-center gap-[14px] border-b border-border px-5 pb-7 pt-10 text-center">
+      <div className="ice-print-hide flex flex-col items-center gap-[14px] border-b border-border px-5 pb-7 pt-10 text-center">
         {/* Success circle checkmark */}
         <div
           aria-hidden
@@ -390,9 +418,9 @@ function DonePageBody({
       </div>
 
       {/* Rink + point list */}
-      <div className="flex flex-col gap-4 px-4 py-5">
+      <div className="ice-print-area flex flex-col gap-4 px-4 py-5">
         {measurements.length > 0 && (
-          <div className="mx-auto w-full max-w-[280px]" style={{ aspectRatio: "380/740" }}>
+          <div className="ice-print-diagram mx-auto w-full max-w-[280px]" style={{ aspectRatio: "380/740" }}>
             <USARink
               points={rinkPoints}
               showValues
@@ -406,7 +434,7 @@ function DonePageBody({
         )}
 
         {measurements.length > 0 && (
-          <ul className="m-0 list-none overflow-hidden rounded-xl border border-border bg-card p-0">
+          <ul className="ice-print-hide m-0 list-none overflow-hidden rounded-xl border border-border bg-card p-0">
             {measurements.map((m, i) => {
               const sev = (m.severity as SeverityKey) ?? "ok"
               const color = DONE_COLORS[sev]
@@ -476,13 +504,13 @@ function DonePageBody({
         )}
 
         {measurements.length === 0 && (
-          <div className="rounded-xl border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
+          <div className="ice-print-hide rounded-xl border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
             No measurements were recorded in this session.
           </div>
         )}
 
         {session.notes && (
-          <div className="rounded-xl border border-border bg-card px-4 py-[14px]">
+          <div className="ice-print-hide rounded-xl border border-border bg-card px-4 py-[14px]">
             <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
               Notes
             </div>
@@ -493,7 +521,8 @@ function DonePageBody({
         )}
 
         {/* CTAs */}
-        <div className="flex flex-col gap-[10px] pb-4">
+        <div className="ice-print-hide flex flex-col gap-[10px] pb-4">
+          {measurements.length > 0 && <PrintDiagramButton />}
           <Button
             asChild
             size="lg"
