@@ -14,6 +14,12 @@ import {
 } from "./_components/reading-types-import"
 import type { ActionState, Severity, SimpleResult } from "./types"
 import { isSeverity } from "./types"
+import {
+  REGULATORY_CEILINGS,
+  validateThreshold,
+  type RegulatoryCeiling,
+  type ThresholdInputs,
+} from "./_lib/thresholds"
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
@@ -587,15 +593,6 @@ export async function moveReadingType(
 // Thresholds
 // ============================================================================
 
-type ThresholdInputs = {
-  warn_min: number | null
-  warn_max: number | null
-  alert_min: number | null
-  alert_max: number | null
-  compliance_min: number | null
-  compliance_max: number | null
-}
-
 function readThresholdInputs(formData: FormData): ThresholdInputs {
   return {
     warn_min: asNumber(formData.get("warn_min")),
@@ -607,29 +604,19 @@ function readThresholdInputs(formData: FormData): ThresholdInputs {
   }
 }
 
-function validateThreshold(t: ThresholdInputs): string | null {
-  const all = [
-    t.warn_min,
-    t.warn_max,
-    t.alert_min,
-    t.alert_max,
-    t.compliance_min,
-    t.compliance_max,
-  ]
-  if (all.every((v) => v === null)) {
-    return "At least one threshold value is required."
-  }
-  const pairs: Array<[number | null, number | null, string]> = [
-    [t.warn_min, t.warn_max, "Warn"],
-    [t.alert_min, t.alert_max, "Alert"],
-    [t.compliance_min, t.compliance_max, "Compliance"],
-  ]
-  for (const [min, max, label] of pairs) {
-    if (min !== null && max !== null && min > max) {
-      return `${label} min must be less than or equal to ${label} max.`
-    }
-  }
-  return null
+async function regulatoryCeilingForReadingType(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  facilityId: string,
+  readingTypeId: string,
+): Promise<RegulatoryCeiling | null> {
+  const { data } = await supabase
+    .from("air_quality_reading_types")
+    .select("key")
+    .eq("id", readingTypeId)
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  if (!data?.key) return null
+  return REGULATORY_CEILINGS[data.key] ?? null
 }
 
 export async function createThreshold(
@@ -646,8 +633,14 @@ export async function createThreshold(
       return { ok: false, error: "Reading type is required." }
     const location_id = nonEmpty(formData.get("location_id"))
 
+    const supabase = await createClient()
     const inputs = readThresholdInputs(formData)
-    const err = validateThreshold(inputs)
+    const ceiling = await regulatoryCeilingForReadingType(
+      supabase,
+      facility.facilityId,
+      reading_type_id,
+    )
+    const err = validateThreshold(inputs, ceiling)
     if (err) return { ok: false, error: err }
 
     const sevRaw = nonEmpty(formData.get("severity")) ?? "warn"
@@ -656,7 +649,6 @@ export async function createThreshold(
     }
     const severity: Severity = sevRaw
 
-    const supabase = await createClient()
     const { error } = await supabase.from("air_quality_thresholds").insert({
       facility_id: facility.facilityId,
       reading_type_id,
@@ -689,8 +681,22 @@ export async function updateThreshold(
     const id = nonEmpty(formData.get("id"))
     if (!id) return { ok: false, error: "Missing threshold id." }
 
+    const supabase = await createClient()
+    const { data: existing } = await supabase
+      .from("air_quality_thresholds")
+      .select("reading_type_id")
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (!existing) return { ok: false, error: "Threshold not found." }
+
     const inputs = readThresholdInputs(formData)
-    const err = validateThreshold(inputs)
+    const ceiling = await regulatoryCeilingForReadingType(
+      supabase,
+      facility.facilityId,
+      existing.reading_type_id,
+    )
+    const err = validateThreshold(inputs, ceiling)
     if (err) return { ok: false, error: err }
 
     const sevRaw = nonEmpty(formData.get("severity")) ?? "warn"
@@ -699,7 +705,6 @@ export async function updateThreshold(
     }
     const severity: Severity = sevRaw
 
-    const supabase = await createClient()
     const { error } = await supabase
       .from("air_quality_thresholds")
       .update({

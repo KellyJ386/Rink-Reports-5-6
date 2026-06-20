@@ -56,16 +56,15 @@
 
 ## Section 3 — P0 · Launch Blockers (must fix before Tennity pilot)
 
-### P0-1 🔴 Air Quality thresholds can be loosened below regulatory floors
+### P0-1 🔴 Air Quality thresholds can be loosened below regulatory floors — ✅ FIXED (2026-06-20)
 - **Module:** Air Quality · **File:** `src/app/admin/air-quality/actions.ts:610–633` (`validateThreshold`)
 - **Root cause:** `validateThreshold` does no clamp against statutory minimums — an admin can set `alert_max` above MN limits (e.g. CO 83 ppm, NO2 2.0 ppm).
 - **Why blocking:** Directly violates the master prompt's absolute constraint ("regulatory floor values are hardcoded minimums and cannot be overridden downward") and defeats the safety purpose of an air-quality compliance product.
 - **Fix:** Add server-side regulatory-floor constants and reject any threshold that loosens past them. **Effort: M.**
 
-### P0-2 🔴 Cross-tenant writes into append-only change/audit logs (RLS gap)
-- **Modules:** Air Quality, Ice Depth (and Ice Operations variant) · **Where:** live RLS `INSERT` policies on `air_quality_change_log`, `ice_depth_change_log` have `WITH CHECK = null`; `ice_operation_change_log` `SELECT` lacks the `has_module_access` gate.
-- **Root cause:** INSERT policies never constrain `facility_id`, so any authenticated user can write audit-log rows tagged with an arbitrary facility — a cross-tenant integrity hole in the immutable audit trail.
-- **Fix:** One migration adding `WITH CHECK (facility_id = current_facility_id())` to the change-log INSERT policies and a module-access gate on the Ice Ops log SELECT; add assertions to `supabase/tests/rls_isolation.sql`. **Effort: S.**
+### P0-2 ⚪ Cross-tenant writes into change logs — ❌ RETRACTED (false positive)
+- **Verified against live `pg_policies` on 2026-06-20.** The change-log `INSERT` policies on `air_quality_change_log`, `ice_depth_change_log`, and `ice_operation_change_log` **already carry a correct `WITH CHECK`**: `is_super_admin() OR (facility_id = current_facility_id() AND current_employee_module_permission('<module>') >= 'submit')`. The SELECT policies are facility-scoped identically across all three.
+- **Root cause of the false positive:** three subagents read the `pg_policies.qual` column (which is *always* `null` for `INSERT` policies — the predicate lives in `with_check`) and mistook it for "no check." No vulnerability exists; no migration needed.
 
 ### P0-3 🟡→blocker Two modules below the 75 bar
 - Air Quality **68** and Ice Operations **72** fail the "all modules ≥ 75" launch criterion. They are lifted by fixing the items in this section (P0-1/P0-2 for AQ; P1-1/P1-2 for Ice Ops). Tracked here so the criterion isn't lost.
@@ -78,7 +77,7 @@
 
 | # | Sev | Finding | File:line | Effort |
 |---|---|---|---|---|
-| P1-0 | 🟡 | **Ice Depth `SendReportButton` orphaned** — the component (`send-report-button.tsx`) and `sendIceDepthReport` action (`actions.ts:122–183`) are fully built but never rendered on the post-submit screen, so staff cannot distribute a report. Import + render in the done-page CTAs. | `reports/ice-depth/[layoutSlug]/done/page.tsx` | S (~30 min) |
+| P1-0 | ✅ | **Ice Depth `SendReportButton` orphaned — FIXED (2026-06-20).** Imported and rendered as the primary done-page CTA (gated on `measurements.length > 0`, `sessionId={session.id}`). | `reports/ice-depth/[layoutSlug]/done/page.tsx:11,526` | done |
 | P1-1 | 🟡 | **Ice Ops `type AnySupabase = any` (20 casts)** — the tables it papered over are now in generated types; CLAUDE.md retires this pattern. Remove all 20. | `src/app/admin/ice-operations/actions.ts:31` (+19) | S |
 | P1-2 | 🟡 | Ice Ops operation/equipment types are hardcoded TS enums + DB CHECK (spec wants admin-configurable; "Patch" doesn't exist). | `src/app/reports/ice-operations/types.ts:12–31` | M |
 | P1-3 | 🟡 | **Refrigeration `readings_per_shift` does not exist** — no config column, no enforcement; `round_no` uncapped. | `refrigeration_settings`; `_lib/submit.ts` | M |
@@ -140,3 +139,15 @@ The platform is materially stronger than the 6/17 baseline: **all four prior cri
 What stands between here and a clean pilot is a small, well-scoped set: the **Air Quality regulatory-floor clamp** (an explicit absolute-constraint violation in a safety module), the **cross-tenant change-log RLS gap** (cheap), and lifting **Air Quality + Ice Operations above 75** (largely the `AnySupabase` cleanup, `readings_per_shift`, and configurable types). The migration-ledger drift should be reconciled before any `db push`/`reset`.
 
 **Estimate: ~1 week** to clear P0 + the load-bearing P1 items, after which the platform meets all three launch criteria.
+
+---
+
+## Section 8 — Remediation Applied in This Branch (2026-06-20)
+
+Fixes landed on `claude/confident-allen-9auxs1` immediately after the audit (all verified: `tsc` clean, ESLint clean, 326 unit tests pass incl. 9 new, `pnpm build` green):
+
+1. **P0-1 — Air Quality regulatory-floor clamp.** Added hardcoded MN/NY statutory ceilings (`REGULATORY_CEILINGS`: CO `alert_max ≤ 83`/`compliance_max ≤ 20`; NO2 `2.0`/`0.3`) in a new pure, unit-tested module `src/app/admin/air-quality/_lib/thresholds.ts`. `createThreshold`/`updateThreshold` now resolve the reading-type key → ceiling and reject any threshold that loosens past it (admins may still tighten). Covers the absolute constraint "regulatory floors cannot be overridden downward." CO2 (advisory) stays unclamped.
+2. **P1-0 — Ice Depth `SendReportButton`.** Imported + rendered as the primary done-page CTA so staff can distribute a completed report.
+3. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
+
+**Not yet addressed** (remaining path to launch): lift Ice Operations ≥ 75 (remove `AnySupabase`, configurable operation/equipment types), Refrigeration `readings_per_shift`, Daily submission-lock, AQ sustained-exceedance engine, migration-ledger reconcile, and the P2 design/token sweep.
