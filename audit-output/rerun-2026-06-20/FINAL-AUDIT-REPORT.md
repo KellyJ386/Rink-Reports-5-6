@@ -23,7 +23,7 @@
 | Offline / PWA (SW) | **93/100** | ~ | Production-ready |
 | Admin Control Center | **91/100** | +9 | Production-ready |
 | Daily Reports | **83/100** | −3 | Near-complete |
-| Ice Depth | **82/100** | −6 | Near-complete |
+| Ice Depth | **79/100** | −9 | Near-complete |
 | Incident Reporting | **81/100** | +2 | Near-complete |
 | Refrigeration Logs | **79/100** | −9 | Near-complete |
 | Design System | **76/100** | n/a | Near-complete |
@@ -78,6 +78,7 @@
 
 | # | Sev | Finding | File:line | Effort |
 |---|---|---|---|---|
+| P1-0 | 🟡 | **Ice Depth `SendReportButton` orphaned** — the component (`send-report-button.tsx`) and `sendIceDepthReport` action (`actions.ts:122–183`) are fully built but never rendered on the post-submit screen, so staff cannot distribute a report. Import + render in the done-page CTAs. | `reports/ice-depth/[layoutSlug]/done/page.tsx` | S (~30 min) |
 | P1-1 | 🟡 | **Ice Ops `type AnySupabase = any` (20 casts)** — the tables it papered over are now in generated types; CLAUDE.md retires this pattern. Remove all 20. | `src/app/admin/ice-operations/actions.ts:31` (+19) | S |
 | P1-2 | 🟡 | Ice Ops operation/equipment types are hardcoded TS enums + DB CHECK (spec wants admin-configurable; "Patch" doesn't exist). | `src/app/reports/ice-operations/types.ts:12–31` | M |
 | P1-3 | 🟡 | **Refrigeration `readings_per_shift` does not exist** — no config column, no enforcement; `round_no` uncapped. | `refrigeration_settings`; `_lib/submit.ts` | M |
