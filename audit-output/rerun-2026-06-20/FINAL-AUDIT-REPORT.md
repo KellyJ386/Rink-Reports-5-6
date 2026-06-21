@@ -93,7 +93,7 @@
 
 ## Section 5 — P2 · Post-Launch (can ship with these open)
 
-- **15 `#69BE28` occurrences in production UI** (worst: `pwa-install-prompt.tsx` ×5; also `request-information.tsx`, `page.tsx`, ice-depth SVGs, department-form default). Replace with `--rr-green`. **S.**
+- ~~**15 `#69BE28` occurrences in production UI**~~ — ✅ **FIXED (2026-06-20).** All `.tsx`/`.ts` literals removed: `pwa-install-prompt.tsx` now uses `rr-green` token utilities; `request-information.tsx`/`page.tsx` gradients use the brand ramp (`#7AFF40 → #4DFF00`); ice-depth SVGs + department-form default use `#4DFF00`. The only remaining `#69BE28` is an unused legacy ramp token (`--green-500`) in `globals.css`, never rendered.
 - **Staff Scheduling design = 48/100** — bypasses the token system with inline hex and no shadcn Card/PageHeader chrome. **M.**
 - 28 inline `dbError`/`errFmt` clones (DRY; some lose 23505/23503 translation). Extend shared `src/lib/db-error.ts`. **M.**
 - Per-module `error.tsx` boundaries (only group-level today). **M.**

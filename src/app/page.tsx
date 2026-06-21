@@ -264,7 +264,7 @@ export default async function Home() {
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: "#69BE28",
+                background: "var(--rr-green)",
                 boxShadow: "0 0 0 4px rgba(105,190,40,0.22)",
               }}
             />
@@ -405,7 +405,7 @@ export default async function Home() {
                     height: 54,
                     borderRadius: 14,
                     background:
-                      "linear-gradient(135deg, #54A01A 0%, #69BE28 100%)",
+                      "linear-gradient(135deg, #1A9B00 0%, #4DFF00 100%)",
                     display: "grid",
                     placeItems: "center",
                     color: "#fff",
