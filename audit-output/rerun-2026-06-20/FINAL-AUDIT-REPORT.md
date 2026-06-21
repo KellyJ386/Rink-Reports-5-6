@@ -85,7 +85,7 @@
 | P1-5 | 🟡 | AQ sustained-exceedance / **Evacuation tier is a stub** (`rule_body` JSON, "future engine pass"); no time-series evaluation exists. | `admin/air-quality/actions.ts:1185–1190` | L |
 | P1-6 | 🟡 | `incident_types` has **no admin CRUD UI** (read-only; severities/activities are editable). | `reports/incidents/.../types.ts:64` | M |
 | P1-7 | 🟡 | **Migration ledger drift** — live ledger ≠ on-disk files; duplicate prefix `139`. Repo is not a faithful source of truth; `supabase db push/reset` is unsafe without `migration repair`. | `supabase/migrations/`, live ledger | M |
-| P1-8 | 🟡 | Bottom-tab-bar "Reports" hardcodes `/reports/daily`, ignoring `enabledModules` (breaks if `daily_reports` disabled). | `src/components/app/bottom-tab-bar.tsx:55` | S |
+| P1-8 | ✅ | **FIXED (2026-06-20).** Bottom-tab "Reports" now resolves to the first *enabled* module via `firstEnabledReportsHref(enabledModules)` (new helper in `sidebar-nav.tsx`, single source of truth), with `/reports/daily` fail-open fallback. | `src/components/app/bottom-tab-bar.tsx`, `sidebar-nav.tsx` | done |
 | P1-9 | 🟡 | Communications **reminders scheduler unimplemented** but shows "not yet implemented" to admins. | `admin/communications/_components/reminders-tab.tsx:74` | S/L |
 | P1-10 | 🟡 | Zod adoption inconsistent (~5–9 of ~45 mutating actions); rest hand-roll validation (offline-sync route included). | `src/app/**/actions.ts` | L (incremental) |
 

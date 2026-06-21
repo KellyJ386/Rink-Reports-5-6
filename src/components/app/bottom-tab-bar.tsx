@@ -6,6 +6,7 @@ import { ClipboardList, Home, Menu, User } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { AppMobileSidebar } from "./mobile-sidebar"
+import { firstEnabledReportsHref } from "./sidebar-nav"
 
 interface AppBottomTabBarProps {
   isAdmin: boolean
@@ -37,6 +38,9 @@ export function AppBottomTabBar({
   const homeActive = pathname === "/dashboard"
   const reportsActive = pathname.startsWith("/reports")
   const accountActive = pathname.startsWith("/account")
+  // Point "Reports" at the first module the facility actually has enabled, so
+  // the tab never dead-ends on a disabled module (e.g. daily_reports off).
+  const reportsHref = firstEnabledReportsHref(enabledModules)
 
   return (
     <nav
@@ -52,7 +56,7 @@ export function AppBottomTabBar({
         Home
       </Link>
       <Link
-        href="/reports/daily"
+        href={reportsHref}
         aria-current={reportsActive ? "page" : undefined}
         className={tabCls(reportsActive)}
       >
