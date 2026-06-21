@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Check } from "lucide-react"
+import { Check, Download } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { USARink } from "@/components/ice-depth/usa-rink"
@@ -48,12 +48,6 @@ const SEV_PILL_CLASS: Record<SeverityKey, string> = {
   ok:   "text-success border-success/30 bg-success/10",
   low:  "text-destructive border-destructive/30 bg-destructive/10",
   high: "text-warning border-warning/30 bg-warning/10",
-}
-
-const SEV_LABEL: Record<SeverityKey, string> = {
-  ok:   "Optimal",
-  low:  "Below min",
-  high: "Above target",
 }
 
 type LoadFailure = {
@@ -316,7 +310,6 @@ function DonePageBody({
   session,
   measurements,
   tz,
-  unit,
   rinkPoints,
   totalOk,
   totalLow,
@@ -434,76 +427,6 @@ function DonePageBody({
           </div>
         )}
 
-        {measurements.length > 0 && (
-          <ul className="ice-print-hide m-0 list-none overflow-hidden rounded-xl border border-border bg-card p-0">
-            {measurements.map((m, i) => {
-              const sev = (m.severity as SeverityKey) ?? "ok"
-              const color = DONE_COLORS[sev]
-              return (
-                <li
-                  key={m.id}
-                  className="flex items-center gap-3 px-[14px] py-[11px]"
-                  style={{
-                    borderBottom:
-                      i < measurements.length - 1
-                        ? "1px solid var(--border)"
-                        : "none",
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 9999,
-                      background: `color-mix(in srgb, ${color} 14%, transparent)`,
-                      border: `1px solid color-mix(in srgb, ${color} 34%, transparent)`,
-                      color: color,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      fontWeight: 800,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {m.point_number_snapshot}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-semibold text-foreground">
-                      {m.label_snapshot ?? `Point ${m.point_number_snapshot}`}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: color,
-                        fontWeight: 700,
-                        letterSpacing: "0.04em",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {SEV_LABEL[sev]}
-                    </div>
-                  </div>
-                  <div className="flex items-baseline gap-[3px]">
-                    <span
-                      style={{
-                        fontVariantNumeric: "tabular-nums",
-                        fontSize: 15,
-                        fontWeight: 700,
-                        color: "var(--foreground)",
-                        fontFamily: "var(--font-geist-mono), monospace",
-                      }}
-                    >
-                      {m.depth_value}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">{unit}</span>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-
         {measurements.length === 0 && (
           <div className="ice-print-hide rounded-xl border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
             No measurements were recorded in this session.
@@ -523,6 +446,26 @@ function DonePageBody({
 
         {/* CTAs */}
         <div className="ice-print-hide flex flex-col gap-[10px] pb-4">
+          {measurements.length > 0 && (
+            <>
+              <Button
+                asChild
+                variant="outline"
+                size="lg"
+                className="min-h-11 w-full text-sm font-semibold text-muted-foreground"
+              >
+                <a
+                  href={`/reports/ice-depth/${layout.slug}/done/pdf?id=${session.id}`}
+                  download
+                >
+                  <Download className="h-4 w-4" aria-hidden />
+                  Download PDF
+                </a>
+              </Button>
+              <PrintDiagramButton />
+              <SendReportButton sessionId={session.id} />
+            </>
+          )}
           {measurements.length > 0 && <SendReportButton sessionId={session.id} />}
           {measurements.length > 0 && <PrintDiagramButton />}
           <Button
