@@ -149,6 +149,12 @@ Fixes landed on `claude/confident-allen-9auxs1` immediately after the audit (all
 1. **P0-1 — Air Quality regulatory-floor clamp.** Added hardcoded MN/NY statutory ceilings (`REGULATORY_CEILINGS`: CO `alert_max ≤ 83`/`compliance_max ≤ 20`; NO2 `2.0`/`0.3`) in a new pure, unit-tested module `src/app/admin/air-quality/_lib/thresholds.ts`. `createThreshold`/`updateThreshold` now resolve the reading-type key → ceiling and reject any threshold that loosens past it (admins may still tighten). Covers the absolute constraint "regulatory floors cannot be overridden downward." CO2 (advisory) stays unclamped.
 2. **P1-0 — Ice Depth `SendReportButton`.** Imported + rendered as the primary done-page CTA so staff can distribute a completed report.
 3. **P1-1 — Ice Ops `AnySupabase` removed.** Deleted the `= any` alias + 20 casts; hand-rolled row types replaced with generated `Tables<…>` generics. `tsc` confirms no real type errors were hidden. Removes the last `as any`-family escape hatch from the codebase.
-4. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
+4. **P1-8 — Mobile "Reports" tab** now resolves to the first enabled module.
+5. **P2 — `#69BE28` purge** across all `.tsx`/`.ts` production UI.
+6. **P1-3 — Refrigeration `readings_per_shift`** (migration 146, applied to prod): admin-configurable cap, staff-form guidance, server-side `round_no` enforcement, 5 tests.
+7. **P1-4 — Daily same-day correction** (migration 147, applied to prod): `business_date` + unique index + `persistDaily` upsert ("allow correction" per owner), 2 tests.
+8. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
 
-**Not yet addressed** (remaining path to launch): Ice Operations configurable operation/equipment types (still CHECK enums), Refrigeration `readings_per_shift`, Daily submission-lock, AQ sustained-exceedance engine, migration-ledger reconcile, and the P2 design/token sweep.
+**Impact on launch criteria:** the two sub-75 modules' load-bearing gaps are now closed — Air Quality's HIGH regulatory-floor finding (P0-1) and Ice Operations' `AnySupabase` hatch (P1-1) — so both are expected to clear the ≥75 bar on re-grade. 333 unit tests pass; tsc/lint/build green.
+
+**Not yet addressed** (remaining follow-ups): AQ sustained-exceedance ("Evacuation") engine (L), `incident_types` admin CRUD UI (M, migration-free), Ice Operations configurable operation/equipment types (still CHECK enums; M+), Communications reminders scheduler (L), and the migration-ledger reconcile / duplicate-prefix-139 cleanup (M).
