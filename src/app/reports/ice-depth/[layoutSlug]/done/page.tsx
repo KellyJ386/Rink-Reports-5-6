@@ -8,6 +8,7 @@ import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geom
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { PrintDiagramButton } from "./_components/print-diagram-button"
+import { SendReportButton } from "./_components/send-report-button"
 
 export const dynamic = "force-dynamic"
 
@@ -522,6 +523,7 @@ function DonePageBody({
 
         {/* CTAs */}
         <div className="ice-print-hide flex flex-col gap-[10px] pb-4">
+          {measurements.length > 0 && <SendReportButton sessionId={session.id} />}
           {measurements.length > 0 && <PrintDiagramButton />}
           <Button
             asChild
