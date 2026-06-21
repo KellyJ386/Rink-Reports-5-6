@@ -4879,6 +4879,7 @@ export type Database = {
           facility_id: string
           id: string
           out_of_range_alerts_enabled: boolean
+          readings_per_shift: number | null
           updated_at: string | null
         }
         Insert: {
@@ -4887,6 +4888,7 @@ export type Database = {
           facility_id: string
           id?: string
           out_of_range_alerts_enabled?: boolean
+          readings_per_shift?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -4895,6 +4897,7 @@ export type Database = {
           facility_id?: string
           id?: string
           out_of_range_alerts_enabled?: boolean
+          readings_per_shift?: number | null
           updated_at?: string | null
         }
         Relationships: [

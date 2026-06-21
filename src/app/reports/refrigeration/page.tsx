@@ -168,7 +168,7 @@ export default async function RefrigerationHomePage() {
       .eq("is_active", true),
     supabase
       .from("refrigeration_settings")
-      .select("out_of_range_alerts_enabled")
+      .select("out_of_range_alerts_enabled, readings_per_shift")
       .eq("facility_id", employeeRow.facility_id)
       .maybeSingle(),
     supabase
@@ -307,6 +307,7 @@ export default async function RefrigerationHomePage() {
   const oorAlertsEnabled = Boolean(
     settingsRow?.out_of_range_alerts_enabled ?? false
   )
+  const readingsPerShift = settingsRow?.readings_per_shift ?? null
 
   const temp = facility
     ? await getCurrentTempForFacility({
@@ -327,6 +328,7 @@ export default async function RefrigerationHomePage() {
       <SubmissionForm
         sections={formSections}
         oorAlertsEnabled={oorAlertsEnabled}
+        readingsPerShift={readingsPerShift}
         userName={userName}
         facilityName={facility?.name ?? "Facility"}
         tempF={temp?.tempF ?? null}

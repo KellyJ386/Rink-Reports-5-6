@@ -69,6 +69,27 @@ function parseRoundNo(v: unknown): number | null {
   return null
 }
 
+/**
+ * Validate a submitted round number against the facility's configured
+ * readings-per-shift cap (refrigeration_settings.readings_per_shift).
+ * Returns an error message, or null when acceptable.
+ *   cap == null      ⇒ unlimited (no upper bound)
+ *   roundNo == null  ⇒ acceptable (round number is optional)
+ */
+export function validateRoundNo(
+  roundNo: number | null,
+  cap: number | null,
+): string | null {
+  if (roundNo == null) return null
+  if (!Number.isInteger(roundNo) || roundNo < 1) {
+    return "Round number must be a positive whole number."
+  }
+  if (cap != null && roundNo > cap) {
+    return `Round number cannot exceed the configured ${cap} reading(s) per shift.`
+  }
+  return null
+}
+
 function parseValues(raw: unknown): SubmittedFieldValue[] {
   if (!Array.isArray(raw)) return []
   const values: SubmittedFieldValue[] = []

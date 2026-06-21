@@ -15,6 +15,7 @@ import {
   isEmptyRow,
   SEVERITY_RANK,
   validateCriticalFollowups,
+  validateRoundNo,
   VALID_SEVERITIES,
   type FieldConfigRow,
   type OorDetail,
@@ -236,6 +237,15 @@ export async function persistRefrigeration(
 ): Promise<PersistResult> {
   const { employeeId, facilityId, input } = args
   const trimmedNotes = (input.notes ?? "").trim()
+
+  // 0) Enforce the facility's readings-per-shift cap on the round number.
+  const { data: capRow } = await supabase
+    .from("refrigeration_settings")
+    .select("readings_per_shift")
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  const roundErr = validateRoundNo(input.round_no, capRow?.readings_per_shift ?? null)
+  if (roundErr) return { ok: false, error: roundErr }
 
   // 1) Report shell.
   const insertReport: TablesInsert<"refrigeration_reports"> = {
