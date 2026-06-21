@@ -14,9 +14,10 @@
 //  - hidden when the app is already running standalone (installed),
 //  - dismissible, with the dismissal persisted in localStorage so we don't
 //    nag on every visit,
-//  - styled with the RinkReports brand tokens (Navy #001A3A surface, Action
-//    Green #69BE28 accent). These are fixed brand colors for an intentionally
-//    branded banner, so they read the same in light and dark mode.
+//  - styled with the RinkReports brand tokens (Navy #001A3A surface, brand
+//    `rr-green` #4DFF00 accent). The navy surface is a fixed brand color for an
+//    intentionally branded banner, so it reads the same in light and dark mode;
+//    the green uses the `rr-green` token so it tracks the brand primary.
 //
 // Implementation note: install-ability is browser/OS state that only exists on
 // the client and changes via window events, so we read it through
@@ -205,9 +206,9 @@ export function PwaInstallPrompt() {
       // Fixed bottom banner that clears the iOS home-bar via safe-area inset.
       className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
     >
-      <div className="mx-auto flex w-full max-w-2xl items-start gap-3 rounded-xl border border-[#69BE28]/40 bg-[#001A3A] p-4 text-white shadow-lg">
+      <div className="mx-auto flex w-full max-w-2xl items-start gap-3 rounded-xl border border-rr-green/40 bg-[#001A3A] p-4 text-white shadow-lg">
         {/* Brand-green app glyph */}
-        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#69BE28] text-[#001A3A]">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rr-green text-[#001A3A]">
           <SquarePlus className="h-5 w-5" aria-hidden />
         </span>
 
@@ -223,7 +224,7 @@ export function PwaInstallPrompt() {
             <p className="mt-1 text-sm leading-snug text-white/80">
               Tap the{" "}
               <Share
-                className="inline h-4 w-4 -translate-y-0.5 text-[#69BE28]"
+                className="inline h-4 w-4 -translate-y-0.5 text-rr-green"
                 aria-label="Share"
               />{" "}
               Share button below, then choose{" "}
@@ -244,7 +245,7 @@ export function PwaInstallPrompt() {
             <button
               type="button"
               onClick={runInstall}
-              className="mt-3 inline-flex h-10 items-center justify-center rounded-lg bg-[#69BE28] px-4 text-sm font-semibold text-[#001A3A] transition-colors hover:bg-[#5aa622] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69BE28] focus-visible:ring-offset-2 focus-visible:ring-offset-[#001A3A]"
+              className="mt-3 inline-flex h-10 items-center justify-center rounded-lg bg-rr-green px-4 text-sm font-semibold text-[#001A3A] transition-colors hover:bg-[var(--rr-green-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rr-green focus-visible:ring-offset-2 focus-visible:ring-offset-[#001A3A]"
             >
               Install app
             </button>
@@ -255,7 +256,7 @@ export function PwaInstallPrompt() {
           type="button"
           onClick={dismiss}
           aria-label="Dismiss install banner"
-          className="-mr-1 -mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69BE28]"
+          className="-mr-1 -mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rr-green"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>

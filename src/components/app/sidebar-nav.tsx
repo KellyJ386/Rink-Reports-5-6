@@ -44,6 +44,22 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Facility Paperwork", href: "/reports/facility-paperwork", icon: FolderOpen, moduleKey: "facility_paperwork" },
 ]
 
+// First enabled staff *reports* route, for entry points that need a single
+// "Reports" destination (e.g. the mobile bottom tab) rather than the full nav.
+// Falls back to /reports/daily when nothing matches (fail-open, mirrors the
+// nav filtering above).
+export function firstEnabledReportsHref(
+  enabledModules?: string[] | null,
+): string {
+  const match = NAV_ITEMS.find(
+    (item) =>
+      item.moduleKey != null &&
+      item.href.startsWith("/reports/") &&
+      (enabledModules == null || enabledModules.includes(item.moduleKey)),
+  )
+  return match?.href ?? "/reports/daily"
+}
+
 interface AppSidebarNavProps {
   isAdmin: boolean
   // Enabled module keys for the facility, or null to show all (fail-open).

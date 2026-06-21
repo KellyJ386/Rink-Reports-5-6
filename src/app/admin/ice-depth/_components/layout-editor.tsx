@@ -671,14 +671,14 @@ function DiagramPanel({
                 style={{ cursor: mode === "drag" ? "grab" : "pointer" }}
               >
                 {isSelected && (
-                  <circle cx={cx} cy={cy} r={r + 6} fill="rgba(105,190,40,0.25)" stroke="#69BE28" strokeWidth="1.5" />
+                  <circle cx={cx} cy={cy} r={r + 6} fill="rgba(77,255,0,0.25)" stroke="#4DFF00" strokeWidth="1.5" />
                 )}
                 <circle
                   cx={cx}
                   cy={cy}
                   r={r}
                   fill={isSelected ? "#002244" : p.is_active ? "#334155" : "#94a3b8"}
-                  stroke={isSelected ? "#69BE28" : "#ffffff"}
+                  stroke={isSelected ? "#4DFF00" : "#ffffff"}
                   strokeWidth={isSelected ? 2.5 : 1.5}
                   opacity={p.is_active ? 1 : 0.5}
                 />

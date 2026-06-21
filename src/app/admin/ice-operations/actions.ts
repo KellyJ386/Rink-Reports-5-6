@@ -27,9 +27,6 @@ import {
   isTemperatureUnit,
 } from "./types"
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = any
-
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 function slugify(input: string): string {
@@ -250,7 +247,7 @@ export async function createEquipment(
     const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
 
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_equipment")
       .insert({
         facility_id: facility.facilityId,
@@ -309,7 +306,7 @@ export async function updateEquipment(
     const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
 
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_equipment")
       .update({
         name,
@@ -868,7 +865,7 @@ export async function createFuelType(
     const sort_order = asInt(formData.get("sort_order")) ?? 0
 
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_fuel_types")
       .insert({
         facility_id: facility.facilityId,
@@ -910,7 +907,7 @@ export async function updateFuelType(
     const sort_order = asInt(formData.get("sort_order"))
 
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_fuel_types")
       .update({
         name,
@@ -940,7 +937,7 @@ export async function setFuelTypeActive(
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing fuel type id." }
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_fuel_types")
       .update({ is_active })
       .eq("id", id)
@@ -963,7 +960,7 @@ export async function deleteFuelType(id: string): Promise<SimpleResult> {
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing fuel type id." }
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_fuel_types")
       .delete()
       .eq("id", id)
@@ -1011,7 +1008,7 @@ export async function createCircleCheckTemplate(
     const supabase = await createClient()
 
     // App-level cap: at most CIRCLE_CHECK_TEMPLATE_CAP templates per facility.
-    const { count, error: cntErr } = await (supabase as AnySupabase)
+    const { count, error: cntErr } = await supabase
       .from("ice_operations_circle_check_templates")
       .select("id", { count: "exact", head: true })
       .eq("facility_id", facility.facilityId)
@@ -1025,7 +1022,7 @@ export async function createCircleCheckTemplate(
       }
     }
 
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_templates")
       .insert({
         facility_id: facility.facilityId,
@@ -1072,7 +1069,7 @@ export async function updateCircleCheckTemplate(
     const sort_order = asInt(formData.get("sort_order"))
 
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_templates")
       .update({
         name,
@@ -1109,7 +1106,7 @@ export async function setCircleCheckTemplateActive(
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_templates")
       .update({ is_active })
       .eq("id", id)
@@ -1134,7 +1131,7 @@ export async function deleteCircleCheckTemplate(
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_templates")
       .delete()
       .eq("id", id)
@@ -1168,7 +1165,7 @@ export async function createCircleCheckTemplateItem(
     const supabase = await createClient()
 
     // Verify the template belongs to this facility before nesting items.
-    const { data: tmpl, error: tmplErr } = await (supabase as AnySupabase)
+    const { data: tmpl, error: tmplErr } = await supabase
       .from("ice_operations_circle_check_templates")
       .select("id, facility_id")
       .eq("id", template_id)
@@ -1178,7 +1175,7 @@ export async function createCircleCheckTemplateItem(
       return { ok: false, error: "Template not found." }
     }
 
-    const { data: maxRow } = await (supabase as AnySupabase)
+    const { data: maxRow } = await supabase
       .from("ice_operations_circle_check_template_items")
       .select("sort_order")
       .eq("template_id", template_id)
@@ -1187,7 +1184,7 @@ export async function createCircleCheckTemplateItem(
       .maybeSingle()
     const nextSort = ((maxRow?.sort_order as number | undefined) ?? 0) + 1
 
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_template_items")
       .insert({
         facility_id: facility.facilityId,
@@ -1237,7 +1234,7 @@ export async function importCircleCheckTemplateItems(
     const supabase = await createClient()
 
     // The template must belong to the caller's facility.
-    const { data: tmpl, error: tmplErr } = await (supabase as AnySupabase)
+    const { data: tmpl, error: tmplErr } = await supabase
       .from("ice_operations_circle_check_templates")
       .select("id")
       .eq("id", templateId)
@@ -1245,7 +1242,7 @@ export async function importCircleCheckTemplateItems(
       .maybeSingle()
     if (tmplErr || !tmpl) return { ok: false, error: "Template not found." }
 
-    const { data: maxRow } = await (supabase as AnySupabase)
+    const { data: maxRow } = await supabase
       .from("ice_operations_circle_check_template_items")
       .select("sort_order")
       .eq("template_id", templateId)
@@ -1262,7 +1259,7 @@ export async function importCircleCheckTemplateItems(
       sort_order: baseSort + idx + 1,
     }))
 
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_template_items")
       .insert(insertRows)
     if (error) {
@@ -1295,7 +1292,7 @@ export async function updateCircleCheckTemplateItem(
     const description = nonEmpty(formData.get("description"))
 
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_template_items")
       .update({ label, description })
       .eq("id", id)
@@ -1321,7 +1318,7 @@ export async function setCircleCheckTemplateItemActive(
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_template_items")
       .update({ is_active })
       .eq("id", id)
@@ -1346,7 +1343,7 @@ export async function deleteCircleCheckTemplateItem(
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
-    const { error } = await (supabase as AnySupabase)
+    const { error } = await supabase
       .from("ice_operations_circle_check_template_items")
       .delete()
       .eq("id", id)

@@ -111,7 +111,7 @@ function DepartmentFormBody({ onOpenChange, editing }: Props) {
               id="color"
               name="color"
               type="color"
-              defaultValue={editing?.color ?? "#69BE28"}
+              defaultValue={editing?.color ?? "#4DFF00"}
               className="h-9 p-1"
             />
           </div>

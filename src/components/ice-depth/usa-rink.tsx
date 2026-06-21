@@ -209,7 +209,7 @@ function PointChip({
   const isInactive = state === "inactive"
 
   const fill = isDone ? (doneColor ?? "#16a34a") : isCurrent ? "#002244" : "#ffffff"
-  const stroke = isCurrent ? "#69BE28" : isDone ? (doneColor ?? "#16a34a") : "#333333"
+  const stroke = isCurrent ? "#4DFF00" : isDone ? (doneColor ?? "#16a34a") : "#333333"
   const textFill = isDone || isCurrent ? "#ffffff" : "#111111"
   const opacity = isInactive ? 0.4 : 1
 

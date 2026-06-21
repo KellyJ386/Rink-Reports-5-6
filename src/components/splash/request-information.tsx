@@ -30,7 +30,7 @@ const PRIMARY_BUTTON_STYLE: React.CSSProperties = {
   gap: 10,
   padding: "17px 36px",
   borderRadius: "var(--radius-md)",
-  background: "linear-gradient(180deg, #82CC36 0%, #69BE28 100%)",
+  background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
   border: "none",
   color: "#002244",
   fontWeight: 700,
@@ -342,7 +342,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
                     padding: "13px 28px",
                     borderRadius: "var(--radius-md)",
                     background:
-                      "linear-gradient(180deg, #82CC36 0%, #69BE28 100%)",
+                      "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
                     color: "#002244",
                     fontWeight: 700,
                     fontSize: 15,
@@ -419,7 +419,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
         style={{
           padding: "13px 28px",
           borderRadius: "var(--radius-md)",
-          background: "linear-gradient(180deg, #82CC36 0%, #69BE28 100%)",
+          background: "linear-gradient(180deg, #7AFF40 0%, #4DFF00 100%)",
           color: "#002244",
           fontWeight: 700,
           fontSize: 15,

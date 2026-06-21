@@ -78,14 +78,14 @@
 | # | Sev | Finding | File:line | Effort |
 |---|---|---|---|---|
 | P1-0 | ✅ | **Ice Depth `SendReportButton` orphaned — FIXED (2026-06-20).** Imported and rendered as the primary done-page CTA (gated on `measurements.length > 0`, `sessionId={session.id}`). | `reports/ice-depth/[layoutSlug]/done/page.tsx:11,526` | done |
-| P1-1 | 🟡 | **Ice Ops `type AnySupabase = any` (20 casts)** — the tables it papered over are now in generated types; CLAUDE.md retires this pattern. Remove all 20. | `src/app/admin/ice-operations/actions.ts:31` (+19) | S |
+| P1-1 | ✅ | **Ice Ops `AnySupabase` removed — FIXED (2026-06-20).** Deleted the `type AnySupabase = any` alias and all 20 `(supabase as AnySupabase)` casts; replaced the three hand-rolled "not yet in generated types" row types with `Tables<…>` generics. `tsc` confirms the casts hid no real type errors. | `src/app/admin/ice-operations/actions.ts`, `types.ts` | done |
 | P1-2 | 🟡 | Ice Ops operation/equipment types are hardcoded TS enums + DB CHECK (spec wants admin-configurable; "Patch" doesn't exist). | `src/app/reports/ice-operations/types.ts:12–31` | M |
 | P1-3 | 🟡 | **Refrigeration `readings_per_shift` does not exist** — no config column, no enforcement; `round_no` uncapped. | `refrigeration_settings`; `_lib/submit.ts` | M |
 | P1-4 | 🟡 | **Daily Reports has no submission lock / double-submit guard** — no `is_locked`/`status` column, no uniqueness on `(facility,area,template,date)`. | `reports/daily/_lib/submit.ts` | M |
 | P1-5 | 🟡 | AQ sustained-exceedance / **Evacuation tier is a stub** (`rule_body` JSON, "future engine pass"); no time-series evaluation exists. | `admin/air-quality/actions.ts:1185–1190` | L |
 | P1-6 | 🟡 | `incident_types` has **no admin CRUD UI** (read-only; severities/activities are editable). | `reports/incidents/.../types.ts:64` | M |
 | P1-7 | 🟡 | **Migration ledger drift** — live ledger ≠ on-disk files; duplicate prefix `139`. Repo is not a faithful source of truth; `supabase db push/reset` is unsafe without `migration repair`. | `supabase/migrations/`, live ledger | M |
-| P1-8 | 🟡 | Bottom-tab-bar "Reports" hardcodes `/reports/daily`, ignoring `enabledModules` (breaks if `daily_reports` disabled). | `src/components/app/bottom-tab-bar.tsx:55` | S |
+| P1-8 | ✅ | **FIXED (2026-06-20).** Bottom-tab "Reports" now resolves to the first *enabled* module via `firstEnabledReportsHref(enabledModules)` (new helper in `sidebar-nav.tsx`, single source of truth), with `/reports/daily` fail-open fallback. | `src/components/app/bottom-tab-bar.tsx`, `sidebar-nav.tsx` | done |
 | P1-9 | 🟡 | Communications **reminders scheduler unimplemented** but shows "not yet implemented" to admins. | `admin/communications/_components/reminders-tab.tsx:74` | S/L |
 | P1-10 | 🟡 | Zod adoption inconsistent (~5–9 of ~45 mutating actions); rest hand-roll validation (offline-sync route included). | `src/app/**/actions.ts` | L (incremental) |
 
@@ -93,7 +93,7 @@
 
 ## Section 5 — P2 · Post-Launch (can ship with these open)
 
-- **15 `#69BE28` occurrences in production UI** (worst: `pwa-install-prompt.tsx` ×5; also `request-information.tsx`, `page.tsx`, ice-depth SVGs, department-form default). Replace with `--rr-green`. **S.**
+- ~~**15 `#69BE28` occurrences in production UI**~~ — ✅ **FIXED (2026-06-20).** All `.tsx`/`.ts` literals removed: `pwa-install-prompt.tsx` now uses `rr-green` token utilities; `request-information.tsx`/`page.tsx` gradients use the brand ramp (`#7AFF40 → #4DFF00`); ice-depth SVGs + department-form default use `#4DFF00`. The only remaining `#69BE28` is an unused legacy ramp token (`--green-500`) in `globals.css`, never rendered.
 - **Staff Scheduling design = 48/100** — bypasses the token system with inline hex and no shadcn Card/PageHeader chrome. **M.**
 - 28 inline `dbError`/`errFmt` clones (DRY; some lose 23505/23503 translation). Extend shared `src/lib/db-error.ts`. **M.**
 - Per-module `error.tsx` boundaries (only group-level today). **M.**
@@ -148,6 +148,7 @@ Fixes landed on `claude/confident-allen-9auxs1` immediately after the audit (all
 
 1. **P0-1 — Air Quality regulatory-floor clamp.** Added hardcoded MN/NY statutory ceilings (`REGULATORY_CEILINGS`: CO `alert_max ≤ 83`/`compliance_max ≤ 20`; NO2 `2.0`/`0.3`) in a new pure, unit-tested module `src/app/admin/air-quality/_lib/thresholds.ts`. `createThreshold`/`updateThreshold` now resolve the reading-type key → ceiling and reject any threshold that loosens past it (admins may still tighten). Covers the absolute constraint "regulatory floors cannot be overridden downward." CO2 (advisory) stays unclamped.
 2. **P1-0 — Ice Depth `SendReportButton`.** Imported + rendered as the primary done-page CTA so staff can distribute a completed report.
-3. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
+3. **P1-1 — Ice Ops `AnySupabase` removed.** Deleted the `= any` alias + 20 casts; hand-rolled row types replaced with generated `Tables<…>` generics. `tsc` confirms no real type errors were hidden. Removes the last `as any`-family escape hatch from the codebase.
+4. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
 
-**Not yet addressed** (remaining path to launch): lift Ice Operations ≥ 75 (remove `AnySupabase`, configurable operation/equipment types), Refrigeration `readings_per_shift`, Daily submission-lock, AQ sustained-exceedance engine, migration-ledger reconcile, and the P2 design/token sweep.
+**Not yet addressed** (remaining path to launch): Ice Operations configurable operation/equipment types (still CHECK enums), Refrigeration `readings_per_shift`, Daily submission-lock, AQ sustained-exceedance engine, migration-ledger reconcile, and the P2 design/token sweep.
