@@ -1863,6 +1863,7 @@ export type Database = {
       daily_report_submissions: {
         Row: {
           area_id: string
+          business_date: string | null
           created_at: string
           employee_id: string | null
           facility_id: string
@@ -1873,6 +1874,7 @@ export type Database = {
         }
         Insert: {
           area_id: string
+          business_date?: string | null
           created_at?: string
           employee_id?: string | null
           facility_id: string
@@ -1883,6 +1885,7 @@ export type Database = {
         }
         Update: {
           area_id?: string
+          business_date?: string | null
           created_at?: string
           employee_id?: string | null
           facility_id?: string

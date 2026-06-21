@@ -3,9 +3,31 @@ import { describe, expect, it } from "vitest"
 import {
   buildInputFromObject,
   buildInputFromPayload,
+  businessDateInTimeZone,
   parseItems,
   parseItemsJson,
 } from "./compute"
+
+// ---------------------------------------------------------------------------
+// businessDateInTimeZone — facility-local day grouping
+// ---------------------------------------------------------------------------
+
+describe("businessDateInTimeZone", () => {
+  it("returns the local calendar date for the given timezone", () => {
+    // 03:30 UTC on Jan 2 is still Jan 1 in US/Pacific (UTC-8).
+    const instant = new Date("2026-01-02T03:30:00Z")
+    expect(businessDateInTimeZone(instant, "America/Los_Angeles")).toBe(
+      "2026-01-01",
+    )
+    expect(businessDateInTimeZone(instant, "UTC")).toBe("2026-01-02")
+  })
+
+  it("falls back to UTC for null or invalid timezones", () => {
+    const instant = new Date("2026-06-21T12:00:00Z")
+    expect(businessDateInTimeZone(instant, null)).toBe("2026-06-21")
+    expect(businessDateInTimeZone(instant, "Not/AZone")).toBe("2026-06-21")
+  })
+})
 
 // ---------------------------------------------------------------------------
 // parseItems — checklist validation (incl. the previously-opaque "not array")

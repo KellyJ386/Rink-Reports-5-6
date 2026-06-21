@@ -96,3 +96,23 @@ export function buildInputFromObject(obj: unknown): DailyInput | null {
 export function buildInputFromPayload(raw: unknown): DailyInput | null {
   return buildInputFromObject(raw)
 }
+
+/**
+ * The facility-local "business date" (YYYY-MM-DD) for a given instant, used to
+ * group a day's daily-report submissions so a same-day re-submit updates the
+ * existing report. Falls back to UTC when the timezone is missing or invalid.
+ */
+export function businessDateInTimeZone(now: Date, timeZone: string | null): string {
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now)
+  try {
+    return fmt(timeZone || "UTC")
+  } catch {
+    return fmt("UTC")
+  }
+}
