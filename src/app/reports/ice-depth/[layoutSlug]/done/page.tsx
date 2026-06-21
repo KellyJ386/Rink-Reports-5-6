@@ -466,6 +466,8 @@ function DonePageBody({
               <SendReportButton sessionId={session.id} />
             </>
           )}
+          {measurements.length > 0 && <SendReportButton sessionId={session.id} />}
+          {measurements.length > 0 && <PrintDiagramButton />}
           <Button
             asChild
             size="lg"
