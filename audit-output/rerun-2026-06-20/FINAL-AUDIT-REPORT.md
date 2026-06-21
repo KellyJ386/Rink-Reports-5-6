@@ -78,7 +78,7 @@
 | # | Sev | Finding | File:line | Effort |
 |---|---|---|---|---|
 | P1-0 | ✅ | **Ice Depth `SendReportButton` orphaned — FIXED (2026-06-20).** Imported and rendered as the primary done-page CTA (gated on `measurements.length > 0`, `sessionId={session.id}`). | `reports/ice-depth/[layoutSlug]/done/page.tsx:11,526` | done |
-| P1-1 | 🟡 | **Ice Ops `type AnySupabase = any` (20 casts)** — the tables it papered over are now in generated types; CLAUDE.md retires this pattern. Remove all 20. | `src/app/admin/ice-operations/actions.ts:31` (+19) | S |
+| P1-1 | ✅ | **Ice Ops `AnySupabase` removed — FIXED (2026-06-20).** Deleted the `type AnySupabase = any` alias and all 20 `(supabase as AnySupabase)` casts; replaced the three hand-rolled "not yet in generated types" row types with `Tables<…>` generics. `tsc` confirms the casts hid no real type errors. | `src/app/admin/ice-operations/actions.ts`, `types.ts` | done |
 | P1-2 | 🟡 | Ice Ops operation/equipment types are hardcoded TS enums + DB CHECK (spec wants admin-configurable; "Patch" doesn't exist). | `src/app/reports/ice-operations/types.ts:12–31` | M |
 | P1-3 | 🟡 | **Refrigeration `readings_per_shift` does not exist** — no config column, no enforcement; `round_no` uncapped. | `refrigeration_settings`; `_lib/submit.ts` | M |
 | P1-4 | 🟡 | **Daily Reports has no submission lock / double-submit guard** — no `is_locked`/`status` column, no uniqueness on `(facility,area,template,date)`. | `reports/daily/_lib/submit.ts` | M |
@@ -148,6 +148,7 @@ Fixes landed on `claude/confident-allen-9auxs1` immediately after the audit (all
 
 1. **P0-1 — Air Quality regulatory-floor clamp.** Added hardcoded MN/NY statutory ceilings (`REGULATORY_CEILINGS`: CO `alert_max ≤ 83`/`compliance_max ≤ 20`; NO2 `2.0`/`0.3`) in a new pure, unit-tested module `src/app/admin/air-quality/_lib/thresholds.ts`. `createThreshold`/`updateThreshold` now resolve the reading-type key → ceiling and reject any threshold that loosens past it (admins may still tighten). Covers the absolute constraint "regulatory floors cannot be overridden downward." CO2 (advisory) stays unclamped.
 2. **P1-0 — Ice Depth `SendReportButton`.** Imported + rendered as the primary done-page CTA so staff can distribute a completed report.
-3. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
+3. **P1-1 — Ice Ops `AnySupabase` removed.** Deleted the `= any` alias + 20 casts; hand-rolled row types replaced with generated `Tables<…>` generics. `tsc` confirms no real type errors were hidden. Removes the last `as any`-family escape hatch from the codebase.
+4. **P0-2 — Retracted** as a false positive after live-policy verification (see Section 3).
 
-**Not yet addressed** (remaining path to launch): lift Ice Operations ≥ 75 (remove `AnySupabase`, configurable operation/equipment types), Refrigeration `readings_per_shift`, Daily submission-lock, AQ sustained-exceedance engine, migration-ledger reconcile, and the P2 design/token sweep.
+**Not yet addressed** (remaining path to launch): Ice Operations configurable operation/equipment types (still CHECK enums), Refrigeration `readings_per_shift`, Daily submission-lock, AQ sustained-exceedance engine, migration-ledger reconcile, and the P2 design/token sweep.
