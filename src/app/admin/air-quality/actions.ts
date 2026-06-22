@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import type { Json } from "@/types/database"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
@@ -20,6 +21,13 @@ import {
   type RegulatoryCeiling,
   type ThresholdInputs,
 } from "./_lib/thresholds"
+import {
+  TIER_LEVELS,
+  parseMetrics,
+  parseTiers,
+  validateOverrides,
+  type ProfileTiers,
+} from "@/app/reports/air-quality/_lib/compliance"
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
@@ -936,6 +944,105 @@ export async function deleteComplianceRule(id: string): Promise<SimpleResult> {
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
+  } catch (e) {
+    logServerError("admin/air-quality/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+// ============================================================================
+// Compliance profile config (jurisdiction-aware engine; migrations 146/147)
+// ============================================================================
+
+export async function saveComplianceProfileConfig(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const supabase = await createClient()
+    const profileId = nonEmpty(formData.get("compliance_profile_id"))
+
+    // No profile selected → clear the facility's selection.
+    if (!profileId) {
+      const { error } = await supabase
+        .from("facility_air_quality_config")
+        .upsert(
+          {
+            facility_id: facility.facilityId,
+            compliance_profile_id: null,
+          },
+          { onConflict: "facility_id" },
+        )
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to save config.") }
+      }
+      revalidatePath("/admin/air-quality")
+      return { ok: true, message: "Compliance profile cleared." }
+    }
+
+    // Load the chosen profile to validate metrics + overrides against it.
+    const { data: profile, error: profErr } = await supabase
+      .from("air_quality_compliance_profiles")
+      .select("id, metrics, tiers")
+      .eq("id", profileId)
+      .maybeSingle()
+    if (profErr) {
+      return { ok: false, error: dbError(profErr, "Failed to load profile.") }
+    }
+    if (!profile) return { ok: false, error: "Selected profile not found." }
+
+    const profileMetrics = parseMetrics(profile.metrics)
+    const profileTiers = parseTiers(profile.tiers)
+    const profileMetricKeys = new Set(profileMetrics.map((m) => m.key))
+
+    // Active metrics: only keys that exist on the profile.
+    const activeMetrics = formData
+      .getAll("active_metrics")
+      .filter((v): v is string => typeof v === "string")
+      .filter((k) => profileMetricKeys.has(k))
+    if (activeMetrics.length === 0) {
+      return { ok: false, error: "Select at least one metric to track." }
+    }
+
+    // Stricter-only overrides: read override_<metric>_<tier> numeric ceilings.
+    const overrides: ProfileTiers = {}
+    for (const metric of profileMetrics) {
+      for (const tier of TIER_LEVELS) {
+        const raw = asNumber(formData.get(`override_${metric.key}_${tier}`))
+        if (raw === null) continue
+        overrides[metric.key] = overrides[metric.key] ?? {}
+        overrides[metric.key][tier] = { max: raw, consecutive: null }
+      }
+    }
+    const overrideErrors = validateOverrides(profileTiers, overrides)
+    if (overrideErrors.length > 0) {
+      return { ok: false, error: overrideErrors[0].message }
+    }
+
+    const { error } = await supabase
+      .from("facility_air_quality_config")
+      .upsert(
+        {
+          facility_id: facility.facilityId,
+          compliance_profile_id: profileId,
+          active_metrics: activeMetrics,
+          threshold_overrides: overrides as unknown as Json,
+        },
+        { onConflict: "facility_id" },
+      )
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to save config.") }
+    }
+    revalidatePath("/admin/air-quality")
+    revalidatePath("/reports/air-quality")
+    return { ok: true, message: "Compliance profile saved." }
   } catch (e) {
     logServerError("admin/air-quality/actions", e)
     return {
