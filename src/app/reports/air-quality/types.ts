@@ -38,6 +38,14 @@ export type ThresholdForForm = {
 export type EquipmentForForm = {
   id: string
   name: string
+  /** Facility space this monitor lives at; null = facility-wide / handheld. */
+  location_id: string | null
+}
+
+/** A facility space offered in the location dropdown (shared facility_spaces list). */
+export type LocationOption = {
+  id: string
+  name: string
 }
 
 export type ComplianceRuleForForm = {
@@ -86,13 +94,6 @@ export const ELECTRIC_EQUIPMENT_OPTIONS = [
   { value: "yes", label: "Yes" },
   { value: "no", label: "No" },
   { value: "considering", label: "Considering" },
-] as const
-
-export const MEASUREMENT_LOCATION_OPTIONS = [
-  "Rink Level",
-  "Timekeeper's Box / Seating",
-  "Dressing Room",
-  "Other",
 ] as const
 
 export type AirQualityFuelType =

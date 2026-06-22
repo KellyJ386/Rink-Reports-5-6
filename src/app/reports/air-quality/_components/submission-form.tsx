@@ -41,21 +41,20 @@ import {
   emptyAirQualityFormData,
   emptyMeasurement,
   FUEL_TYPE_OPTIONS,
-  MEASUREMENT_LOCATION_OPTIONS,
   VENTILATION_STATUS_OPTIONS,
   type AirQualityFormData,
   type AirQualityFuelType,
   type AirQualityMeasurement,
   type ComplianceRuleForForm,
   type EquipmentForForm,
+  type LocationOption,
   type ReadingTypeForm,
   type SubmittedReading,
   type ThresholdForForm,
 } from "../types"
 
 type Props = {
-  locationId: string
-  locationName: string
+  locations: LocationOption[]
   readingTypes: ReadingTypeForm[]
   equipment: EquipmentForForm[]
   thresholds: ThresholdForForm[]
@@ -113,8 +112,7 @@ function evaluateBadge(
 }
 
 export function SubmissionForm({
-  locationId,
-  locationName,
+  locations,
   readingTypes,
   equipment,
   thresholds,
@@ -130,11 +128,41 @@ export function SubmissionForm({
   const [localId] = useState<string>(genLocalId)
   const [queued, setQueued] = useState(false)
 
+  // Location opens unselected; saving is blocked until the operator chooses one.
+  const [locationId, setLocationId] = useState<string>("")
   const [values, setValues] = useState<Record<string, string>>({})
-  const [equipmentId, setEquipmentId] = useState<string>(
-    equipment[0]?.id ?? ""
-  )
+  const [equipmentId, setEquipmentId] = useState<string>("")
   const [notes, setNotes] = useState("")
+
+  const locationName = useMemo(
+    () => locations.find((l) => l.id === locationId)?.name ?? "",
+    [locations, locationId]
+  )
+
+  // Equipment scoped to the selected location (or facility-wide / handheld).
+  const availableEquipment = useMemo(
+    () =>
+      equipment.filter(
+        (eq) => eq.location_id === null || eq.location_id === locationId
+      ),
+    [equipment, locationId]
+  )
+
+  // Changing location may invalidate the selected equipment; clear it so we
+  // never submit a monitor that isn't valid for the new location.
+  const handleLocationChange = (nextLocationId: string) => {
+    setLocationId(nextLocationId)
+    setEquipmentId((prev) =>
+      prev &&
+      equipment.some(
+        (eq) =>
+          eq.id === prev &&
+          (eq.location_id === null || eq.location_id === nextLocationId)
+      )
+        ? prev
+        : ""
+    )
+  }
   const [formData, setFormData] = useState<AirQualityFormData>(() => {
     const fd = emptyAirQualityFormData()
     fd.date_of_test = new Date().toISOString().slice(0, 10)
@@ -268,6 +296,28 @@ export function SubmissionForm({
     >
       <FormError message={state.error} />
 
+      <div className="flex flex-col gap-2 rounded-xl border border-l-4 border-l-module-air bg-card p-4">
+        <Label htmlFor="aq-location">
+          Location
+          <RequiredMark />
+        </Label>
+        <Select value={locationId} onValueChange={handleLocationChange}>
+          <SelectTrigger id="aq-location" className="h-12 text-base">
+            <SelectValue placeholder="Select a location" />
+          </SelectTrigger>
+          <SelectContent>
+            {locations.map((loc) => (
+              <SelectItem key={loc.id} value={loc.id}>
+                {loc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Where these readings were taken. Required before you can submit.
+        </p>
+      </div>
+
       {complianceRules.length > 0 ? (
         <details
           open
@@ -317,7 +367,7 @@ export function SubmissionForm({
         </details>
       ) : null}
 
-      {equipment.length > 0 ? (
+      {availableEquipment.length > 0 ? (
         <div className="flex flex-col gap-2">
           <Label>Equipment</Label>
           <Select value={equipmentId} onValueChange={setEquipmentId}>
@@ -325,7 +375,7 @@ export function SubmissionForm({
               <SelectValue placeholder="Select equipment" />
             </SelectTrigger>
             <SelectContent>
-              {equipment.map((eq) => (
+              {availableEquipment.map((eq) => (
                 <SelectItem key={eq.id} value={eq.id}>
                   {eq.name}
                 </SelectItem>
@@ -418,14 +468,19 @@ export function SubmissionForm({
         />
       </div>
 
-      <MonitoringLogSections formData={formData} setFormData={setFormData} />
+      <MonitoringLogSections
+        formData={formData}
+        setFormData={setFormData}
+        locations={locations}
+      />
 
       <input type="hidden" name="location_id" value={locationId} />
       <input type="hidden" name="readings_json" value={readingsJson} />
       <input type="hidden" name="form_data" value={formDataJson} />
 
       <SubmitBar
-        disabled={!allRequiredFilled}
+        disabled={!locationId || !allRequiredFilled}
+        locationSelected={Boolean(locationId)}
         locationName={locationName}
         isOnline={isOnline}
       />
@@ -516,11 +571,13 @@ function MeasurementList({
   description,
   rows,
   onChange,
+  locations,
 }: {
   title: string
   description: string
   rows: AirQualityMeasurement[]
   onChange: (rows: AirQualityMeasurement[]) => void
+  locations: LocationOption[]
 }) {
   const update = (idx: number, patch: Partial<AirQualityMeasurement>) => {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
@@ -547,9 +604,9 @@ function MeasurementList({
                   <SelectValue placeholder="Select location" />
                 </SelectTrigger>
                 <SelectContent>
-                  {MEASUREMENT_LOCATION_OPTIONS.map((loc) => (
-                    <SelectItem key={loc} value={loc}>
-                      {loc}
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.name}>
+                      {loc.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -635,9 +692,11 @@ function MeasurementList({
 function MonitoringLogSections({
   formData,
   setFormData,
+  locations,
 }: {
   formData: AirQualityFormData
   setFormData: Dispatch<SetStateAction<AirQualityFormData>>
+  locations: LocationOption[]
 }) {
   const update = (mutator: (draft: AirQualityFormData) => void) => {
     setFormData((prev) => {
@@ -972,6 +1031,7 @@ function MonitoringLogSections({
               d.section2.routine = rows
             })
           }
+          locations={locations}
         />
         <MeasurementList
           title="B. Post-edging monitoring"
@@ -982,6 +1042,7 @@ function MonitoringLogSections({
               d.section2.post_edging = rows
             })
           }
+          locations={locations}
         />
       </CollapsibleSection>
 
@@ -1109,17 +1170,21 @@ function RangeBadgePill({ badge }: { badge: Exclude<RangeBadge, "none"> }) {
 
 function SubmitBar({
   disabled,
+  locationSelected,
   locationName,
   isOnline,
 }: {
   disabled: boolean
+  locationSelected: boolean
   locationName: string
   isOnline: boolean
 }) {
   const { pending } = useFormStatus()
-  const submitLabel = isOnline
-    ? `Submit readings for ${locationName}`
-    : "Save offline"
+  const submitLabel = !isOnline
+    ? "Save offline"
+    : locationSelected
+      ? `Submit readings for ${locationName}`
+      : "Submit readings"
   return (
     <div className="flex flex-col gap-2">
       <Button
@@ -1132,7 +1197,9 @@ function SubmitBar({
       </Button>
       {disabled && !pending ? (
         <p className="text-center text-xs text-muted-foreground">
-          Fill in every required reading to submit.
+          {!locationSelected
+            ? "Choose a location and fill in every required reading to submit."
+            : "Fill in every required reading to submit."}
         </p>
       ) : null}
       {!isOnline && !disabled ? (
