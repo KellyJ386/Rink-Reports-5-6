@@ -427,7 +427,7 @@ function IceDepthPdf({
               No measurement points configured for this layout.
             </Text>
           ) : (
-            <View style={{ alignItems: "center", marginTop: 6 }}>
+            <View style={{ alignItems: "center", marginTop: 6 }} wrap={false}>
               <PdfRinkDiagram
                 points={r.points.map((p): DiagramPoint => {
                   const { cx, cy } = rinkCoords(p.x, p.y)
