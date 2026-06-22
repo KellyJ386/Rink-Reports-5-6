@@ -8,9 +8,31 @@ import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import type { TablesUpdate } from "@/types/database"
 
-import { collectShiftWarnings } from "./grid-warnings"
+import { computeShiftSignals } from "./grid-warnings"
+import {
+  describeViolation,
+  formatViolations,
+  partitionViolations,
+} from "./enforcement"
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
+}
+
+/**
+ * Why a shift write was refused, so the client can offer the right next step:
+ *  - `cert_block`: a required cert is missing/expired — hard block. A
+ *    facility_manager may re-submit with `override_cert: true`, which logs an
+ *    audit record (scheduling_log_cert_override) and proceeds.
+ *  - `confirm`: advisory warnings (hour-cap, overtime, time-off, …) — not a
+ *    block. Re-submit with `acknowledge_warnings: true` to record the
+ *    deliberate decision and save.
+ */
+export type GridGate =
+  | { kind: "cert_block"; certWarnings: string[]; advisoryWarnings: string[] }
+  | { kind: "confirm"; advisoryWarnings: string[] }
 
 // ---------------------------------------------------------------------------
 // Result + DTO shapes (typed so the grid can reconcile optimistic state)
@@ -41,7 +63,7 @@ export type GridTemplateDTO = {
 
 export type GridResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string }
+  | { ok: false; error: string; gate?: GridGate }
 
 const SHIFT_SELECT =
   "id, starts_at, ends_at, employee_id, job_area_id, department_id, status, break_minutes, role_label, notes"
@@ -68,6 +90,9 @@ const createSchema = z
     role_label: z.string().trim().max(120).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
     status: z.enum(["draft", "published", "cancelled"]).optional(),
+    override_cert: z.boolean().optional(),
+    acknowledge_warnings: z.boolean().optional(),
+    override_reason: z.string().trim().max(1000).nullable().optional(),
   })
   .refine(
     (v) => new Date(v.ends_at).getTime() > new Date(v.starts_at).getTime(),
@@ -86,6 +111,9 @@ const updateSchema = z
     role_label: z.string().trim().max(120).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
     status: z.enum(["draft", "published", "cancelled"]).optional(),
+    override_cert: z.boolean().optional(),
+    acknowledge_warnings: z.boolean().optional(),
+    override_reason: z.string().trim().max(1000).nullable().optional(),
   })
   .refine(
     (v) =>
@@ -222,30 +250,105 @@ async function readBlockOnViolations(
   return Boolean(data?.block_on_violations)
 }
 
+type GateArgs = {
+  employeeId: string | null
+  startsAt: string
+  endsAt: string
+  breakMinutes: number | null
+  jobAreaId: string | null
+  excludeShiftId: string | null
+  shiftId?: string | null
+}
+
+type GateOpts = {
+  overrideCert?: boolean
+  acknowledgeWarnings?: boolean
+  overrideReason?: string | null
+}
+
 /**
- * When the facility opted into blocking, refuse a write that raises any advisory
- * warning. No-op (allows) when blocking is off or the slot is unassigned.
+ * The single shift-write gate, shared by create + update.
+ *
+ *  - Missing/expired required certs ALWAYS hard-block, regardless of the
+ *    facility's block_on_violations toggle. A facility_manager may override
+ *    by re-submitting with `overrideCert`, which records an audit row via the
+ *    manager-gated scheduling_log_cert_override RPC before proceeding.
+ *  - Other advisory signals (hour-cap, overtime, time-off, overlap, …) warn:
+ *    if the facility opted into block_on_violations they hard-block; otherwise
+ *    they require an explicit `acknowledgeWarnings` confirm.
+ *  - An open/unassigned slot never gates.
  */
-async function enforceBlocking(
+async function gateShiftWrite(
   supabase: ServerSupabase,
   facilityId: string,
-  args: {
-    employeeId: string | null
-    startsAt: string
-    endsAt: string
-    breakMinutes: number | null
-    jobAreaId: string | null
-    excludeShiftId: string | null
-  }
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  args: GateArgs,
+  opts: GateOpts
+): Promise<{ ok: true } | { ok: false; error: string; gate?: GridGate }> {
   if (!args.employeeId) return { ok: true }
-  if (!(await readBlockOnViolations(supabase, facilityId))) return { ok: true }
-  const warnings = await collectShiftWarnings(supabase, { facilityId, ...args })
-  if (warnings.length === 0) return { ok: true }
-  return {
-    ok: false,
-    error: `Blocked by facility policy — ${warnings.join(" ")}`,
+
+  const { codes, capWarning } = await computeShiftSignals(supabase, {
+    facilityId,
+    employeeId: args.employeeId,
+    startsAt: args.startsAt,
+    endsAt: args.endsAt,
+    breakMinutes: args.breakMinutes,
+    jobAreaId: args.jobAreaId,
+    excludeShiftId: args.excludeShiftId,
+  })
+
+  const { cert, advisory } = partitionViolations(codes)
+  const advisoryWarnings = [
+    ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
+    ...(capWarning ? [capWarning] : []),
+  ]
+  const certWarnings = cert.map((c) => capitalize(describeViolation(c)) + ".")
+
+  // --- Cert gate (always blocks unless a manager overrides + logs it) -------
+  if (cert.length > 0) {
+    if (!opts.overrideCert) {
+      return {
+        ok: false,
+        error: formatViolations(cert),
+        gate: { kind: "cert_block", certWarnings, advisoryWarnings },
+      }
+    }
+    if (!args.jobAreaId) {
+      return { ok: false, error: "A job area is required to override a certification gap." }
+    }
+    const { error } = await supabase.rpc("scheduling_log_cert_override", {
+      p_employee_id: args.employeeId,
+      p_job_area_id: args.jobAreaId,
+      p_violation_codes: cert,
+      p_shift_id: args.shiftId ?? undefined,
+      p_reason: opts.overrideReason ?? undefined,
+    })
+    if (error) {
+      return {
+        ok: false,
+        error: `Couldn't record the certification override: ${error.message ?? "unknown error"}.`,
+      }
+    }
+    // Override logged — cert no longer blocks this write.
   }
+
+  // --- Advisory (hour-cap, overtime, …): block-by-policy or confirm ---------
+  if (advisoryWarnings.length > 0) {
+    if (await readBlockOnViolations(supabase, facilityId)) {
+      return {
+        ok: false,
+        error: `Blocked by facility policy — ${advisoryWarnings.join(" ")}`,
+      }
+    }
+    if (!opts.acknowledgeWarnings) {
+      return {
+        ok: false,
+        error: `Please confirm: ${advisoryWarnings.join(" ")}`,
+        gate: { kind: "confirm", advisoryWarnings },
+      }
+    }
+  }
+
+  return { ok: true }
 }
 
 // ---------------------------------------------------------------------------
@@ -282,15 +385,25 @@ export async function createGridShift(
     })
     if (!owned.ok) return { ok: false, error: owned.error }
 
-    const blocked = await enforceBlocking(supabase, ctx.facilityId, {
-      employeeId: v.employee_id ?? null,
-      startsAt: v.starts_at,
-      endsAt: v.ends_at,
-      breakMinutes: v.break_minutes ?? null,
-      jobAreaId: v.job_area_id ?? null,
-      excludeShiftId: null,
-    })
-    if (!blocked.ok) return blocked
+    const gate = await gateShiftWrite(
+      supabase,
+      ctx.facilityId,
+      {
+        employeeId: v.employee_id ?? null,
+        startsAt: v.starts_at,
+        endsAt: v.ends_at,
+        breakMinutes: v.break_minutes ?? null,
+        jobAreaId: v.job_area_id ?? null,
+        excludeShiftId: null,
+        shiftId: null,
+      },
+      {
+        overrideCert: v.override_cert,
+        acknowledgeWarnings: v.acknowledge_warnings,
+        overrideReason: v.override_reason ?? null,
+      }
+    )
+    if (!gate.ok) return gate
 
     const { data, error } = await supabase
       .from("schedule_shifts")
@@ -365,10 +478,11 @@ export async function updateGridShift(
     })
     if (!owned.ok) return { ok: false, error: owned.error }
 
-    // Blocking enforcement (only when the facility opted in). Move/resize may
-    // omit employee/job area, so resolve the effective values from the current
-    // row before evaluating warnings.
-    if (await readBlockOnViolations(supabase, ctx.facilityId)) {
+    // Assignment gate. Move/resize may omit employee/job area, so resolve the
+    // effective values from the current row before evaluating. Always runs:
+    // cert gaps hard-block regardless of the facility's block_on_violations
+    // toggle; advisory signals warn (or block by policy / require confirm).
+    {
       const { data: cur } = await supabase
         .from("schedule_shifts")
         .select("employee_id, job_area_id, starts_at, ends_at, break_minutes")
@@ -376,20 +490,30 @@ export async function updateGridShift(
         .eq("facility_id", ctx.facilityId)
         .maybeSingle()
       if (cur) {
-        const blocked = await enforceBlocking(supabase, ctx.facilityId, {
-          employeeId:
-            v.employee_id !== undefined ? v.employee_id : cur.employee_id,
-          startsAt: v.starts_at ?? cur.starts_at,
-          endsAt: v.ends_at ?? cur.ends_at,
-          breakMinutes:
-            v.break_minutes !== undefined
-              ? v.break_minutes
-              : cur.break_minutes,
-          jobAreaId:
-            v.job_area_id !== undefined ? v.job_area_id : cur.job_area_id,
-          excludeShiftId: v.id,
-        })
-        if (!blocked.ok) return blocked
+        const gate = await gateShiftWrite(
+          supabase,
+          ctx.facilityId,
+          {
+            employeeId:
+              v.employee_id !== undefined ? v.employee_id : cur.employee_id,
+            startsAt: v.starts_at ?? cur.starts_at,
+            endsAt: v.ends_at ?? cur.ends_at,
+            breakMinutes:
+              v.break_minutes !== undefined
+                ? v.break_minutes
+                : cur.break_minutes,
+            jobAreaId:
+              v.job_area_id !== undefined ? v.job_area_id : cur.job_area_id,
+            excludeShiftId: v.id,
+            shiftId: v.id,
+          },
+          {
+            overrideCert: v.override_cert,
+            acknowledgeWarnings: v.acknowledge_warnings,
+            overrideReason: v.override_reason ?? null,
+          }
+        )
+        if (!gate.ok) return gate
       }
     }
 
@@ -414,15 +538,27 @@ export async function updateGridShift(
   }
 }
 
+export type PreviewWarnings = {
+  /** Combined human-readable list (cert + advisory), kept for display. */
+  warnings: string[]
+  /** Always-blocking cert gaps (overridable only by a facility_manager). */
+  certWarnings: string[]
+  /** Advisory signals (hour-cap, overtime, time-off, …) — warn + confirm. */
+  advisoryWarnings: string[]
+  /** Facility block_on_violations: advisory warnings hard-block when true. */
+  blocking: boolean
+}
+
 /**
- * Advisory preview: compute the warnings (weekly-hours cap, overlap, cert gaps,
+ * Advisory preview: compute the signals (weekly-hours cap, overlap, cert gaps,
  * time-off, overtime) for a candidate assignment without writing anything. Used
- * by the assign popover to warn before save. `blocking` reflects the facility
- * setting so the UI can disable Save when warnings are hard-blocked.
+ * by the assign popover. Cert gaps are surfaced separately because they always
+ * block (a facility_manager override is required); `blocking` reflects the
+ * facility setting for the advisory signals.
  */
 export async function previewShiftWarnings(
   input: PreviewShiftInput
-): Promise<GridResult<{ warnings: string[]; blocking: boolean }>> {
+): Promise<GridResult<PreviewWarnings>> {
   try {
     const ctx = await resolveFacility()
     if (!ctx.ok) return { ok: false, error: ctx.error }
@@ -434,8 +570,8 @@ export async function previewShiftWarnings(
     const v = parsed.data
 
     const supabase = await createClient()
-    const [warnings, blocking] = await Promise.all([
-      collectShiftWarnings(supabase, {
+    const [{ codes, capWarning }, blocking] = await Promise.all([
+      computeShiftSignals(supabase, {
         facilityId: ctx.facilityId,
         employeeId: v.employee_id,
         startsAt: v.starts_at,
@@ -446,7 +582,22 @@ export async function previewShiftWarnings(
       }),
       readBlockOnViolations(supabase, ctx.facilityId),
     ])
-    return { ok: true, data: { warnings, blocking } }
+
+    const { cert, advisory } = partitionViolations(codes)
+    const certWarnings = cert.map((c) => capitalize(describeViolation(c)) + ".")
+    const advisoryWarnings = [
+      ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
+      ...(capWarning ? [capWarning] : []),
+    ]
+    return {
+      ok: true,
+      data: {
+        warnings: Array.from(new Set([...certWarnings, ...advisoryWarnings])),
+        certWarnings,
+        advisoryWarnings,
+        blocking,
+      },
+    }
   } catch (e) {
     logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }

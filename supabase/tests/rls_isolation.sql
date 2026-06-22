@@ -2481,6 +2481,113 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2Q. Publish-lock + cert-override audit (migration 146).
+--
+-- Publish-lock: once a shift is published it is frozen at the DB boundary —
+-- a direct UPDATE/DELETE from an end-user role ('authenticated') is rejected,
+-- while drafts stay editable and the governed SECURITY DEFINER cancel RPC
+-- still works. Cert-override: missing/expired required certs hard-block
+-- (scheduling_assignment_violations emits cert_missing:*), the override is
+-- manager-gated and audited, and the audit log is admin-read-only.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- A job area in Facility A that requires the "CPR" cert. Alice (staff) holds
+-- no CPR, so she is "missing"; Carol holds an EXPIRED CPR (treated as missing).
+insert into public.employee_job_areas (id, facility_id, name, slug)
+values ('aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+        '11111111-1111-1111-1111-111111111111', 'Zamboni', 'zamboni')
+on conflict (id) do nothing;
+insert into public.job_area_certification_requirements (facility_id, job_area_id, cert_name)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', 'CPR')
+on conflict do nothing;
+insert into public.employee_certifications (facility_id, employee_id, name, expires_at)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099', 'CPR', '2020-01-01')
+on conflict do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- Cert gate: missing (Alice) and expired (Carol) both surface cert_missing:CPR.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        now() + interval '10 days', now() + interval '10 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-146: missing required cert hard-blocks (cert_missing:CPR)');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+        now() + interval '11 days', now() + interval '11 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-146: EXPIRED required cert is treated as missing');
+
+-- Override is manager-gated and audited; the audit log is admin-read-only.
+select pg_temp.expect_ok(
+  $$select public.scheduling_log_cert_override(
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+      array['cert_missing:CPR'], null, 'covered by lead')$$,
+  'SCHED-146: facility manager CAN log a cert override');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_assignment_overrides
+     where employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and missing_certs @> array['CPR']$$,
+  1, 'SCHED-146: override writes an audit row (employee + missing cert)');
+
+-- Publish-lock: direct UPDATE / DELETE of a published shift is rejected.
+select pg_temp.expect_error(
+  $$update public.schedule_shifts set notes = 'tampered'
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
+  'SCHED-146: direct UPDATE of a published shift is rejected (publish-lock)');
+select pg_temp.expect_error(
+  $$delete from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
+  'SCHED-146: direct DELETE of a published shift is rejected (publish-lock)');
+-- A draft shift stays editable.
+select pg_temp.expect_ok(
+  $$update public.schedule_shifts set notes = 'draft edit ok'
+     where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
+  'SCHED-146: a DRAFT shift is still directly editable');
+-- The governed cancel RPC can transition a published shift.
+select pg_temp.expect_ok(
+  $$select public.scheduling_admin_cancel_shift('aaaa1111-5513-aaaa-aaaa-aaaa11110094')$$,
+  'SCHED-146: published shift can be cancelled via the governed RPC');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094' and status = 'cancelled'$$,
+  1, 'SCHED-146: governed cancel actually cancelled the published shift');
+
+reset role;
+
+-- Staff (Alice): cannot override and cannot read the override audit log.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.scheduling_log_cert_override(
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+      array['cert_missing:CPR'], null, 'sneaky')$$,
+  'SCHED-146: staff CANNOT log a cert override (manager-gated)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_assignment_overrides$$,
+  0, 'SCHED-146: staff CANNOT read the cert-override audit log');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

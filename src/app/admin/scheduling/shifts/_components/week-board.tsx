@@ -51,6 +51,7 @@ import {
   NONE_VALUE,
   OPEN_VALUE,
   type PopoverState,
+  type SaveOpts,
 } from "./assign-popover"
 import {
   ColorBySwitcher,
@@ -143,7 +144,8 @@ export function WeekBoard(props: WeekBoardProps) {
   // Popover (create/edit) state + advisory warnings.
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [popoverError, setPopoverError] = useState<string | null>(null)
-  const [warnings, setWarnings] = useState<string[]>([])
+  const [certWarnings, setCertWarnings] = useState<string[]>([])
+  const [advisoryWarnings, setAdvisoryWarnings] = useState<string[]>([])
   const [warningBlocking, setWarningBlocking] = useState(false)
   const [warnLoading, setWarnLoading] = useState(false)
   const warnTokenRef = useRef(0)
@@ -263,7 +265,8 @@ export function WeekBoard(props: WeekBoardProps) {
     const employee_id = next.employeeId === OPEN_VALUE ? null : next.employeeId
     if (!employee_id) {
       warnTokenRef.current++
-      setWarnings([])
+      setCertWarnings([])
+      setAdvisoryWarnings([])
       setWarningBlocking(false)
       setWarnLoading(false)
       return
@@ -281,7 +284,8 @@ export function WeekBoard(props: WeekBoardProps) {
     })
       .then((res) => {
         if (token !== warnTokenRef.current) return
-        setWarnings(res.ok ? res.data.warnings : [])
+        setCertWarnings(res.ok ? res.data.certWarnings : [])
+        setAdvisoryWarnings(res.ok ? res.data.advisoryWarnings : [])
         setWarningBlocking(res.ok ? res.data.blocking : false)
       })
       .finally(() => {
@@ -289,21 +293,27 @@ export function WeekBoard(props: WeekBoardProps) {
       })
   }, [])
 
+  const clearWarnings = useCallback(() => {
+    setCertWarnings([])
+    setAdvisoryWarnings([])
+    setWarningBlocking(false)
+  }, [])
+
   const openPopover = useCallback(
     (next: PopoverState) => {
       setPopoverError(null)
-      setWarnings([])
+      clearWarnings()
       setPopover(next)
       refreshWarnings(next)
     },
-    [refreshWarnings],
+    [refreshWarnings, clearWarnings],
   )
   const closePopover = useCallback(() => {
     warnTokenRef.current++
     setPopoverError(null)
-    setWarnings([])
+    clearWarnings()
     setPopover(null)
-  }, [])
+  }, [clearWarnings])
 
   // ---- Grid interaction callbacks ----
   const handleCreate = useCallback(
@@ -423,44 +433,67 @@ export function WeekBoard(props: WeekBoardProps) {
   )
 
   // ---- Popover save / delete / template ----
-  const handlePopoverSave = useCallback(() => {
-    if (!popover) return
-    setPopoverError(null)
-    const employee_id =
-      popover.employeeId === OPEN_VALUE ? null : popover.employeeId
-    const job_area_id = popover.jobAreaId === NONE_VALUE ? null : popover.jobAreaId
+  const handlePopoverSave = useCallback(
+    (opts?: SaveOpts) => {
+      if (!popover) return
+      setPopoverError(null)
+      const employee_id =
+        popover.employeeId === OPEN_VALUE ? null : popover.employeeId
+      const job_area_id =
+        popover.jobAreaId === NONE_VALUE ? null : popover.jobAreaId
+      const gateFields = {
+        override_cert: opts?.overrideCert,
+        acknowledge_warnings: opts?.acknowledgeWarnings,
+        override_reason: opts?.overrideReason ?? null,
+      }
 
-    if (popover.mode === "create") {
-      const { start, end } = popover
-      startTransition(async () => {
-        const res = await createGridShift({
-          starts_at: start.toISOString(),
-          ends_at: end.toISOString(),
-          employee_id,
-          job_area_id,
+      if (popover.mode === "create") {
+        const { start, end } = popover
+        startTransition(async () => {
+          const res = await createGridShift({
+            starts_at: start.toISOString(),
+            ends_at: end.toISOString(),
+            employee_id,
+            job_area_id,
+            ...gateFields,
+          })
+          if (!res.ok) {
+            setPopoverError(res.error)
+            return
+          }
+          setEvents((evs) => [...evs, dtoToEvent(res.data)])
+          toast.success(
+            opts?.overrideCert
+              ? "Shift created — certification override logged."
+              : "Shift created.",
+          )
+          closePopover()
         })
-        if (!res.ok) {
-          setPopoverError(res.error)
-          return
-        }
-        setEvents((evs) => [...evs, dtoToEvent(res.data)])
-        toast.success("Shift created.")
-        closePopover()
-      })
-    } else {
-      const id = popover.eventId
-      startTransition(async () => {
-        const res = await updateGridShift({ id, employee_id, job_area_id })
-        if (!res.ok) {
-          setPopoverError(res.error)
-          return
-        }
-        replaceEvent(id, res.data)
-        toast.success("Shift updated.")
-        closePopover()
-      })
-    }
-  }, [popover, replaceEvent, closePopover])
+      } else {
+        const id = popover.eventId
+        startTransition(async () => {
+          const res = await updateGridShift({
+            id,
+            employee_id,
+            job_area_id,
+            ...gateFields,
+          })
+          if (!res.ok) {
+            setPopoverError(res.error)
+            return
+          }
+          replaceEvent(id, res.data)
+          toast.success(
+            opts?.overrideCert
+              ? "Shift updated — certification override logged."
+              : "Shift updated.",
+          )
+          closePopover()
+        })
+      }
+    },
+    [popover, replaceEvent, closePopover],
+  )
 
   const handlePopoverDelete = useCallback(() => {
     if (!popover || popover.mode !== "edit") return
@@ -787,7 +820,8 @@ export function WeekBoard(props: WeekBoardProps) {
         <AssignPopover
           state={popover}
           error={popoverError}
-          warnings={warnings}
+          certWarnings={certWarnings}
+          advisoryWarnings={advisoryWarnings}
           warningsBlocking={warningBlocking}
           warningsLoading={warnLoading}
           employees={props.employees}
