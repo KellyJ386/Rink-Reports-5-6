@@ -533,6 +533,51 @@ export type Database = {
           },
         ]
       }
+      air_quality_compliance_profiles: {
+        Row: {
+          created_at: string
+          display_name: string
+          escalation_rules: Json
+          guidance_note: string | null
+          id: string
+          is_binding: boolean
+          jurisdiction: string
+          method: string
+          metrics: Json
+          sampling_rules: Json
+          tiers: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          escalation_rules?: Json
+          guidance_note?: string | null
+          id?: string
+          is_binding?: boolean
+          jurisdiction: string
+          method?: string
+          metrics?: Json
+          sampling_rules?: Json
+          tiers?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          escalation_rules?: Json
+          guidance_note?: string | null
+          id?: string
+          is_binding?: boolean
+          jurisdiction?: string
+          method?: string
+          metrics?: Json
+          sampling_rules?: Json
+          tiers?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       air_quality_equipment: {
         Row: {
           created_at: string
@@ -2431,6 +2476,63 @@ export type Database = {
           zip_code?: string | null
         }
         Relationships: []
+      }
+      facility_air_quality_config: {
+        Row: {
+          active_metrics: Json
+          compliance_profile_id: string | null
+          created_at: string
+          escalation_config: Json
+          facility_id: string
+          frequency_config: Json
+          id: string
+          submit_roles: string[]
+          threshold_overrides: Json
+          updated_at: string | null
+          view_roles: string[]
+        }
+        Insert: {
+          active_metrics?: Json
+          compliance_profile_id?: string | null
+          created_at?: string
+          escalation_config?: Json
+          facility_id: string
+          frequency_config?: Json
+          id?: string
+          submit_roles?: string[]
+          threshold_overrides?: Json
+          updated_at?: string | null
+          view_roles?: string[]
+        }
+        Update: {
+          active_metrics?: Json
+          compliance_profile_id?: string | null
+          created_at?: string
+          escalation_config?: Json
+          facility_id?: string
+          frequency_config?: Json
+          id?: string
+          submit_roles?: string[]
+          threshold_overrides?: Json
+          updated_at?: string | null
+          view_roles?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_air_quality_config_compliance_profile_id_fkey"
+            columns: ["compliance_profile_id"]
+            isOneToOne: false
+            referencedRelation: "air_quality_compliance_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_air_quality_config_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       facility_documents: {
         Row: {
@@ -6488,6 +6590,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_daily_report_checklists: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_facility_air_quality_config: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
