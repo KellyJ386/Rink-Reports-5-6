@@ -70,12 +70,13 @@ export function RemindersTab({ reminders, templates, groups }: Props) {
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            Scheduling is not yet implemented
-          </CardTitle>
+          <CardTitle className="text-base">Active reminders</CardTitle>
           <CardDescription>
-            These reminders are stored configurations only. The scheduler that
-            sends them will be added in a later step.
+            The scheduler runs every few minutes and sends each active
+            reminder&apos;s template to its target on its cron schedule
+            (evaluated in this facility&apos;s timezone). Cron uses 5 fields:
+            minute hour day-of-month month day-of-week — e.g.{" "}
+            <code>0 9 * * 1</code> is 9:00 AM every Monday.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -84,8 +85,8 @@ export function RemindersTab({ reminders, templates, groups }: Props) {
           <CardHeader>
             <CardTitle>No reminders yet</CardTitle>
             <CardDescription>
-              Add a recurring reminder configuration below to be ready when
-              scheduling lands.
+              Add a recurring reminder below — it starts sending on its next
+              scheduled time once active.
             </CardDescription>
           </CardHeader>
         </Card>
