@@ -54,6 +54,44 @@ export type ComplianceRuleForForm = {
   rule_body: string
 }
 
+/** What the reading was taken in response to (drives frequency tracking). */
+export type AirQualityReadingKind =
+  | "routine"
+  | "post_resurfacing"
+  | "post_edging"
+
+export const READING_KIND_OPTIONS: ReadonlyArray<{
+  value: AirQualityReadingKind
+  label: string
+}> = [
+  { value: "routine", label: "Routine" },
+  { value: "post_resurfacing", label: "Post-resurfacing" },
+  { value: "post_edging", label: "Post-edging" },
+]
+
+export function isReadingKind(v: string): v is AirQualityReadingKind {
+  return (
+    v === "routine" || v === "post_resurfacing" || v === "post_edging"
+  )
+}
+
+/**
+ * Engine result persisted into air_quality_reports.form_data.compliance. Uses
+ * plain string unions (not the engine's AlertLevel) to keep types.ts free of a
+ * runtime import cycle with compliance.ts.
+ */
+export type ComplianceSnapshot = {
+  profile_jurisdiction: string | null
+  reading_kind: AirQualityReadingKind
+  overall_alert_level: string
+  corrective_action_notes: string | null
+  metric_alerts: Array<{
+    metric_key: string
+    value: number
+    alert_level: string
+  }>
+}
+
 /**
  * Hidden `readings_json` payload shape submitted from the form.
  * Server recomputes thresholds, exceedance, and severity.
@@ -158,6 +196,8 @@ export type AirQualityFormData = {
     public_signage: boolean
     unusual_observations: string | null
   }
+  /** Jurisdiction-aware engine result; server-authored (recomputed on submit). */
+  compliance: ComplianceSnapshot | null
 }
 
 export function emptyMeasurement(): AirQualityMeasurement {
@@ -194,5 +234,6 @@ export function emptyAirQualityFormData(): AirQualityFormData {
       public_signage: false,
       unusual_observations: null,
     },
+    compliance: null,
   }
 }

@@ -41,10 +41,12 @@ import {
   emptyAirQualityFormData,
   emptyMeasurement,
   FUEL_TYPE_OPTIONS,
+  READING_KIND_OPTIONS,
   VENTILATION_STATUS_OPTIONS,
   type AirQualityFormData,
   type AirQualityFuelType,
   type AirQualityMeasurement,
+  type AirQualityReadingKind,
   type ComplianceRuleForForm,
   type EquipmentForForm,
   type LocationOption,
@@ -52,6 +54,16 @@ import {
   type SubmittedReading,
   type ThresholdForForm,
 } from "../types"
+import {
+  computeTwa,
+  evaluateMetric,
+  maxAlertLevel,
+  type AlertLevel,
+  type FrequencyStatus,
+  type MetricDef,
+  type TierLevel,
+} from "../_lib/compliance"
+import type { FormComplianceContext } from "../page"
 
 type Props = {
   locations: LocationOption[]
@@ -59,6 +71,8 @@ type Props = {
   equipment: EquipmentForForm[]
   thresholds: ThresholdForForm[]
   complianceRules: ComplianceRuleForForm[]
+  compliance: FormComplianceContext | null
+  frequency: FrequencyStatus | null
 }
 
 const initialState: SubmissionFormState = {}
@@ -117,6 +131,8 @@ export function SubmissionForm({
   equipment,
   thresholds,
   complianceRules,
+  compliance,
+  frequency,
 }: Props) {
   const [state, formAction] = useActionState(
     submitAirQualityReport,
@@ -133,6 +149,9 @@ export function SubmissionForm({
   const [values, setValues] = useState<Record<string, string>>({})
   const [equipmentId, setEquipmentId] = useState<string>("")
   const [notes, setNotes] = useState("")
+  const [readingKind, setReadingKind] =
+    useState<AirQualityReadingKind>("routine")
+  const [correctiveNote, setCorrectiveNote] = useState("")
 
   const locationName = useMemo(
     () => locations.find((l) => l.id === locationId)?.name ?? "",
@@ -208,6 +227,46 @@ export function SubmissionForm({
     return true
   }, [sortedReadingTypes, parsedByType])
 
+  // ---- Jurisdiction-aware evaluation (mirrors the server engine) ----
+  const metricBindings = useMemo(() => {
+    if (!compliance) return [] as Array<{ metric: MetricDef; readingTypeId: string }>
+    const out: Array<{ metric: MetricDef; readingTypeId: string }> = []
+    for (const metric of compliance.metrics) {
+      const rt = readingTypes.find(
+        (r) => r.key === metric.key || r.key.startsWith(`${metric.key}_`),
+      )
+      if (rt) out.push({ metric, readingTypeId: rt.id })
+    }
+    return out
+  }, [compliance, readingTypes])
+
+  const metricEvals = useMemo(() => {
+    if (!compliance) return []
+    return metricBindings.flatMap(({ metric, readingTypeId }) => {
+      const value = parsedByType.get(readingTypeId)
+      if (typeof value !== "number") return []
+      const level = evaluateMetric(
+        value,
+        compliance.effectiveTiers[metric.key] ?? {},
+      )
+      return [{ metric, readingTypeId, value, level }]
+    })
+  }, [compliance, metricBindings, parsedByType])
+
+  const overallAlert: AlertLevel = useMemo(
+    () => maxAlertLevel(metricEvals.map((m) => m.level)),
+    [metricEvals],
+  )
+  const correctiveRequired = overallAlert !== "within"
+  const correctiveSatisfied =
+    !correctiveRequired || correctiveNote.trim() !== ""
+
+  const metricByReadingType = useMemo(() => {
+    const m = new Map<string, MetricDef>()
+    for (const b of metricBindings) m.set(b.readingTypeId, b.metric)
+    return m
+  }, [metricBindings])
+
   const readingsArray = useMemo(() => {
     const rows: SubmittedReading[] = []
     for (const rt of sortedReadingTypes) {
@@ -231,6 +290,8 @@ export function SubmissionForm({
       notes: notes.trim() || null,
       readings: readingsArray,
       form_data: formData,
+      reading_kind: readingKind,
+      corrective_action_notes: correctiveNote.trim() || null,
     }
   }
 
@@ -317,6 +378,46 @@ export function SubmissionForm({
           Where these readings were taken. Required before you can submit.
         </p>
       </div>
+
+      {compliance ? (
+        <div className="flex flex-col gap-4 rounded-xl border border-l-4 border-l-module-air bg-card p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-base font-semibold">
+              {compliance.displayName}
+            </span>
+            <Badge variant={compliance.isBinding ? "error" : "secondary"}>
+              {compliance.isBinding ? "Binding" : "Guidance"}
+            </Badge>
+            <Badge variant="secondary">
+              {compliance.method === "twa_1hr" ? "1-hr TWA" : "Single sample"}
+            </Badge>
+          </div>
+          {compliance.guidanceNote ? (
+            <p className="text-xs text-muted-foreground">
+              {compliance.guidanceNote}
+            </p>
+          ) : null}
+          {frequency ? <FrequencyTracker status={frequency} /> : null}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="aq-reading-kind">Reading type</Label>
+            <Select
+              value={readingKind}
+              onValueChange={(v) => setReadingKind(v as AirQualityReadingKind)}
+            >
+              <SelectTrigger id="aq-reading-kind" className="h-12 text-base">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {READING_KIND_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : null}
 
       {complianceRules.length > 0 ? (
         <details
@@ -416,6 +517,15 @@ export function SubmissionForm({
                   ? evaluateBadge(parsedNum, matchedThreshold)
                   : "none"
               const inputId = `aq-rt-${rt.id}`
+              const metric = metricByReadingType.get(rt.id)
+              const metricTiers =
+                metric && compliance
+                  ? (compliance.effectiveTiers[metric.key] ?? {})
+                  : null
+              const cLevel: AlertLevel =
+                metricTiers && parsedNum !== null
+                  ? evaluateMetric(parsedNum, metricTiers)
+                  : "within"
               return (
                 <div key={rt.id} className="flex flex-col gap-2">
                   <Label htmlFor={inputId}>
@@ -446,13 +556,54 @@ export function SubmissionForm({
                       </span>
                     ) : null}
                   </div>
-                  {badge !== "none" ? <RangeBadgePill badge={badge} /> : null}
+                  {metricTiers ? (
+                    <div className="flex flex-col gap-1">
+                      <TierHint tiers={metricTiers} unit={rt.unit} />
+                      {parsedNum !== null ? (
+                        <AlertLevelBadge level={cLevel} />
+                      ) : null}
+                    </div>
+                  ) : badge !== "none" ? (
+                    <RangeBadgePill badge={badge} />
+                  ) : null}
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      {compliance && compliance.method === "twa_1hr" ? (
+        <TwaHelper
+          bindings={metricBindings}
+          twaSamples={compliance.twaSamples}
+          onApply={(rtId, avg) =>
+            setValues((prev) => ({ ...prev, [rtId]: String(avg) }))
+          }
+        />
+      ) : null}
+
+      {compliance && correctiveRequired ? (
+        <ComplianceBanner level={overallAlert} />
+      ) : null}
+
+      {compliance && correctiveRequired ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="aq-corrective">
+            Corrective action taken
+            <RequiredMark />
+          </Label>
+          <Textarea
+            id="aq-corrective"
+            rows={3}
+            value={correctiveNote}
+            onChange={(e) => setCorrectiveNote(e.target.value)}
+            placeholder="Describe the corrective steps taken — required before an over-threshold reading can be saved."
+            className="text-base"
+            aria-required="true"
+          />
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="notes">Notes (optional)</Label>
@@ -477,10 +628,17 @@ export function SubmissionForm({
       <input type="hidden" name="location_id" value={locationId} />
       <input type="hidden" name="readings_json" value={readingsJson} />
       <input type="hidden" name="form_data" value={formDataJson} />
+      <input type="hidden" name="reading_type" value={readingKind} />
+      <input
+        type="hidden"
+        name="corrective_action_notes"
+        value={correctiveNote.trim()}
+      />
 
       <SubmitBar
-        disabled={!locationId || !allRequiredFilled}
+        disabled={!locationId || !allRequiredFilled || !correctiveSatisfied}
         locationSelected={Boolean(locationId)}
+        correctiveMissing={correctiveRequired && !correctiveSatisfied}
         locationName={locationName}
         isOnline={isOnline}
       />
@@ -1158,8 +1316,22 @@ function MonitorFields({
           />
         </div>
       </div>
+      {isCalibrationStale(monitor.calibration_date) ? (
+        <p className="text-xs font-medium text-destructive">
+          Calibration is over a year old — recalibrate before relying on this
+          monitor.
+        </p>
+      ) : null}
     </div>
   )
+}
+
+/** True when a calibration date is more than 365 days in the past. */
+function isCalibrationStale(date: string | null): boolean {
+  if (!date) return false
+  const t = Date.parse(date)
+  if (Number.isNaN(t)) return false
+  return Date.now() - t > 365 * 24 * 60 * 60 * 1000
 }
 
 function RangeBadgePill({ badge }: { badge: Exclude<RangeBadge, "none"> }) {
@@ -1168,14 +1340,183 @@ function RangeBadgePill({ badge }: { badge: Exclude<RangeBadge, "none"> }) {
   return <Badge variant="error">Alert</Badge>
 }
 
+const TIER_LABEL: Record<TierLevel, string> = {
+  corrective: "Corrective",
+  notification: "Notification",
+  evacuation: "Evacuation",
+}
+
+const TIER_ORDER: TierLevel[] = ["corrective", "notification", "evacuation"]
+
+function TierHint({
+  tiers,
+  unit,
+}: {
+  tiers: NonNullable<FormComplianceContext["effectiveTiers"][string]>
+  unit: string
+}) {
+  const parts = TIER_ORDER.flatMap((level) => {
+    const max = tiers[level]?.max
+    if (max === undefined || max === null) return []
+    return [`${TIER_LABEL[level]} > ${max}`]
+  })
+  if (parts.length === 0) return null
+  return (
+    <span className="text-xs text-muted-foreground">
+      {parts.join(" · ")} {unit}
+    </span>
+  )
+}
+
+function AlertLevelBadge({ level }: { level: AlertLevel }) {
+  if (level === "within") return <Badge variant="success">Within range</Badge>
+  if (level === "corrective")
+    return <Badge variant="warning">Corrective action</Badge>
+  if (level === "notification")
+    return <Badge variant="error">Notification</Badge>
+  return <Badge variant="error">Evacuation</Badge>
+}
+
+function ComplianceBanner({ level }: { level: AlertLevel }) {
+  if (level === "within") return null
+  const evac = level === "evacuation"
+  const text =
+    level === "evacuation"
+      ? "Evacuation level. Evacuate the facility now and contact the fire department immediately."
+      : level === "notification"
+        ? "Notification level. Notify the fire department within 1 hour and the board of health and the Bureau within 24 hours, then log this reading."
+        : "Corrective action required. Increase ventilation, suspend fuel-burning equipment, and re-sample until readings drop below the corrective level. Record the steps you took below."
+  return (
+    <div
+      role="alert"
+      className={
+        evac
+          ? "rounded-xl border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground"
+          : level === "notification"
+            ? "rounded-xl border border-destructive bg-destructive-soft px-4 py-3 text-sm text-destructive-soft-foreground"
+            : "rounded-xl border border-warning bg-warning-soft px-4 py-3 text-sm text-warning-soft-foreground"
+      }
+    >
+      {text}
+    </div>
+  )
+}
+
+function FrequencyTracker({ status }: { status: FrequencyStatus }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <Badge variant={status.onSchedule ? "success" : "warning"}>
+        {status.onSchedule ? "On schedule" : `Behind by ${status.behindBy}`}
+      </Badge>
+      <span className="text-muted-foreground">
+        {status.completedTotal} of {status.requiredTotal} this week
+        {status.requiredWeekend > 0
+          ? ` · weekend ${status.completedWeekend}/${status.requiredWeekend}`
+          : ""}
+        {status.weekendShortfall ? " (weekend sample needed)" : ""}
+      </span>
+    </div>
+  )
+}
+
+function TwaHelper({
+  bindings,
+  twaSamples,
+  onApply,
+}: {
+  bindings: Array<{ metric: MetricDef; readingTypeId: string }>
+  twaSamples: number
+  onApply: (readingTypeId: string, avg: number) => void
+}) {
+  if (bindings.length === 0) return null
+  return (
+    <CollapsibleSection
+      title="1-hour TWA calculator"
+      description={`Enter ${twaSamples} readings taken every 5 minutes; the average (sum ÷ ${twaSamples}) fills the reading above.`}
+    >
+      {bindings.map(({ metric, readingTypeId }) => (
+        <TwaMetric
+          key={metric.key}
+          metric={metric}
+          count={twaSamples}
+          onApply={(avg) => onApply(readingTypeId, avg)}
+        />
+      ))}
+    </CollapsibleSection>
+  )
+}
+
+function TwaMetric({
+  metric,
+  count,
+  onApply,
+}: {
+  metric: MetricDef
+  count: number
+  onApply: (avg: number) => void
+}) {
+  const [samples, setSamples] = useState<string[]>(() =>
+    Array.from({ length: count }, () => ""),
+  )
+  const nums = samples.map((s) => {
+    const n = Number(s)
+    return s.trim() !== "" && Number.isFinite(n) ? n : null
+  })
+  const avg = computeTwa(nums, count)
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-semibold">
+        {metric.label} ({metric.unit})
+      </span>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+        {samples.map((s, i) => (
+          <Input
+            key={i}
+            type="text"
+            inputMode="decimal"
+            value={s}
+            onChange={(e) =>
+              setSamples((prev) =>
+                prev.map((p, j) => (j === i ? e.target.value : p)),
+              )
+            }
+            placeholder={`${i * 5}m`}
+            className="h-10 text-sm"
+            aria-label={`${metric.label} reading at minute ${i * 5}`}
+          />
+        ))}
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted-foreground">
+          Average:{" "}
+          {avg !== null ? `${avg.toFixed(metric.decimals)} ${metric.unit}` : "—"}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={avg === null}
+          onClick={() => {
+            if (avg !== null) onApply(Number(avg.toFixed(metric.decimals)))
+          }}
+        >
+          Use average
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function SubmitBar({
   disabled,
   locationSelected,
+  correctiveMissing,
   locationName,
   isOnline,
 }: {
   disabled: boolean
   locationSelected: boolean
+  correctiveMissing: boolean
   locationName: string
   isOnline: boolean
 }) {
@@ -1199,7 +1540,9 @@ function SubmitBar({
         <p className="text-center text-xs text-muted-foreground">
           {!locationSelected
             ? "Choose a location and fill in every required reading to submit."
-            : "Fill in every required reading to submit."}
+            : correctiveMissing
+              ? "Add a corrective-action note to submit this over-threshold reading."
+              : "Fill in every required reading to submit."}
         </p>
       ) : null}
       {!isOnline && !disabled ? (

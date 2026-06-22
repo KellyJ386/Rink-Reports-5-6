@@ -13,6 +13,11 @@ import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
 import { SubmissionForm } from "./_components/submission-form"
+import { computeFrequencyStatus, type FrequencyStatus } from "./_lib/compliance"
+import {
+  loadComplianceContext,
+  type ComplianceContext,
+} from "./_lib/load-compliance"
 import type {
   AirQualitySeverity,
   ComplianceRuleForForm,
@@ -21,6 +26,27 @@ import type {
   ReadingTypeForm,
   ThresholdForForm,
 } from "./types"
+
+/** Serializable compliance context handed to the client form. */
+export type FormComplianceContext = {
+  jurisdiction: string
+  displayName: string
+  isBinding: boolean
+  method: ComplianceContext["method"]
+  guidanceNote: string | null
+  metrics: ComplianceContext["metrics"]
+  effectiveTiers: ComplianceContext["effectiveTiers"]
+  twaSamples: number
+}
+
+/** Start of the current ISO week (Monday 00:00 UTC). */
+function weekStartIso(): string {
+  const d = new Date()
+  const day = (d.getUTCDay() + 6) % 7 // 0 = Monday
+  d.setUTCDate(d.getUTCDate() - day)
+  d.setUTCHours(0, 0, 0, 0)
+  return d.toISOString()
+}
 
 export const dynamic = "force-dynamic"
 
@@ -202,6 +228,43 @@ export default async function AirQualityHomePage() {
       rule_body: r.rule_body,
     }))
 
+  // Jurisdiction-aware compliance context + this-week frequency status.
+  const complianceCtx = await loadComplianceContext(
+    supabase,
+    employeeRow.facility_id,
+  )
+  let frequency: FrequencyStatus | null = null
+  let formCompliance: FormComplianceContext | null = null
+  if (complianceCtx.profile) {
+    const { data: weekReports } = await supabase
+      .from("air_quality_reports")
+      .select("submitted_at")
+      .eq("facility_id", employeeRow.facility_id)
+      .gte("submitted_at", weekStartIso())
+    let completedWeekday = 0
+    let completedWeekend = 0
+    for (const r of weekReports ?? []) {
+      const dow = new Date(r.submitted_at).getUTCDay()
+      if (dow === 0 || dow === 6) completedWeekend++
+      else completedWeekday++
+    }
+    frequency = computeFrequencyStatus({
+      rules: complianceCtx.samplingRules,
+      completedWeekday,
+      completedWeekend,
+    })
+    formCompliance = {
+      jurisdiction: complianceCtx.profile.jurisdiction,
+      displayName: complianceCtx.profile.display_name,
+      isBinding: complianceCtx.profile.is_binding,
+      method: complianceCtx.method,
+      guidanceNote: complianceCtx.profile.guidance_note,
+      metrics: complianceCtx.metrics,
+      effectiveTiers: complianceCtx.effectiveTiers,
+      twaSamples: complianceCtx.samplingRules.twa?.samples ?? 13,
+    }
+  }
+
   const fullName = [employeeRow.first_name, employeeRow.last_name]
     .filter((s): s is string => Boolean(s && s.trim()))
     .join(" ")
@@ -232,6 +295,8 @@ export default async function AirQualityHomePage() {
         equipment={equipment}
         thresholds={thresholds}
         complianceRules={rules}
+        compliance={formCompliance}
+        frequency={frequency}
       />
     </div>
   )
