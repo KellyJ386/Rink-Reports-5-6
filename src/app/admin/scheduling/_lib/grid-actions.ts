@@ -264,6 +264,13 @@ type GateOpts = {
   overrideCert?: boolean
   acknowledgeWarnings?: boolean
   overrideReason?: string | null
+  /**
+   * Whether the cert override should be logged here (via
+   * scheduling_log_cert_override). Default true. The published-shift edit path
+   * passes false because its DEFINER RPC records the override itself, so the
+   * gate only makes the block/confirm DECISION without double-logging.
+   */
+  logCertOverride?: boolean
 }
 
 /**
@@ -315,20 +322,24 @@ async function gateShiftWrite(
     if (!args.jobAreaId) {
       return { ok: false, error: "A job area is required to override a certification gap." }
     }
-    const { error } = await supabase.rpc("scheduling_log_cert_override", {
-      p_employee_id: args.employeeId,
-      p_job_area_id: args.jobAreaId,
-      p_violation_codes: cert,
-      p_shift_id: args.shiftId ?? undefined,
-      p_reason: opts.overrideReason ?? undefined,
-    })
-    if (error) {
-      return {
-        ok: false,
-        error: `Couldn't record the certification override: ${error.message ?? "unknown error"}.`,
+    // The published-shift edit RPC logs the override itself; only log here for
+    // the normal (draft / create) write paths.
+    if (opts.logCertOverride !== false) {
+      const { error } = await supabase.rpc("scheduling_log_cert_override", {
+        p_employee_id: args.employeeId,
+        p_job_area_id: args.jobAreaId,
+        p_violation_codes: cert,
+        p_shift_id: args.shiftId ?? undefined,
+        p_reason: opts.overrideReason ?? undefined,
+      })
+      if (error) {
+        return {
+          ok: false,
+          error: `Couldn't record the certification override: ${error.message ?? "unknown error"}.`,
+        }
       }
     }
-    // Override logged — cert no longer blocks this write.
+    // Override approved — cert no longer blocks this write.
   }
 
   // --- Advisory (hour-cap, overtime, …): block-by-policy or confirm ---------
@@ -478,43 +489,95 @@ export async function updateGridShift(
     })
     if (!owned.ok) return { ok: false, error: owned.error }
 
-    // Assignment gate. Move/resize may omit employee/job area, so resolve the
-    // effective values from the current row before evaluating. Always runs:
-    // cert gaps hard-block regardless of the facility's block_on_violations
-    // toggle; advisory signals warn (or block by policy / require confirm).
-    {
-      const { data: cur } = await supabase
+    // Resolve the current row so move/resize (which omit employee/job area) and
+    // the published-lock branch can compute effective values.
+    const { data: cur } = await supabase
+      .from("schedule_shifts")
+      .select(
+        "employee_id, job_area_id, starts_at, ends_at, break_minutes, role_label, notes, status"
+      )
+      .eq("id", v.id)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!cur) return { ok: false, error: "Shift not found." }
+
+    const eff = {
+      employeeId: v.employee_id !== undefined ? v.employee_id : cur.employee_id,
+      jobAreaId: v.job_area_id !== undefined ? v.job_area_id : cur.job_area_id,
+      startsAt: v.starts_at ?? cur.starts_at,
+      endsAt: v.ends_at ?? cur.ends_at,
+      breakMinutes:
+        v.break_minutes !== undefined ? v.break_minutes : cur.break_minutes,
+      roleLabel: v.role_label !== undefined ? v.role_label : cur.role_label,
+      notes: v.notes !== undefined ? v.notes : cur.notes,
+    }
+    const isPublished = cur.status === "published"
+
+    // Assignment gate. Always runs: cert gaps hard-block (override + audit);
+    // advisory signals warn (block by policy / require confirm). For a
+    // published shift the override is logged by the edit RPC, not here.
+    const gate = await gateShiftWrite(
+      supabase,
+      ctx.facilityId,
+      {
+        employeeId: eff.employeeId,
+        startsAt: eff.startsAt,
+        endsAt: eff.endsAt,
+        breakMinutes: eff.breakMinutes,
+        jobAreaId: eff.jobAreaId,
+        excludeShiftId: v.id,
+        shiftId: v.id,
+      },
+      {
+        overrideCert: v.override_cert,
+        acknowledgeWarnings: v.acknowledge_warnings,
+        overrideReason: v.override_reason ?? null,
+        logCertOverride: !isPublished,
+      }
+    )
+    if (!gate.ok) return gate
+
+    // A published shift is frozen at the DB boundary; apply the change through
+    // the governed, audited republish RPC instead of a direct UPDATE.
+    if (isPublished) {
+      const { data: rpc, error: rpcErr } = await supabase.rpc(
+        "scheduling_admin_edit_published_shift",
+        {
+          p_shift_id: v.id,
+          // Generated RPC arg types are non-nullable (a pg-meta limitation),
+          // but the SQL treats NULL as "open slot / clear field" — hence the
+          // narrowing casts (same pattern as enforcement.ts).
+          p_employee_id: eff.employeeId as unknown as string,
+          p_job_area_id: eff.jobAreaId as unknown as string,
+          p_starts_at: eff.startsAt,
+          p_ends_at: eff.endsAt,
+          p_break_minutes: eff.breakMinutes ?? 0,
+          p_role_label: eff.roleLabel as unknown as string,
+          p_notes: eff.notes as unknown as string,
+          p_override_cert: v.override_cert ?? false,
+          p_override_reason: v.override_reason ?? undefined,
+        }
+      )
+      if (rpcErr) {
+        return { ok: false, error: dbError(rpcErr, "Failed to update shift.") }
+      }
+      const result = (rpc ?? {}) as { ok?: boolean; error?: string; violations?: string[] }
+      if (result.ok !== true) {
+        const detail =
+          result.error === "cert_blocked" && result.violations?.length
+            ? formatViolations(result.violations)
+            : (result.error ?? "Failed to update shift.")
+        return { ok: false, error: detail }
+      }
+      const { data: fresh } = await supabase
         .from("schedule_shifts")
-        .select("employee_id, job_area_id, starts_at, ends_at, break_minutes")
+        .select(SHIFT_SELECT)
         .eq("id", v.id)
         .eq("facility_id", ctx.facilityId)
-        .maybeSingle()
-      if (cur) {
-        const gate = await gateShiftWrite(
-          supabase,
-          ctx.facilityId,
-          {
-            employeeId:
-              v.employee_id !== undefined ? v.employee_id : cur.employee_id,
-            startsAt: v.starts_at ?? cur.starts_at,
-            endsAt: v.ends_at ?? cur.ends_at,
-            breakMinutes:
-              v.break_minutes !== undefined
-                ? v.break_minutes
-                : cur.break_minutes,
-            jobAreaId:
-              v.job_area_id !== undefined ? v.job_area_id : cur.job_area_id,
-            excludeShiftId: v.id,
-            shiftId: v.id,
-          },
-          {
-            overrideCert: v.override_cert,
-            acknowledgeWarnings: v.acknowledge_warnings,
-            overrideReason: v.override_reason ?? null,
-          }
-        )
-        if (!gate.ok) return gate
-      }
+        .single()
+      revalidatePath("/admin/scheduling/shifts")
+      revalidatePath("/admin/scheduling")
+      return { ok: true, data: fresh as GridShiftDTO }
     }
 
     const { data, error } = await supabase
@@ -699,14 +762,38 @@ export async function deleteGridShift(
     if (!parsedId.success) return { ok: false, error: "Invalid shift id." }
 
     const supabase = await createClient()
-    const { error } = await supabase
+
+    // A published shift can't be hard-deleted (publish-lock). Removing it is a
+    // governed cancel via the DEFINER RPC; drafts are deleted outright.
+    const { data: cur } = await supabase
       .from("schedule_shifts")
-      .delete()
+      .select("status")
       .eq("id", parsedId.data)
       .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!cur) return { ok: false, error: "Shift not found." }
 
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to delete shift.") }
+    if (cur.status === "published") {
+      const { data: rpc, error: rpcErr } = await supabase.rpc(
+        "scheduling_admin_cancel_shift",
+        { p_shift_id: parsedId.data }
+      )
+      if (rpcErr) {
+        return { ok: false, error: dbError(rpcErr, "Failed to cancel shift.") }
+      }
+      const result = (rpc ?? {}) as { ok?: boolean; error?: string }
+      if (result.ok !== true) {
+        return { ok: false, error: result.error ?? "Failed to cancel shift." }
+      }
+    } else {
+      const { error } = await supabase
+        .from("schedule_shifts")
+        .delete()
+        .eq("id", parsedId.data)
+        .eq("facility_id", ctx.facilityId)
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to delete shift.") }
+      }
     }
 
     revalidatePath("/admin/scheduling/shifts")

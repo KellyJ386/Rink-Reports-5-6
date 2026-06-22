@@ -6527,6 +6527,21 @@ export type Database = {
         Args: { p_shift_id: string }
         Returns: Json
       }
+      scheduling_admin_edit_published_shift: {
+        Args: {
+          p_break_minutes: number
+          p_employee_id: string
+          p_ends_at: string
+          p_job_area_id: string
+          p_notes: string
+          p_override_cert?: boolean
+          p_override_reason?: string
+          p_role_label: string
+          p_shift_id: string
+          p_starts_at: string
+        }
+        Returns: Json
+      }
       scheduling_apply_swap: {
         Args: { p_decision_note?: string; p_swap_id: string }
         Returns: Json

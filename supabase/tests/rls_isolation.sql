@@ -2569,6 +2569,60 @@ select pg_temp.expect_count(
      where id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094' and status = 'cancelled'$$,
   1, 'SCHED-146: governed cancel actually cancelled the published shift');
 
+-- Governed republish-edit (migration 147): a manager edits a published shift
+-- through the audited RPC; the publish-lock would reject a direct write.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099', null,
+        now() + interval '1 day', now() + interval '1 day 5 hours', 0,
+        null, 'republished', false, null))->>'ok' as ok) r
+    where ok = 'true'$$,
+  1, 'SCHED-147: manager CAN republish-edit a published shift');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'
+       and notes = 'republished'
+       and published_by_employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'$$,
+  1, 'SCHED-147: republish-edit applied the change + re-stamped publish metadata');
+-- Editing a published shift into a cert-required area for someone lacking the
+-- cert hard-blocks unless overridden.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+        now() + interval '1 day', now() + interval '1 day 5 hours', 0,
+        null, 'rp', false, null))->>'error' as err) r
+    where err = 'cert_blocked'$$,
+  1, 'SCHED-147: republish-edit hard-blocks a missing/expired cert');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+        now() + interval '1 day', now() + interval '1 day 5 hours', 0,
+        null, 'rp', true, 'lead approved'))->>'ok' as ok) r
+    where ok = 'true'$$,
+  1, 'SCHED-147: manager CAN override a cert gap on republish-edit');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_assignment_overrides
+     where employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
+       and missing_certs @> array['CPR']$$,
+  1, 'SCHED-147: republish-edit cert override is audited');
+-- The edit RPC is published-only; a draft is left to the normal path.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5512-aaaa-aaaa-aaaa11110093', null, null,
+        now() + interval '2 days', now() + interval '2 days 4 hours', 0,
+        null, null, false, null))->>'error' as err) r
+    where err = 'not_published'$$,
+  1, 'SCHED-147: edit RPC refuses a non-published (draft) shift');
+
 reset role;
 
 -- Staff (Alice): cannot override and cannot read the override audit log.
@@ -2584,6 +2638,11 @@ select pg_temp.expect_error(
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_assignment_overrides$$,
   0, 'SCHED-146: staff CANNOT read the cert-override audit log');
+select pg_temp.expect_error(
+  $$select public.scheduling_admin_edit_published_shift(
+      'aaaa1111-5511-aaaa-aaaa-aaaa11110092', null, null,
+      now(), now() + interval '1 hour', 0, null, null, false, null)$$,
+  'SCHED-147: staff CANNOT republish-edit a published shift');
 
 reset role;
 
