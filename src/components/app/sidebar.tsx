@@ -23,7 +23,7 @@ export function AppSidebar({ isAdmin, email, fullName, enabledModules }: AppSide
 
   return (
     <aside
-      className="hidden lg:flex fixed inset-y-0 left-0 w-64 xl:w-72 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[var(--shadow-elev-2)]"
+      className="hidden lg:flex fixed inset-y-0 left-0 w-64 xl:w-72 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[var(--shadow-elev-2)] print:hidden"
       aria-label="App sidebar"
     >
       {/* Logo */}
