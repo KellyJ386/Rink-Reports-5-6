@@ -1,6 +1,16 @@
 # Migration-ledger reconcile — plan (2026-06-22)
 
-**Status: PREPARED, NOT EXECUTED.** This rewrites the *production* migration
+**Status: ✅ EXECUTED 2026-06-22.** The duplicate `…139_scheduling_expiry.sql`
+was renamed to `…148_scheduling_expiry.sql`, `supabase/reconcile_migration_history.sql`
+was rebuilt for the full 001–148 set, and the rebuild was run against the live
+project. Verified: ledger = 148 numeric rows (0 timestamp versions),
+contiguous `00000000000001`–`00000000000148`, matching the on-disk files exactly.
+
+---
+
+_Original plan below._
+
+This rewrites the *production* migration
 ledger (`supabase_migrations.schema_migrations` on project
 `bqbdgwlhbhabsibjgwmk`). It is bookkeeping-only — every migration below is
 already physically applied — but it must be run deliberately by a human (or on
