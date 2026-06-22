@@ -483,6 +483,51 @@ export type Database = {
           },
         ]
       }
+      air_quality_compliance_profiles: {
+        Row: {
+          created_at: string
+          display_name: string
+          escalation_rules: Json
+          guidance_note: string | null
+          id: string
+          is_binding: boolean
+          jurisdiction: string
+          method: string
+          metrics: Json
+          sampling_rules: Json
+          tiers: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          escalation_rules?: Json
+          guidance_note?: string | null
+          id?: string
+          is_binding?: boolean
+          jurisdiction: string
+          method?: string
+          metrics?: Json
+          sampling_rules?: Json
+          tiers?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          escalation_rules?: Json
+          guidance_note?: string | null
+          id?: string
+          is_binding?: boolean
+          jurisdiction?: string
+          method?: string
+          metrics?: Json
+          sampling_rules?: Json
+          tiers?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       air_quality_compliance_rules: {
         Row: {
           created_at: string
@@ -532,51 +577,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      air_quality_compliance_profiles: {
-        Row: {
-          created_at: string
-          display_name: string
-          escalation_rules: Json
-          guidance_note: string | null
-          id: string
-          is_binding: boolean
-          jurisdiction: string
-          method: string
-          metrics: Json
-          sampling_rules: Json
-          tiers: Json
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          display_name: string
-          escalation_rules?: Json
-          guidance_note?: string | null
-          id?: string
-          is_binding?: boolean
-          jurisdiction: string
-          method?: string
-          metrics?: Json
-          sampling_rules?: Json
-          tiers?: Json
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          display_name?: string
-          escalation_rules?: Json
-          guidance_note?: string | null
-          id?: string
-          is_binding?: boolean
-          jurisdiction?: string
-          method?: string
-          metrics?: Json
-          sampling_rules?: Json
-          tiers?: Json
-          updated_at?: string | null
-        }
-        Relationships: []
       }
       air_quality_equipment: {
         Row: {
