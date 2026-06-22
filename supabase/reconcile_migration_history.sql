@@ -175,6 +175,7 @@ insert into supabase_migrations.schema_migrations (version, name) values
   ('00000000000145','incident_emergency_fields'),
   ('00000000000146','refrigeration_readings_per_shift'),
   ('00000000000147','daily_report_business_date'),
-  ('00000000000148','scheduling_expiry');
+  ('00000000000148','scheduling_expiry'),
+  ('00000000000149','ice_operations_enabled_types');
 
 commit;

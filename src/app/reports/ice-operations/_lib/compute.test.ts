@@ -8,6 +8,28 @@ import {
   INVALID_CIRCLE_RESULTS,
   type IceOpsInput,
 } from "./compute"
+import { resolveEnabledOperationTypes } from "../types"
+
+describe("resolveEnabledOperationTypes", () => {
+  it("fails open to all operations for null/empty/invalid input", () => {
+    const all = ["ice_make", "circle_check", "edging", "blade_change"]
+    expect(resolveEnabledOperationTypes(null)).toEqual(all)
+    expect(resolveEnabledOperationTypes([])).toEqual(all)
+    expect(resolveEnabledOperationTypes(["nonsense"])).toEqual(all)
+  })
+
+  it("returns the configured subset in canonical tab order", () => {
+    expect(
+      resolveEnabledOperationTypes(["edging", "ice_make"]),
+    ).toEqual(["ice_make", "edging"])
+  })
+
+  it("ignores unknown values mixed with valid ones", () => {
+    expect(
+      resolveEnabledOperationTypes(["blade_change", "bogus"]),
+    ).toEqual(["blade_change"])
+  })
+})
 
 // A valid occurred_at + ids reused across cases so individual assertions stay
 // focused on the bit under test.

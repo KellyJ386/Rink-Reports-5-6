@@ -3511,6 +3511,7 @@ export type Database = {
           alerts_enabled: boolean
           created_at: string
           default_alert_severity: string
+          enabled_operation_types: string[] | null
           facility_id: string
           id: string
           temperature_unit: string
@@ -3520,6 +3521,7 @@ export type Database = {
           alerts_enabled?: boolean
           created_at?: string
           default_alert_severity?: string
+          enabled_operation_types?: string[] | null
           facility_id: string
           id?: string
           temperature_unit?: string
@@ -3529,6 +3531,7 @@ export type Database = {
           alerts_enabled?: boolean
           created_at?: string
           default_alert_severity?: string
+          enabled_operation_types?: string[] | null
           facility_id?: string
           id?: string
           temperature_unit?: string
