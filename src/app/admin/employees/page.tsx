@@ -171,7 +171,7 @@ export default async function EmployeesPage({
     supabase
       .from("employees")
       .select(
-        "id, facility_id, user_id, role_id, employee_code, first_name, last_name, email, phone, is_minor, emergency_contact_name, emergency_contact_phone, hire_date, is_active, deactivated_at, created_at"
+        "id, facility_id, user_id, role_id, employee_code, first_name, last_name, email, phone, is_minor, emergency_contact_name, emergency_contact_phone, hire_date, max_weekly_hours, is_active, deactivated_at, created_at"
       )
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true })
