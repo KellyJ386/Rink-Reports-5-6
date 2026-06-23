@@ -457,6 +457,15 @@ values ('bbbb2222-a9c1-bbbb-bbbb-bbbb22220076',
         'bbbb2222-a91c-bbbb-bbbb-bbbb22220071')
 on conflict (id) do nothing;
 
+-- B-side Air Quality compliance config (migration 147). The facilities insert
+-- trigger normally seeds this; insert explicitly so the cross-facility
+-- isolation assertions below have a target regardless of trigger ordering.
+insert into public.facility_air_quality_config (facility_id, compliance_profile_id)
+values ('22222222-2222-2222-2222-222222222222',
+        (select id from public.air_quality_compliance_profiles
+          where jurisdiction = 'USIRA'))
+on conflict (facility_id) do nothing;
+
 insert into public.ice_operations_submissions (id, facility_id, employee_id, operation_type)
 values ('bbbb2222-1c01-bbbb-bbbb-bbbb22220077',
         '22222222-2222-2222-2222-222222222222',
@@ -809,6 +818,26 @@ select pg_temp.expect_count(
   $$select count(*) from public.ice_depth_rinks
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'ice_depth: alice CANNOT SELECT rinks in facility B');
+
+-- Air Quality compliance config (migration 147): the per-facility profile
+-- choice + stricter overrides must scope by facility. A regression dropping the
+-- facility_id check would expose — or let a tenant rewrite — another facility's
+-- compliance posture. The global compliance profiles (migration 146) are
+-- reference data and intentionally readable by every authenticated user.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_air_quality_config
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'air_quality: alice CANNOT SELECT facility B compliance config');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_air_quality_config (facility_id)
+    values ('22222222-2222-2222-2222-222222222222')$$,
+  'air_quality: alice CANNOT INSERT a compliance config for facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.air_quality_compliance_profiles
+    where jurisdiction = 'USIRA'$$,
+  1, 'air_quality: global compliance profiles are readable cross-tenant');
 
 select pg_temp.expect_error(
   $$insert into public.ice_depth_rinks
