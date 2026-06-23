@@ -1,5 +1,15 @@
 "use server"
 
+// NOTE — offline policy: these admin grid writes (drag-create / edit / delete)
+// are intentionally ONLINE-ONLY; they call server actions directly rather than
+// the service-worker offline queue. Scheduling is a desk task done on-
+// connection, so the §4 offline round-trip guarantee is satisfied by the
+// STAFF-side scheduling writes (time-off + availability), which DO enqueue via
+// enqueueSubmission(moduleKey:"scheduling") and replay idempotently through
+// src/app/api/offline-sync/route.ts. Routing the admin grid offline would mean
+// replaying the cert / hour-cap / publish-lock enforcement on the server at
+// flush time; deferred deliberately, not by oversight.
+
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 

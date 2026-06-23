@@ -2568,6 +2568,14 @@ select pg_temp.expect_count(
   $$select count(*) from public.schedule_shifts
      where id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094' and status = 'cancelled'$$,
   1, 'SCHED-146: governed cancel actually cancelled the published shift');
+-- Cancelling a shift notifies the affected employee (migration 148). Shift ...94
+-- was assigned to Alice; the cancel above should have queued her a notification.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+     where shift_id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094'
+       and employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and notification_type = 'shift_changed'$$,
+  1, 'SCHED-148: cancelling a shift notifies the affected employee');
 
 -- Governed republish-edit (migration 147): a manager edits a published shift
 -- through the audited RPC; the publish-lock would reject a direct write.

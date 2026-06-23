@@ -34,6 +34,8 @@ export type PopoverState =
       end: Date
       employeeId: string
       jobAreaId: string
+      /** True when editing a published shift — saving republishes it. */
+      published?: boolean
     }
 
 function formatRange(start: Date, end: Date): string {
@@ -114,6 +116,12 @@ export function AssignPopover({
             {format(state.start, "EEE, MMM d")} ·{" "}
             {formatRange(state.start, state.end)}
           </p>
+          {state.mode === "edit" && state.published ? (
+            <p className="mt-1 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+              This shift is published — saving republishes it and notifies
+              affected staff.
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-3">
