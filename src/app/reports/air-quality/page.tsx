@@ -19,12 +19,10 @@ import {
   type ComplianceContext,
 } from "./_lib/load-compliance"
 import type {
-  AirQualitySeverity,
   ComplianceRuleForForm,
   EquipmentForForm,
   LocationOption,
   ReadingTypeForm,
-  ThresholdForForm,
 } from "./types"
 
 /** Serializable compliance context handed to the client form. */
@@ -83,10 +81,6 @@ function NotAvailable({
   )
 }
 
-function isSeverity(value: string): value is AirQualitySeverity {
-  return value === "warn" || value === "high" || value === "critical"
-}
-
 export default async function AirQualityHomePage() {
   const current = await requireUser()
   const supabase = await createClient()
@@ -124,7 +118,6 @@ export default async function AirQualityHomePage() {
     { data: locationsRaw },
     { data: readingTypesRaw },
     { data: equipmentRaw },
-    { data: thresholdsRaw },
     { data: settingsRow },
     { data: rulesRaw },
   ] = await Promise.all([
@@ -150,13 +143,6 @@ export default async function AirQualityHomePage() {
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
-    supabase
-      .from("air_quality_thresholds")
-      .select(
-        "id, reading_type_id, location_id, warn_min, warn_max, alert_min, alert_max, compliance_min, compliance_max, severity"
-      )
-      .eq("facility_id", employeeRow.facility_id)
-      .eq("is_active", true),
     supabase
       .from("air_quality_settings")
       .select("default_jurisdiction, alerts_enabled")
@@ -200,19 +186,6 @@ export default async function AirQualityHomePage() {
     id: e.id,
     name: e.name,
     location_id: e.location_id,
-  }))
-
-  const thresholds: ThresholdForForm[] = (thresholdsRaw ?? []).map((t) => ({
-    id: t.id,
-    reading_type_id: t.reading_type_id,
-    location_id: t.location_id,
-    warn_min: t.warn_min,
-    warn_max: t.warn_max,
-    alert_min: t.alert_min,
-    alert_max: t.alert_max,
-    compliance_min: t.compliance_min,
-    compliance_max: t.compliance_max,
-    severity: isSeverity(t.severity) ? t.severity : "warn",
   }))
 
   const jurisdiction = settingsRow?.default_jurisdiction ?? null
@@ -295,7 +268,6 @@ export default async function AirQualityHomePage() {
         locations={locations}
         readingTypes={readingTypes}
         equipment={equipment}
-        thresholds={thresholds}
         complianceRules={rules}
         compliance={formCompliance}
         frequency={frequency}

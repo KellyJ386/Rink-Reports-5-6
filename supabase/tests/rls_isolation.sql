@@ -1822,10 +1822,23 @@ select pg_temp.expect_count(
       join pg_class ft on ft.oid = c.confrelid
     where c.conname in (
             'air_quality_equipment_location_id_fkey',
-            'air_quality_thresholds_location_id_fkey',
             'air_quality_reports_location_id_fkey')
       and ft.relname = 'facility_spaces'$$,
-  3, 'AQ: equipment/thresholds/reports location FKs retargeted to facility_spaces (migration 143)');
+  2, 'AQ: equipment/reports location FKs retargeted to facility_spaces (migration 143)');
+
+-- 153: the legacy air_quality_thresholds table and the readings.threshold_id FK
+-- are retired — the compliance engine is the single source of truth.
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_class
+    where relname = 'air_quality_thresholds'
+      and relnamespace = 'public'::regnamespace$$,
+  0, 'AQ: air_quality_thresholds table dropped (migration 153)');
+select pg_temp.expect_count(
+  $$select count(*)::int from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'air_quality_readings'
+      and column_name = 'threshold_id'$$,
+  0, 'AQ: air_quality_readings.threshold_id column dropped (migration 153)');
 
 -- ---------------------------------------------------------------------------
 -- REFRIG: Refrigeration hardening (migrations 110-114).

@@ -1,9 +1,8 @@
-// Pure air-quality submission helpers: payload/form parsing, the extended
-// monitoring-log sanitizer, and the threshold/severity engine (threshold
-// lookup, exceedance evaluation, severity rollup, alert lines). NO server-only
-// imports live here, so this module is safe to unit-test in isolation (see
-// compute.test.ts) and is re-used by the server-only `submit.ts` (which adds
-// the Supabase + notification I/O).
+// Pure air-quality submission helpers: payload/form parsing and the extended
+// monitoring-log sanitizer. NO server-only imports live here, so this module is
+// safe to unit-test in isolation (see compute.test.ts) and is re-used by the
+// server-only `submit.ts` (which adds the Supabase + notification I/O). The
+// jurisdiction-aware evaluation engine lives in `compliance.ts`.
 
 import { emptyAirQualityFormData, isReadingKind } from "../types"
 import type {
@@ -11,22 +10,9 @@ import type {
   AirQualityFuelType,
   AirQualityMeasurement,
   AirQualityReadingKind,
-  AirQualitySeverity,
   ComplianceSnapshot,
   SubmittedReading,
 } from "../types"
-
-export const VALID_SEVERITIES = new Set<AirQualitySeverity>([
-  "warn",
-  "high",
-  "critical",
-])
-
-export const SEVERITY_RANK: Record<AirQualitySeverity, number> = {
-  warn: 1,
-  high: 2,
-  critical: 3,
-}
 
 const MAX_ROWS = 100
 
@@ -327,104 +313,4 @@ export function buildInputFromPayload(
     reading_kind,
     corrective_action_notes,
   }
-}
-
-// ---------------------------------------------------------------------------
-// Threshold / severity engine (pure; submit.ts feeds it DB rows)
-// ---------------------------------------------------------------------------
-
-export type ThresholdRow = {
-  id: string
-  reading_type_id: string
-  location_id: string | null
-  alert_min: number | null
-  alert_max: number | null
-  compliance_min: number | null
-  compliance_max: number | null
-  severity: string
-}
-
-/**
- * Resolve the threshold for a reading type at a location: a location-specific
- * threshold wins over the facility-wide (`location_id = null`) fallback.
- */
-export function lookupThreshold(
-  thresholds: ThresholdRow[],
-  readingTypeId: string,
-  locationId: string,
-): ThresholdRow | null {
-  const locMatch = thresholds.find(
-    (t) => t.reading_type_id === readingTypeId && t.location_id === locationId,
-  )
-  if (locMatch) return locMatch
-  const fallback = thresholds.find(
-    (t) => t.reading_type_id === readingTypeId && t.location_id === null,
-  )
-  return fallback ?? null
-}
-
-export type ReadingEvaluation = {
-  isExceedance: boolean
-  /** Set only when the reading is an exceedance; unknown DB severities → warn. */
-  severity: AirQualitySeverity | null
-}
-
-/** Evaluate one value against a threshold's alert bounds (null bound = open). */
-export function evaluateReading(
-  value: number,
-  threshold: ThresholdRow,
-): ReadingEvaluation {
-  const minHit = threshold.alert_min !== null && value < threshold.alert_min
-  const maxHit = threshold.alert_max !== null && value > threshold.alert_max
-  if (!minHit && !maxHit) return { isExceedance: false, severity: null }
-  const severity = VALID_SEVERITIES.has(threshold.severity as AirQualitySeverity)
-    ? (threshold.severity as AirQualitySeverity)
-    : "warn"
-  return { isExceedance: true, severity }
-}
-
-/** Highest-ranked severity in the list, or null when the list is empty. */
-export function maxSeverityOf(
-  severities: AirQualitySeverity[],
-): AirQualitySeverity | null {
-  let top: AirQualitySeverity | null = null
-  let topRank = 0
-  for (const s of severities) {
-    const rank = SEVERITY_RANK[s]
-    if (rank > topRank) {
-      topRank = rank
-      top = s
-    }
-  }
-  return top
-}
-
-export type ExceedanceDetail = {
-  label: string
-  value: number
-  unit: string
-  alert_min: number | null
-  alert_max: number | null
-  severity: AirQualitySeverity
-}
-
-/**
- * Human-readable alert body lines: the first 5 exceedances, each annotated
- * with the bound it crossed, plus an "…and N more" trailer when truncated.
- */
-export function buildAlertLines(details: ExceedanceDetail[]): string[] {
-  const lines = details.slice(0, 5).map((d) => {
-    const unit = d.unit ? ` ${d.unit}` : ""
-    const bound =
-      d.alert_min !== null && d.value < d.alert_min
-        ? `(alert min ${d.alert_min}${unit})`
-        : d.alert_max !== null && d.value >= d.alert_max
-          ? `(alert max ${d.alert_max}${unit})`
-          : ""
-    return `${d.label}: ${d.value}${unit} ${bound}`.trim()
-  })
-  const remainder = details.length - lines.length
-  const out = [...lines]
-  if (remainder > 0) out.push(`…and ${remainder} more`)
-  return out
 }

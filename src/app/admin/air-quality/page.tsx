@@ -45,7 +45,6 @@ import type {
   SetupData,
   SettingsRow,
   Tab,
-  ThresholdRow,
 } from "./types"
 import { TABS, asTab } from "./types"
 
@@ -162,7 +161,7 @@ async function SetupTabLoader({
   params: { location?: string }
 }) {
   const supabase = await createClient()
-  const [locsRes, equipRes, rtRes, thresholdsRes] = await Promise.all([
+  const [locsRes, equipRes, rtRes] = await Promise.all([
     supabase
       .from("facility_spaces")
       .select("*")
@@ -181,17 +180,11 @@ async function SetupTabLoader({
       .eq("facility_id", facilityId)
       .order("sort_order", { ascending: true })
       .order("label", { ascending: true }),
-    supabase
-      .from("air_quality_thresholds")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("created_at", { ascending: true }),
   ])
 
   const locations = (locsRes.data ?? []) as LocationRow[]
   const allEquipment = (equipRes.data ?? []) as EquipmentRow[]
   const readingTypes = (rtRes.data ?? []) as ReadingTypeRow[]
-  const thresholds = (thresholdsRes.data ?? []) as ThresholdRow[]
 
   const equipByLoc = new Map<string, number>()
   for (const e of allEquipment) {
@@ -222,10 +215,8 @@ async function SetupTabLoader({
     locations: locationsWithCounts,
     facilityEquipment,
     readingTypes,
-    thresholds,
     detail,
     activeLocationId,
-    allLocations: locations,
   }
 
   return <SetupTab data={data} />
