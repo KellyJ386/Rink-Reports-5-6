@@ -37,6 +37,7 @@ export type FormComplianceContext = {
   metrics: ComplianceContext["metrics"]
   effectiveTiers: ComplianceContext["effectiveTiers"]
   twaSamples: number
+  escalation: Record<string, string>
 }
 
 /** Start of the current ISO week (Monday 00:00 UTC). */
@@ -262,6 +263,7 @@ export default async function AirQualityHomePage() {
       metrics: complianceCtx.metrics,
       effectiveTiers: complianceCtx.effectiveTiers,
       twaSamples: complianceCtx.samplingRules.twa?.samples ?? 13,
+      escalation: complianceCtx.escalation,
     }
   }
 

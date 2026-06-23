@@ -9,6 +9,7 @@ import {
   evaluateMetric,
   maxAlertLevel,
   parseActiveMetrics,
+  parseEscalationConfig,
   parseMethod,
   parseMetrics,
   parseSamplingRules,
@@ -61,6 +62,19 @@ describe("parsers", () => {
     expect(MA_TIERS.co.notification?.consecutive).toEqual({
       count: 6,
       over: 30,
+    })
+  })
+
+  it("parses per-tier escalation config, dropping unknown keys", () => {
+    const esc = parseEscalationConfig({
+      corrective: "Increase ventilation",
+      evacuation: "Call 911",
+      bogus: "ignored",
+      notification: "  ",
+    })
+    expect(esc).toEqual({
+      corrective: "Increase ventilation",
+      evacuation: "Call 911",
     })
   })
 

@@ -584,7 +584,10 @@ export function SubmissionForm({
       ) : null}
 
       {compliance && correctiveRequired ? (
-        <ComplianceBanner level={overallAlert} />
+        <ComplianceBanner
+          level={overallAlert}
+          customText={compliance.escalation[overallAlert] ?? null}
+        />
       ) : null}
 
       {compliance && correctiveRequired ? (
@@ -1377,15 +1380,23 @@ function AlertLevelBadge({ level }: { level: AlertLevel }) {
   return <Badge variant="error">Evacuation</Badge>
 }
 
-function ComplianceBanner({ level }: { level: AlertLevel }) {
+function ComplianceBanner({
+  level,
+  customText,
+}: {
+  level: AlertLevel
+  customText?: string | null
+}) {
   if (level === "within") return null
   const evac = level === "evacuation"
   const text =
-    level === "evacuation"
-      ? "Evacuation level. Evacuate the facility now and contact the fire department immediately."
-      : level === "notification"
-        ? "Notification level. Notify the fire department within 1 hour and the board of health and the Bureau within 24 hours, then log this reading."
-        : "Corrective action required. Increase ventilation, suspend fuel-burning equipment, and re-sample until readings drop below the corrective level. Record the steps you took below."
+    customText && customText.trim() !== ""
+      ? customText
+      : level === "evacuation"
+        ? "Evacuation level. Evacuate the facility now and contact the fire department immediately."
+        : level === "notification"
+          ? "Notification level. Notify the fire department within 1 hour and the board of health and the Bureau within 24 hours, then log this reading."
+          : "Corrective action required. Increase ventilation, suspend fuel-burning equipment, and re-sample until readings drop below the corrective level. Record the steps you took below."
   return (
     <div
       role="alert"
