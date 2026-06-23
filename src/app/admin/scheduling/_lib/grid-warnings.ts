@@ -33,23 +33,30 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
 }
 
+export type ShiftSignals = {
+  /** Raw violation codes from scheduling_assignment_violations(). */
+  codes: string[]
+  /**
+   * Human-readable per-employee weekly-hours cap warning (employees.
+   * max_weekly_hours), or null when under cap / no cap set. The shared engine
+   * does NOT cover this — it uses facility-level thresholds.
+   */
+  capWarning: string | null
+}
+
 /**
- * Returns human-readable advisory warnings for assigning `employeeId` to the
- * given slot. Empty array = clean. An open/unassigned slot yields no warnings.
+ * Compute the raw signals for assigning `employeeId` to the slot: the shared
+ * engine's violation codes plus the per-employee hour-cap check. Callers
+ * decide how to present/gate them (cert codes hard-block; the rest warn).
  */
-export async function collectShiftWarnings(
+export async function computeShiftSignals(
   supabase: ServerSupabase,
   args: WarningArgs
-): Promise<string[]> {
-  if (!args.employeeId) return []
-
-  const warnings: string[] = []
+): Promise<ShiftSignals> {
+  if (!args.employeeId) return { codes: [], capWarning: null }
 
   // 1. Shared engine (overlap, time-off, overtime, cert gaps, qualification…).
   const codes = await checkAssignmentViolations(supabase, args)
-  for (const code of codes) {
-    warnings.push(capitalize(describeViolation(code)) + ".")
-  }
 
   // 2. Per-employee weekly-hours cap (employees.max_weekly_hours).
   const [{ data: emp }, { data: facility }, { data: settings }] =
@@ -72,6 +79,7 @@ export async function collectShiftWarnings(
         .maybeSingle<{ week_start_day: number | null }>(),
     ])
 
+  let capWarning: string | null = null
   const cap = emp?.max_weekly_hours
   if (cap != null) {
     const { startIso, endIso } = complianceWeekWindow(args.startsAt, {
@@ -106,12 +114,24 @@ export async function collectShiftWarnings(
     )
     const total = otherHours + thisHours
     if (total > cap) {
-      warnings.push(
-        `Puts this employee at ${Math.round(total * 10) / 10}h this week, over their ${cap}h cap.`
-      )
+      capWarning = `Puts this employee at ${Math.round(total * 10) / 10}h this week, over their ${cap}h cap.`
     }
   }
 
+  return { codes, capWarning }
+}
+
+/**
+ * Returns human-readable advisory warnings for assigning `employeeId` to the
+ * given slot. Empty array = clean. An open/unassigned slot yields no warnings.
+ */
+export async function collectShiftWarnings(
+  supabase: ServerSupabase,
+  args: WarningArgs
+): Promise<string[]> {
+  const { codes, capWarning } = await computeShiftSignals(supabase, args)
+  const warnings = codes.map((code) => capitalize(describeViolation(code)) + ".")
+  if (capWarning) warnings.push(capWarning)
   // De-dup while preserving order.
   return Array.from(new Set(warnings))
 }

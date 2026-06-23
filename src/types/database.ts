@@ -5257,6 +5257,87 @@ export type Database = {
           },
         ]
       }
+      schedule_assignment_overrides: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+          job_area_id: string | null
+          missing_certs: string[]
+          overridden_by_employee_id: string | null
+          overridden_by_user_id: string | null
+          override_type: string
+          reason: string | null
+          shift_id: string | null
+          violation_codes: string[]
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+          job_area_id?: string | null
+          missing_certs?: string[]
+          overridden_by_employee_id?: string | null
+          overridden_by_user_id?: string | null
+          override_type?: string
+          reason?: string | null
+          shift_id?: string | null
+          violation_codes?: string[]
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          job_area_id?: string | null
+          missing_certs?: string[]
+          overridden_by_employee_id?: string | null
+          overridden_by_user_id?: string | null
+          override_type?: string
+          reason?: string | null
+          shift_id?: string | null
+          violation_codes?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_assignment_overrides_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_assignment_overrides_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_assignment_overrides_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_assignment_overrides_overridden_by_employee_id_fkey"
+            columns: ["overridden_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_assignment_overrides_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedule_availability: {
         Row: {
           availability_type: string
@@ -6540,6 +6621,29 @@ export type Database = {
           employee_id: string
         }[]
       }
+      scheduling_admin_assign_open_shift: {
+        Args: { p_employee_id: string; p_open_shift_id: string }
+        Returns: Json
+      }
+      scheduling_admin_cancel_shift: {
+        Args: { p_shift_id: string }
+        Returns: Json
+      }
+      scheduling_admin_edit_published_shift: {
+        Args: {
+          p_break_minutes: number
+          p_employee_id: string
+          p_ends_at: string
+          p_job_area_id: string
+          p_notes: string
+          p_override_cert?: boolean
+          p_override_reason?: string
+          p_role_label: string
+          p_shift_id: string
+          p_starts_at: string
+        }
+        Returns: Json
+      }
       scheduling_apply_swap: {
         Args: { p_decision_note?: string; p_swap_id: string }
         Returns: Json
@@ -6576,6 +6680,16 @@ export type Database = {
       scheduling_expire_stale_swaps: {
         Args: { p_limit?: number }
         Returns: number
+      }
+      scheduling_log_cert_override: {
+        Args: {
+          p_employee_id: string
+          p_job_area_id: string
+          p_reason?: string
+          p_shift_id?: string
+          p_violation_codes: string[]
+        }
+        Returns: string
       }
       scheduling_notify_swap_request: {
         Args: { p_swap_id: string }
