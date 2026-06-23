@@ -11,6 +11,7 @@ import {
   type FormEvent,
 } from "react"
 import { useFormStatus } from "react-dom"
+import { Bluetooth, BluetoothConnected, BluetoothSearching } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
@@ -25,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 
 import { submitIceDepthSession, type SubmissionFormState } from "../actions"
+import { useCaliper } from "./use-caliper"
 import type {
   LayoutForForm,
   PointForForm,
@@ -197,6 +199,35 @@ export function SubmissionForm({ layout, points, settings }: Props) {
       openPopover(idx)
     },
     [openPopover, sortedPoints],
+  )
+
+  // A reading arrived from a paired Bluetooth caliper. Mirror the HID
+  // keyboard-wedge flow (type value → Tab/Enter): write it to the point being
+  // edited — or the first still-unrecorded point when nothing is open — and
+  // advance to the next point so the operator can walk the rink hands-free.
+  const captureCaliperReading = useCallback(
+    (value: number) => {
+      if (!Number.isFinite(value) || value < 0) return
+      const text = String(value)
+      let idx = editingIdx
+      if (idx == null) {
+        idx = sortedPoints.findIndex((p) => {
+          const raw = values[p.id]?.trim()
+          return !raw || !Number.isFinite(Number(raw))
+        })
+        if (idx < 0) idx = sortedPoints.length - 1
+      }
+      const target = sortedPoints[idx]
+      if (!target) return
+      setValues((prev) => ({ ...prev, [target.id]: text }))
+      skipBlurSaveRef.current = true
+      if (idx >= sortedPoints.length - 1) {
+        setEditingIdx(null)
+      } else {
+        openPopover(idx + 1)
+      }
+    },
+    [editingIdx, sortedPoints, values, openPopover],
   )
 
   const handleGoToReview = useCallback(() => {
@@ -442,6 +473,9 @@ export function SubmissionForm({ layout, points, settings }: Props) {
           }}
         />
       </div>
+
+      {/* Bluetooth caliper pairing (hidden on browsers without Web Bluetooth) */}
+      <CaliperControl onReading={captureCaliperReading} />
 
       {/* USA Hockey rink — edge-to-edge feel on mobile */}
       <div
@@ -750,6 +784,91 @@ const KBD_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-geist-mono), monospace",
   fontSize: 11,
   lineHeight: 1.4,
+}
+
+// ── Bluetooth caliper pairing control ─────────────────────────────────────────
+
+function CaliperControl({
+  onReading,
+}: {
+  onReading: (value: number) => void
+}) {
+  const { supported, status, deviceName, error, pair, disconnect } =
+    useCaliper(onReading)
+
+  // The hook always runs; only the UI is gated. Browsers without Web Bluetooth
+  // (eg iOS Safari) simply don't see the button and keep using HID calipers.
+  if (!supported) return null
+
+  const connected = status === "connected"
+  const pairing = status === "pairing"
+
+  const label = connected
+    ? `${deviceName ?? "Caliper"} · tap to disconnect`
+    : pairing
+      ? "Pairing…"
+      : "Pair Bluetooth caliper"
+
+  const Icon = connected
+    ? BluetoothConnected
+    : pairing
+      ? BluetoothSearching
+      : Bluetooth
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <button
+        type="button"
+        onClick={connected ? disconnect : pair}
+        disabled={pairing}
+        aria-busy={pairing}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          justifyContent: "center",
+          minHeight: 40,
+          padding: "0 14px",
+          borderRadius: 8,
+          border: `1px solid ${connected ? GREEN : "var(--border)"}`,
+          background: connected ? `${GREEN}1A` : "var(--muted)",
+          color: connected ? GREEN : "var(--foreground)",
+          fontSize: 13,
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+          cursor: pairing ? "wait" : "pointer",
+        }}
+      >
+        <Icon size={16} aria-hidden />
+        {label}
+      </button>
+      {error && (
+        <p
+          style={{
+            marginTop: 4,
+            fontSize: 11,
+            color: SEVERITY_COLOR.low,
+            textAlign: "center",
+          }}
+        >
+          {error}
+        </p>
+      )}
+      {connected && (
+        <p
+          style={{
+            marginTop: 4,
+            fontSize: 11,
+            color: "var(--muted-foreground)",
+            textAlign: "center",
+          }}
+        >
+          Take a reading on the caliper to fill the current point and advance.
+        </p>
+      )}
+    </div>
+  )
 }
 
 // ── Review phase ──────────────────────────────────────────────────────────────
