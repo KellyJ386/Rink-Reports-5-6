@@ -15,6 +15,16 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { ComplianceTab } from "./_components/compliance-tab"
+import {
+  ComplianceProfilePanel,
+  type ProfileForPanel,
+} from "./_components/compliance-profile-panel"
+import {
+  parseActiveMetrics,
+  parseMethod,
+  parseMetrics,
+  parseTiers,
+} from "@/app/reports/air-quality/_lib/compliance"
 import { HistoryTab } from "./_components/history-tab"
 import { SettingsTab } from "./_components/settings-tab"
 import { SetupTab } from "./_components/setup-tab"
@@ -232,7 +242,7 @@ async function ComplianceTabLoader({
   params: { jurisdiction?: string }
 }) {
   const supabase = await createClient()
-  const [rulesRes, settingsRes] = await Promise.all([
+  const [rulesRes, settingsRes, profilesRes, configRes] = await Promise.all([
     supabase
       .from("air_quality_compliance_rules")
       .select("*")
@@ -243,6 +253,18 @@ async function ComplianceTabLoader({
     supabase
       .from("air_quality_settings")
       .select("default_jurisdiction")
+      .eq("facility_id", facilityId)
+      .maybeSingle(),
+    supabase
+      .from("air_quality_compliance_profiles")
+      .select(
+        "id, jurisdiction, display_name, method, is_binding, guidance_note, metrics, tiers",
+      )
+      .order("is_binding", { ascending: false })
+      .order("display_name", { ascending: true }),
+    supabase
+      .from("facility_air_quality_config")
+      .select("compliance_profile_id, active_metrics, threshold_overrides")
       .eq("facility_id", facilityId)
       .maybeSingle(),
   ])
@@ -257,11 +279,31 @@ async function ComplianceTabLoader({
     defaultJurisdiction:
       (settingsRes.data?.default_jurisdiction as string | null) ?? null,
   }
+
+  const profiles: ProfileForPanel[] = (profilesRes.data ?? []).map((p) => ({
+    id: p.id,
+    jurisdiction: p.jurisdiction,
+    display_name: p.display_name,
+    method: parseMethod(p.method),
+    is_binding: p.is_binding,
+    guidance_note: p.guidance_note,
+    metrics: parseMetrics(p.metrics),
+    tiers: parseTiers(p.tiers),
+  }))
+
   return (
-    <ComplianceTab
-      data={data}
-      activeJurisdiction={params.jurisdiction ?? null}
-    />
+    <div className="flex flex-col gap-6">
+      <ComplianceProfilePanel
+        profiles={profiles}
+        selectedProfileId={configRes.data?.compliance_profile_id ?? null}
+        activeMetricKeys={parseActiveMetrics(configRes.data?.active_metrics)}
+        overrides={parseTiers(configRes.data?.threshold_overrides)}
+      />
+      <ComplianceTab
+        data={data}
+        activeJurisdiction={params.jurisdiction ?? null}
+      />
+    </div>
   )
 }
 

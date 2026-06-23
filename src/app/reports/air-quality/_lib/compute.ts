@@ -5,12 +5,14 @@
 // compute.test.ts) and is re-used by the server-only `submit.ts` (which adds
 // the Supabase + notification I/O).
 
-import { emptyAirQualityFormData } from "../types"
+import { emptyAirQualityFormData, isReadingKind } from "../types"
 import type {
   AirQualityFormData,
   AirQualityFuelType,
   AirQualityMeasurement,
+  AirQualityReadingKind,
   AirQualitySeverity,
+  ComplianceSnapshot,
   SubmittedReading,
 } from "../types"
 
@@ -35,6 +37,14 @@ export type AirQualityInput = {
   notes: string | null
   readings: SubmittedReading[]
   form_data: AirQualityFormData | null
+  /** What the reading responded to (drives frequency tracking). */
+  reading_kind: AirQualityReadingKind
+  /** Operator-entered corrective steps; required server-side when over tier. */
+  corrective_action_notes: string | null
+}
+
+function readingKindOf(v: unknown): AirQualityReadingKind {
+  return typeof v === "string" && isReadingKind(v) ? v : "routine"
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +186,36 @@ export function formDataFromUnknown(parsed: unknown): AirQualityFormData | null 
   fd.section4.public_signage = s4.public_signage === true
   fd.section4.unusual_observations = jstr(s4.unusual_observations)
 
+  fd.compliance = complianceFromUnknown(src.compliance)
+
   return fd
+}
+
+function complianceFromUnknown(v: unknown): ComplianceSnapshot | null {
+  if (!v || typeof v !== "object") return null
+  const o = asObj(v)
+  const metricAlerts = Array.isArray(o.metric_alerts)
+    ? o.metric_alerts.slice(0, MAX_ROWS).flatMap((item) => {
+        const r = asObj(item)
+        const key = jstr(r.metric_key)
+        const value = jnum(r.value)
+        if (key === null || value === null) return []
+        return [
+          {
+            metric_key: key,
+            value,
+            alert_level: jstr(r.alert_level) ?? "within",
+          },
+        ]
+      })
+    : []
+  return {
+    profile_jurisdiction: jstr(o.profile_jurisdiction),
+    reading_kind: readingKindOf(o.reading_kind),
+    overall_alert_level: jstr(o.overall_alert_level) ?? "within",
+    corrective_action_notes: jstr(o.corrective_action_notes),
+    metric_alerts: metricAlerts,
+  }
 }
 
 export function parseFormData(raw: string): AirQualityFormData | null {
@@ -219,7 +258,22 @@ export function buildInputFromFormData(formData: FormData): AirQualityInput | nu
       ? parseFormData(formDataRaw)
       : null
 
-  return { location_id, equipment_id, notes, readings, form_data }
+  const reading_kind = readingKindOf(formData.get("reading_type"))
+  const correctiveRaw = formData.get("corrective_action_notes")
+  const corrective_action_notes =
+    typeof correctiveRaw === "string" && correctiveRaw.trim().length > 0
+      ? correctiveRaw.trim()
+      : null
+
+  return {
+    location_id,
+    equipment_id,
+    notes,
+    readings,
+    form_data,
+    reading_kind,
+    corrective_action_notes,
+  }
 }
 
 /**
@@ -255,7 +309,24 @@ export function buildInputFromPayload(
       ? parseFormData(payload.form_data)
       : formDataFromUnknown(payload.form_data)
 
-  return { location_id, equipment_id, notes, readings, form_data }
+  const reading_kind = readingKindOf(
+    payload.reading_kind ?? payload.reading_type,
+  )
+  const corrective_action_notes =
+    typeof payload.corrective_action_notes === "string" &&
+    payload.corrective_action_notes.trim().length > 0
+      ? payload.corrective_action_notes.trim()
+      : null
+
+  return {
+    location_id,
+    equipment_id,
+    notes,
+    readings,
+    form_data,
+    reading_kind,
+    corrective_action_notes,
+  }
 }
 
 // ---------------------------------------------------------------------------
