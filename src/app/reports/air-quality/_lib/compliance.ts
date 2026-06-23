@@ -168,6 +168,19 @@ export function parseMethod(v: string | null | undefined): MeasurementMethod {
   return v === "twa_1hr" ? "twa_1hr" : "single"
 }
 
+/** Per-tier escalation steps/contacts text, keyed by tier level. */
+export function parseEscalationConfig(
+  json: Json | null | undefined,
+): Record<string, string> {
+  const o = asObj(json)
+  const out: Record<string, string> = {}
+  for (const level of TIER_LEVELS) {
+    const v = str(o[level])
+    if (v) out[level] = v
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // Effective tiers (profile floor tightened by stricter-only overrides)
 // ---------------------------------------------------------------------------

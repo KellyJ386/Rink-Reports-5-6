@@ -21,6 +21,7 @@ import {
 } from "./_components/compliance-profile-panel"
 import {
   parseActiveMetrics,
+  parseEscalationConfig,
   parseMethod,
   parseMetrics,
   parseTiers,
@@ -264,7 +265,9 @@ async function ComplianceTabLoader({
       .order("display_name", { ascending: true }),
     supabase
       .from("facility_air_quality_config")
-      .select("compliance_profile_id, active_metrics, threshold_overrides")
+      .select(
+        "compliance_profile_id, active_metrics, threshold_overrides, escalation_config, submit_roles, view_roles",
+      )
       .eq("facility_id", facilityId)
       .maybeSingle(),
   ])
@@ -298,6 +301,9 @@ async function ComplianceTabLoader({
         selectedProfileId={configRes.data?.compliance_profile_id ?? null}
         activeMetricKeys={parseActiveMetrics(configRes.data?.active_metrics)}
         overrides={parseTiers(configRes.data?.threshold_overrides)}
+        escalationConfig={parseEscalationConfig(configRes.data?.escalation_config)}
+        submitRoles={configRes.data?.submit_roles ?? []}
+        viewRoles={configRes.data?.view_roles ?? []}
       />
       <ComplianceTab
         data={data}

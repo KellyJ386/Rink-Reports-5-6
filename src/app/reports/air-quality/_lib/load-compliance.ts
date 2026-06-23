@@ -13,6 +13,7 @@ import type { createClient } from "@/lib/supabase/server"
 import {
   effectiveTiers,
   parseActiveMetrics,
+  parseEscalationConfig,
   parseMethod,
   parseMetrics,
   parseSamplingRules,
@@ -45,6 +46,8 @@ export type ComplianceContext = {
   profileTiers: ProfileTiers
   samplingRules: SamplingRules
   escalationRules: Json
+  /** Per-tier escalation steps/contacts text from the facility config. */
+  escalation: Record<string, string>
   activeMetricKeys: string[]
   overrides: ProfileTiers
 }
@@ -57,6 +60,7 @@ const EMPTY: ComplianceContext = {
   profileTiers: {},
   samplingRules: parseSamplingRules(null),
   escalationRules: {},
+  escalation: {},
   activeMetricKeys: [],
   overrides: {},
 }
@@ -120,6 +124,7 @@ export async function loadComplianceContext(
     profileTiers,
     samplingRules: parseSamplingRules(profile.sampling_rules),
     escalationRules: config.escalation_config ?? profile.escalation_rules ?? {},
+    escalation: parseEscalationConfig(config.escalation_config),
     activeMetricKeys,
     overrides,
   }

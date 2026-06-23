@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -49,6 +50,9 @@ type Props = {
   selectedProfileId: string | null
   activeMetricKeys: string[]
   overrides: ProfileTiers
+  escalationConfig: Record<string, string>
+  submitRoles: string[]
+  viewRoles: string[]
 }
 
 const TIER_LABEL: Record<TierLevel, string> = {
@@ -62,6 +66,9 @@ export function ComplianceProfilePanel({
   selectedProfileId,
   activeMetricKeys,
   overrides,
+  escalationConfig,
+  submitRoles,
+  viewRoles,
 }: Props) {
   const [profileId, setProfileId] = useState<string>(selectedProfileId ?? "")
   const [state, action, pending] = useActionState(
@@ -205,6 +212,61 @@ export function ComplianceProfilePanel({
                       </div>
                     </div>
                   ))}
+                </div>
+              </fieldset>
+              <fieldset className="flex flex-col gap-3">
+                <legend className="text-sm font-semibold">
+                  Escalation steps
+                </legend>
+                <p className="text-muted-foreground text-xs">
+                  Shown to operators in the reading form when a reading reaches
+                  each tier. Leave blank to use the default guidance.
+                </p>
+                {TIER_LEVELS.map((tier) => (
+                  <div key={tier} className="flex flex-col gap-1">
+                    <Label htmlFor={`esc-${tier}`} className="text-xs">
+                      {TIER_LABEL[tier]}
+                    </Label>
+                    <Textarea
+                      id={`esc-${tier}`}
+                      name={`escalation_${tier}`}
+                      rows={2}
+                      defaultValue={escalationConfig[tier] ?? ""}
+                      placeholder={`Contacts / actions for ${TIER_LABEL[tier].toLowerCase()} level`}
+                    />
+                  </div>
+                ))}
+              </fieldset>
+
+              <fieldset className="flex flex-col gap-3">
+                <legend className="text-sm font-semibold">Role access</legend>
+                <p className="text-muted-foreground text-xs">
+                  Comma-separated role keys. Advisory — actual access is still
+                  governed by each user&apos;s module permissions.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="submit-roles" className="text-xs">
+                      May submit readings
+                    </Label>
+                    <Input
+                      id="submit-roles"
+                      name="submit_roles"
+                      defaultValue={submitRoles.join(", ")}
+                      placeholder="e.g. staff, supervisor"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="view-roles" className="text-xs">
+                      May view logs
+                    </Label>
+                    <Input
+                      id="view-roles"
+                      name="view_roles"
+                      defaultValue={viewRoles.join(", ")}
+                      placeholder="e.g. admin, gm"
+                    />
+                  </div>
                 </div>
               </fieldset>
             </>

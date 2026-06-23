@@ -1026,6 +1026,24 @@ export async function saveComplianceProfileConfig(
       return { ok: false, error: overrideErrors[0].message }
     }
 
+    // Per-tier escalation steps/contacts (free text). Consumed by the reading
+    // form's alert banners.
+    const escalationConfig: Record<string, string> = {}
+    for (const tier of TIER_LEVELS) {
+      const text = nonEmpty(formData.get(`escalation_${tier}`))
+      if (text) escalationConfig[tier] = text
+    }
+
+    // Optional role gates (advisory; per-user access is still governed by
+    // user_permissions). Stored as a normalized key list.
+    const parseRoles = (raw: FormDataEntryValue | null): string[] =>
+      (nonEmpty(raw) ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    const submitRoles = parseRoles(formData.get("submit_roles"))
+    const viewRoles = parseRoles(formData.get("view_roles"))
+
     const { error } = await supabase
       .from("facility_air_quality_config")
       .upsert(
@@ -1034,6 +1052,9 @@ export async function saveComplianceProfileConfig(
           compliance_profile_id: profileId,
           active_metrics: activeMetrics,
           threshold_overrides: overrides as unknown as Json,
+          escalation_config: escalationConfig as unknown as Json,
+          submit_roles: submitRoles,
+          view_roles: viewRoles,
         },
         { onConflict: "facility_id" },
       )
