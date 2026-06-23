@@ -6,6 +6,7 @@ import { GlobalHeader } from "@/components/app/global-header"
 import { PreviewBanner } from "@/components/preview-banner"
 import { Toaster } from "@/components/ui/sonner"
 import { OfflineBanner } from "@/components/offline/offline-banner"
+import { AuthStateListener } from "@/components/app/auth-state-listener"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { getHeaderContext } from "@/lib/header/context"
 import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
@@ -52,6 +53,7 @@ export default async function ReportsLayout({
         fullName={fullName}
         enabledModules={enabledModules}
       />
+      <AuthStateListener />
       <Toaster />
     </div>
   )

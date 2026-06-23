@@ -15,11 +15,11 @@
 //  - Supabase API calls: always network-only (no cache).
 // =============================================================================
 
-// CACHE_NAME bumped to v4 on the Day-5 resilience change so any client still
-// running an older SW re-evaluates and cleans its caches on activate. (Cache
-// contents are unchanged; the bump just guarantees a clean swap.)
-const CACHE_NAME = "rink-reports-v4"
-const STATIC_CACHE = "rink-reports-static-v4"
+// CACHE_NAME bumped to v5 when the /offline-schedule data-free shell gained a
+// network-first cache entry, so any client on an older SW re-evaluates and
+// cleans its caches on activate, guaranteeing a clean swap to the new strategy.
+const CACHE_NAME = "rink-reports-v5"
+const STATIC_CACHE = "rink-reports-static-v5"
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1
 const STORE_NAME = "submissions"
@@ -392,6 +392,30 @@ self.addEventListener("fetch", (event) => {
           return res
         })
       })
+    )
+    return
+  }
+
+  // Exception: the dedicated /offline-schedule shell is DATA-FREE (it renders
+  // no user data server-side; shifts come from the per-user IndexedDB cache),
+  // so it is safe to cache for offline navigation on a shared device — unlike
+  // every other authenticated page. Network-first: refresh the shell when
+  // online, fall back to the cached shell when offline.
+  if (event.request.mode === "navigate" && url.pathname === "/offline-schedule") {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          if (res && res.ok && !res.redirected) {
+            const clone = res.clone()
+            caches.open(CACHE_NAME).then((c) => c.put(event.request, clone))
+          }
+          return res
+        })
+        .catch(() =>
+          caches
+            .match(event.request, { ignoreSearch: true })
+            .then((cached) => cached || offlineFallbackResponse())
+        )
     )
     return
   }

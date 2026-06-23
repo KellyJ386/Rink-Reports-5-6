@@ -235,6 +235,12 @@ export default async function MySchedulePage({
         >
           My Schedule
         </h1>
+        <Link
+          href="/offline-schedule"
+          className="mt-2 inline-block text-xs font-semibold text-primary hover:underline"
+        >
+          Available offline →
+        </Link>
       </div>
 
       {/* View toggle — active tab uses computed GREEN color, left inline */}
