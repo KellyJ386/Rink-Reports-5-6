@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server"
 import type { AirQualityFormData } from "@/app/reports/air-quality/types"
 
 import { PrintButton } from "./print-button"
+import { SendLogButton } from "./send-log-button"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Air Quality Log | MFO / Rink Reports" }
@@ -252,6 +253,7 @@ export default async function AirQualityLogPage({
             </a>
           </Button>
           <PrintButton />
+          <SendLogButton from={from} to={to} />
         </form>
       </div>
 
