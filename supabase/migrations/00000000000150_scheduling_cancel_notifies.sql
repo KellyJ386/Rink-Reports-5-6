@@ -1,10 +1,10 @@
 -- =============================================================================
--- 00000000000148_scheduling_cancel_notifies.sql
+-- 00000000000150_scheduling_cancel_notifies.sql
 --
--- scheduling_admin_cancel_shift (migration 146) cancelled silently — unlike the
+-- scheduling_admin_cancel_shift (migration 148) cancelled silently — unlike the
 -- edit/claim/decide flows, the affected employee was never told. Re-create it
 -- (same signature) so a cancel notifies the assigned employee, matching
--- scheduling_admin_edit_published_shift (migration 147). Uses notification_type
+-- scheduling_admin_edit_published_shift (migration 149). Uses notification_type
 -- 'shift_changed' (an allowed value in the migration-15 check; 'shift_cancelled'
 -- is not, so we don't touch the constraint).
 -- =============================================================================

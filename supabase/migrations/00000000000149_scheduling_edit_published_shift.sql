@@ -1,7 +1,7 @@
 -- =============================================================================
--- 00000000000147_scheduling_edit_published_shift.sql
+-- 00000000000149_scheduling_edit_published_shift.sql
 --
--- Governed "republish" edit for a PUBLISHED shift. Migration 146 froze
+-- Governed "republish" edit for a PUBLISHED shift. Migration 148 froze
 -- published shifts at the DB boundary (direct UPDATE/DELETE from an end-user
 -- role is rejected). That left cancel as the only governed change; this adds
 -- the explicit, audited edit path the spec calls for ("edits require an
