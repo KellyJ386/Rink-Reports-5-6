@@ -2681,6 +2681,59 @@ select pg_temp.expect_error(
       now(), now() + interval '1 hour', 0, null, null, false, null)$$,
   'SCHED-149: staff CANNOT republish-edit a published shift');
 
+-- ---------------------------------------------------------------------------
+-- facility_dropdown_options (migration 153): generic per-facility picker lists.
+--   SELECT: any same-facility authenticated user; never across facilities.
+--   INSERT/UPDATE/DELETE: facility admin (is_facility_admin) only.
+--   Auto-seed: the AFTER INSERT trigger on facilities seeds the canonical
+--   'facility_timezone' set (11 zones) for every facility.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Auto-seed fired on facility creation: A has the canonical timezone set.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_dropdown_options
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and domain = 'facility_timezone'$$,
+  11, 'FDO: facility A auto-seeded 11 facility_timezone options on create');
+-- Cross-facility SELECT isolation: alice cannot see facility B's options.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_dropdown_options
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'FDO: alice CANNOT SELECT facility_dropdown_options in facility B');
+-- Staff (no facility admin) cannot write even in her own facility.
+select pg_temp.expect_error(
+  $$insert into public.facility_dropdown_options (facility_id, domain, key, display_name)
+    values ('11111111-1111-1111-1111-111111111111', 'facility_timezone', 'America/Sneaky', 'Sneaky')$$,
+  'FDO: staff alice (no admin) CANNOT INSERT a facility_dropdown_option');
+
+-- Grant alice facility-admin (admin/admin) in facility A only, then re-check.
+set local role postgres;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'admin', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.facility_dropdown_options (facility_id, domain, key, display_name)
+    values ('11111111-1111-1111-1111-111111111111', 'facility_timezone', 'Europe/London', 'London')$$,
+  'FDO: facility admin CAN INSERT a facility_dropdown_option in own facility');
+select pg_temp.expect_error(
+  $$insert into public.facility_dropdown_options (facility_id, domain, key, display_name)
+    values ('22222222-2222-2222-2222-222222222222', 'facility_timezone', 'Europe/Paris', 'Paris')$$,
+  'FDO: facility admin still CANNOT INSERT into facility B');
+-- domain CHECK rejects non-whitelisted domains (defense in depth vs the app guard).
+select pg_temp.expect_error(
+  $$insert into public.facility_dropdown_options (facility_id, domain, key, display_name)
+    values ('11111111-1111-1111-1111-111111111111', 'refrigeration_field_type', 'x', 'X')$$,
+  'FDO: domain CHECK rejects a non-whitelisted domain');
+
 reset role;
 
 -- ---------------------------------------------------------------------------

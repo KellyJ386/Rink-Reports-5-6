@@ -2600,6 +2600,56 @@ export type Database = {
           },
         ]
       }
+      facility_dropdown_options: {
+        Row: {
+          color: string | null
+          created_at: string
+          display_name: string
+          domain: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          key: string
+          metadata: Json
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          display_name: string
+          domain: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          key: string
+          metadata?: Json
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          display_name?: string
+          domain?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          metadata?: Json
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_dropdown_options_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facility_modules: {
         Row: {
           created_at: string
@@ -6708,6 +6758,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_facility_air_quality_config: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_facility_dropdown_options: {
         Args: { p_facility_id: string }
         Returns: undefined
       }

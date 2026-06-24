@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
+import { areasImportSpec, type AreaImportRow } from "./_components/areas-import"
 import { checklistImportSpec } from "./_components/checklist-import"
 import type { ActionState, SimpleResult } from "./types"
 
@@ -110,6 +111,88 @@ export async function createArea(
     if (error) return { ok: false, error: dbError(error, "Failed to create area.") }
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Area created." }
+  } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function importAreas(
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
+
+    // Re-validate every row server-side; derive + dedupe slugs.
+    const parsed: Array<AreaImportRow & { slug: string }> = []
+    const seen = new Set<string>()
+    for (const r of rows) {
+      const res = areasImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"} failed validation.`,
+        }
+      }
+      const row = res.data as AreaImportRow
+      const slug = row.slug && row.slug.length > 0 ? row.slug : slugify(row.name)
+      if (!SLUG_RE.test(slug)) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"}: could not derive a valid slug from "${row.name}".`,
+        }
+      }
+      if (seen.has(slug)) {
+        return { ok: false, error: `Duplicate slug "${slug}" in the file.` }
+      }
+      seen.add(slug)
+      parsed.push({ ...row, slug })
+    }
+
+    const supabase = await createClient()
+
+    // Append to the end of the existing order.
+    const { data: maxRow } = await supabase
+      .from("daily_report_areas")
+      .select("sort_order")
+      .eq("facility_id", facility.facilityId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const start = (maxRow?.sort_order ?? -1) + 1
+
+    const insertRows = parsed.map((row, i) => ({
+      facility_id: facility.facilityId,
+      name: row.name,
+      slug: row.slug,
+      color: row.color ?? null,
+      sort_order: start + i,
+      is_active: row.is_active,
+    }))
+
+    const { error } = await supabase
+      .from("daily_report_areas")
+      .insert(insertRows)
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "One or more slugs already exist for this facility.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to import areas.") }
+    }
+    revalidatePath("/admin/daily-reports")
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} area(s).`,
+    }
   } catch (e) {
     logServerError("admin/daily-reports/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }

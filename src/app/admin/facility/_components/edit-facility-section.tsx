@@ -9,6 +9,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+import { getFacilityDropdownOptions } from "@/app/admin/lists/_lib/facility-dropdowns"
+
 import type { FacilityRow } from "../types"
 import { FacilityForm } from "./facility-form"
 
@@ -16,8 +18,17 @@ type Props = {
   facility: FacilityRow
 }
 
-export function EditFacilitySection({ facility }: Props) {
+export async function EditFacilitySection({ facility }: Props) {
   const settingsJson = JSON.stringify(facility.settings ?? {}, null, 2)
+
+  const tzOptions = await getFacilityDropdownOptions(
+    facility.id,
+    "facility_timezone",
+  )
+  const timezoneOptions = tzOptions.map((o) => ({
+    value: o.key,
+    label: o.display_name,
+  }))
 
   return (
     <Card>
@@ -37,7 +48,11 @@ export function EditFacilitySection({ facility }: Props) {
       </CardHeader>
       <CardContent>
         <div className="grid gap-6 lg:grid-cols-2">
-          <FacilityForm mode="edit" initial={facility} />
+          <FacilityForm
+            mode="edit"
+            initial={facility}
+            timezoneOptions={timezoneOptions}
+          />
           <div className="flex flex-col gap-2">
             <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
               Settings (read only)

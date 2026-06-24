@@ -45,6 +45,14 @@ export type ActionResult<T = void> =
 
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
+/**
+ * Seed defaults + fallback for the timezone picker. The picker is now
+ * per-facility and admin-editable via facility_dropdown_options (domain
+ * `facility_timezone`, managed at /admin/lists) — these values are what the DB
+ * seed function plants, and what the facility form falls back to when a
+ * facility has no rows yet. Storage accepts any valid IANA zone, so this list
+ * is no longer the validation gate (see normalizeTimezone in actions.ts).
+ */
 export const TIMEZONE_OPTIONS: ReadonlyArray<string> = [
   "America/New_York",
   "America/Detroit",
