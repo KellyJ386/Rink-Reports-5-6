@@ -91,6 +91,21 @@ export function isOperationType(value: string): value is OperationType {
 }
 
 /**
+ * Resolve which operation types are enabled for a facility from the
+ * `ice_operations_settings.enabled_operation_types` config. Fail-open: a null,
+ * empty, or all-invalid value means every operation is enabled (prior behavior).
+ * The result preserves the canonical OPERATION_TAB_ORDER.
+ */
+export function resolveEnabledOperationTypes(
+  raw: readonly string[] | null | undefined,
+): OperationType[] {
+  const allowed = raw?.filter(isOperationType) ?? []
+  if (allowed.length === 0) return [...OPERATION_TAB_ORDER]
+  const set = new Set<OperationType>(allowed)
+  return OPERATION_TAB_ORDER.filter((op) => set.has(op))
+}
+
+/**
  * Per-op-type jsonb payload shapes. Stored on
  * `ice_operations_submissions.payload`.
  */

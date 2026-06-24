@@ -87,6 +87,8 @@ type SectionDef = {
 type Props = {
   sections: SectionDef[]
   oorAlertsEnabled: boolean
+  /** Facility cap on reading rounds per shift; null = unlimited. */
+  readingsPerShift: number | null
   userName: string
   facilityName: string
   tempF: number | null
@@ -198,6 +200,7 @@ function allFieldsOf(section: SectionDef): Array<[FieldDef, string]> {
 export function SubmissionForm({
   sections,
   oorAlertsEnabled,
+  readingsPerShift,
   userName,
   facilityName,
   tempF,
@@ -553,7 +556,10 @@ export function SubmissionForm({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="round_no">Round # (optional)</Label>
+            <Label htmlFor="round_no">
+              Round # (optional)
+              {readingsPerShift != null ? ` — of ${readingsPerShift}` : ""}
+            </Label>
             <Input
               id="round_no"
               type="text"
@@ -563,6 +569,12 @@ export function SubmissionForm({
               placeholder="e.g. 1"
               className="h-12 text-base"
             />
+            {readingsPerShift != null ? (
+              <p className="text-sm text-muted-foreground">
+                This facility logs {readingsPerShift} reading
+                {readingsPerShift === 1 ? "" : "s"} per shift.
+              </p>
+            ) : null}
           </div>
         </div>
       </Card>

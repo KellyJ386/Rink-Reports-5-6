@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import type { ReactNode } from "react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
@@ -27,8 +27,8 @@ import {
   OPERATION_EQUIPMENT_TYPE,
   OPERATION_LABELS,
   OPERATION_REQUIRES_RINK,
-  OPERATION_TAB_ORDER,
   isOperationType,
+  resolveEnabledOperationTypes,
   type EquipmentType,
   type OperationType,
 } from "../types"
@@ -48,12 +48,18 @@ type RouteParams = {
   operationType: string
 }
 
-function TabsNav({ active }: { active: OperationType }) {
+function TabsNav({
+  active,
+  enabled,
+}: {
+  active: OperationType
+  enabled: readonly OperationType[]
+}) {
   return (
     <TabNav
       ariaLabel="Ice operation"
       activeHref={`/reports/ice-operations/${active}`}
-      items={OPERATION_TAB_ORDER.map((op) => ({
+      items={enabled.map((op) => ({
         label: OPERATION_LABELS[op],
         href: `/reports/ice-operations/${op}`,
       }))}
@@ -135,6 +141,21 @@ export default async function OperationTypePage({
   }
 
   const facilityId = employeeRow.facility_id
+
+  // Per-facility operation visibility. The four operation types are code-defined,
+  // but a facility can hide the ones it doesn't use. Fail-open (null = all).
+  const { data: opSettings } = await supabase
+    .from("ice_operations_settings")
+    .select("enabled_operation_types")
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  const enabledOps = resolveEnabledOperationTypes(
+    opSettings?.enabled_operation_types,
+  )
+  if (!enabledOps.includes(operationType)) {
+    redirect(`/reports/ice-operations/${enabledOps[0]}`)
+  }
+
   const equipmentType = OPERATION_EQUIPMENT_TYPE[operationType]
 
   const [
@@ -220,7 +241,7 @@ export default async function OperationTypePage({
   const renderShellLayout = (content: ReactNode) => (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
       {shell}
-      <TabsNav active={operationType} />
+      <TabsNav active={operationType} enabled={enabledOps} />
       {content}
     </div>
   )

@@ -16,6 +16,10 @@
     {
       "path": "/api/cron/expire-scheduling",
       "schedule": "4-59/10 * * * *"
+    },
+    {
+      "path": "/api/cron/run-reminders",
+      "schedule": "3-59/5 * * * *"
     }
   ]
 }

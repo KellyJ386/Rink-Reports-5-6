@@ -27,7 +27,7 @@ import type {
   SettingsRow,
   TemperatureUnit,
 } from "../types"
-import { SEVERITIES, TEMPERATURE_UNITS } from "../types"
+import { OPERATION_TYPES, SEVERITIES, TEMPERATURE_UNITS } from "../types"
 
 const INITIAL: ActionState = { ok: null }
 
@@ -53,6 +53,12 @@ export function SettingsTab({ settings }: Props) {
   const [sev, setSev] = useState<Severity>(
     (settings?.default_alert_severity as Severity) ?? "warn",
   )
+
+  // Operation visibility — empty/null means all enabled (fail-open).
+  const configuredOps = settings?.enabled_operation_types ?? []
+  const allOpsEnabled = configuredOps.length === 0
+  const isOpChecked = (key: string) =>
+    allOpsEnabled || configuredOps.includes(key)
 
   return (
     <Card className="max-w-3xl">
@@ -117,6 +123,32 @@ export function SettingsTab({ settings }: Props) {
               Used when alerts are emitted without their own severity.
             </p>
           </div>
+
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-sm font-medium">Visible operations</legend>
+            <p className="text-muted-foreground text-xs">
+              Choose which operations staff can log at this facility. The
+              operation types themselves are built in; this only controls
+              visibility. Leaving all unchecked shows every operation.
+            </p>
+            <div className="mt-1 grid gap-2 sm:grid-cols-2">
+              {OPERATION_TYPES.map((op) => (
+                <label
+                  key={op.key}
+                  className="flex items-center gap-2 text-sm font-medium"
+                >
+                  <input
+                    type="checkbox"
+                    name="enabled_operation_types"
+                    value={op.key}
+                    defaultChecked={isOpChecked(op.key)}
+                    className="border-input size-4 rounded border"
+                  />
+                  {op.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           <div>
             <Button type="submit" disabled={pending}>

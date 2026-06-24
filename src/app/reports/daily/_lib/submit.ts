@@ -9,7 +9,11 @@ import "server-only"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
 
-import { parseItemsJson, type DailyInput } from "./compute"
+import {
+  businessDateInTimeZone,
+  parseItemsJson,
+  type DailyInput,
+} from "./compute"
 
 // Re-export the parsers the callers import from here.
 export { buildInputFromObject, buildInputFromPayload } from "./compute"
@@ -111,24 +115,72 @@ export async function persistDaily(
     return { ok: false, error: "You don't have access to submit here." }
   }
 
-  // 1. Insert the submission row.
-  const { data: submission, error: subErr } = await supabase
+  // Resolve the facility-local business date so a same-day re-submit of this
+  // area+template updates the existing report (correction) rather than
+  // duplicating it. A new local day always creates a fresh report.
+  const { data: facilityRow } = await supabase
+    .from("facilities")
+    .select("timezone")
+    .eq("id", facilityId)
+    .maybeSingle()
+  const businessDate = businessDateInTimeZone(
+    new Date(),
+    facilityRow?.timezone ?? null,
+  )
+
+  const { data: existing } = await supabase
     .from("daily_report_submissions")
-    .insert({
-      facility_id: facilityId,
-      area_id,
-      template_id,
-      employee_id: employeeId,
-      submitted_at: new Date().toISOString(),
-    })
     .select("id")
-    .single()
+    .eq("facility_id", facilityId)
+    .eq("area_id", area_id)
+    .eq("template_id", template_id)
+    .eq("business_date", businessDate)
+    .maybeSingle()
 
-  if (subErr || !submission) {
-    return { ok: false, error: dbError(subErr, "Failed to submit report.") }
+  const isCorrection = existing != null
+  const nowIso = new Date().toISOString()
+  let submissionId: string
+
+  // 1. Insert a fresh submission, or update the existing same-day one and clear
+  //    its children so this submit fully replaces them (the correction).
+  if (existing) {
+    const { error: updErr } = await supabase
+      .from("daily_report_submissions")
+      .update({ employee_id: employeeId, submitted_at: nowIso, updated_at: nowIso })
+      .eq("id", existing.id)
+      .eq("facility_id", facilityId)
+    if (updErr) {
+      return { ok: false, error: dbError(updErr, "Failed to update report.") }
+    }
+    submissionId = existing.id as string
+    await supabase
+      .from("daily_report_submission_items")
+      .delete()
+      .eq("submission_id", submissionId)
+    // Replace only the staff-authored note; preserve any admin notes.
+    await supabase
+      .from("daily_report_notes")
+      .delete()
+      .eq("submission_id", submissionId)
+      .eq("is_admin_note", false)
+  } else {
+    const { data: submission, error: subErr } = await supabase
+      .from("daily_report_submissions")
+      .insert({
+        facility_id: facilityId,
+        area_id,
+        template_id,
+        employee_id: employeeId,
+        submitted_at: nowIso,
+        business_date: businessDate,
+      })
+      .select("id")
+      .single()
+    if (subErr || !submission) {
+      return { ok: false, error: dbError(subErr, "Failed to submit report.") }
+    }
+    submissionId = submission.id as string
   }
-
-  const submissionId = submission.id as string
 
   // 2. Insert the items (batch). On failure, best-effort delete the submission
   //    to roll back — Supabase REST has no client-side transactions, so we
@@ -150,11 +202,14 @@ export async function persistDaily(
         .from("daily_report_submission_items")
         .insert(itemRows)
       if (itemErr) {
-        // Rollback: best-effort delete the submission row.
-        await supabase
-          .from("daily_report_submissions")
-          .delete()
-          .eq("id", submissionId)
+        // Rollback: best-effort delete the submission row — but only when this
+        // submit created it. For a correction we must not destroy the original.
+        if (!isCorrection) {
+          await supabase
+            .from("daily_report_submissions")
+            .delete()
+            .eq("id", submissionId)
+        }
         return {
           ok: false,
           error: dbError(itemErr, "Failed to save checklist items."),
@@ -175,17 +230,19 @@ export async function persistDaily(
         body: note,
       })
     if (noteErr) {
-      // Rollback: best-effort cascade. Items will be removed via FK on submission
-      // delete (cascade) if the schema allows; otherwise items remain. We accept
-      // this trade-off.
+      // Rollback: best-effort cascade. For a fresh submit we remove the items
+      // and the shell; for a correction we leave the (updated) shell intact and
+      // only drop this submit's items.
       await supabase
         .from("daily_report_submission_items")
         .delete()
         .eq("submission_id", submissionId)
-      await supabase
-        .from("daily_report_submissions")
-        .delete()
-        .eq("id", submissionId)
+      if (!isCorrection) {
+        await supabase
+          .from("daily_report_submissions")
+          .delete()
+          .eq("id", submissionId)
+      }
       return { ok: false, error: dbError(noteErr, "Failed to save note.") }
     }
   }

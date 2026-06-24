@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/server"
 import { ActivitiesTab } from "./_components/activities-tab"
 import { HistoryTab } from "./_components/history-tab"
 import { SeveritiesTab } from "./_components/severities-tab"
+import { TypesTab } from "./_components/types-tab"
 import type {
   ActivityRow,
   ChangeLogRow,
@@ -104,6 +105,8 @@ export default async function IncidentReportsAdminPage({
         <HistoryTabLoader facilityId={facilityId} params={params} />
       )}
 
+      {tab === "types" && <TypesTabLoader facilityId={facilityId} />}
+
       {tab === "severities" && (
         <SeveritiesTabLoader facilityId={facilityId} />
       )}
@@ -171,6 +174,18 @@ async function ActivitiesTabLoader({ facilityId }: { facilityId: string }) {
     .order("display_name", { ascending: true })
   const activities = (data ?? []) as ActivityRow[]
   return <ActivitiesTab activities={activities} />
+}
+
+async function TypesTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("incident_types")
+    .select("*")
+    .eq("facility_id", facilityId)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true })
+  const types = (data ?? []) as IncidentTypeRow[]
+  return <TypesTab types={types} />
 }
 
 async function HistoryTabLoader({

@@ -1828,6 +1828,7 @@ export type Database = {
       daily_report_submissions: {
         Row: {
           area_id: string
+          business_date: string | null
           created_at: string
           employee_id: string | null
           facility_id: string
@@ -1838,6 +1839,7 @@ export type Database = {
         }
         Insert: {
           area_id: string
+          business_date?: string | null
           created_at?: string
           employee_id?: string | null
           facility_id: string
@@ -1848,6 +1850,7 @@ export type Database = {
         }
         Update: {
           area_id?: string
+          business_date?: string | null
           created_at?: string
           employee_id?: string | null
           facility_id?: string
@@ -3580,6 +3583,7 @@ export type Database = {
           alerts_enabled: boolean
           created_at: string
           default_alert_severity: string
+          enabled_operation_types: string[] | null
           facility_id: string
           id: string
           temperature_unit: string
@@ -3589,6 +3593,7 @@ export type Database = {
           alerts_enabled?: boolean
           created_at?: string
           default_alert_severity?: string
+          enabled_operation_types?: string[] | null
           facility_id: string
           id?: string
           temperature_unit?: string
@@ -3598,6 +3603,7 @@ export type Database = {
           alerts_enabled?: boolean
           created_at?: string
           default_alert_severity?: string
+          enabled_operation_types?: string[] | null
           facility_id?: string
           id?: string
           temperature_unit?: string
@@ -4951,6 +4957,7 @@ export type Database = {
           facility_id: string
           id: string
           out_of_range_alerts_enabled: boolean
+          readings_per_shift: number | null
           updated_at: string | null
         }
         Insert: {
@@ -4959,6 +4966,7 @@ export type Database = {
           facility_id: string
           id?: string
           out_of_range_alerts_enabled?: boolean
+          readings_per_shift?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -4967,6 +4975,7 @@ export type Database = {
           facility_id?: string
           id?: string
           out_of_range_alerts_enabled?: boolean
+          readings_per_shift?: number | null
           updated_at?: string | null
         }
         Relationships: [

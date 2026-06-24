@@ -87,6 +87,24 @@ export function SettingsTab({ settings }: Props) {
               Used when a threshold is triggered without its own severity.
             </p>
           </div>
+          <div className="flex max-w-sm flex-col gap-1">
+            <Label htmlFor="readings-per-shift">Readings per shift</Label>
+            <input
+              id="readings-per-shift"
+              name="readings_per_shift"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={99}
+              defaultValue={settings?.readings_per_shift ?? ""}
+              placeholder="Unlimited"
+              className="border-input h-9 rounded-md border bg-transparent px-3 text-sm"
+            />
+            <p className="text-muted-foreground text-xs">
+              Expected reading rounds per shift. Staff round numbers are capped
+              at this value. Leave blank for unlimited.
+            </p>
+          </div>
           <div>
             <Button type="submit" disabled={pending}>
               {pending ? "Saving…" : "Save settings"}

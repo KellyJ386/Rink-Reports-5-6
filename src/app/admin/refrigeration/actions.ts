@@ -932,6 +932,18 @@ export async function updateRefrigerationSettings(
     }
     const default_alert_severity: Severity = sevRaw
 
+    // Optional cap on reading rounds per shift. Blank/absent ⇒ unlimited (null).
+    const readings_per_shift = asInt(formData.get("readings_per_shift"))
+    if (
+      readings_per_shift !== null &&
+      (readings_per_shift < 1 || readings_per_shift > 99)
+    ) {
+      return {
+        ok: false,
+        error: "Readings per shift must be between 1 and 99 (or blank for unlimited).",
+      }
+    }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from("refrigeration_settings")
@@ -940,6 +952,7 @@ export async function updateRefrigerationSettings(
           facility_id: facility.facilityId,
           out_of_range_alerts_enabled,
           default_alert_severity,
+          readings_per_shift,
         },
         { onConflict: "facility_id" },
       )

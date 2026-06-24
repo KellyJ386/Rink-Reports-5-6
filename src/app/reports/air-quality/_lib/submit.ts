@@ -20,6 +20,14 @@ import { emptyAirQualityFormData } from "../types"
 import type { ComplianceSnapshot } from "../types"
 import type { AirQualityInput } from "./compute"
 import {
+  describeHit,
+  evaluateSustained,
+  lookbackMsForSpecs,
+  parseSustainedSpecs,
+  pollutantOfReadingKey,
+  type SeriesPoint,
+} from "./sustained"
+import {
   alertLevelToSeverity,
   evaluateMetric,
   maxAlertLevel,
@@ -317,6 +325,20 @@ export async function persistAirQuality(
     }
   }
 
+  // 6b) Sustained-exceedance ("evacuation") engine. Jurisdiction rules that
+  //     can't be expressed as a single band live as {"sustained":[...]} JSON in
+  //     air_quality_compliance_rules. Evaluate the recent series at this
+  //     location (the just-inserted readings are already persisted) and, on a
+  //     trigger, emit a critical requires-ack alert. Best-effort; never rolls
+  //     back the report. No-op when no sustained rule is configured.
+  await evaluateAndAlertSustained(supabase, {
+    facilityId,
+    locationId: location.id,
+    locationName: location.name,
+    employeeId,
+    reportId,
+  })
+
   await dispatchRulesForSubmission({
     facilityId,
     sourceModule: "air_quality",
@@ -325,4 +347,75 @@ export async function persistAirQuality(
   })
 
   return { ok: true, reportId }
+}
+
+async function evaluateAndAlertSustained(
+  supabase: SupabaseClient,
+  args: {
+    facilityId: string
+    locationId: string
+    locationName: string
+    employeeId: string
+    reportId: string
+  },
+): Promise<void> {
+  const { facilityId, locationId, locationName, employeeId, reportId } = args
+
+  const { data: ruleRows } = await supabase
+    .from("air_quality_compliance_rules")
+    .select("rule_body")
+    .eq("facility_id", facilityId)
+    .eq("is_active", true)
+
+  const specs = (ruleRows ?? []).flatMap((r) =>
+    parseSustainedSpecs(r.rule_body),
+  )
+  if (specs.length === 0) return
+
+  const wantPollutants = new Set(specs.map((s) => s.pollutant))
+  const windowStart = new Date(
+    Date.now() - lookbackMsForSpecs(specs),
+  ).toISOString()
+
+  const { data: seriesRows } = await supabase
+    .from("air_quality_readings")
+    .select("value_numeric, key_snapshot, created_at, air_quality_reports!inner(location_id)")
+    .eq("facility_id", facilityId)
+    .eq("air_quality_reports.location_id", locationId)
+    .gte("created_at", windowStart)
+
+  const seriesByPollutant = new Map<string, SeriesPoint[]>()
+  for (const row of seriesRows ?? []) {
+    const pollutant = pollutantOfReadingKey(row.key_snapshot)
+    if (!wantPollutants.has(pollutant)) continue
+    const atMs = new Date(row.created_at).getTime()
+    if (Number.isNaN(atMs)) continue
+    const arr = seriesByPollutant.get(pollutant) ?? []
+    arr.push({ atMs, value: row.value_numeric })
+    seriesByPollutant.set(pollutant, arr)
+  }
+
+  const hits = evaluateSustained(specs, seriesByPollutant)
+  if (hits.length === 0) return
+
+  const { data: settingsRow } = await supabase
+    .from("air_quality_settings")
+    .select("alerts_enabled")
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  if (!settingsRow?.alerts_enabled) return
+
+  await supabase.from("communication_alerts").insert({
+    facility_id: facilityId,
+    source_module: "air_quality",
+    source_record_id: reportId,
+    severity: "critical",
+    title: `Air Quality: SUSTAINED exceedance — evacuation criteria at ${locationName}`,
+    body: [
+      "Sustained exceedance detected — follow the facility evacuation protocol:",
+      ...hits.map(describeHit),
+    ].join("\n"),
+    created_by_employee_id: employeeId,
+    requires_acknowledgement: true,
+  })
 }

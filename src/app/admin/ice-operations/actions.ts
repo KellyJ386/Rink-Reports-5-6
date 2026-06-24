@@ -23,6 +23,7 @@ import {
   CIRCLE_CHECK_BULK_CAP,
   CIRCLE_CHECK_TEMPLATE_CAP,
   isEquipmentType,
+  isOperationType,
   isSeverity,
   isTemperatureUnit,
 } from "./types"
@@ -738,6 +739,14 @@ export async function updateIceOperationsSettings(
     }
     const default_alert_severity: Severity = sevRaw
 
+    // Operation-type visibility (checkboxes). Stored as the checked subset; an
+    // empty selection is treated as "all enabled" downstream (fail-open) so an
+    // admin can't accidentally lock staff out of every operation.
+    const enabled_operation_types = formData
+      .getAll("enabled_operation_types")
+      .map(String)
+      .filter(isOperationType)
+
     const supabase = await createClient()
     const { error } = await supabase.from("ice_operations_settings").upsert(
       {
@@ -745,6 +754,7 @@ export async function updateIceOperationsSettings(
         temperature_unit,
         alerts_enabled,
         default_alert_severity,
+        enabled_operation_types,
       },
       { onConflict: "facility_id" },
     )

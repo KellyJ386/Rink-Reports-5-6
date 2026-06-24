@@ -542,6 +542,150 @@ export async function deleteIncidentActivity(id: string): Promise<SimpleResult> 
 }
 
 // ============================================================================
+// Incident types (CRUD)
+// ============================================================================
+
+export async function createIncidentType(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const slug = nonEmpty(formData.get("slug")) ?? slugify(name)
+    if (!slug) return { ok: false, error: "Could not derive a slug from the name." }
+    const color = nonEmpty(formData.get("color"))
+    const sort_order = asInt(formData.get("sort_order")) ?? 0
+
+    const supabase = await createClient()
+    const { error } = await supabase.from("incident_types").insert({
+      facility_id: facility.facilityId,
+      name,
+      slug,
+      color,
+      sort_order,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to create incident type.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, message: "Incident type created." }
+  } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function updateIncidentType(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    const id = nonEmpty(formData.get("id"))
+    if (!id) return { ok: false, error: "Missing incident type id." }
+
+    const name = nonEmpty(formData.get("name"))
+    if (!name) return { ok: false, error: "Name is required." }
+    const slug = nonEmpty(formData.get("slug")) ?? slugify(name)
+    if (!slug) return { ok: false, error: "Could not derive a slug from the name." }
+    const color = nonEmpty(formData.get("color"))
+    const sort_order = asInt(formData.get("sort_order"))
+    const is_active = formData.get("is_active") === "on"
+
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("incident_types")
+      .update({
+        name,
+        slug,
+        color,
+        ...(sort_order !== null ? { sort_order } : {}),
+        is_active,
+      })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update incident type.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true, message: "Incident type updated." }
+  } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function setIncidentTypeActive(
+  id: string,
+  is_active: boolean,
+): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing incident type id." }
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from("incident_types")
+      .update({ is_active })
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update incident type.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+export async function deleteIncidentType(id: string): Promise<SimpleResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing incident type id." }
+    const supabase = await createClient()
+
+    // incident_type_id is `on delete set null`, so a delete won't error from
+    // referenced reports — warn the admin instead and suggest deactivating.
+    const { count } = await supabase
+      .from("incident_reports")
+      .select("id", { count: "exact", head: true })
+      .eq("incident_type_id", id)
+    if ((count ?? 0) > 0) {
+      return {
+        ok: false,
+        error: `Cannot delete; in use by ${count} report${count === 1 ? "" : "s"}. Deactivate instead.`,
+      }
+    }
+
+    const { error } = await supabase
+      .from("incident_types")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to delete incident type.") }
+    }
+    revalidatePath("/admin/incident-reports")
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/incident-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+// ============================================================================
 // Seed defaults — activities
 //
 // Mirrors seedIncidentDefaults: the DB SECURITY DEFINER seeders are

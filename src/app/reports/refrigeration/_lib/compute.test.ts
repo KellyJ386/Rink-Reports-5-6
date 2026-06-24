@@ -7,9 +7,41 @@ import {
   followupKey,
   parseComputedSpec,
   validateCriticalFollowups,
+  validateRoundNo,
   type FieldConfigRow,
   type RowToInsert,
 } from "./compute"
+
+// ---------------------------------------------------------------------------
+// validateRoundNo — readings-per-shift cap enforcement
+// ---------------------------------------------------------------------------
+
+describe("validateRoundNo", () => {
+  it("accepts a null round number regardless of cap", () => {
+    expect(validateRoundNo(null, null)).toBeNull()
+    expect(validateRoundNo(null, 3)).toBeNull()
+  })
+
+  it("accepts any positive round when cap is unlimited (null)", () => {
+    expect(validateRoundNo(1, null)).toBeNull()
+    expect(validateRoundNo(50, null)).toBeNull()
+  })
+
+  it("rejects zero / negative / non-integer rounds", () => {
+    expect(validateRoundNo(0, 3)).toMatch(/positive whole number/)
+    expect(validateRoundNo(-1, 3)).toMatch(/positive whole number/)
+    expect(validateRoundNo(1.5, 3)).toMatch(/positive whole number/)
+  })
+
+  it("accepts a round at or below the cap", () => {
+    expect(validateRoundNo(1, 3)).toBeNull()
+    expect(validateRoundNo(3, 3)).toBeNull()
+  })
+
+  it("rejects a round above the cap", () => {
+    expect(validateRoundNo(4, 3)).toMatch(/cannot exceed the configured 3/)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // buildInputFromObject — payload parsing + cadence default

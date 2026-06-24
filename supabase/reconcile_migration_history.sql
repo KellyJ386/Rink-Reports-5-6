@@ -1,23 +1,48 @@
 -- =============================================================================
+-- ⚠️  SUPERSEDED — DO NOT RUN AS-IS (2026-06-24)
+--
+-- This script was authored against a view of `main` where prefixes 146–149 were
+-- free and belonged to this branch's new migrations. After merging the current
+-- `main`, those prefixes are already taken by unrelated migrations
+-- (146 air_quality_compliance_profiles, 147 facility_air_quality_config,
+--  148 scheduling_publish_lock_and_cert_override, 149 scheduling_edit_published_shift,
+--  through 154 communication_email_sending_claim). This branch's new migrations
+-- were therefore renumbered to the tail: 155 refrigeration_readings_per_shift,
+-- 156 daily_report_business_date, 157 ice_operations_enabled_types. The duplicate
+-- `…139_scheduling_expiry.sql` was restored to prefix 139 (it matches the version
+-- already applied on the live project), so the 139→148 move described below is no
+-- longer in effect.
+--
+-- The INSERT list below (001–149) NO LONGER matches the on-disk files and would
+-- CORRUPT the ledger if run. Before any future use, regenerate it from the live
+-- project: `supabase migration list --linked`, then rebuild the DELETE+INSERT to
+-- match the actual on-disk versions/names. Left in place only as an audit record
+-- of the 2026-06-22 reconcile.
+-- =============================================================================
+--
+-- =============================================================================
 -- reconcile_migration_history.sql   (ONE-TIME, run manually)
 --
 -- WHY: supabase_migrations.schema_migrations on project bqbdgwlhbhabsibjgwmk
--- accumulated THREE overlapping series:
---   1. numeric 00000000000001..086 + a stray 088 (an early `db push`),
---   2. a 20260506..20260527 timestamp series (a later re-versioned push),
---   3. a 20260531 timestamp series (the MCP apply_migration calls from the
---      scale/hardening pass).
--- The repo is the source of truth: a clean monotonic set 001..099. Every one of
+-- accumulated overlapping series — early numeric pushes, several timestamp
+-- series from `db push`, and MCP `apply_migration` calls (which assign
+-- timestamp versions). As of 2026-06-22, 15 migrations were recorded under
+-- timestamp versions instead of their numeric on-disk prefixes (123–133, the
+-- former dup-139 scheduling_expiry, 140, 146, 147).
+--
+-- The repo is the source of truth: a clean monotonic set 001..148. Every one of
 -- those migrations is ALREADY physically applied to the database; this script
 -- only repairs the BOOKKEEPING so `supabase db push` becomes a clean no-op and
 -- `supabase migration list` shows local == remote.
 --
+-- NOTE: the previously-duplicated prefix 00000000000139 was resolved by renaming
+-- 00000000000139_scheduling_expiry.sql -> 00000000000148_scheduling_expiry.sql
+-- (see docs/migration-ledger-reconcile-2026-06.md). scheduling_expiry is placed
+-- at the tail; all of 140..147 are independent of its objects, so ordering for a
+-- from-scratch `db reset` is unaffected.
+--
 -- SAFE: touches only the migration-ledger table, not application data/schema.
 -- Run it once via the Supabase SQL editor (or psql) for this project.
---
--- Equivalent CLI form: `supabase migration repair --status reverted <v>` for
--- every timestamp/stray version, then `--status applied <v>` for 087..099.
--- This single transaction does the same thing far more cheaply.
 -- =============================================================================
 
 begin;
@@ -123,6 +148,64 @@ insert into supabase_migrations.schema_migrations (version, name) values
   ('00000000000096','facility_scaling_indexes'),
   ('00000000000097','security_hardening_v3'),
   ('00000000000098','consolidate_rls_policies'),
-  ('00000000000099','drop_dead_legacy_permission_tables');
+  ('00000000000099','drop_dead_legacy_permission_tables'),
+  ('00000000000100','user_account_management'),
+  ('00000000000101','facility_spaces'),
+  ('00000000000102','incident_activities'),
+  ('00000000000103','incident_reports_redesign_columns'),
+  ('00000000000104','incident_report_children'),
+  ('00000000000105','facility_spaces_incident_admin_write'),
+  ('00000000000106','seed_daily_report_checklists'),
+  ('00000000000107','employee_job_areas'),
+  ('00000000000108','create_employee_complete_job_areas'),
+  ('00000000000109','seed_refrigeration_fields_thresholds'),
+  ('00000000000110','refrigeration_reading_cadence'),
+  ('00000000000111','refrigeration_followup_note_links'),
+  ('00000000000112','refrigeration_integrity_and_trend_indexes'),
+  ('00000000000113','refrigeration_computed_field_type'),
+  ('00000000000114','refrigeration_rls_permission_fixes'),
+  ('00000000000115','schedule_shift_job_area'),
+  ('00000000000116','job_area_cert_requirements'),
+  ('00000000000117','schedule_settings_remediation'),
+  ('00000000000118','scheduling_assignment_violations'),
+  ('00000000000119','scheduling_rls_and_grants_remediation'),
+  ('00000000000120','auto_seed_scheduling_on_facility_create'),
+  ('00000000000121','drop_employee_departments'),
+  ('00000000000122','revoke_anon_seed_and_trigger_execute'),
+  ('00000000000123','module_access_any_enabled_action'),
+  ('00000000000124','refrigeration_select_options_normalize'),
+  ('00000000000125','refrigeration_machine_hours_per_compressor'),
+  ('00000000000126','incident_arm_split_dropdowns'),
+  ('00000000000127','schedule_availability_job_area'),
+  ('00000000000128','scheduling_grid_schema_additions'),
+  ('00000000000129','schedule_settings_block_on_violations'),
+  ('00000000000130','schedule_template_shifts_nullable_department'),
+  ('00000000000131','incident_reporter_phone_optional'),
+  ('00000000000132','purge_module_data'),
+  ('00000000000133','scheduling_admin_facility_scope_fix'),
+  ('00000000000134','purge_outbox_and_sync_queue'),
+  ('00000000000135','auto_seed_daily_checklists_on_facility_create'),
+  ('00000000000136','scheduling_swap_publish_rpcs_and_rls'),
+  ('00000000000137','scheduling_facility_tz_engine_and_open_claims'),
+  ('00000000000138','ice_depth_integrity_and_purge'),
+  ('00000000000139','daily_report_rename_operational_to_daily'),
+  ('00000000000140','schedule_shifts_no_double_booking'),
+  ('00000000000141','facility_spaces_shared_admin'),
+  ('00000000000142','accidents_use_facility_spaces'),
+  ('00000000000143','air_quality_use_facility_spaces'),
+  ('00000000000144','facility_modules'),
+  ('00000000000145','incident_emergency_fields'),
+  ('00000000000155','refrigeration_readings_per_shift'),
+  ('00000000000156','daily_report_business_date'),
+  ('00000000000157','ice_operations_enabled_types');
+  -- ^ Renumbered 2026-06-24 to clear the post-main-merge prefix collisions
+  --   (146–154 belong to main's air_quality/scheduling migrations, NOT listed
+  --   above — another reason this rebuild is incomplete; see SUPERSEDED banner).
+  --
+  -- scheduling_expiry was restored to its on-disk prefix 00000000000139, which it
+  -- now SHARES with daily_report_rename_operational_to_daily (listed above). The
+  -- ledger requires a unique version per row, so this rebuild can no longer record
+  -- both at 139 — assign scheduling_expiry a unique version during the live-project
+  -- re-derivation rather than re-running this script as-is.
 
 commit;
