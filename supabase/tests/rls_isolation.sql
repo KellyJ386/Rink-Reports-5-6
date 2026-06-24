@@ -457,6 +457,15 @@ values ('bbbb2222-a9c1-bbbb-bbbb-bbbb22220076',
         'bbbb2222-a91c-bbbb-bbbb-bbbb22220071')
 on conflict (id) do nothing;
 
+-- B-side Air Quality compliance config (migration 147). The facilities insert
+-- trigger normally seeds this; insert explicitly so the cross-facility
+-- isolation assertions below have a target regardless of trigger ordering.
+insert into public.facility_air_quality_config (facility_id, compliance_profile_id)
+values ('22222222-2222-2222-2222-222222222222',
+        (select id from public.air_quality_compliance_profiles
+          where jurisdiction = 'USIRA'))
+on conflict (facility_id) do nothing;
+
 insert into public.ice_operations_submissions (id, facility_id, employee_id, operation_type)
 values ('bbbb2222-1c01-bbbb-bbbb-bbbb22220077',
         '22222222-2222-2222-2222-222222222222',
@@ -809,6 +818,26 @@ select pg_temp.expect_count(
   $$select count(*) from public.ice_depth_rinks
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'ice_depth: alice CANNOT SELECT rinks in facility B');
+
+-- Air Quality compliance config (migration 147): the per-facility profile
+-- choice + stricter overrides must scope by facility. A regression dropping the
+-- facility_id check would expose — or let a tenant rewrite — another facility's
+-- compliance posture. The global compliance profiles (migration 146) are
+-- reference data and intentionally readable by every authenticated user.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_air_quality_config
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'air_quality: alice CANNOT SELECT facility B compliance config');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_air_quality_config (facility_id)
+    values ('22222222-2222-2222-2222-222222222222')$$,
+  'air_quality: alice CANNOT INSERT a compliance config for facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.air_quality_compliance_profiles
+    where jurisdiction = 'USIRA'$$,
+  1, 'air_quality: global compliance profiles are readable cross-tenant');
 
 select pg_temp.expect_error(
   $$insert into public.ice_depth_rinks
@@ -1793,10 +1822,23 @@ select pg_temp.expect_count(
       join pg_class ft on ft.oid = c.confrelid
     where c.conname in (
             'air_quality_equipment_location_id_fkey',
-            'air_quality_thresholds_location_id_fkey',
             'air_quality_reports_location_id_fkey')
       and ft.relname = 'facility_spaces'$$,
-  3, 'AQ: equipment/thresholds/reports location FKs retargeted to facility_spaces (migration 143)');
+  2, 'AQ: equipment/reports location FKs retargeted to facility_spaces (migration 143)');
+
+-- 153: the legacy air_quality_thresholds table and the readings.threshold_id FK
+-- are retired — the compliance engine is the single source of truth.
+select pg_temp.expect_count(
+  $$select count(*)::int from pg_class
+    where relname = 'air_quality_thresholds'
+      and relnamespace = 'public'::regnamespace$$,
+  0, 'AQ: air_quality_thresholds table dropped (migration 153)');
+select pg_temp.expect_count(
+  $$select count(*)::int from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'air_quality_readings'
+      and column_name = 'threshold_id'$$,
+  0, 'AQ: air_quality_readings.threshold_id column dropped (migration 153)');
 
 -- ---------------------------------------------------------------------------
 -- REFRIG: Refrigeration hardening (migrations 110-114).
@@ -2477,6 +2519,180 @@ select pg_temp.expect_ok(
             now() + interval '30 days' + interval '18 hours',
             'published')$$,
   'SCHED-140: touching shift (ends_at == next starts_at) is allowed');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2Q. Publish-lock + cert-override audit (migration 148).
+--
+-- Publish-lock: once a shift is published it is frozen at the DB boundary —
+-- a direct UPDATE/DELETE from an end-user role ('authenticated') is rejected,
+-- while drafts stay editable and the governed SECURITY DEFINER cancel RPC
+-- still works. Cert-override: missing/expired required certs hard-block
+-- (scheduling_assignment_violations emits cert_missing:*), the override is
+-- manager-gated and audited, and the audit log is admin-read-only.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- A job area in Facility A that requires the "CPR" cert. Alice (staff) holds
+-- no CPR, so she is "missing"; Carol holds an EXPIRED CPR (treated as missing).
+insert into public.employee_job_areas (id, facility_id, name, slug)
+values ('aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+        '11111111-1111-1111-1111-111111111111', 'Zamboni', 'zamboni')
+on conflict (id) do nothing;
+insert into public.job_area_certification_requirements (facility_id, job_area_id, cert_name)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', 'CPR')
+on conflict do nothing;
+insert into public.employee_certifications (facility_id, employee_id, name, expires_at)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099', 'CPR', '2020-01-01')
+on conflict do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- Cert gate: missing (Alice) and expired (Carol) both surface cert_missing:CPR.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        now() + interval '10 days', now() + interval '10 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-148: missing required cert hard-blocks (cert_missing:CPR)');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+        now() + interval '11 days', now() + interval '11 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-148: EXPIRED required cert is treated as missing');
+
+-- Override is manager-gated and audited; the audit log is admin-read-only.
+select pg_temp.expect_ok(
+  $$select public.scheduling_log_cert_override(
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+      array['cert_missing:CPR'], null, 'covered by lead')$$,
+  'SCHED-148: facility manager CAN log a cert override');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_assignment_overrides
+     where employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and missing_certs @> array['CPR']$$,
+  1, 'SCHED-148: override writes an audit row (employee + missing cert)');
+
+-- Publish-lock: direct UPDATE / DELETE of a published shift is rejected.
+select pg_temp.expect_error(
+  $$update public.schedule_shifts set notes = 'tampered'
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
+  'SCHED-148: direct UPDATE of a published shift is rejected (publish-lock)');
+select pg_temp.expect_error(
+  $$delete from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
+  'SCHED-148: direct DELETE of a published shift is rejected (publish-lock)');
+-- A draft shift stays editable.
+select pg_temp.expect_ok(
+  $$update public.schedule_shifts set notes = 'draft edit ok'
+     where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
+  'SCHED-148: a DRAFT shift is still directly editable');
+-- The governed cancel RPC can transition a published shift.
+select pg_temp.expect_ok(
+  $$select public.scheduling_admin_cancel_shift('aaaa1111-5513-aaaa-aaaa-aaaa11110094')$$,
+  'SCHED-148: published shift can be cancelled via the governed RPC');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094' and status = 'cancelled'$$,
+  1, 'SCHED-148: governed cancel actually cancelled the published shift');
+-- Cancelling a shift notifies the affected employee (migration 150). Shift ...94
+-- was assigned to Alice; the cancel above should have queued her a notification.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+     where shift_id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094'
+       and employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and notification_type = 'shift_changed'$$,
+  1, 'SCHED-150: cancelling a shift notifies the affected employee');
+
+-- Governed republish-edit (migration 149): a manager edits a published shift
+-- through the audited RPC; the publish-lock would reject a direct write.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099', null,
+        now() + interval '1 day', now() + interval '1 day 5 hours', 0,
+        null, 'republished', false, null))->>'ok' as ok) r
+    where ok = 'true'$$,
+  1, 'SCHED-149: manager CAN republish-edit a published shift');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'
+       and notes = 'republished'
+       and published_by_employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'$$,
+  1, 'SCHED-149: republish-edit applied the change + re-stamped publish metadata');
+-- Editing a published shift into a cert-required area for someone lacking the
+-- cert hard-blocks unless overridden.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+        now() + interval '1 day', now() + interval '1 day 5 hours', 0,
+        null, 'rp', false, null))->>'error' as err) r
+    where err = 'cert_blocked'$$,
+  1, 'SCHED-149: republish-edit hard-blocks a missing/expired cert');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+        now() + interval '1 day', now() + interval '1 day 5 hours', 0,
+        null, 'rp', true, 'lead approved'))->>'ok' as ok) r
+    where ok = 'true'$$,
+  1, 'SCHED-149: manager CAN override a cert gap on republish-edit');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_assignment_overrides
+     where employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
+       and missing_certs @> array['CPR']$$,
+  1, 'SCHED-149: republish-edit cert override is audited');
+-- The edit RPC is published-only; a draft is left to the normal path.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_admin_edit_published_shift(
+        'aaaa1111-5512-aaaa-aaaa-aaaa11110093', null, null,
+        now() + interval '2 days', now() + interval '2 days 4 hours', 0,
+        null, null, false, null))->>'error' as err) r
+    where err = 'not_published'$$,
+  1, 'SCHED-149: edit RPC refuses a non-published (draft) shift');
+
+reset role;
+
+-- Staff (Alice): cannot override and cannot read the override audit log.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.scheduling_log_cert_override(
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+      array['cert_missing:CPR'], null, 'sneaky')$$,
+  'SCHED-148: staff CANNOT log a cert override (manager-gated)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_assignment_overrides$$,
+  0, 'SCHED-148: staff CANNOT read the cert-override audit log');
+select pg_temp.expect_error(
+  $$select public.scheduling_admin_edit_published_shift(
+      'aaaa1111-5511-aaaa-aaaa-aaaa11110092', null, null,
+      now(), now() + interval '1 hour', 0, null, null, false, null)$$,
+  'SCHED-149: staff CANNOT republish-edit a published shift');
 
 reset role;
 

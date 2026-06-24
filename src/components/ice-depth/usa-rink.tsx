@@ -253,31 +253,35 @@ function PointChip({
         strokeWidth={isCurrent ? 2.5 : 1.5}
       />
 
-      {/* Point number */}
-      <text
-        x={cx}
-        y={showValues && isDone && depthValue != null ? cy - 3 : cy + 4}
-        textAnchor="middle"
-        fontSize={showValues && isDone ? 8 : 11}
-        fontWeight={700}
-        fill={textFill}
-        style={{ userSelect: "none", fontFamily: "system-ui, sans-serif" }}
-      >
-        {pointNumber}
-      </text>
-
-      {/* Depth value label for sample/history mode */}
-      {showValues && isDone && depthValue != null && (
+      {/* Once measured (history / session-detail mode), the dot shows its depth
+          value instead of the point index. Unmeasured points keep their number. */}
+      {showValues && isDone && depthValue != null ? (
         <text
           x={cx}
-          y={cy + 7}
+          y={cy + 3.5}
           textAnchor="middle"
-          fontSize={7}
-          fontWeight={600}
+          fontSize={10}
+          fontWeight={700}
           fill={textFill}
-          style={{ userSelect: "none", fontFamily: "monospace" }}
+          style={{
+            userSelect: "none",
+            fontFamily: "var(--font-geist-mono), monospace",
+            fontVariantNumeric: "tabular-nums",
+          }}
         >
-          {depthValue.toFixed(1)}
+          {depthValue % 1 === 0 ? depthValue.toString() : depthValue.toFixed(1)}
+        </text>
+      ) : (
+        <text
+          x={cx}
+          y={cy + 4}
+          textAnchor="middle"
+          fontSize={11}
+          fontWeight={700}
+          fill={textFill}
+          style={{ userSelect: "none", fontFamily: "system-ui, sans-serif" }}
+        >
+          {pointNumber}
         </text>
       )}
     </g>

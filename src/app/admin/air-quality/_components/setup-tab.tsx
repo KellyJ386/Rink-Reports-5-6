@@ -19,30 +19,19 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 import {
   createEquipment,
   createReadingType,
-  createThreshold,
   deleteEquipment,
   deleteReadingType,
-  deleteThreshold,
   importReadingTypes,
   moveReadingType,
   setEquipmentActive,
   setReadingTypeActive,
-  setThresholdActive,
   updateEquipment,
   updateReadingType,
-  updateThreshold,
 } from "../actions"
 import type {
   ActionState,
@@ -51,11 +40,8 @@ import type {
   LocationRow,
   LocationWithCounts,
   ReadingTypeRow,
-  Severity,
   SetupData,
-  ThresholdRow,
 } from "../types"
-import { SEVERITIES } from "../types"
 
 import { readingTypeImportSpec } from "./reading-types-import"
 import { SeedDefaultsCard } from "./seed-defaults-card"
@@ -67,10 +53,8 @@ export function SetupTab({ data }: { data: SetupData }) {
     locations,
     facilityEquipment,
     readingTypes,
-    thresholds,
     detail,
     activeLocationId,
-    allLocations,
   } = data
 
   if (locations.length === 0 && readingTypes.length === 0) {
@@ -88,11 +72,7 @@ export function SetupTab({ data }: { data: SetupData }) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[20rem_1fr]">
       <div className="flex flex-col gap-3">
-        <ReadingTypesCard
-          readingTypes={readingTypes}
-          thresholds={thresholds}
-          locations={allLocations}
-        />
+        <ReadingTypesCard readingTypes={readingTypes} />
         <LocationsList
           locations={locations}
           activeLocationId={activeLocationId}
@@ -110,8 +90,8 @@ export function SetupTab({ data }: { data: SetupData }) {
             <CardContent>
               <p className="text-muted-foreground text-sm">
                 Select a location from the list to manage its equipment.
-                Reading types and their thresholds are managed at the top
-                left and apply across all locations.
+                Reading types are managed at the top left; threshold tiers come
+                from the Compliance tab.
               </p>
             </CardContent>
           </Card>
@@ -123,7 +103,7 @@ export function SetupTab({ data }: { data: SetupData }) {
 
 // ---------------------------------------------------------------------------
 // Locations (read-only here) — the shared list is managed at /admin/spaces.
-// This tab only picks a space to scope equipment + thresholds against.
+// This tab only picks a space to scope equipment against.
 // ---------------------------------------------------------------------------
 
 function ManageSpacesNote() {
@@ -139,7 +119,7 @@ function ManageSpacesNote() {
           <Link href="/admin/spaces" className="text-primary hover:underline">
             Facility Spaces
           </Link>
-          ; they appear here automatically for scoping equipment and thresholds.
+          ; they appear here automatically for scoping equipment.
         </p>
       </CardContent>
     </Card>
@@ -470,17 +450,13 @@ function EquipmentCreateForm({ locationId }: { locationId: string | null }) {
 }
 
 // ---------------------------------------------------------------------------
-// Reading types (facility-level) + thresholds (per reading type +/- location)
+// Reading types (facility-level). Threshold tiers live in the Compliance tab.
 // ---------------------------------------------------------------------------
 
 function ReadingTypesCard({
   readingTypes,
-  thresholds,
-  locations,
 }: {
   readingTypes: ReadingTypeRow[]
-  thresholds: ThresholdRow[]
-  locations: LocationRow[]
 }) {
   const router = useRouter()
   const importSchema = useMemo<ImportSchema>(
@@ -497,8 +473,8 @@ function ReadingTypesCard({
           <div>
             <CardTitle>Reading types ({readingTypes.length})</CardTitle>
             <p className="text-muted-foreground text-sm">
-              Reading types apply across all locations. Thresholds can be
-              facility-wide or scoped to a single location.
+              Reading types apply across all locations. Threshold tiers come
+              from the facility&apos;s compliance profile (Compliance tab).
             </p>
           </div>
           <BulkUploadPanel
@@ -516,14 +492,7 @@ function ReadingTypesCard({
         ) : (
           <ul className="flex flex-col gap-2">
             {readingTypes.map((rt) => (
-              <ReadingTypeRowItem
-                key={rt.id}
-                readingType={rt}
-                thresholds={thresholds.filter(
-                  (t) => t.reading_type_id === rt.id,
-                )}
-                locations={locations}
-              />
+              <ReadingTypeRowItem key={rt.id} readingType={rt} />
             ))}
           </ul>
         )}
@@ -612,15 +581,10 @@ function ReadingTypeCreateCard({ inline = false }: { inline?: boolean }) {
 
 function ReadingTypeRowItem({
   readingType,
-  thresholds,
-  locations,
 }: {
   readingType: ReadingTypeRow
-  thresholds: ThresholdRow[]
-  locations: LocationRow[]
 }) {
   const [editing, setEditing] = useState(false)
-  const [expanded, setExpanded] = useState(false)
   const [state, action, pending] = useActionState(
     updateReadingType,
     NULL_STATE,
@@ -673,12 +637,6 @@ function ReadingTypeRowItem({
           {!readingType.is_active && (
             <Badge variant="secondary" className="uppercase">off</Badge>
           )}
-          {thresholds.length > 0 && (
-            <Badge variant="secondary">
-              {thresholds.length} threshold
-              {thresholds.length === 1 ? "" : "s"}
-            </Badge>
-          )}
         </div>
         <div className="flex flex-wrap gap-1.5">
           <Button
@@ -698,13 +656,6 @@ function ReadingTypeRowItem({
             aria-label="Move down"
           >
             ↓
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? "Hide thresholds" : "Thresholds"}
           </Button>
           <Button
             variant="outline"
@@ -807,338 +758,6 @@ function ReadingTypeRowItem({
           </div>
         </form>
       )}
-
-      {expanded && (
-        <div className="border-t pt-3">
-          <ThresholdsBlock
-            readingType={readingType}
-            thresholds={thresholds}
-            locations={locations}
-          />
-        </div>
-      )}
     </li>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Thresholds block (collapsible under each reading type)
-// ---------------------------------------------------------------------------
-
-function severityBadgeVariant(sev: Severity): "destructive" | "warning" {
-  if (sev === "critical") return "destructive"
-  return "warning"
-}
-
-function ThresholdsBlock({
-  readingType,
-  thresholds,
-  locations,
-}: {
-  readingType: ReadingTypeRow
-  thresholds: ThresholdRow[]
-  locations: LocationRow[]
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold">
-          Thresholds ({thresholds.length})
-        </h4>
-      </div>
-      {thresholds.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No thresholds yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {thresholds.map((t) => (
-            <ThresholdRowItem
-              key={t.id}
-              threshold={t}
-              locations={locations}
-            />
-          ))}
-        </ul>
-      )}
-      <ThresholdCreateForm readingType={readingType} locations={locations} />
-    </div>
-  )
-}
-
-function fmtRange(min: number | null, max: number | null): string {
-  if (min === null && max === null) return "—"
-  if (min === null) return `≤ ${max}`
-  if (max === null) return `≥ ${min}`
-  return `${min} – ${max}`
-}
-
-function ThresholdRowItem({
-  threshold,
-  locations,
-}: {
-  threshold: ThresholdRow
-  locations: LocationRow[]
-}) {
-  const [editing, setEditing] = useState(false)
-  const [state, action, pending] = useActionState(updateThreshold, NULL_STATE)
-  const [activePending, startActive] = useTransition()
-  const [delPending, startDel] = useTransition()
-  const sev = threshold.severity as Severity
-  const [editSev, setEditSev] = useState<Severity>(sev)
-
-  useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Threshold updated.")
-    if (state.ok === false) toast.error(state.error)
-  }, [state])
-
-  function onToggleActive() {
-    startActive(async () => {
-      const r = await setThresholdActive(threshold.id, !threshold.is_active)
-      if (!r.ok) toast.error(r.error)
-    })
-  }
-  function onDelete() {
-    if (!confirm("Delete this threshold?")) return
-    startDel(async () => {
-      const r = await deleteThreshold(threshold.id)
-      if (!r.ok) toast.error(r.error)
-      else toast.success("Threshold deleted.")
-    })
-  }
-
-  const scopeName =
-    threshold.location_id === null
-      ? "All locations"
-      : (locations.find((l) => l.id === threshold.location_id)?.name ??
-        "Unknown")
-
-  return (
-    <li className="bg-background flex flex-col gap-2 rounded-md border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">{scopeName}</span>
-          <Badge variant={severityBadgeVariant(sev)} className="uppercase">
-            {sev}
-          </Badge>
-          {!threshold.is_active && (
-            <Badge variant="secondary" className="uppercase">off</Badge>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setEditing((v) => !v)}
-          >
-            {editing ? "Cancel" : "Edit"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onToggleActive}
-            disabled={activePending}
-          >
-            {threshold.is_active ? "Deactivate" : "Activate"}
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={onDelete}
-            disabled={delPending}
-          >
-            Delete
-          </Button>
-        </div>
-      </div>
-      <div className="text-muted-foreground grid grid-cols-1 gap-1 text-xs sm:grid-cols-3">
-        <span>
-          Warn: {fmtRange(threshold.warn_min, threshold.warn_max)}
-        </span>
-        <span>
-          Alert: {fmtRange(threshold.alert_min, threshold.alert_max)}
-        </span>
-        <span>
-          Compliance:{" "}
-          {fmtRange(threshold.compliance_min, threshold.compliance_max)}
-        </span>
-      </div>
-      {editing && (
-        <form action={action} className="flex flex-col gap-3 border-t pt-3">
-          <input type="hidden" name="id" value={threshold.id} />
-          <ThresholdValueInputs threshold={threshold} />
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor={`th-sev-${threshold.id}`}>Severity</Label>
-              <input type="hidden" name="severity" value={editSev} />
-              <Select
-                value={editSev}
-                onValueChange={(v) => setEditSev(v as Severity)}
-              >
-                <SelectTrigger id={`th-sev-${threshold.id}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SEVERITIES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button type="submit" size="sm" disabled={pending}>
-              {pending ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </form>
-      )}
-    </li>
-  )
-}
-
-function ThresholdValueInputs({
-  threshold,
-}: {
-  threshold: ThresholdRow | null
-}) {
-  const id = threshold?.id ?? "new"
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`th-warnmin-${id}`}>Warn min</Label>
-        <Input
-          id={`th-warnmin-${id}`}
-          name="warn_min"
-          type="number"
-          step="any"
-          defaultValue={threshold?.warn_min ?? ""}
-          className="w-full"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`th-warnmax-${id}`}>Warn max</Label>
-        <Input
-          id={`th-warnmax-${id}`}
-          name="warn_max"
-          type="number"
-          step="any"
-          defaultValue={threshold?.warn_max ?? ""}
-          className="w-full"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`th-alertmin-${id}`}>Alert min</Label>
-        <Input
-          id={`th-alertmin-${id}`}
-          name="alert_min"
-          type="number"
-          step="any"
-          defaultValue={threshold?.alert_min ?? ""}
-          className="w-full"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`th-alertmax-${id}`}>Alert max</Label>
-        <Input
-          id={`th-alertmax-${id}`}
-          name="alert_max"
-          type="number"
-          step="any"
-          defaultValue={threshold?.alert_max ?? ""}
-          className="w-full"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`th-cmin-${id}`}>Compliance min</Label>
-        <Input
-          id={`th-cmin-${id}`}
-          name="compliance_min"
-          type="number"
-          step="any"
-          defaultValue={threshold?.compliance_min ?? ""}
-          className="w-full"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`th-cmax-${id}`}>Compliance max</Label>
-        <Input
-          id={`th-cmax-${id}`}
-          name="compliance_max"
-          type="number"
-          step="any"
-          defaultValue={threshold?.compliance_max ?? ""}
-          className="w-full"
-        />
-      </div>
-    </div>
-  )
-}
-
-function ThresholdCreateForm({
-  readingType,
-  locations,
-}: {
-  readingType: ReadingTypeRow
-  locations: LocationRow[]
-}) {
-  const [state, action, pending] = useActionState(createThreshold, NULL_STATE)
-  const [locationId, setLocationId] = useState("")
-  const [severity, setSeverity] = useState<Severity>("warn")
-
-  useEffect(() => {
-    if (state.ok === true)
-      toast.success(state.message ?? "Threshold created.")
-    if (state.ok === false) toast.error(state.error)
-  }, [state])
-
-  return (
-    <form action={action} className="flex flex-col gap-3 rounded-md border p-3">
-      <input type="hidden" name="reading_type_id" value={readingType.id} />
-      <input type="hidden" name="location_id" value={locationId} />
-      <input type="hidden" name="severity" value={severity} />
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <Label htmlFor={`new-th-loc-${readingType.id}`}>Scope</Label>
-          <Select
-            value={locationId || undefined}
-            onValueChange={(v) => setLocationId(v)}
-          >
-            <SelectTrigger id={`new-th-loc-${readingType.id}`} className="min-w-40">
-              <SelectValue placeholder="All locations" />
-            </SelectTrigger>
-            <SelectContent>
-              {locations.map((l) => (
-                <SelectItem key={l.id} value={l.id}>
-                  {l.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor={`new-th-sev-${readingType.id}`}>Severity</Label>
-          <Select
-            value={severity}
-            onValueChange={(v) => setSeverity(v as Severity)}
-          >
-            <SelectTrigger id={`new-th-sev-${readingType.id}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SEVERITIES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <ThresholdValueInputs threshold={null} />
-      <div className="flex justify-end">
-        <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "Adding…" : "Add threshold"}
-        </Button>
-      </div>
-    </form>
   )
 }

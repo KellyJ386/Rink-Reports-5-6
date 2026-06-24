@@ -11,6 +11,7 @@ import {
   type FormEvent,
 } from "react"
 import { useFormStatus } from "react-dom"
+import { Bluetooth } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
@@ -443,6 +444,9 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         />
       </div>
 
+      {/* How to use a Bluetooth (HID-keyboard) caliper, eg iGaging Origin Cal */}
+      <CaliperHelp unit={settings.measurement_unit} />
+
       {/* USA Hockey rink — edge-to-edge feel on mobile */}
       <div
         className="relative w-full"
@@ -750,6 +754,82 @@ const KBD_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-geist-mono), monospace",
   fontSize: 11,
   lineHeight: 1.4,
+}
+
+// ── Bluetooth caliper help ────────────────────────────────────────────────────
+
+// Bluetooth calipers in this class (eg iGaging Absolute Origin Smart) pair as a
+// standard Bluetooth *keyboard* at the OS level — the web app can't and needn't
+// initiate pairing. Once paired, pressing the caliper's DATA button types the
+// reading followed by Enter into the focused field, which the point input
+// already captures (its onChange sanitizes the keystrokes; Enter saves and
+// advances). So this is a collapsible how-to rather than a pairing control, and
+// it's available to every submitter — no management/admin gating.
+function CaliperHelp({ unit }: { unit: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          justifyContent: "center",
+          minHeight: 40,
+          padding: "0 14px",
+          borderRadius: 8,
+          border: "1px solid var(--border)",
+          background: "var(--muted)",
+          color: "var(--foreground)",
+          fontSize: 13,
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+          cursor: "pointer",
+        }}
+      >
+        <Bluetooth size={16} aria-hidden />
+        Using a Bluetooth caliper?
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 12,
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+            background: "var(--card)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: "var(--muted-foreground)",
+          }}
+        >
+          <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
+            <li>
+              <strong style={{ color: "var(--foreground)" }}>Pair once</strong>{" "}
+              in your phone/tablet&apos;s Bluetooth settings: hold the caliper&apos;s{" "}
+              <strong>DATA</strong> button ~5s until it appears (it shows up as a
+              keyboard), then tap to connect.
+            </li>
+            <li>
+              <strong style={{ color: "var(--foreground)" }}>Capture</strong>: tap
+              a point on the rink above, then press the caliper&apos;s{" "}
+              <strong>DATA</strong> button — the depth fills in and jumps to the
+              next point. Keep pressing to walk the whole rink hands-free.
+            </li>
+            <li>
+              Set the caliper to the same unit as this form (
+              <strong style={{ color: "var(--foreground)" }}>{unit}</strong>) so
+              readings record correctly.
+            </li>
+          </ol>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Review phase ──────────────────────────────────────────────────────────────

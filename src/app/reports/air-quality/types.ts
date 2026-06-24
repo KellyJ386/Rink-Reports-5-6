@@ -4,7 +4,6 @@ import type { Tables } from "@/types/database"
 export type AirQualityLocation = Tables<"facility_spaces">
 export type AirQualityEquipment = Tables<"air_quality_equipment">
 export type AirQualityReadingType = Tables<"air_quality_reading_types">
-export type AirQualityThreshold = Tables<"air_quality_thresholds">
 export type AirQualityComplianceRule = Tables<"air_quality_compliance_rules">
 export type AirQualitySettings = Tables<"air_quality_settings">
 export type AirQualityReport = Tables<"air_quality_reports">
@@ -22,20 +21,15 @@ export type ReadingTypeForm = {
   sort_order: number
 }
 
-export type ThresholdForForm = {
+export type EquipmentForForm = {
   id: string
-  reading_type_id: string
+  name: string
+  /** Facility space this monitor lives at; null = facility-wide / handheld. */
   location_id: string | null
-  warn_min: number | null
-  warn_max: number | null
-  alert_min: number | null
-  alert_max: number | null
-  compliance_min: number | null
-  compliance_max: number | null
-  severity: AirQualitySeverity
 }
 
-export type EquipmentForForm = {
+/** A facility space offered in the location dropdown (shared facility_spaces list). */
+export type LocationOption = {
   id: string
   name: string
 }
@@ -44,6 +38,44 @@ export type ComplianceRuleForForm = {
   id: string
   rule_name: string
   rule_body: string
+}
+
+/** What the reading was taken in response to (drives frequency tracking). */
+export type AirQualityReadingKind =
+  | "routine"
+  | "post_resurfacing"
+  | "post_edging"
+
+export const READING_KIND_OPTIONS: ReadonlyArray<{
+  value: AirQualityReadingKind
+  label: string
+}> = [
+  { value: "routine", label: "Routine" },
+  { value: "post_resurfacing", label: "Post-resurfacing" },
+  { value: "post_edging", label: "Post-edging" },
+]
+
+export function isReadingKind(v: string): v is AirQualityReadingKind {
+  return (
+    v === "routine" || v === "post_resurfacing" || v === "post_edging"
+  )
+}
+
+/**
+ * Engine result persisted into air_quality_reports.form_data.compliance. Uses
+ * plain string unions (not the engine's AlertLevel) to keep types.ts free of a
+ * runtime import cycle with compliance.ts.
+ */
+export type ComplianceSnapshot = {
+  profile_jurisdiction: string | null
+  reading_kind: AirQualityReadingKind
+  overall_alert_level: string
+  corrective_action_notes: string | null
+  metric_alerts: Array<{
+    metric_key: string
+    value: number
+    alert_level: string
+  }>
 }
 
 /**
@@ -86,13 +118,6 @@ export const ELECTRIC_EQUIPMENT_OPTIONS = [
   { value: "yes", label: "Yes" },
   { value: "no", label: "No" },
   { value: "considering", label: "Considering" },
-] as const
-
-export const MEASUREMENT_LOCATION_OPTIONS = [
-  "Rink Level",
-  "Timekeeper's Box / Seating",
-  "Dressing Room",
-  "Other",
 ] as const
 
 export type AirQualityFuelType =
@@ -157,6 +182,8 @@ export type AirQualityFormData = {
     public_signage: boolean
     unusual_observations: string | null
   }
+  /** Jurisdiction-aware engine result; server-authored (recomputed on submit). */
+  compliance: ComplianceSnapshot | null
 }
 
 export function emptyMeasurement(): AirQualityMeasurement {
@@ -193,5 +220,6 @@ export function emptyAirQualityFormData(): AirQualityFormData {
       public_signage: false,
       unusual_observations: null,
     },
+    compliance: null,
   }
 }

@@ -380,6 +380,12 @@ export async function deleteShift(id: string): Promise<ActionState> {
   }
 }
 
+type AdminAssignOpenRpcResult = {
+  ok?: boolean
+  error?: string
+  violations?: string[]
+}
+
 export async function assignOpenShift(
   openShiftId: string,
   employeeId: string
@@ -390,77 +396,26 @@ export async function assignOpenShift(
     if (!openShiftId) return { ok: false, error: "Missing open shift id." }
     if (!employeeId) return { ok: false, error: "Pick an employee." }
 
+    // The open shift's parent is a PUBLISHED row, so the publish-lock rejects a
+    // direct UPDATE from this server action. Route the fill through the
+    // SECURITY DEFINER RPC, which locks the listing + shift, re-validates the
+    // assignment as a hard block, fills the still-unassigned slot, and closes
+    // out the listing — all in one transaction.
     const supabase = await createClient()
-    const { data: openRow, error: openErr } = await supabase
-      .from("schedule_open_shifts")
-      .select("id, shift_id, claim_status")
-      .eq("id", openShiftId)
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle()
-    if (openErr) {
-      return { ok: false, error: dbError(openErr, "Failed to load open shift.") }
+    const { data, error } = await supabase.rpc(
+      "scheduling_admin_assign_open_shift",
+      { p_open_shift_id: openShiftId, p_employee_id: employeeId }
+    )
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to assign shift.") }
     }
-    if (!openRow) return { ok: false, error: "Open shift not found." }
-    if (openRow.claim_status !== "open" && openRow.claim_status !== "claimed") {
-      return { ok: false, error: "Open shift is no longer available." }
-    }
-
-    // Load the parent shift so we can hard-block an ineligible assignment.
-    const { data: shiftRow, error: shiftSelErr } = await supabase
-      .from("schedule_shifts")
-      .select("id, starts_at, ends_at, break_minutes, job_area_id")
-      .eq("id", openRow.shift_id)
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle()
-    if (shiftSelErr || !shiftRow) {
-      return { ok: false, error: dbError(shiftSelErr, "Failed to load shift.") }
-    }
-
-    const gate = await assertAssignable(supabase, {
-      facilityId: ctx.facilityId,
-      employeeId,
-      startsAt: shiftRow.starts_at,
-      endsAt: shiftRow.ends_at,
-      breakMinutes: shiftRow.break_minutes,
-      jobAreaId: shiftRow.job_area_id,
-      excludeShiftId: shiftRow.id,
-    })
-    if (!gate.ok) return { ok: false, error: gate.error }
-
-    const nowIso = new Date().toISOString()
-    // Only fill a still-unassigned slot — a stale open-shift row must not
-    // clobber a shift someone else already holds (e.g. a no-approval claim
-    // that landed between page load and this click).
-    const { data: updatedShift, error: shiftErr } = await supabase
-      .from("schedule_shifts")
-      .update({ employee_id: employeeId })
-      .eq("id", openRow.shift_id)
-      .eq("facility_id", ctx.facilityId)
-      .is("employee_id", null)
-      .select("id")
-    if (shiftErr) {
-      return { ok: false, error: dbError(shiftErr, "Failed to assign shift.") }
-    }
-    if (!updatedShift || updatedShift.length === 0) {
-      return {
-        ok: false,
-        error: "That shift was already assigned to someone else.",
-      }
-    }
-
-    const { error: claimErr } = await supabase
-      .from("schedule_open_shifts")
-      .update({
-        claim_status: "filled",
-        claimed_by_employee_id: employeeId,
-        claimed_at: nowIso,
-        approved_by_employee_id: ctx.employeeId,
-        approved_at: nowIso,
-      })
-      .eq("id", openShiftId)
-      .eq("facility_id", ctx.facilityId)
-    if (claimErr) {
-      return { ok: false, error: dbError(claimErr, "Failed to close out open shift.") }
+    const result = (data ?? {}) as AdminAssignOpenRpcResult
+    if (result.ok !== true) {
+      const detail =
+        result.error === "not_assignable" && result.violations?.length
+          ? formatViolations(result.violations)
+          : (result.error ?? "Failed to assign shift.")
+      return { ok: false, error: detail }
     }
 
     revalidatePath("/admin/scheduling/shifts")
@@ -540,13 +495,18 @@ export async function cancelShift(id: string): Promise<ActionState> {
     if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing shift id." }
     const supabase = await createClient()
-    const { error } = await supabase
-      .from("schedule_shifts")
-      .update({ status: "cancelled" })
-      .eq("id", id)
-      .eq("facility_id", ctx.facilityId)
+    // Cancelling a PUBLISHED shift is a governed status transition; the
+    // publish-lock rejects a direct UPDATE, so go through the SECURITY DEFINER
+    // RPC (also works for drafts).
+    const { data, error } = await supabase.rpc("scheduling_admin_cancel_shift", {
+      p_shift_id: id,
+    })
     if (error) {
       return { ok: false, error: dbError(error, "Failed to cancel shift.") }
+    }
+    const result = (data ?? {}) as { ok?: boolean; error?: string }
+    if (result.ok !== true) {
+      return { ok: false, error: result.error ?? "Failed to cancel shift." }
     }
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")

@@ -219,8 +219,8 @@ async function fetchIceDepthRecord(
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
-    paddingBottom: 60,
+    padding: 32,
+    paddingBottom: 44,
     fontSize: 11,
     color: "#0f172a",
     fontFamily: "Helvetica",
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginBottom: 14,
+    marginBottom: 10,
   },
   summaryCell: {
     width: "33%",
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     marginTop: 2,
   },
-  section: { marginBottom: 14 },
+  section: { marginBottom: 10 },
   sectionLabel: {
     fontSize: 10,
     color: "#64748b",
@@ -417,7 +417,7 @@ function IceDepthPdf({
           </View>
         </View>
 
-        <View style={styles.section}>
+        <View style={styles.section} wrap={false}>
           <Text style={styles.sectionLabel}>
             Rink diagram ({r.total} of {r.expected_total} recorded, depth in{" "}
             {r.unit === "inches" ? "inches" : "mm"})
@@ -427,7 +427,7 @@ function IceDepthPdf({
               No measurement points configured for this layout.
             </Text>
           ) : (
-            <View style={{ alignItems: "center", marginTop: 6 }}>
+            <View style={{ alignItems: "center", marginTop: 6 }} wrap={false}>
               <PdfRinkDiagram
                 points={r.points.map((p): DiagramPoint => {
                   const { cx, cy } = rinkCoords(p.x, p.y)
@@ -440,7 +440,7 @@ function IceDepthPdf({
                 })}
                 unit={r.unit}
                 logoUrl={r.logo_url}
-                width={320}
+                width={200}
               />
               <View style={styles.legendRow}>
                 <View style={styles.legendItem}>

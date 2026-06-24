@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server"
 import type { AirQualityFormData } from "@/app/reports/air-quality/types"
 
 import { PrintButton } from "./print-button"
+import { SendLogButton } from "./send-log-button"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Air Quality Log | MFO / Rink Reports" }
@@ -93,20 +94,36 @@ export default async function AirQualityLogPage({
   const toBound = new Date(`${to}T00:00:00Z`)
   toBound.setUTCDate(toBound.getUTCDate() + 1)
 
-  const [{ data: facility }, { data: reportsRaw }] = await Promise.all([
-    supabase
-      .from("facilities")
-      .select("name, timezone")
-      .eq("id", facilityId)
-      .maybeSingle(),
-    supabase
-      .from("air_quality_reports")
-      .select("id, employee_id, equipment_id, submitted_at, form_data")
-      .eq("facility_id", facilityId)
-      .gte("submitted_at", `${from}T00:00:00Z`)
-      .lt("submitted_at", toBound.toISOString())
-      .order("submitted_at", { ascending: true }),
-  ])
+  const [{ data: facility }, { data: configRow }, { data: reportsRaw }] =
+    await Promise.all([
+      supabase
+        .from("facilities")
+        .select("name, timezone")
+        .eq("id", facilityId)
+        .maybeSingle(),
+      supabase
+        .from("facility_air_quality_config")
+        .select("compliance_profile_id")
+        .eq("facility_id", facilityId)
+        .maybeSingle(),
+      supabase
+        .from("air_quality_reports")
+        .select("id, employee_id, equipment_id, submitted_at, form_data")
+        .eq("facility_id", facilityId)
+        .gte("submitted_at", `${from}T00:00:00Z`)
+        .lt("submitted_at", toBound.toISOString())
+        .order("submitted_at", { ascending: true }),
+    ])
+
+  let jurisdiction: string | null = null
+  if (configRow?.compliance_profile_id) {
+    const { data: profile } = await supabase
+      .from("air_quality_compliance_profiles")
+      .select("display_name")
+      .eq("id", configRow.compliance_profile_id)
+      .maybeSingle()
+    jurisdiction = profile?.display_name ?? null
+  }
 
   const reports = (reportsRaw ?? []) as ReportRow[]
   const reportIds = reports.map((r) => r.id)
@@ -186,6 +203,10 @@ export default async function AirQualityLogPage({
     return parts.length > 0 ? parts.join("; ") : "—"
   }
 
+  function alertLevel(fd: AirQualityFormData | null): string {
+    return fd?.compliance?.overall_alert_level ?? "—"
+  }
+
   function readingCell(r: ReadingRow | undefined): { text: string; exceeded: boolean } {
     if (!r) return { text: "—", exceeded: false }
     const n = asNum(r.value_numeric)
@@ -222,7 +243,17 @@ export default async function AirQualityLogPage({
           <Button type="submit" variant="outline" size="sm">
             Apply
           </Button>
+          <Button asChild variant="outline" size="sm">
+            <a
+              href={`/admin/air-quality/log/pdf?from=${from}&to=${to}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Download PDF
+            </a>
+          </Button>
           <PrintButton />
+          <SendLogButton from={from} to={to} />
         </form>
       </div>
 
@@ -231,8 +262,10 @@ export default async function AirQualityLogPage({
           Air Quality Monitoring Log
         </h1>
         <p className="text-muted-foreground text-sm">
-          {facility?.name ?? "Facility"} · {dateFmt(`${from}T12:00:00Z`)} –{" "}
-          {dateFmt(`${to}T12:00:00Z`)} · CO and NO₂ in ppm
+          {facility?.name ?? "Facility"}
+          {jurisdiction ? ` · ${jurisdiction}` : ""} ·{" "}
+          {dateFmt(`${from}T12:00:00Z`)} – {dateFmt(`${to}T12:00:00Z`)} · CO and
+          NO₂ in ppm
         </p>
       </header>
 
@@ -252,6 +285,7 @@ export default async function AirQualityLogPage({
                   "# Resurfacers",
                   "CO (ppm)",
                   "NO₂ (ppm)",
+                  "Alert level",
                   "Device maintenance",
                   "Recorded by",
                 ].map((h) => (
@@ -278,6 +312,16 @@ export default async function AirQualityLogPage({
                     </td>
                     <td className={`border-b px-3 py-2 text-right tabular-nums ${no2.exceeded ? "font-semibold text-destructive" : ""}`}>
                       {no2.text}
+                    </td>
+                    <td
+                      className={`border-b px-3 py-2 ${
+                        alertLevel(r.form_data) !== "within" &&
+                        alertLevel(r.form_data) !== "—"
+                          ? "font-semibold text-destructive"
+                          : ""
+                      }`}
+                    >
+                      {alertLevel(r.form_data)}
                     </td>
                     <td className="border-b px-3 py-2">{deviceMaint(r.form_data)}</td>
                     <td className="border-b px-3 py-2 whitespace-nowrap">

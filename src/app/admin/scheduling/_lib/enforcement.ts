@@ -34,9 +34,32 @@ const VIOLATION_LABELS: Record<string, string> = {
   not_qualified: "is for a job area this employee isn't assigned to",
 }
 
+export const CERT_CODE_PREFIX = "cert_missing:"
+
+/** True for a `cert_missing:<name>` code — the always-hard-block category. */
+export function isCertCode(code: string): boolean {
+  return code.startsWith(CERT_CODE_PREFIX)
+}
+
+/**
+ * Split raw violation codes into the always-blocking cert gaps and the
+ * advisory rest (overtime, time-off, overlap, …). Per the Employee-Scheduling
+ * spec, a missing/expired required cert hard-blocks (overridable only by a
+ * facility_manager, with an audit record), while the rest are warn-and-confirm.
+ */
+export function partitionViolations(codes: string[]): {
+  cert: string[]
+  advisory: string[]
+} {
+  const cert: string[] = []
+  const advisory: string[] = []
+  for (const c of codes) (isCertCode(c) ? cert : advisory).push(c)
+  return { cert, advisory }
+}
+
 export function describeViolation(code: string): string {
-  if (code.startsWith("cert_missing:")) {
-    const cert = code.slice("cert_missing:".length)
+  if (code.startsWith(CERT_CODE_PREFIX)) {
+    const cert = code.slice(CERT_CODE_PREFIX.length)
     return `requires a certification the employee doesn't have (${cert})`
   }
   return VIOLATION_LABELS[code] ?? code

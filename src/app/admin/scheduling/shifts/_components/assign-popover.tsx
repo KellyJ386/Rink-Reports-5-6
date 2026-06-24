@@ -34,21 +34,36 @@ export type PopoverState =
       end: Date
       employeeId: string
       jobAreaId: string
+      /** True when editing a published shift — saving republishes it. */
+      published?: boolean
     }
 
 function formatRange(start: Date, end: Date): string {
   return `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`
 }
 
+export type SaveOpts = {
+  overrideCert?: boolean
+  acknowledgeWarnings?: boolean
+  overrideReason?: string | null
+}
+
 /**
  * Lightweight assign popover lifted from the previous react-big-calendar grid so
  * the new week board keeps the exact create/edit/assign + advisory-warning flow.
  * No Dialog primitive — a small centered overlay stays touch-friendly.
+ *
+ * Two gate states change the footer:
+ *  - cert gap (certWarnings): the assignment is HARD-blocked. A facility
+ *    manager can record an override (optional reason) and assign anyway.
+ *  - advisory warnings (hour-cap, overtime, …): blocked by facility policy
+ *    when `warningsBlocking`, otherwise allowed after an explicit confirm.
  */
 export function AssignPopover({
   state,
   error,
-  warnings,
+  certWarnings,
+  advisoryWarnings,
   warningsBlocking,
   warningsLoading,
   employees,
@@ -62,21 +77,26 @@ export function AssignPopover({
 }: {
   state: PopoverState
   error: string | null
-  warnings: string[]
+  certWarnings: string[]
+  advisoryWarnings: string[]
   warningsBlocking: boolean
   warningsLoading: boolean
   employees: EmployeeLite[]
   jobAreas: JobAreaLite[]
   pending: boolean
   onChange: (next: PopoverState) => void
-  onSave: () => void
+  onSave: (opts?: SaveOpts) => void
   onDelete: () => void
   onSaveTemplate: (name: string) => void
   onClose: () => void
 }) {
-  const saveBlocked = warningsBlocking && warnings.length > 0
+  const certBlocked = certWarnings.length > 0
+  const advisoryBlockedByPolicy = warningsBlocking && advisoryWarnings.length > 0
+  const needsConfirm =
+    !certBlocked && !advisoryBlockedByPolicy && advisoryWarnings.length > 0
   const [templateMode, setTemplateMode] = useState(false)
   const [templateName, setTemplateName] = useState("")
+  const [overrideReason, setOverrideReason] = useState("")
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -96,6 +116,12 @@ export function AssignPopover({
             {format(state.start, "EEE, MMM d")} ·{" "}
             {formatRange(state.start, state.end)}
           </p>
+          {state.mode === "edit" && state.published ? (
+            <p className="mt-1 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+              This shift is published — saving republishes it and notifies
+              affected staff.
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-3">
@@ -145,24 +171,54 @@ export function AssignPopover({
           <p className="mt-3 text-xs text-muted-foreground">
             Checking for conflicts…
           </p>
-        ) : warnings.length > 0 ? (
+        ) : null}
+
+        {!warningsLoading && certBlocked ? (
+          <div
+            className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+            role="alert"
+          >
+            <p className="mb-1 font-medium text-destructive">
+              Blocked — missing required certification:
+            </p>
+            <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
+              {certWarnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+            <label className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+              Override reason (optional — recorded in the audit log)
+              <Input
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                placeholder="e.g. cert renewal in progress, covered by lead"
+                className="h-9"
+              />
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Only a facility manager can override, and every override is logged.
+            </p>
+          </div>
+        ) : null}
+
+        {!warningsLoading && advisoryWarnings.length > 0 ? (
           <div
             className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
             role="status"
           >
             <p className="mb-1 font-medium text-foreground">
-              {saveBlocked
+              {advisoryBlockedByPolicy
                 ? "Blocked by facility policy:"
                 : "Heads up — this assignment:"}
             </p>
             <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
-              {warnings.map((w, i) => (
+              {advisoryWarnings.map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
             </ul>
-            {!saveBlocked ? (
+            {!advisoryBlockedByPolicy ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Advisory only — you can still save.
+                Advisory — confirm below to save anyway.
               </p>
             ) : null}
           </div>
@@ -255,9 +311,36 @@ export function AssignPopover({
             >
               Cancel
             </Button>
-            <Button type="button" disabled={pending || saveBlocked} onClick={onSave}>
-              {pending ? "Saving…" : "Save"}
-            </Button>
+            {certBlocked ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending}
+                onClick={() =>
+                  onSave({
+                    overrideCert: true,
+                    acknowledgeWarnings: true,
+                    overrideReason: overrideReason.trim() || null,
+                  })
+                }
+              >
+                {pending ? "Saving…" : "Override & assign"}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                disabled={pending || advisoryBlockedByPolicy}
+                onClick={() =>
+                  onSave(needsConfirm ? { acknowledgeWarnings: true } : undefined)
+                }
+              >
+                {pending
+                  ? "Saving…"
+                  : needsConfirm
+                    ? "Confirm & save"
+                    : "Save"}
+              </Button>
+            )}
           </div>
         </div>
       </div>

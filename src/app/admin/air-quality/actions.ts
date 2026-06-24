@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import type { Json } from "@/types/database"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
@@ -15,11 +16,12 @@ import {
 import type { ActionState, Severity, SimpleResult } from "./types"
 import { isSeverity } from "./types"
 import {
-  REGULATORY_CEILINGS,
-  validateThreshold,
-  type RegulatoryCeiling,
-  type ThresholdInputs,
-} from "./_lib/thresholds"
+  TIER_LEVELS,
+  parseMetrics,
+  parseTiers,
+  validateOverrides,
+  type ProfileTiers,
+} from "@/app/reports/air-quality/_lib/compliance"
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
@@ -590,199 +592,6 @@ export async function moveReadingType(
 }
 
 // ============================================================================
-// Thresholds
-// ============================================================================
-
-function readThresholdInputs(formData: FormData): ThresholdInputs {
-  return {
-    warn_min: asNumber(formData.get("warn_min")),
-    warn_max: asNumber(formData.get("warn_max")),
-    alert_min: asNumber(formData.get("alert_min")),
-    alert_max: asNumber(formData.get("alert_max")),
-    compliance_min: asNumber(formData.get("compliance_min")),
-    compliance_max: asNumber(formData.get("compliance_max")),
-  }
-}
-
-async function regulatoryCeilingForReadingType(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  facilityId: string,
-  readingTypeId: string,
-): Promise<RegulatoryCeiling | null> {
-  const { data } = await supabase
-    .from("air_quality_reading_types")
-    .select("key")
-    .eq("id", readingTypeId)
-    .eq("facility_id", facilityId)
-    .maybeSingle()
-  if (!data?.key) return null
-  return REGULATORY_CEILINGS[data.key] ?? null
-}
-
-export async function createThreshold(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-
-    const reading_type_id = nonEmpty(formData.get("reading_type_id"))
-    if (!reading_type_id)
-      return { ok: false, error: "Reading type is required." }
-    const location_id = nonEmpty(formData.get("location_id"))
-
-    const supabase = await createClient()
-    const inputs = readThresholdInputs(formData)
-    const ceiling = await regulatoryCeilingForReadingType(
-      supabase,
-      facility.facilityId,
-      reading_type_id,
-    )
-    const err = validateThreshold(inputs, ceiling)
-    if (err) return { ok: false, error: err }
-
-    const sevRaw = nonEmpty(formData.get("severity")) ?? "warn"
-    if (!isSeverity(sevRaw)) {
-      return { ok: false, error: "Invalid severity." }
-    }
-    const severity: Severity = sevRaw
-
-    const { error } = await supabase.from("air_quality_thresholds").insert({
-      facility_id: facility.facilityId,
-      reading_type_id,
-      location_id: location_id ?? null,
-      severity,
-      ...inputs,
-    })
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to create threshold.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true, message: "Threshold created." }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function updateThreshold(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    const id = nonEmpty(formData.get("id"))
-    if (!id) return { ok: false, error: "Missing threshold id." }
-
-    const supabase = await createClient()
-    const { data: existing } = await supabase
-      .from("air_quality_thresholds")
-      .select("reading_type_id")
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-      .maybeSingle()
-    if (!existing) return { ok: false, error: "Threshold not found." }
-
-    const inputs = readThresholdInputs(formData)
-    const ceiling = await regulatoryCeilingForReadingType(
-      supabase,
-      facility.facilityId,
-      existing.reading_type_id,
-    )
-    const err = validateThreshold(inputs, ceiling)
-    if (err) return { ok: false, error: err }
-
-    const sevRaw = nonEmpty(formData.get("severity")) ?? "warn"
-    if (!isSeverity(sevRaw)) {
-      return { ok: false, error: "Invalid severity." }
-    }
-    const severity: Severity = sevRaw
-
-    const { error } = await supabase
-      .from("air_quality_thresholds")
-      .update({
-        severity,
-        ...inputs,
-      })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update threshold.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true, message: "Threshold updated." }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function setThresholdActive(
-  id: string,
-  is_active: boolean,
-): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing threshold id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("air_quality_thresholds")
-      .update({ is_active })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update threshold.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function deleteThreshold(id: string): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing threshold id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("air_quality_thresholds")
-      .delete()
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to delete threshold.") }
-    }
-    revalidatePath("/admin/air-quality")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/air-quality/actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-// ============================================================================
 // Compliance rules
 // ============================================================================
 
@@ -946,6 +755,126 @@ export async function deleteComplianceRule(id: string): Promise<SimpleResult> {
 }
 
 // ============================================================================
+// Compliance profile config (jurisdiction-aware engine; migrations 146/147)
+// ============================================================================
+
+export async function saveComplianceProfileConfig(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const supabase = await createClient()
+    const profileId = nonEmpty(formData.get("compliance_profile_id"))
+
+    // No profile selected → clear the facility's selection.
+    if (!profileId) {
+      const { error } = await supabase
+        .from("facility_air_quality_config")
+        .upsert(
+          {
+            facility_id: facility.facilityId,
+            compliance_profile_id: null,
+          },
+          { onConflict: "facility_id" },
+        )
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to save config.") }
+      }
+      revalidatePath("/admin/air-quality")
+      return { ok: true, message: "Compliance profile cleared." }
+    }
+
+    // Load the chosen profile to validate metrics + overrides against it.
+    const { data: profile, error: profErr } = await supabase
+      .from("air_quality_compliance_profiles")
+      .select("id, metrics, tiers")
+      .eq("id", profileId)
+      .maybeSingle()
+    if (profErr) {
+      return { ok: false, error: dbError(profErr, "Failed to load profile.") }
+    }
+    if (!profile) return { ok: false, error: "Selected profile not found." }
+
+    const profileMetrics = parseMetrics(profile.metrics)
+    const profileTiers = parseTiers(profile.tiers)
+    const profileMetricKeys = new Set(profileMetrics.map((m) => m.key))
+
+    // Active metrics: only keys that exist on the profile.
+    const activeMetrics = formData
+      .getAll("active_metrics")
+      .filter((v): v is string => typeof v === "string")
+      .filter((k) => profileMetricKeys.has(k))
+    if (activeMetrics.length === 0) {
+      return { ok: false, error: "Select at least one metric to track." }
+    }
+
+    // Stricter-only overrides: read override_<metric>_<tier> numeric ceilings.
+    const overrides: ProfileTiers = {}
+    for (const metric of profileMetrics) {
+      for (const tier of TIER_LEVELS) {
+        const raw = asNumber(formData.get(`override_${metric.key}_${tier}`))
+        if (raw === null) continue
+        overrides[metric.key] = overrides[metric.key] ?? {}
+        overrides[metric.key][tier] = { max: raw, consecutive: null }
+      }
+    }
+    const overrideErrors = validateOverrides(profileTiers, overrides)
+    if (overrideErrors.length > 0) {
+      return { ok: false, error: overrideErrors[0].message }
+    }
+
+    // Per-tier escalation steps/contacts (free text). Consumed by the reading
+    // form's alert banners.
+    const escalationConfig: Record<string, string> = {}
+    for (const tier of TIER_LEVELS) {
+      const text = nonEmpty(formData.get(`escalation_${tier}`))
+      if (text) escalationConfig[tier] = text
+    }
+
+    // Optional role gates (advisory; per-user access is still governed by
+    // user_permissions). Stored as a normalized key list.
+    const parseRoles = (raw: FormDataEntryValue | null): string[] =>
+      (nonEmpty(raw) ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    const submitRoles = parseRoles(formData.get("submit_roles"))
+    const viewRoles = parseRoles(formData.get("view_roles"))
+
+    const { error } = await supabase
+      .from("facility_air_quality_config")
+      .upsert(
+        {
+          facility_id: facility.facilityId,
+          compliance_profile_id: profileId,
+          active_metrics: activeMetrics,
+          threshold_overrides: overrides as unknown as Json,
+          escalation_config: escalationConfig as unknown as Json,
+          submit_roles: submitRoles,
+          view_roles: viewRoles,
+        },
+        { onConflict: "facility_id" },
+      )
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to save config.") }
+    }
+    revalidatePath("/admin/air-quality")
+    revalidatePath("/reports/air-quality")
+    return { ok: true, message: "Compliance profile saved." }
+  } catch (e) {
+    logServerError("admin/air-quality/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+// ============================================================================
 // Reports + follow-up notes (append-only per RLS)
 // ============================================================================
 
@@ -1093,11 +1022,10 @@ export async function updateAirQualitySettings(
 // indexes on thresholds, plus settings is upserted on facility_id.
 // ============================================================================
 
-// MN/NY-style ice-rink defaults. The severity engine treats `alert_max` as the
-// exceedance (evacuation) cutoff and snapshots `compliance_max` as the
-// acceptable ceiling; `warn_max` drives the live "correction zone" badge on the
-// form (acceptable < value <= alert_max). CO is whole-ppm (decimals 0); NO2 is
-// reported to one decimal. CO2 is retained as an optional building-air metric.
+// Canonical ice-rink reading types. Threshold tiers are no longer seeded here —
+// evaluation comes from the facility's compliance profile (migrations 146/147).
+// CO is whole-ppm (decimals 0); NO2 is reported to one decimal. CO2 is retained
+// as an optional building-air metric.
 const DEFAULT_READING_TYPES: ReadonlyArray<{
   key: string
   label: string
@@ -1105,12 +1033,6 @@ const DEFAULT_READING_TYPES: ReadonlyArray<{
   decimals: number
   is_required: boolean
   sort_order: number
-  threshold: {
-    warn_max: number | null
-    alert_max: number
-    compliance_max: number
-    severity: Severity
-  }
 }> = [
   {
     key: "co_ppm",
@@ -1119,12 +1041,6 @@ const DEFAULT_READING_TYPES: ReadonlyArray<{
     decimals: 0,
     is_required: true,
     sort_order: 1,
-    threshold: {
-      warn_max: 20,
-      alert_max: 83,
-      compliance_max: 20,
-      severity: "critical",
-    },
   },
   {
     key: "no2_ppm",
@@ -1133,12 +1049,6 @@ const DEFAULT_READING_TYPES: ReadonlyArray<{
     decimals: 1,
     is_required: true,
     sort_order: 2,
-    threshold: {
-      warn_max: 0.3,
-      alert_max: 2.0,
-      compliance_max: 0.3,
-      severity: "critical",
-    },
   },
   {
     key: "co2_ppm",
@@ -1147,12 +1057,6 @@ const DEFAULT_READING_TYPES: ReadonlyArray<{
     decimals: 0,
     is_required: false,
     sort_order: 3,
-    threshold: {
-      warn_max: 1000,
-      alert_max: 5000,
-      compliance_max: 1000,
-      severity: "warn",
-    },
   },
 ]
 
@@ -1232,62 +1136,7 @@ export async function seedDefaultAirQualityConfig(): Promise<SimpleResult> {
       }
     }
 
-    // 2) Re-fetch reading types so we have IDs for thresholds.
-    const { data: existingRts, error: rtFetchErr } = await supabase
-      .from("air_quality_reading_types")
-      .select("id, key")
-      .eq("facility_id", facility.facilityId)
-    if (rtFetchErr) {
-      return {
-        ok: false,
-        error: dbError(rtFetchErr, "Failed to read reading types."),
-      }
-    }
-    const rtByKey = new Map(
-      (existingRts ?? []).map((r) => [r.key, r.id as string]),
-    )
-
-    // 3) Thresholds — only insert if a default (location_id IS NULL, active)
-    // doesn't already exist for that reading type.
-    for (const rt of DEFAULT_READING_TYPES) {
-      const readingTypeId = rtByKey.get(rt.key)
-      if (!readingTypeId) continue
-      const { data: existing, error: exErr } = await supabase
-        .from("air_quality_thresholds")
-        .select("id")
-        .eq("facility_id", facility.facilityId)
-        .eq("reading_type_id", readingTypeId)
-        .is("location_id", null)
-        .eq("is_active", true)
-        .maybeSingle()
-      if (exErr) {
-        return {
-          ok: false,
-          error: dbError(exErr, "Failed to check thresholds."),
-        }
-      }
-      if (existing) continue
-      const { error: thErr } = await supabase
-        .from("air_quality_thresholds")
-        .insert({
-          facility_id: facility.facilityId,
-          reading_type_id: readingTypeId,
-          location_id: null,
-          warn_max: rt.threshold.warn_max,
-          alert_max: rt.threshold.alert_max,
-          compliance_max: rt.threshold.compliance_max,
-          severity: rt.threshold.severity,
-          is_active: true,
-        })
-      if (thErr) {
-        return {
-          ok: false,
-          error: dbError(thErr, "Failed to seed thresholds."),
-        }
-      }
-    }
-
-    // 4) Settings — upsert one row.
+    // 2) Settings — upsert one row.
     const { error: setErr } = await supabase.from("air_quality_settings").upsert(
       {
         facility_id: facility.facilityId,
