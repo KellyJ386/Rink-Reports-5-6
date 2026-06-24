@@ -1,32 +1,9 @@
 import type { Metadata, Viewport } from "next"
-import { Anton, Geist, Geist_Mono, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { PostHogProvider } from "@/components/app/posthog-provider"
 import { PwaInstallPrompt } from "@/components/app/pwa-install-prompt"
 import { SwRegister } from "@/components/app/sw-register"
 import { Toaster } from "@/components/ui/sonner"
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-})
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-})
-
-const anton = Anton({
-  variable: "--font-anton",
-  weight: "400",
-  subsets: ["latin"],
-})
-
-// Data / times font — exposed as --font-mono (see globals.css font roles).
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-})
 
 export const metadata: Metadata = {
   title: "MFO / Rink Reports",
@@ -58,7 +35,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${anton.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <head>
