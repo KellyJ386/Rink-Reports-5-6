@@ -4,6 +4,15 @@
 **Scope:** Full application — security/auth, database/RLS, frontend/UX, offline/PWA, integrations, ops/CI/CD, code quality
 **Baseline verified on this branch:** `pnpm lint` ✅ clean · `pnpm test` ✅ 115/115 passing · `pnpm build` ✅ clean production build
 
+> **Status update — 2026-06-24:** This document is a historical baseline, not
+> a current defect list. Since the review, the branch has added broader RLS
+> fixtures for submission, scheduling, communication, and notification data;
+> post-deploy smoke checks; generated database-type freshness checks in the RLS
+> workflow; and a larger unit suite. The current local baseline is
+> `pnpm lint` ✅ clean · `pnpm test` ✅ 340/340 passing ·
+> `pnpm exec tsc --noEmit` ✅ clean. The main CI workflow now also runs tests
+> and the cron schedule guard before merge.
+
 ---
 
 ## Executive summary

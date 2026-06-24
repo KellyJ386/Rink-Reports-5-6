@@ -4,8 +4,8 @@ name: CI
 # only CI was the SQL/migration workflows, so a type error or a broken build
 # could merge to main unnoticed — Vercel would be the first thing to fail, and
 # only after merge. This runs the same three checks a developer runs locally
-# (`pnpm lint`, `tsc --noEmit`, `pnpm build`) on every PR and every push to
-# main.
+# (`pnpm lint`, `pnpm test`, `tsc --noEmit`, `pnpm build`, and
+# `pnpm check:cron`) on every PR and every push to main.
 #
 # Note on env: `next build` evaluates the Supabase clients (src/lib/supabase/*),
 # which read NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY from the
@@ -58,8 +58,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Test
+        run: pnpm test
+
       - name: Typecheck
         run: npx tsc --noEmit
 
       - name: Build
         run: pnpm build
+
+      - name: Verify cron routes match vercel.json schedule
+        run: pnpm check:cron
