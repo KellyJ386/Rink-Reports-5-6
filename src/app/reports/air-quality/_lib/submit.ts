@@ -1,9 +1,15 @@
 // Server-only air-quality submission pipeline used by BOTH the online server
 // action (`../actions.ts`) and the offline replay endpoint (`/api/offline-sync`).
-// Pure parsing + the threshold/severity engine live in `compute.ts`
-// (unit-tested); this module adds the Supabase + notification I/O so an offline
-// submission lands the same rows, with the same severity engine, as an online
-// one.
+// Pure parsing lives in `compute.ts` and the jurisdiction engine in
+// `compliance.ts` (both unit-tested); this module adds the Supabase +
+// notification I/O so an offline submission lands the same rows, evaluated by
+// the same engine, as an online one.
+//
+// The jurisdiction compliance engine is the SINGLE source of truth for
+// evaluation (the legacy per-facility air_quality_thresholds table was retired).
+// Every facility is auto-seeded a compliance profile, so a reading that maps to
+// an active metric is always evaluated against the facility's effective
+// (override-tightened) tiers.
 
 import "server-only"
 
@@ -11,17 +17,8 @@ import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
 
 import { emptyAirQualityFormData } from "../types"
-import type { AirQualitySeverity, ComplianceSnapshot } from "../types"
-import {
-  buildAlertLines,
-  evaluateReading,
-  lookupThreshold,
-  maxSeverityOf,
-  SEVERITY_RANK,
-  type AirQualityInput,
-  type ExceedanceDetail,
-  type ThresholdRow,
-} from "./compute"
+import type { ComplianceSnapshot } from "../types"
+import type { AirQualityInput } from "./compute"
 import {
   alertLevelToSeverity,
   evaluateMetric,
@@ -43,16 +40,6 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
-/** The more severe of two severities (null = none). */
-function higherSeverity(
-  a: AirQualitySeverity | null,
-  b: AirQualitySeverity | null,
-): AirQualitySeverity | null {
-  if (!a) return b
-  if (!b) return a
-  return SEVERITY_RANK[a] >= SEVERITY_RANK[b] ? a : b
-}
-
 export type PersistResult =
   | { ok: true; reportId: string }
   | { ok: false; error: string }
@@ -65,8 +52,9 @@ export type PersistResult =
  * Persist a validated air-quality submission. The caller is responsible for
  * authentication, resolving the active employee, and the `submit` permission
  * check; this function does the facility-scoped data validation, the inserts,
- * and the severity engine. On any insert failure after the report shell lands,
- * the shell is deleted so the submission can be retried cleanly.
+ * and the jurisdiction-engine evaluation. On any insert failure after the
+ * report shell lands, the shell is deleted so the submission can be retried
+ * cleanly.
  */
 export async function persistAirQuality(
   supabase: SupabaseClient,
@@ -149,17 +137,17 @@ export async function persistAirQuality(
     }
   }
 
-  // Jurisdiction-aware engine: evaluate the active-metric readings against the
-  // facility's effective (override-tightened) tiers. This runs identically for
-  // online and offline replays, and is the authoritative source for the
-  // persisted compliance snapshot + the corrective-note gate.
+  // Jurisdiction engine: evaluate each active-metric reading against the
+  // facility's effective (override-tightened) tiers. This is the authoritative
+  // evaluation for both online and offline replays.
   const ctx = await loadComplianceContext(supabase, facilityId)
-  let overallAlert: AlertLevel = "within"
-  let complianceSnapshot: ComplianceSnapshot | null = null
+
+  type ReadingEval = { level: AlertLevel; complianceMax: number | null }
+  const evalByReadingType = new Map<string, ReadingEval>()
+  const metricAlerts: ComplianceSnapshot["metric_alerts"] = []
+  const levels: AlertLevel[] = []
 
   if (ctx.profile) {
-    const metricAlerts: ComplianceSnapshot["metric_alerts"] = []
-    const levels: AlertLevel[] = []
     for (const metric of ctx.metrics) {
       const rt = readingTypes.find(
         (r) => r.key === metric.key || r.key.startsWith(`${metric.key}_`),
@@ -167,35 +155,39 @@ export async function persistAirQuality(
       if (!rt) continue
       const value = submittedByType.get(rt.id)
       if (typeof value !== "number") continue
-      const level = evaluateMetric(value, ctx.effectiveTiers[metric.key] ?? {})
-      levels.push(level)
-      metricAlerts.push({
-        metric_key: metric.key,
-        value,
-        alert_level: level,
+      const tiers = ctx.effectiveTiers[metric.key] ?? {}
+      const level = evaluateMetric(value, tiers)
+      evalByReadingType.set(rt.id, {
+        level,
+        complianceMax: tiers.corrective?.max ?? null,
       })
-    }
-    overallAlert = maxAlertLevel(levels)
-
-    // Corrective-action note required before an over-threshold reading saves.
-    if (overallAlert !== "within" && !input.corrective_action_notes) {
-      return {
-        ok: false,
-        error:
-          "This reading is over the corrective-action threshold. Add a corrective-action note before submitting.",
-      }
-    }
-
-    complianceSnapshot = {
-      profile_jurisdiction: ctx.profile.jurisdiction,
-      reading_kind: input.reading_kind,
-      overall_alert_level: overallAlert,
-      corrective_action_notes: input.corrective_action_notes,
-      metric_alerts: metricAlerts,
+      levels.push(level)
+      metricAlerts.push({ metric_key: metric.key, value, alert_level: level })
     }
   }
 
-  // Persist the snapshot inside the existing form_data jsonb (no schema churn).
+  const overallAlert: AlertLevel = maxAlertLevel(levels)
+
+  // Corrective-action note required before an over-threshold reading saves.
+  if (overallAlert !== "within" && !input.corrective_action_notes) {
+    return {
+      ok: false,
+      error:
+        "This reading is over the corrective-action threshold. Add a corrective-action note before submitting.",
+    }
+  }
+
+  const complianceSnapshot: ComplianceSnapshot | null = ctx.profile
+    ? {
+        profile_jurisdiction: ctx.profile.jurisdiction,
+        reading_kind: input.reading_kind,
+        overall_alert_level: overallAlert,
+        corrective_action_notes: input.corrective_action_notes,
+        metric_alerts: metricAlerts,
+      }
+    : null
+
+  // Persist the snapshot inside the existing form_data jsonb.
   const formDataToStore = complianceSnapshot
     ? { ...(form_data ?? emptyAirQualityFormData()), compliance: complianceSnapshot }
     : form_data
@@ -226,26 +218,7 @@ export async function persistAirQuality(
 
   const reportId = insertedReport.id
 
-  // 2) Pull all active thresholds for this facility for matching.
-  const { data: thresholdsRaw, error: thresholdErr } = await supabase
-    .from("air_quality_thresholds")
-    .select(
-      "id, reading_type_id, location_id, alert_min, alert_max, compliance_min, compliance_max, severity",
-    )
-    .eq("facility_id", facilityId)
-    .eq("is_active", true)
-
-  if (thresholdErr) {
-    await supabase.from("air_quality_reports").delete().eq("id", reportId)
-    return {
-      ok: false,
-      error: dbError(thresholdErr, "Failed to load thresholds."),
-    }
-  }
-
-  const thresholds = (thresholdsRaw ?? []) as ThresholdRow[]
-
-  // 3) Build reading rows.
+  // 2) Build reading rows, stamping the engine's per-reading verdict.
   type RowToInsert = {
     facility_id: string
     report_id: string
@@ -254,42 +227,21 @@ export async function persistAirQuality(
     label_snapshot: string
     unit_snapshot: string
     value_numeric: number
-    threshold_id: string | null
     is_exceedance: boolean
     severity_at_submit: string | null
     compliance_min_at_submit: number | null
     compliance_max_at_submit: number | null
   }
 
-  const rowsToInsert: RowToInsert[] = []
-  const exceedanceDetails: ExceedanceDetail[] = []
-
   const rtById = new Map(readingTypes.map((rt) => [rt.id, rt]))
+  const rowsToInsert: RowToInsert[] = []
 
   for (const r of readings) {
     const rt = rtById.get(r.reading_type_id)
     if (!rt) continue
-    const t = lookupThreshold(thresholds, r.reading_type_id, location.id)
-
-    let isExceedance = false
-    let severity: AirQualitySeverity | null = null
-
-    if (t) {
-      const evaluated = evaluateReading(r.value, t)
-      isExceedance = evaluated.isExceedance
-      severity = evaluated.severity
-      if (isExceedance && severity) {
-        exceedanceDetails.push({
-          label: rt.label,
-          value: r.value,
-          unit: rt.unit,
-          alert_min: t.alert_min,
-          alert_max: t.alert_max,
-          severity,
-        })
-      }
-    }
-
+    const evaluated = evalByReadingType.get(rt.id)
+    const level = evaluated?.level ?? "within"
+    const severity = alertLevelToSeverity(level)
     rowsToInsert.push({
       facility_id: facilityId,
       report_id: reportId,
@@ -298,15 +250,14 @@ export async function persistAirQuality(
       label_snapshot: rt.label,
       unit_snapshot: rt.unit,
       value_numeric: r.value,
-      threshold_id: t?.id ?? null,
-      is_exceedance: isExceedance,
+      is_exceedance: level !== "within",
       severity_at_submit: severity,
-      compliance_min_at_submit: t?.compliance_min ?? null,
-      compliance_max_at_submit: t?.compliance_max ?? null,
+      compliance_min_at_submit: null,
+      compliance_max_at_submit: evaluated?.complianceMax ?? null,
     })
   }
 
-  // 4) Batch insert readings.
+  // 3) Batch insert readings.
   if (rowsToInsert.length > 0) {
     const { error: readingsErr } = await supabase
       .from("air_quality_readings")
@@ -320,13 +271,9 @@ export async function persistAirQuality(
     }
   }
 
-  // 5) Compute rollup and update report. The report's severity is the higher
-  // of the legacy threshold engine and the jurisdiction engine, so an
-  // exceedance fires even when only one of them trips.
-  const legacySeverity = maxSeverityOf(exceedanceDetails.map((d) => d.severity))
-  const engineSeverity = alertLevelToSeverity(overallAlert)
-  const maxSeverity = higherSeverity(legacySeverity, engineSeverity)
-  const hasExceedance = exceedanceDetails.length > 0 || overallAlert !== "within"
+  // 4) Roll up onto the report from the engine result.
+  const maxSeverity = alertLevelToSeverity(overallAlert)
+  const hasExceedance = overallAlert !== "within"
 
   const { error: updateErr } = await supabase
     .from("air_quality_reports")
@@ -344,7 +291,7 @@ export async function persistAirQuality(
     }
   }
 
-  // 6) Optional alert.
+  // 5) Optional alert.
   if (hasExceedance && maxSeverity) {
     const { data: settingsRow } = await supabase
       .from("air_quality_settings")
@@ -353,26 +300,16 @@ export async function persistAirQuality(
       .maybeSingle()
 
     if (settingsRow?.alerts_enabled) {
-      // Prefer the legacy per-reading lines; fall back to the jurisdiction
-      // engine's metric alerts when only it tripped.
-      const lines =
-        exceedanceDetails.length > 0
-          ? buildAlertLines(exceedanceDetails)
-          : (complianceSnapshot?.metric_alerts ?? [])
-              .filter((m) => m.alert_level !== "within")
-              .map(
-                (m) =>
-                  `${m.metric_key.toUpperCase()}: ${m.value} (${m.alert_level})`,
-              )
-      const levelLabel =
-        overallAlert !== "within" ? ` [${overallAlert}]` : ""
+      const lines = metricAlerts
+        .filter((m) => m.alert_level !== "within")
+        .map((m) => `${m.metric_key.toUpperCase()}: ${m.value} (${m.alert_level})`)
       // Best-effort. Failure does not roll back the report.
       await supabase.from("communication_alerts").insert({
         facility_id: facilityId,
         source_module: "air_quality",
         source_record_id: reportId,
         severity: maxSeverity,
-        title: `Air Quality: exceedance at ${location.name}${levelLabel}`,
+        title: `Air Quality: exceedance at ${location.name} [${overallAlert}]`,
         body: lines.join("\n"),
         created_by_employee_id: employeeId,
         requires_acknowledgement: true,

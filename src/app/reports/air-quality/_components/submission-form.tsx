@@ -52,7 +52,6 @@ import {
   type LocationOption,
   type ReadingTypeForm,
   type SubmittedReading,
-  type ThresholdForForm,
 } from "../types"
 import {
   computeTwa,
@@ -69,7 +68,6 @@ type Props = {
   locations: LocationOption[]
   readingTypes: ReadingTypeForm[]
   equipment: EquipmentForForm[]
-  thresholds: ThresholdForForm[]
   complianceRules: ComplianceRuleForForm[]
   compliance: FormComplianceContext | null
   frequency: FrequencyStatus | null
@@ -84,52 +82,15 @@ function genLocalId(): string {
   return `aq-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-type RangeBadge = "ok" | "warn" | "alert" | "none"
-
 function stepFromDecimals(decimals: number): string {
   if (decimals <= 0) return "1"
   return `0.${"0".repeat(decimals - 1)}1`
-}
-
-function pickThreshold(
-  thresholds: ThresholdForForm[],
-  readingTypeId: string,
-  locationId: string
-): ThresholdForForm | null {
-  const locMatch = thresholds.find(
-    (t) => t.reading_type_id === readingTypeId && t.location_id === locationId
-  )
-  if (locMatch) return locMatch
-  const fallback = thresholds.find(
-    (t) => t.reading_type_id === readingTypeId && t.location_id === null
-  )
-  return fallback ?? null
-}
-
-function evaluateBadge(
-  value: number,
-  threshold: ThresholdForForm | null
-): RangeBadge {
-  if (!threshold) return "none"
-  // Alert wins.
-  const alertHit =
-    (threshold.alert_min !== null && value < threshold.alert_min) ||
-    (threshold.alert_max !== null && value >= threshold.alert_max)
-  if (alertHit) return "alert"
-  // Warn next.
-  const warnHit =
-    (threshold.warn_min !== null && value < threshold.warn_min) ||
-    (threshold.warn_max !== null && value > threshold.warn_max)
-  if (warnHit) return "warn"
-  // We have a threshold and no warn/alert hit. Treat as within range.
-  return "ok"
 }
 
 export function SubmissionForm({
   locations,
   readingTypes,
   equipment,
-  thresholds,
   complianceRules,
   compliance,
   frequency,
@@ -507,15 +468,6 @@ export function SubmissionForm({
                 text.trim() !== "" && Number.isFinite(Number(text))
                   ? Number(text)
                   : null
-              const matchedThreshold = pickThreshold(
-                thresholds,
-                rt.id,
-                locationId
-              )
-              const badge =
-                parsedNum !== null
-                  ? evaluateBadge(parsedNum, matchedThreshold)
-                  : "none"
               const inputId = `aq-rt-${rt.id}`
               const metric = metricByReadingType.get(rt.id)
               const metricTiers =
@@ -563,8 +515,6 @@ export function SubmissionForm({
                         <AlertLevelBadge level={cLevel} />
                       ) : null}
                     </div>
-                  ) : badge !== "none" ? (
-                    <RangeBadgePill badge={badge} />
                   ) : null}
                 </div>
               )
@@ -1335,12 +1285,6 @@ function isCalibrationStale(date: string | null): boolean {
   const t = Date.parse(date)
   if (Number.isNaN(t)) return false
   return Date.now() - t > 365 * 24 * 60 * 60 * 1000
-}
-
-function RangeBadgePill({ badge }: { badge: Exclude<RangeBadge, "none"> }) {
-  if (badge === "ok") return <Badge variant="success">Within range</Badge>
-  if (badge === "warn") return <Badge variant="warning">Warn</Badge>
-  return <Badge variant="error">Alert</Badge>
 }
 
 const TIER_LABEL: Record<TierLevel, string> = {

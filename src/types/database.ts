@@ -750,7 +750,6 @@ export type Database = {
           reading_type_id: string | null
           report_id: string
           severity_at_submit: string | null
-          threshold_id: string | null
           unit_snapshot: string
           value_numeric: number
         }
@@ -766,7 +765,6 @@ export type Database = {
           reading_type_id?: string | null
           report_id: string
           severity_at_submit?: string | null
-          threshold_id?: string | null
           unit_snapshot: string
           value_numeric: number
         }
@@ -782,7 +780,6 @@ export type Database = {
           reading_type_id?: string | null
           report_id?: string
           severity_at_submit?: string | null
-          threshold_id?: string | null
           unit_snapshot?: string
           value_numeric?: number
         }
@@ -806,13 +803,6 @@ export type Database = {
             columns: ["report_id"]
             isOneToOne: false
             referencedRelation: "air_quality_reports"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "air_quality_readings_threshold_id_fkey"
-            columns: ["threshold_id"]
-            isOneToOne: false
-            referencedRelation: "air_quality_thresholds"
             referencedColumns: ["id"]
           },
         ]
@@ -928,79 +918,6 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: true
             referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      air_quality_thresholds: {
-        Row: {
-          alert_max: number | null
-          alert_min: number | null
-          compliance_max: number | null
-          compliance_min: number | null
-          created_at: string
-          facility_id: string
-          id: string
-          is_active: boolean
-          location_id: string | null
-          reading_type_id: string
-          severity: string
-          updated_at: string | null
-          warn_max: number | null
-          warn_min: number | null
-        }
-        Insert: {
-          alert_max?: number | null
-          alert_min?: number | null
-          compliance_max?: number | null
-          compliance_min?: number | null
-          created_at?: string
-          facility_id: string
-          id?: string
-          is_active?: boolean
-          location_id?: string | null
-          reading_type_id: string
-          severity?: string
-          updated_at?: string | null
-          warn_max?: number | null
-          warn_min?: number | null
-        }
-        Update: {
-          alert_max?: number | null
-          alert_min?: number | null
-          compliance_max?: number | null
-          compliance_min?: number | null
-          created_at?: string
-          facility_id?: string
-          id?: string
-          is_active?: boolean
-          location_id?: string | null
-          reading_type_id?: string
-          severity?: string
-          updated_at?: string | null
-          warn_max?: number | null
-          warn_min?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "air_quality_thresholds_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "air_quality_thresholds_location_id_fkey"
-            columns: ["location_id"]
-            isOneToOne: false
-            referencedRelation: "facility_spaces"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "air_quality_thresholds_reading_type_id_fkey"
-            columns: ["reading_type_id"]
-            isOneToOne: false
-            referencedRelation: "air_quality_reading_types"
             referencedColumns: ["id"]
           },
         ]

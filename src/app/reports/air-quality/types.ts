@@ -4,7 +4,6 @@ import type { Tables } from "@/types/database"
 export type AirQualityLocation = Tables<"facility_spaces">
 export type AirQualityEquipment = Tables<"air_quality_equipment">
 export type AirQualityReadingType = Tables<"air_quality_reading_types">
-export type AirQualityThreshold = Tables<"air_quality_thresholds">
 export type AirQualityComplianceRule = Tables<"air_quality_compliance_rules">
 export type AirQualitySettings = Tables<"air_quality_settings">
 export type AirQualityReport = Tables<"air_quality_reports">
@@ -20,19 +19,6 @@ export type ReadingTypeForm = {
   decimals: number
   is_required: boolean
   sort_order: number
-}
-
-export type ThresholdForForm = {
-  id: string
-  reading_type_id: string
-  location_id: string | null
-  warn_min: number | null
-  warn_max: number | null
-  alert_min: number | null
-  alert_max: number | null
-  compliance_min: number | null
-  compliance_max: number | null
-  severity: AirQualitySeverity
 }
 
 export type EquipmentForForm = {

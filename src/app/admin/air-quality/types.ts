@@ -8,7 +8,6 @@ import type { Tables } from "@/types/database"
 export type LocationRow = Tables<"facility_spaces">
 export type EquipmentRow = Tables<"air_quality_equipment">
 export type ReadingTypeRow = Tables<"air_quality_reading_types">
-export type ThresholdRow = Tables<"air_quality_thresholds">
 export type ComplianceRuleRow = Tables<"air_quality_compliance_rules">
 export type ReportRow = Tables<"air_quality_reports">
 export type ReadingRow = Tables<"air_quality_readings">
@@ -57,10 +56,8 @@ export type SetupData = {
   locations: LocationWithCounts[]
   facilityEquipment: EquipmentRow[]
   readingTypes: ReadingTypeRow[]
-  thresholds: ThresholdRow[]
   detail: LocationDetail | null
   activeLocationId: string | null
-  allLocations: LocationRow[]
 }
 
 // ---- Compliance tab composite ----
