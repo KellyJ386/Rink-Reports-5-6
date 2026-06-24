@@ -1,4 +1,26 @@
 -- =============================================================================
+-- ⚠️  SUPERSEDED — DO NOT RUN AS-IS (2026-06-24)
+--
+-- This script was authored against a view of `main` where prefixes 146–149 were
+-- free and belonged to this branch's new migrations. After merging the current
+-- `main`, those prefixes are already taken by unrelated migrations
+-- (146 air_quality_compliance_profiles, 147 facility_air_quality_config,
+--  148 scheduling_publish_lock_and_cert_override, 149 scheduling_edit_published_shift,
+--  through 154 communication_email_sending_claim). This branch's new migrations
+-- were therefore renumbered to the tail: 155 refrigeration_readings_per_shift,
+-- 156 daily_report_business_date, 157 ice_operations_enabled_types. The duplicate
+-- `…139_scheduling_expiry.sql` was restored to prefix 139 (it matches the version
+-- already applied on the live project), so the 139→148 move described below is no
+-- longer in effect.
+--
+-- The INSERT list below (001–149) NO LONGER matches the on-disk files and would
+-- CORRUPT the ledger if run. Before any future use, regenerate it from the live
+-- project: `supabase migration list --linked`, then rebuild the DELETE+INSERT to
+-- match the actual on-disk versions/names. Left in place only as an audit record
+-- of the 2026-06-22 reconcile.
+-- =============================================================================
+--
+-- =============================================================================
 -- reconcile_migration_history.sql   (ONE-TIME, run manually)
 --
 -- WHY: supabase_migrations.schema_migrations on project bqbdgwlhbhabsibjgwmk

@@ -1,6 +1,22 @@
 # Migration-ledger reconcile — plan (2026-06-22)
 
-**Status: ✅ EXECUTED 2026-06-22.** The duplicate `…139_scheduling_expiry.sql`
+> **⚠️ SUPERSEDED 2026-06-24.** This plan assumed prefixes 146–149 belonged to
+> this branch's new migrations. After merging the current `main`, those prefixes
+> are already taken (146 `air_quality_compliance_profiles` … 154
+> `communication_email_sending_claim`). To clear the prefix collisions, this
+> branch's new migrations were renumbered to the tail —
+> `155_refrigeration_readings_per_shift`, `156_daily_report_business_date`,
+> `157_ice_operations_enabled_types` — and `…148_scheduling_expiry.sql` was
+> restored to `…139_scheduling_expiry.sql` (it matches the version already applied
+> on the live project, so it is not re-applied on deploy). The 139→148 move below
+> is therefore reverted. **`supabase/reconcile_migration_history.sql` must NOT be
+> run as-is** — its 001–148 INSERT list no longer matches the on-disk files. The
+> live-project ledger reconciliation (the 146/147/148 timestamp→numeric folding
+> recorded below) conflicts with the merged `main` and must be re-derived from
+> `supabase migration list --linked` by a human with live-project access before
+> any future ledger rebuild.
+
+**Status (original): ✅ EXECUTED 2026-06-22.** The duplicate `…139_scheduling_expiry.sql`
 was renamed to `…148_scheduling_expiry.sql`, `supabase/reconcile_migration_history.sql`
 was rebuilt for the full 001–148 set, and the rebuild was run against the live
 project. Verified: ledger = 148 numeric rows (0 timestamp versions),
