@@ -8,7 +8,7 @@ import type { Tables } from "@/types/database"
 export type FacilityDropdownOptionRow = Tables<"facility_dropdown_options">
 
 // Whitelisted domains. MUST stay in sync with the `domain` CHECK in
-// migration 00000000000153. Only add a domain whose new values actually
+// migration 00000000000155. Only add a domain whose new values actually
 // function end-to-end — code-bound enums do NOT belong here.
 export const DOMAINS = ["facility_timezone"] as const
 export type DropdownDomain = (typeof DOMAINS)[number]

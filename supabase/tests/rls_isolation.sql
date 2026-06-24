@@ -2682,7 +2682,7 @@ select pg_temp.expect_error(
   'SCHED-149: staff CANNOT republish-edit a published shift');
 
 -- ---------------------------------------------------------------------------
--- facility_dropdown_options (migration 153): generic per-facility picker lists.
+-- facility_dropdown_options (migration 155): generic per-facility picker lists.
 --   SELECT: any same-facility authenticated user; never across facilities.
 --   INSERT/UPDATE/DELETE: facility admin (is_facility_admin) only.
 --   Auto-seed: the AFTER INSERT trigger on facilities seeds the canonical
