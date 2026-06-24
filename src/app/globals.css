@@ -44,11 +44,19 @@
   --rr-yellow:       #FFD600;
   --rr-red:          #F42A2A;
 
-  /* Font roles. Anton = display/dates, JetBrains Mono = data/times. The
-     --font-* sources are injected on <html> by next/font (layout.tsx). */
-  --font-display: var(--font-anton), Anton, Impact, "Arial Narrow", sans-serif;
-  --font-mono:    var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
-                  SFMono-Regular, Menlo, monospace;
+  /* Font roles. Use local/system stacks so `next build` never depends on
+     Google Fonts network fetches. Display/data components keep using the same
+     --font-* API that next/font previously injected on <html>. */
+  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                     "Segoe UI", sans-serif;
+  --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                     "Liberation Mono", "Courier New", monospace;
+  --font-anton: Impact, "Arial Black", "Arial Narrow", sans-serif;
+  --font-jetbrains-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                         "Liberation Mono", "Courier New", monospace;
+  --font-display: var(--font-anton, Impact, "Arial Narrow", sans-serif);
+  --font-mono:    var(--font-jetbrains-mono, ui-monospace, SFMono-Regular,
+                  Menlo, monospace);
 
   /* ─────────── Green ramp (★ anchor = 500) ─────────── */
   --green-50:  #F2FBE4;
@@ -528,10 +536,10 @@
   --color-rr-yellow: var(--rr-yellow);
   --color-rr-red: var(--rr-red);
 
-  /* Font utilities — font-display (Anton) and font-mono (JetBrains Mono). */
-  --font-display: var(--font-anton), Anton, Impact, "Arial Narrow", sans-serif;
-  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
-               SFMono-Regular, Menlo, monospace;
+  /* Font utilities — display and data/tabular text. */
+  --font-display: var(--font-anton, Impact, "Arial Narrow", sans-serif);
+  --font-mono: var(--font-jetbrains-mono, ui-monospace, SFMono-Regular, Menlo,
+               monospace);
 
   /* Elevation scale — capped at the design rule's max blur on light
      (0 1px 3px rgba(0,0,0,.05)); deeper alpha on dark (set below). */
