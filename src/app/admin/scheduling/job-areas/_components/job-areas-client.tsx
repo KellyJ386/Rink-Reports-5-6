@@ -1,10 +1,14 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { ChevronDown, ChevronUp, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  BulkUploadPanel,
+  type ImportSchema,
+} from "@/components/admin/bulk-upload"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -16,11 +20,14 @@ import {
   addJobAreaCertRequirement,
   createJobArea,
   deleteJobArea,
+  importJobAreas,
   moveJobArea,
   removeJobAreaCertRequirement,
   renameJobArea,
   setJobAreaActive,
 } from "../actions"
+
+import { jobAreasImportSpec } from "./job-areas-import"
 
 export type JobAreaRow = {
   id: string
@@ -49,6 +56,14 @@ export function JobAreasClient({
   const router = useRouter()
   const [newName, setNewName] = useState("")
   const [pending, startTransition] = useTransition()
+
+  const importSchema = useMemo<ImportSchema>(
+    () => ({
+      ...jobAreasImportSpec,
+      onImport: (rows) => importJobAreas(facilityId, rows),
+    }),
+    [facilityId],
+  )
 
   const reqByArea = new Map<string, CertRequirementRow[]>()
   for (const r of initialRequirements) {
@@ -128,9 +143,16 @@ export function JobAreasClient({
               }}
             />
           </div>
-          <Button type="button" onClick={handleCreate} disabled={pending || !newName.trim()}>
-            <Plus className="size-4" /> Add area
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" onClick={handleCreate} disabled={pending || !newName.trim()}>
+              <Plus className="size-4" /> Add area
+            </Button>
+            <BulkUploadPanel
+              schema={importSchema}
+              triggerLabel="Bulk upload"
+              onImported={() => router.refresh()}
+            />
+          </div>
         </CardContent>
       </Card>
 

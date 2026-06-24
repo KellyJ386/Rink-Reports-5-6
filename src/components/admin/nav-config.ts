@@ -10,6 +10,7 @@ import {
   FileText,
   FolderOpen,
   LayoutGrid,
+  ListChecks,
   MapPin,
   MessageSquare,
   Network,
@@ -91,6 +92,7 @@ export const adminNavGroups: AdminNavGroup[] = [
   {
     label: "System",
     items: [
+      { label: "Lists", href: "/admin/lists", icon: ListChecks },
       {
         label: "PDF/Export Settings",
         href: "/admin/exports",

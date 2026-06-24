@@ -5,10 +5,11 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { isValidTimezone } from "@/app/admin/lists/types"
+
 import {
   DEFAULT_TIMEZONE,
   SLUG_PATTERN,
-  TIMEZONE_OPTIONS,
   type ActionResult,
   type FacilityFieldName,
   type FacilityFormInput,
@@ -80,11 +81,12 @@ function normalizeSlug(input: string): string {
 }
 
 function normalizeTimezone(input: string): string {
-  const tz = input.trim() || DEFAULT_TIMEZONE
-  if (!TIMEZONE_OPTIONS.includes(tz)) {
-    return DEFAULT_TIMEZONE
-  }
-  return tz
+  const tz = input.trim()
+  if (!tz) return DEFAULT_TIMEZONE
+  // The picker is now a per-facility, admin-editable convenience list
+  // (/admin/lists). Accept any valid IANA zone the runtime recognizes rather
+  // than restricting to a hardcoded set; fall back to the default otherwise.
+  return isValidTimezone(tz) ? tz : DEFAULT_TIMEZONE
 }
 
 async function requireSuperAdmin(): Promise<

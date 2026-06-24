@@ -26,10 +26,18 @@ import {
 
 type Mode = "create" | "edit"
 
+export type TimezoneOption = { value: string; label: string }
+
 type Props = {
   mode: Mode
   initial?: FacilityRow
   onClose?: () => void
+  /**
+   * Per-facility timezone options from facility_dropdown_options (managed at
+   * /admin/lists). When omitted (e.g. the create-facility dialog, before a
+   * facility exists), the hardcoded TIMEZONE_OPTIONS are used as the fallback.
+   */
+  timezoneOptions?: TimezoneOption[]
 }
 
 function suggestSlug(name: string): string {
@@ -41,9 +49,28 @@ function suggestSlug(name: string): string {
     .replace(/-+/g, "-")
 }
 
-export function FacilityForm({ mode, initial, onClose }: Props) {
+export function FacilityForm({
+  mode,
+  initial,
+  onClose,
+  timezoneOptions,
+}: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
+
+  // Prefer the per-facility DB list; fall back to the hardcoded constant. The
+  // current value is always unioned in so an existing (or custom) zone still
+  // renders even if it isn't in the active list.
+  const baseTimezones: TimezoneOption[] =
+    timezoneOptions && timezoneOptions.length > 0
+      ? timezoneOptions
+      : TIMEZONE_OPTIONS.map((tz) => ({ value: tz, label: tz }))
+  const currentTz = initial?.timezone ?? DEFAULT_TIMEZONE
+  const timezoneChoices: TimezoneOption[] = baseTimezones.some(
+    (t) => t.value === currentTz,
+  )
+    ? baseTimezones
+    : [{ value: currentTz, label: currentTz }, ...baseTimezones]
 
   const [name, setName] = useState(initial?.name ?? "")
   const [slug, setSlug] = useState(initial?.slug ?? "")
@@ -219,9 +246,9 @@ export function FacilityForm({ mode, initial, onClose }: Props) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {TIMEZONE_OPTIONS.map((tz) => (
-              <SelectItem key={tz} value={tz}>
-                {tz}
+            {timezoneChoices.map((tz) => (
+              <SelectItem key={tz.value} value={tz.value}>
+                {tz.label}
               </SelectItem>
             ))}
           </SelectContent>

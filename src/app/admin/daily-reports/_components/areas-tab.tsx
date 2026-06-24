@@ -1,15 +1,21 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import {
+  BulkUploadPanel,
+  type ImportSchema,
+} from "@/components/admin/bulk-upload"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
-import { deleteArea, reorderArea, setAreaActive } from "../actions"
+import { deleteArea, importAreas, reorderArea, setAreaActive } from "../actions"
 import type { AreaRow } from "../types"
 
+import { areasImportSpec } from "./areas-import"
 import { AreaForm } from "./area-form"
 
 type Props = {
@@ -22,8 +28,17 @@ export function AreasTab({ areas }: Props) {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
 
+  const router = useRouter()
   const activeCount = areas.filter((a) => a.is_active).length
   const atCap = activeCount >= 30
+
+  const importSchema = useMemo<ImportSchema>(
+    () => ({
+      ...areasImportSpec,
+      onImport: (rows) => importAreas(rows),
+    }),
+    [],
+  )
 
   function openCreate() {
     setEditing(null)
@@ -68,7 +83,14 @@ export function AreasTab({ areas }: Props) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={openCreate}>Add area</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={openCreate}>Add area</Button>
+              <BulkUploadPanel
+                schema={importSchema}
+                triggerLabel="Bulk upload areas"
+                onImported={() => router.refresh()}
+              />
+            </div>
           </CardContent>
         </Card>
         <AreaForm
@@ -91,9 +113,16 @@ export function AreasTab({ areas }: Props) {
             {areas.length} total
           </span>
         </div>
-        <Button onClick={openCreate} disabled={atCap}>
-          {atCap ? "Cap reached" : "Add area"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <BulkUploadPanel
+            schema={importSchema}
+            triggerLabel="Bulk upload areas"
+            onImported={() => router.refresh()}
+          />
+          <Button onClick={openCreate} disabled={atCap}>
+            {atCap ? "Cap reached" : "Add area"}
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-auto rounded-md border">
