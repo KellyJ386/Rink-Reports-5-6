@@ -195,9 +195,17 @@ insert into supabase_migrations.schema_migrations (version, name) values
   ('00000000000143','air_quality_use_facility_spaces'),
   ('00000000000144','facility_modules'),
   ('00000000000145','incident_emergency_fields'),
-  ('00000000000146','refrigeration_readings_per_shift'),
-  ('00000000000147','daily_report_business_date'),
-  ('00000000000148','scheduling_expiry'),
-  ('00000000000149','ice_operations_enabled_types');
+  ('00000000000155','refrigeration_readings_per_shift'),
+  ('00000000000156','daily_report_business_date'),
+  ('00000000000157','ice_operations_enabled_types');
+  -- ^ Renumbered 2026-06-24 to clear the post-main-merge prefix collisions
+  --   (146–154 belong to main's air_quality/scheduling migrations, NOT listed
+  --   above — another reason this rebuild is incomplete; see SUPERSEDED banner).
+  --
+  -- scheduling_expiry was restored to its on-disk prefix 00000000000139, which it
+  -- now SHARES with daily_report_rename_operational_to_daily (listed above). The
+  -- ledger requires a unique version per row, so this rebuild can no longer record
+  -- both at 139 — assign scheduling_expiry a unique version during the live-project
+  -- re-derivation rather than re-running this script as-is.
 
 commit;
