@@ -20,15 +20,6 @@ import { emptyAirQualityFormData } from "../types"
 import type { ComplianceSnapshot } from "../types"
 import type { AirQualityInput } from "./compute"
 import {
-  buildAlertLines,
-  evaluateReading,
-  lookupThreshold,
-  maxSeverityOf,
-  type AirQualityInput,
-  type ExceedanceDetail,
-  type ThresholdRow,
-} from "./compute"
-import {
   describeHit,
   evaluateSustained,
   lookbackMsForSpecs,
@@ -36,6 +27,7 @@ import {
   pollutantOfReadingKey,
   type SeriesPoint,
 } from "./sustained"
+import {
   alertLevelToSeverity,
   evaluateMetric,
   maxAlertLevel,
