@@ -2,9 +2,12 @@
 
 import { revalidatePath } from "next/cache"
 
+import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+
+import { jobAreasImportSpec, type JobAreaImportRow } from "./_components/job-areas-import"
 
 const MAX_NAME = 60
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -246,6 +249,89 @@ export async function deleteJobArea(id: string): Promise<SimpleResult> {
     if (error) return { ok: false, error: dbError(error, "Failed to delete job area.") }
     revalidate()
     return { ok: true }
+  } catch (e) {
+    logServerError("admin/scheduling/job-areas/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Bulk-import job areas from a validated CSV/XLSX upload. Re-validates every
+ * row server-side against the shared spec, derives + dedupes slugs, and appends
+ * to the end of the current order. facilityId follows the same defense-in-depth
+ * rule as createJobArea (non-super-admins always use their own facility).
+ */
+export async function importJobAreas(
+  facilityIdFromClient: string | null,
+  rows: ValidatedRow[],
+): Promise<ImportResult> {
+  try {
+    await requireAdmin()
+    const facility = await resolveFacilityId(facilityIdFromClient)
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { ok: false, error: "No rows to import." }
+    }
+
+    // Re-validate every row server-side; derive + dedupe slugs.
+    const parsed: Array<JobAreaImportRow & { slug: string }> = []
+    const seen = new Set<string>()
+    for (const r of rows) {
+      const res = jobAreasImportSpec.zodRow.safeParse(r?.values)
+      if (!res.success) {
+        return { ok: false, error: `Row ${r?.rowNumber ?? "?"} failed validation.` }
+      }
+      const row = res.data as JobAreaImportRow
+      const slug = row.slug && row.slug.length > 0 ? row.slug : slugify(row.name)
+      if (!SLUG_RE.test(slug)) {
+        return {
+          ok: false,
+          error: `Row ${r?.rowNumber ?? "?"}: could not derive a valid slug from "${row.name}".`,
+        }
+      }
+      if (seen.has(slug)) {
+        return { ok: false, error: `Duplicate slug "${slug}" in the file.` }
+      }
+      seen.add(slug)
+      parsed.push({ ...row, slug })
+    }
+
+    const supabase = await createClient()
+
+    // Append to the end of the current order.
+    const { data: last } = await supabase
+      .from("employee_job_areas")
+      .select("sort_order")
+      .eq("facility_id", facility.facilityId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const start = (last?.sort_order ?? 0) + 1
+
+    const insertRows = parsed.map((row, i) => ({
+      facility_id: facility.facilityId,
+      name: row.name,
+      slug: row.slug,
+      sort_order: start + i,
+      is_active: row.is_active,
+    }))
+
+    const { error } = await supabase.from("employee_job_areas").insert(insertRows)
+    if (error) {
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: "One or more job areas already exist for this facility.",
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to import job areas.") }
+    }
+    revalidate()
+    return {
+      ok: true,
+      inserted: insertRows.length,
+      message: `Imported ${insertRows.length} job area(s).`,
+    }
   } catch (e) {
     logServerError("admin/scheduling/job-areas/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
