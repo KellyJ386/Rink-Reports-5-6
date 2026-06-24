@@ -30,11 +30,9 @@ import {
 } from "./_components/format"
 import { Badge } from "@/components/ui/badge"
 import type {
-
   AlertWithAck,
   CommunicationAlert,
   CommunicationMessage,
-  CommunicationRecipient,
   MessageInboxItem,
 } from "./types"
 
@@ -417,7 +415,7 @@ export default async function CommunicationsInboxPage({
       | { first_name: string | null; last_name: string | null }
       | null
   }
-  type RecipientJoined = CommunicationRecipient & {
+  type RecipientJoined = MessageInboxItem["recipient"] & {
     message: MessageJoined | null
   }
 
