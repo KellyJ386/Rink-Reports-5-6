@@ -37,6 +37,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # contents: write lets the job COMMIT the baseline on the very first run,
+    # when supabase/schema.snapshot.sql doesn't exist yet (one-time self-seed).
+    # It never auto-commits to "fix" a real drift — a changed schema still fails
+    # for review. If your org pins the Actions token to read-only, the seed push
+    # falls back to a clear manual instruction (download the artifact + commit).
+    permissions:
+      contents: write
+
     services:
       postgres:
         # Keep in sync with rls-isolation.yml and supabase/config.toml.
@@ -56,7 +64,12 @@ jobs:
       PGURL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
 
     steps:
+      # Check out the branch tip (not the PR merge commit) so the self-seed step
+      # can commit the baseline back to the PR branch when it's missing.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Install psql + pg_dump client
         run: |
@@ -95,13 +108,27 @@ jobs:
           path: /tmp/fresh.snapshot.sql
           if-no-files-found: error
 
-      - name: Diff against committed snapshot
+      - name: Diff against committed snapshot (self-seed if missing)
         run: |
           set -euo pipefail
           if [ ! -f supabase/schema.snapshot.sql ]; then
-            echo "::error::No committed baseline at supabase/schema.snapshot.sql."
-            echo "Seed it once: download the 'schema-snapshot' artifact from this run"
-            echo "and commit it as supabase/schema.snapshot.sql."
+            echo "No committed baseline yet — seeding it from this clean build."
+            cp /tmp/fresh.snapshot.sql supabase/schema.snapshot.sql
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add supabase/schema.snapshot.sql
+            git commit -m "ci: seed schema drift baseline [skip ci]"
+            if git push origin "HEAD:${{ github.head_ref || github.ref_name }}"; then
+              echo "Baseline committed to ${{ github.head_ref || github.ref_name }}."
+              echo "Future runs will diff against it. This run is green."
+              exit 0
+            fi
+            # Push blocked (e.g. read-only Actions token or branch protection).
+            echo "::error::Generated the baseline but could not push it"
+            echo "::error::(Actions token may be read-only, or the branch is protected)."
+            echo "Fallback: download the 'schema-snapshot' artifact from this run and"
+            echo "commit it as supabase/schema.snapshot.sql, or grant the workflow"
+            echo "'Read and write permissions' under Settings > Actions."
             exit 1
           fi
           if ! diff -u supabase/schema.snapshot.sql /tmp/fresh.snapshot.sql > /tmp/schema.diff; then
