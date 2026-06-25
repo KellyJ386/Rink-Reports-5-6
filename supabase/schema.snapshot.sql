@@ -2,7 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict CfoWetJWgOygsihJEBSTmP7DN0kzqPnWQ5CVDh2MRMDDeJSuMbgviEH3oMQ9Ziq
 
 
 
@@ -18094,5 +18093,4 @@ CREATE POLICY users_update ON public.users FOR UPDATE TO authenticated USING ((p
 -- PostgreSQL database dump complete
 --
 
-\unrestrict CfoWetJWgOygsihJEBSTmP7DN0kzqPnWQ5CVDh2MRMDDeJSuMbgviEH3oMQ9Ziq
 

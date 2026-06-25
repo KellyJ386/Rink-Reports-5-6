@@ -31,6 +31,9 @@ PGURL="${1:?usage: dump-schema-snapshot.sh <postgres-connection-url>}"
 #                              policies, triggers, types) the migrations own.
 # --no-owner / --no-privileges: roles differ between local/CI/prod; ignore them.
 # Normalization keeps the dump stable across pg_dump/server patch bumps:
+#   * drop pg_dump's \restrict / \unrestrict guard lines — recent pg_dump wraps
+#     the dump in these psql meta-commands with a RANDOM per-run token, so they
+#     differ every run and are not schema content,
 #   * drop the "-- Dumped from/by ... version X" header lines (version strings),
 #   * drop leading SET / set_config noise,
 #   * trim trailing whitespace.
@@ -41,6 +44,7 @@ pg_dump "$PGURL" \
   --no-owner \
   --no-privileges \
   --schema=public \
+  | grep -vE '^\\(un)?restrict ' \
   | grep -vE '^-- Dumped (from|by) ' \
   | grep -vE '^(SET |SELECT pg_catalog\.set_config)' \
   | sed -e 's/[[:space:]]*$//'
