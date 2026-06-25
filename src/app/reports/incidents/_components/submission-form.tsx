@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useActionState } from "react"
+import { Check, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
@@ -17,6 +18,13 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -176,6 +184,14 @@ export function SubmissionForm({
     if (!q) return spaces
     return spaces.filter((s) => s.name.toLowerCase().includes(q))
   }, [spaceSearch, spaces])
+
+  const spacesSummary = useMemo(() => {
+    const names = spaces
+      .filter((s) => selectedSpaceIds.includes(s.id))
+      .map((s) => s.name)
+    if (otherSpace) names.push("Other")
+    return names
+  }, [spaces, selectedSpaceIds, otherSpace])
 
   function toggleSpace(id: string) {
     setSelectedSpaceIds((prev) =>
@@ -419,63 +435,89 @@ export function SubmissionForm({
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="space_search">
+              <Label htmlFor="space_select">
                 Facility space<RequiredMark />
               </Label>
               <p className="text-muted-foreground text-sm">
                 Select one or more spaces where the report applies.
               </p>
-              {spaces.length > 6 && (
-                <Input
-                  id="space_search"
-                  inputMode="text"
-                  placeholder="Search spaces…"
-                  value={spaceSearch}
-                  onChange={(e) => setSpaceSearch(e.target.value)}
-                  className="h-11 text-base"
-                />
-              )}
-              <div className="flex flex-wrap gap-2">
-                {filteredSpaces.map((s) => {
-                  const selected = selectedSpaceIds.includes(s.id)
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      role="switch"
-                      aria-checked={selected}
-                      onClick={() => toggleSpace(s.id)}
-                      className={
-                        "rounded-full border px-3 py-1.5 text-sm transition-colors " +
-                        (selected
-                          ? "border-primary bg-primary/15 text-foreground font-medium"
-                          : "border-border bg-card text-muted-foreground hover:bg-muted")
-                      }
-                    >
-                      {s.name}
-                    </button>
-                  )
-                })}
-                {filteredSpaces.length === 0 && (
-                  <span className="text-muted-foreground text-sm">
-                    No spaces match “{spaceSearch}”.
-                  </span>
-                )}
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={otherSpace}
-                  onClick={() => setOtherSpace((v) => !v)}
-                  className={
-                    "rounded-full border px-3 py-1.5 text-sm transition-colors " +
-                    (otherSpace
-                      ? "border-primary bg-primary/15 text-foreground font-medium"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted")
-                  }
+              <DropdownMenu className="block w-full">
+                <DropdownMenuTrigger
+                  id="space_select"
+                  className="border-input bg-input-bg flex h-12 w-full items-center justify-between gap-2 rounded-md border px-3 text-base outline-none transition-[color,box-shadow,border-color] focus:border-[var(--ring)] focus:ring-[3px] focus:ring-[var(--ring)]/25"
                 >
-                  Other
-                </button>
-              </div>
+                  <span
+                    className={
+                      "truncate text-left " +
+                      (spacesSummary.length === 0
+                        ? "text-foreground-subtle"
+                        : "text-foreground")
+                    }
+                  >
+                    {spacesSummary.length === 0
+                      ? "Select spaces"
+                      : spacesSummary.join(", ")}
+                  </span>
+                  <ChevronDown className="text-muted-foreground size-4 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="max-h-72 w-full overflow-y-auto"
+                >
+                  {spaces.length > 6 && (
+                    <div className="p-1">
+                      <Input
+                        aria-label="Search spaces"
+                        inputMode="text"
+                        placeholder="Search spaces…"
+                        value={spaceSearch}
+                        onChange={(e) => setSpaceSearch(e.target.value)}
+                        className="h-10 text-base"
+                      />
+                    </div>
+                  )}
+                  {filteredSpaces.map((s) => {
+                    const selected = selectedSpaceIds.includes(s.id)
+                    return (
+                      <DropdownMenuItem
+                        key={s.id}
+                        role="menuitemcheckbox"
+                        aria-checked={selected}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          toggleSpace(s.id)
+                        }}
+                        className="justify-between"
+                      >
+                        <span className="truncate">{s.name}</span>
+                        {selected && (
+                          <Check className="text-primary size-4 shrink-0" />
+                        )}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                  {filteredSpaces.length === 0 && (
+                    <p className="text-muted-foreground px-2 py-1.5 text-sm">
+                      No spaces match “{spaceSearch}”.
+                    </p>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    role="menuitemcheckbox"
+                    aria-checked={otherSpace}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setOtherSpace((v) => !v)
+                    }}
+                    className="justify-between"
+                  >
+                    <span>Other</span>
+                    {otherSpace && (
+                      <Check className="text-primary size-4 shrink-0" />
+                    )}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {otherSpace && (
                 <Input
                   aria-label="Other space"
