@@ -1,23 +1,38 @@
 name: Migration Prefix Check
 
-# Rejects newly-introduced duplicate numeric prefixes in
-# supabase/migrations/. The repo's convention (CLAUDE.md) is a monotonic
-# 14-digit prefix per migration — collisions usually mean a merge picked
-# up two branches that each grabbed the same next number, and the
-# alphabetical fallback order is non-obvious.
+# Guards the monotonic 14-digit prefix convention for supabase/migrations/
+# (see CLAUDE.md). A prefix collision means two files would claim the same
+# ledger `version`, which breaks `supabase db reset` / `db push` / `migration
+# list` for everyone.
 #
-# Historical duplicates already in main are grandfathered: we only fail
-# when a file added in this PR shares a prefix with another file (whether
-# the other file is also new or already in main).
+# Two layers, because one is not enough:
+#
+#  1. check-prefixes (PRs only) — fails when a file ADDED in this PR shares a
+#     prefix with another file. Gives targeted per-file annotations early.
+#
+#  2. check-tree-unique (PRs AND push to main) — scans the WHOLE tree for any
+#     duplicate prefix. This catches the gap the PR-scoped check cannot: two
+#     PRs branched from the same base each grab the next number, each passes
+#     in isolation (neither tree contains the other's file yet), and they only
+#     collide once both merge. Running on push to main means such a collision
+#     fails visibly on main immediately instead of lying dormant.
 
 on:
   pull_request:
     paths:
       - "supabase/migrations/**"
       - ".github/workflows/migration-prefix-check.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/**"
+      - ".github/workflows/migration-prefix-check.yml"
 
 jobs:
   check-prefixes:
+    # PR-scoped: only the files this PR adds, with friendly annotations.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -70,3 +85,52 @@ jobs:
             exit 1
           fi
           echo "No new prefix collisions introduced."
+
+  check-tree-unique:
+    # Whole-tree: every prefix in supabase/migrations/ must be unique. Runs on
+    # PRs and on push to main so post-merge collisions cannot hide.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify every migration prefix is unique across the tree
+        run: |
+          set -euo pipefail
+
+          fail=0
+
+          # Every filename must start with a numeric prefix.
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            prefix=$(printf '%s\n' "$name" | awk -F'_' '{print $1}')
+            case "$prefix" in
+              ''|*[!0-9]*)
+                echo "::error::Migration '$name' must start with a numeric prefix (got '$prefix')."
+                fail=1
+                ;;
+            esac
+          done <<< "$(ls supabase/migrations/ 2>/dev/null || true)"
+
+          # No prefix may appear more than once.
+          dups=$(
+            ls supabase/migrations/ 2>/dev/null \
+              | sed -E 's/^([0-9]+)_.*/\1/' \
+              | sort | uniq -d || true
+          )
+          if [ -n "$dups" ]; then
+            echo "::error::Duplicate migration prefixes in supabase/migrations/:"
+            while IFS= read -r p; do
+              [ -z "$p" ] && continue
+              ls supabase/migrations/ | grep "^${p}_" | sed 's/^/    /'
+            done <<< "$dups"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "Two migrations sharing a prefix claim the same ledger version."
+            echo "Rename the newer one to the next free monotonic prefix."
+            exit 1
+          fi
+          echo "All migration prefixes are unique."
