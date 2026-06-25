@@ -11,12 +11,16 @@ name: Schema Drift
 #     schema is always reviewable in the diff and an edited historical migration
 #     cannot silently change the build.
 #
-#  2. prod-drift (optional) — if the SUPABASE_DB_URL secret is set, compare every
-#     public function's canonical definition (pg_get_functiondef md5) between the
-#     repo-built schema and live prod, and surface any that differ. This is the
-#     prod-vs-repo check that an MCP dev branch can't do (it inherits the empty
-#     history); a GitHub runner can reach prod, so it works here. Non-fatal by
-#     default — prod may briefly lead/lag a merge; flip the marked line to enforce.
+#  2. prod-drift (optional) — if the SUPABASE_DB_URL secret is set, compare a
+#     version-stable structural SIGNATURE (function signatures + table columns +
+#     RLS policies) between the repo-built schema and live prod, surfacing any
+#     object that exists on only one side or changed shape. It deliberately does
+#     NOT md5 raw function bodies: prod runs a different Postgres major than this
+#     CI container and pg_get_functiondef formatting differs across majors, which
+#     would false-positive on every function. This is the prod-vs-repo check an
+#     MCP dev branch can't do (it inherits the empty history); a GitHub runner
+#     can reach prod, so it works here. Non-fatal by default — prod may briefly
+#     lead/lag a merge; flip the marked line to enforce.
 
 on:
   # Manual trigger — useful to regenerate/validate the snapshot on demand.
@@ -148,30 +152,49 @@ jobs:
           fi
           echo "Schema matches the committed snapshot — no drift."
 
-      - name: Compare function defs against prod (optional)
+      - name: Compare schema signature against prod (optional)
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
           if [ -z "${SUPABASE_DB_URL:-}" ]; then
             echo "SUPABASE_DB_URL secret not set — skipping prod drift comparison."
-            echo "Add a read-only prod connection string as the SUPABASE_DB_URL repo"
-            echo "secret to enable the prod-vs-repo function-definition check."
+            echo "To enable: add a read-only prod connection string as the"
+            echo "SUPABASE_DB_URL repo secret (Settings > Secrets and variables > Actions)."
             exit 0
           fi
-          # Same canonical normalization on both sides (pg_get_functiondef).
-          Q="select p.proname || '  ' || md5(pg_get_functiondef(p.oid))
-               from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-              where n.nspname = 'public' and p.prokind = 'f'
-              order by p.proname;"
-          psql "$PGURL"            -At -c "$Q" > /tmp/local_fns.txt
-          psql "$SUPABASE_DB_URL"  -At -c "$Q" > /tmp/prod_fns.txt
-          if ! diff -u /tmp/prod_fns.txt /tmp/local_fns.txt > /tmp/fns.diff; then
-            echo "::warning::Function definitions differ between prod and the repo-built schema."
-            echo "Left = prod, Right = repo. A name on one side only = present on one side only."
-            cat /tmp/fns.diff
-            # To ENFORCE prod==repo (fail the job on any difference), replace the
-            # line below with: exit 1
+          # A VERSION-STABLE structural signature, not raw function bodies: prod
+          # runs a different Postgres major version than this CI container, and
+          # pg_get_functiondef formatting differs across majors — an exact body
+          # md5 would false-positive on every function. Instead compare the
+          # things that actually constitute drift and are formatted identically
+          # across versions: function signatures, table columns, and policies.
+          SIG="
+            select line from (
+              select format('fn  %s(%s) -> %s', p.proname,
+                            pg_get_function_identity_arguments(p.oid),
+                            pg_get_function_result(p.oid)) as line
+                from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public' and p.prokind = 'f'
+              union all
+              select format('col %s.%s %s', c.table_name, c.column_name, c.data_type)
+                from information_schema.columns c
+               where c.table_schema = 'public'
+              union all
+              select format('pol %s.%s %s', tablename, policyname, cmd)
+                from pg_policies where schemaname = 'public'
+            ) s order by line;"
+          psql "$PGURL"           -At -c "$SIG" > /tmp/local_sig.txt
+          psql "$SUPABASE_DB_URL" -At -c "$SIG" > /tmp/prod_sig.txt
+          echo "Signature objects — repo: $(wc -l < /tmp/local_sig.txt), prod: $(wc -l < /tmp/prod_sig.txt)"
+          if ! diff -u /tmp/prod_sig.txt /tmp/local_sig.txt > /tmp/sig.diff; then
+            echo "::warning::Schema signature differs between prod and the repo-built schema."
+            echo "Lines prefixed '-' exist only in PROD, '+' only in the REPO build."
+            echo "fn = function signature, col = table column, pol = RLS policy."
+            cat /tmp/sig.diff
+            # Non-fatal by default: prod may briefly lead/lag a migration merge.
+            # To ENFORCE prod == repo (fail the job on any difference), change the
+            # next line to: exit 1
             exit 0
           fi
-          echo "Prod function definitions match the repo-built schema — no drift."
+          echo "Prod schema signature matches the repo-built schema — no drift."
