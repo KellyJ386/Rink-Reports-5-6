@@ -22,7 +22,13 @@ function useDropdown() {
   return ctx
 }
 
-function DropdownMenu({ children }: { children: React.ReactNode }) {
+function DropdownMenu({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
   const [open, setOpen] = React.useState(false)
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
@@ -51,7 +57,9 @@ function DropdownMenu({ children }: { children: React.ReactNode }) {
 
   return (
     <DropdownContext.Provider value={{ open, setOpen, triggerRef, contentRef }}>
-      <div className="relative inline-block text-left">{children}</div>
+      <div className={cn("relative inline-block text-left", className)}>
+        {children}
+      </div>
     </DropdownContext.Provider>
   )
 }
