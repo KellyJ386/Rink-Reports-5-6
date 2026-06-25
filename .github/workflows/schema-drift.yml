@@ -1,0 +1,177 @@
+name: Schema Drift
+
+# Catches migration drift going forward. Two guarantees, both built by replaying
+# ONLY supabase/migrations/** onto a fresh supabase/postgres container (the same
+# proven setup rls-isolation.yml uses) — never from any live DB's recorded
+# history, so the empty-`statements` ledger on the prod project is irrelevant.
+#
+#  1. snapshot  — rebuild the schema from the migration files, dump it, and diff
+#     against the committed supabase/schema.snapshot.sql. A migration PR that
+#     changes the resulting schema must regenerate + commit the snapshot, so the
+#     schema is always reviewable in the diff and an edited historical migration
+#     cannot silently change the build.
+#
+#  2. prod-drift (optional) — if the SUPABASE_DB_URL secret is set, compare every
+#     public function's canonical definition (pg_get_functiondef md5) between the
+#     repo-built schema and live prod, and surface any that differ. This is the
+#     prod-vs-repo check that an MCP dev branch can't do (it inherits the empty
+#     history); a GitHub runner can reach prod, so it works here. Non-fatal by
+#     default — prod may briefly lead/lag a merge; flip the marked line to enforce.
+
+on:
+  # Manual trigger — useful to regenerate/validate the snapshot on demand.
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/schema.snapshot.sql"
+      - "scripts/dump-schema-snapshot.sh"
+      - ".github/workflows/schema-drift.yml"
+
+concurrency:
+  group: schema-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # contents: write lets the job COMMIT the baseline on the very first run,
+    # when supabase/schema.snapshot.sql doesn't exist yet (one-time self-seed).
+    # It never auto-commits to "fix" a real drift — a changed schema still fails
+    # for review. If your org pins the Actions token to read-only, the seed push
+    # falls back to a clear manual instruction (download the artifact + commit).
+    permissions:
+      contents: write
+
+    services:
+      postgres:
+        # Keep in sync with rls-isolation.yml and supabase/config.toml.
+        image: supabase/postgres:15.1.1.78
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGURL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+    steps:
+      # Check out the branch tip (not the PR merge commit) so the self-seed step
+      # can commit the baseline back to the PR branch when it's missing.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install psql + pg_dump client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; then
+              echo "Postgres is ready (attempt $i)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres failed to become ready" >&2; exit 1
+
+      - name: Apply migrations (clean replay from the repo files)
+        run: |
+          set -euo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$(basename "$f")"
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Dump rebuilt schema
+        run: |
+          chmod +x scripts/dump-schema-snapshot.sh
+          ./scripts/dump-schema-snapshot.sh "$PGURL" > /tmp/fresh.snapshot.sql
+          echo "Rebuilt schema: $(wc -l < /tmp/fresh.snapshot.sql) lines."
+
+      - name: Upload rebuilt schema artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-snapshot
+          path: /tmp/fresh.snapshot.sql
+          if-no-files-found: error
+
+      - name: Diff against committed snapshot (self-seed if missing)
+        run: |
+          set -euo pipefail
+          if [ ! -f supabase/schema.snapshot.sql ]; then
+            echo "No committed baseline yet — seeding it from this clean build."
+            cp /tmp/fresh.snapshot.sql supabase/schema.snapshot.sql
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add supabase/schema.snapshot.sql
+            git commit -m "ci: seed schema drift baseline [skip ci]"
+            if git push origin "HEAD:${{ github.head_ref || github.ref_name }}"; then
+              echo "Baseline committed to ${{ github.head_ref || github.ref_name }}."
+              echo "Future runs will diff against it. This run is green."
+              exit 0
+            fi
+            # Push blocked (e.g. read-only Actions token or branch protection).
+            echo "::error::Generated the baseline but could not push it"
+            echo "::error::(Actions token may be read-only, or the branch is protected)."
+            echo "Fallback: download the 'schema-snapshot' artifact from this run and"
+            echo "commit it as supabase/schema.snapshot.sql, or grant the workflow"
+            echo "'Read and write permissions' under Settings > Actions."
+            exit 1
+          fi
+          if ! diff -u supabase/schema.snapshot.sql /tmp/fresh.snapshot.sql > /tmp/schema.diff; then
+            echo "::error::The schema built from supabase/migrations/** differs from"
+            echo "::error::supabase/schema.snapshot.sql. If this change is intentional,"
+            echo "::error::regenerate the snapshot and commit it:"
+            echo "    supabase start"
+            echo "    ./scripts/dump-schema-snapshot.sh \\"
+            echo "      \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" \\"
+            echo "      > supabase/schema.snapshot.sql"
+            echo "(or download the 'schema-snapshot' artifact from this run and commit it.)"
+            echo "----- drift (committed --> rebuilt) -----"
+            cat /tmp/schema.diff
+            exit 1
+          fi
+          echo "Schema matches the committed snapshot — no drift."
+
+      - name: Compare function defs against prod (optional)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "SUPABASE_DB_URL secret not set — skipping prod drift comparison."
+            echo "Add a read-only prod connection string as the SUPABASE_DB_URL repo"
+            echo "secret to enable the prod-vs-repo function-definition check."
+            exit 0
+          fi
+          # Same canonical normalization on both sides (pg_get_functiondef).
+          Q="select p.proname || '  ' || md5(pg_get_functiondef(p.oid))
+               from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.prokind = 'f'
+              order by p.proname;"
+          psql "$PGURL"            -At -c "$Q" > /tmp/local_fns.txt
+          psql "$SUPABASE_DB_URL"  -At -c "$Q" > /tmp/prod_fns.txt
+          if ! diff -u /tmp/prod_fns.txt /tmp/local_fns.txt > /tmp/fns.diff; then
+            echo "::warning::Function definitions differ between prod and the repo-built schema."
+            echo "Left = prod, Right = repo. A name on one side only = present on one side only."
+            cat /tmp/fns.diff
+            # To ENFORCE prod==repo (fail the job on any difference), replace the
+            # line below with: exit 1
+            exit 0
+          fi
+          echo "Prod function definitions match the repo-built schema — no drift."
