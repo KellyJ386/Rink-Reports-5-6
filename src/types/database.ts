@@ -1344,6 +1344,7 @@ export type Database = {
           created_at: string
           delivered_at: string | null
           email_attempts: number
+          email_claim_token: string | null
           email_error: string | null
           email_next_attempt_at: string | null
           email_sent_at: string | null
@@ -1359,6 +1360,7 @@ export type Database = {
           created_at?: string
           delivered_at?: string | null
           email_attempts?: number
+          email_claim_token?: string | null
           email_error?: string | null
           email_next_attempt_at?: string | null
           email_sent_at?: string | null
@@ -1374,6 +1376,7 @@ export type Database = {
           created_at?: string
           delivered_at?: string | null
           email_attempts?: number
+          email_claim_token?: string | null
           email_error?: string | null
           email_next_attempt_at?: string | null
           email_sent_at?: string | null

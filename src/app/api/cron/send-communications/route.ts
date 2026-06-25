@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto"
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto"
 
 import { type SupabaseClient, createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
@@ -35,6 +35,12 @@ const EMAIL_TIME_BUDGET_MS = 50_000
 // is implicitly its length + 1 (the +1 is the in-flight attempt before any wait).
 const BACKOFF_MINUTES = [1, 5, 15, 60] as const
 const MAX_EMAIL_ATTEMPTS = BACKOFF_MINUTES.length + 1
+// A pre-send claim prevents two overlapping cron invocations from both
+// delivering the same external email. If a worker crashes after claiming but
+// before settling the row, the claim expires and a later tick can retry. The
+// random claim token prevents an expired/stale worker from settling a row after
+// a newer worker has reclaimed it.
+const EMAIL_CLAIM_TTL_MS = 10 * 60_000
 
 /**
  * Sends queued communication_recipients rows via Resend.
@@ -43,9 +49,10 @@ const MAX_EMAIL_ATTEMPTS = BACKOFF_MINUTES.length + 1
  * The drain worker should run first (promote outbox → recipients), then
  * this worker picks up the pending rows.
  *
- * Idempotency: email_status is only ever advanced from 'pending'. A re-run
- * won't double-send because the UPDATE filters on `email_status='pending'`,
- * and on conflict the second writer simply matches zero rows.
+ * Idempotency: each row is atomically claimed as `sending` with a per-claim
+ * token before Resend is called. A concurrent worker that fails to claim the
+ * row exits before the external side effect, and stale workers cannot settle a
+ * row after a newer worker has reclaimed it.
  *
  * If Resend is unconfigured (RESEND_API_KEY / RESEND_FROM missing) the
  * worker skips entirely — pending rows stay pending so they retry once
@@ -140,8 +147,10 @@ async function loadPending(
     .select(
       "id, message_id, email_attempts, employees!inner(email), communication_messages!inner(subject, body, pdf_url)",
     )
-    .eq("email_status", "pending")
-    .or(`email_next_attempt_at.is.null,email_next_attempt_at.lte.${nowIso}`)
+    .in("email_status", ["pending", "sending"])
+    .or(
+      `and(email_status.eq.pending,or(email_next_attempt_at.is.null,email_next_attempt_at.lte.${nowIso})),and(email_status.eq.sending,email_next_attempt_at.lte.${nowIso})`,
+    )
     .order("created_at", { ascending: true })
     .limit(BATCH_LIMIT)
 
@@ -213,12 +222,13 @@ async function runEmail(
     return p
   }
 
-  // Send with bounded concurrency. Each task self-checks the elapsed-time
+  // Send with bounded concurrency. Each task first claims its row before the
+  // external email side effect, then self-checks the elapsed-time
   // budget before STARTING; once the budget is hit the remaining tasks
   // short-circuit, leaving their rows untouched ('pending') for the next
   // tick. Settle-all semantics keep one failing row from aborting the batch;
   // per-row outcome handling (sent / retry-with-backoff / terminal-failure)
-  // and the email_status='pending' double-send guard are preserved exactly.
+  // and the claim-before-send double-send guard are preserved.
   await mapWithConcurrency(rows, EMAIL_CONCURRENCY, async (r) => {
     if (Date.now() - startedAt > EMAIL_TIME_BUDGET_MS) return
     await sendOne(supabase, r, loadPdf, stats)
@@ -233,10 +243,13 @@ async function sendOne(
   loadPdf: (pdfPath: string) => Promise<Buffer | null>,
   stats: ChannelStats,
 ): Promise<void> {
+  const claim = await claimEmailForSend(supabase, r.id)
+  if (!claim) return
+
   stats.attempted += 1
   const to = r.employee?.email?.trim()
   if (!to) {
-    await markEmailSkipped(supabase, r.id, "no email")
+    await markEmailSkipped(supabase, r.id, claim.token, "no email")
     stats.skipped += 1
     return
   }
@@ -258,10 +271,22 @@ async function sendOne(
   const result = await sendEmail({ to, subject, bodyText: body, attachments })
   const nextAttempts = r.attempts + 1
   if (result.ok) {
-    await markEmailSent(supabase, r.id, new Date().toISOString(), nextAttempts)
+    await markEmailSent(
+      supabase,
+      r.id,
+      claim.token,
+      new Date().toISOString(),
+      nextAttempts,
+    )
     stats.sent += 1
   } else if (nextAttempts >= MAX_EMAIL_ATTEMPTS) {
-    await markEmailTerminalFailure(supabase, r.id, nextAttempts, result.error)
+    await markEmailTerminalFailure(
+      supabase,
+      r.id,
+      claim.token,
+      nextAttempts,
+      result.error,
+    )
     stats.failed += 1
   } else {
     const backoffMin = BACKOFF_MINUTES[nextAttempts - 1] ?? BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]
@@ -269,6 +294,7 @@ async function sendOne(
     await markEmailRetry(
       supabase,
       r.id,
+      claim.token,
       nextAttempts,
       nextAttemptAt,
       result.error,
@@ -280,10 +306,12 @@ async function sendOne(
 async function markEmailSent(
   supabase: SupabaseClient<Database>,
   recipientId: string,
+  claimToken: string,
   sentAt: string,
   attempts: number,
 ) {
-  // Filter on email_status='pending' so concurrent workers can't double-send.
+  // Filter on the claim token so only this exact claim can settle the row. This
+  // matters if a slow/stale worker finishes after a later worker reclaimed it.
   await supabase
     .from("communication_recipients")
     .update({
@@ -292,14 +320,17 @@ async function markEmailSent(
       email_error: null,
       email_attempts: attempts,
       email_next_attempt_at: null,
+      email_claim_token: null,
     })
     .eq("id", recipientId)
-    .eq("email_status", "pending")
+    .eq("email_status", "sending")
+    .eq("email_claim_token", claimToken)
 }
 
 async function markEmailSkipped(
   supabase: SupabaseClient<Database>,
   recipientId: string,
+  claimToken: string,
   error: string,
 ) {
   await supabase
@@ -308,14 +339,51 @@ async function markEmailSkipped(
       email_status: "skipped",
       email_sent_at: null,
       email_error: error,
+      email_next_attempt_at: null,
+      email_claim_token: null,
     })
     .eq("id", recipientId)
-    .eq("email_status", "pending")
+    .eq("email_status", "sending")
+    .eq("email_claim_token", claimToken)
+}
+
+type EmailClaim = {
+  token: string
+}
+
+async function claimEmailForSend(
+  supabase: SupabaseClient<Database>,
+  recipientId: string,
+): Promise<EmailClaim | null> {
+  const nowIso = new Date().toISOString()
+  const claimExpiresAt = new Date(Date.now() + EMAIL_CLAIM_TTL_MS).toISOString()
+  const claimToken = randomUUID()
+  const { data, error } = await supabase
+    .from("communication_recipients")
+    .update({
+      email_status: "sending",
+      email_next_attempt_at: claimExpiresAt,
+      email_claim_token: claimToken,
+      email_error: null,
+    })
+    .eq("id", recipientId)
+    .in("email_status", ["pending", "sending"])
+    .or(
+      `and(email_status.eq.pending,or(email_next_attempt_at.is.null,email_next_attempt_at.lte.${nowIso})),and(email_status.eq.sending,email_next_attempt_at.lte.${nowIso})`,
+    )
+    .select("id")
+
+  if (error) {
+    logServerError("cron/send-communications", error, { step: "claim", recipientId })
+    return null
+  }
+  return (data ?? []).length === 1 ? { token: claimToken } : null
 }
 
 async function markEmailRetry(
   supabase: SupabaseClient<Database>,
   recipientId: string,
+  claimToken: string,
   attempts: number,
   nextAttemptAt: string,
   error: string,
@@ -326,15 +394,18 @@ async function markEmailRetry(
       email_status: "pending",
       email_attempts: attempts,
       email_next_attempt_at: nextAttemptAt,
+      email_claim_token: null,
       email_error: error,
     })
     .eq("id", recipientId)
-    .eq("email_status", "pending")
+    .eq("email_status", "sending")
+    .eq("email_claim_token", claimToken)
 }
 
 async function markEmailTerminalFailure(
   supabase: SupabaseClient<Database>,
   recipientId: string,
+  claimToken: string,
   attempts: number,
   error: string,
 ) {
@@ -344,10 +415,12 @@ async function markEmailTerminalFailure(
       email_status: "failed",
       email_attempts: attempts,
       email_next_attempt_at: null,
+      email_claim_token: null,
       email_error: error,
     })
     .eq("id", recipientId)
-    .eq("email_status", "pending")
+    .eq("email_status", "sending")
+    .eq("email_claim_token", claimToken)
 }
 
 function authorize(header: string | null, secret: string): boolean {

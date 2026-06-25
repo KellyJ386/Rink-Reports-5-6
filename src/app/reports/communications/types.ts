@@ -43,7 +43,22 @@ export type AlertWithAck = CommunicationAlert & {
  * employee (so we know read/ack state) and a sender display name.
  */
 export type MessageInboxItem = {
-  recipient: CommunicationRecipient
+  recipient: Pick<
+    CommunicationRecipient,
+    | "id"
+    | "message_id"
+    | "employee_id"
+    | "facility_id"
+    | "delivered_at"
+    | "read_at"
+    | "acknowledged_at"
+    | "created_at"
+    | "email_status"
+    | "email_sent_at"
+    | "email_error"
+    | "email_attempts"
+    | "email_next_attempt_at"
+  >
   message: CommunicationMessage
   senderName: string | null
 }
