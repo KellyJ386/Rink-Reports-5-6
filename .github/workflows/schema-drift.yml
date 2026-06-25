@@ -19,6 +19,8 @@ name: Schema Drift
 #     default — prod may briefly lead/lag a merge; flip the marked line to enforce.
 
 on:
+  # Manual trigger — useful to regenerate/validate the snapshot on demand.
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
