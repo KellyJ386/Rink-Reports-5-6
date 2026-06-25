@@ -17,9 +17,15 @@ import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SectionCard } from "@/components/ui/section-card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { Textarea } from "@/components/ui/textarea"
-import { readableForeground } from "@/lib/color-contrast"
 import { cn } from "@/lib/utils"
 
 import {
@@ -289,101 +295,84 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
           Shift setup
         </h2>
 
-        {/* Work area — single-select color pills */}
+        {/* Work area — dropdown driven by the facility's admin-configured areas.
+            Colored areas show a swatch so each option still carries its color. */}
         <div className="flex flex-col gap-2 px-6">
-          <p
-            id="work-area-label"
+          <label
+            htmlFor="work-area-select"
             className="text-sm font-semibold text-muted-foreground"
           >
             Work area
-          </p>
-          <div
-            className="flex flex-wrap gap-2"
-            role="radiogroup"
-            aria-labelledby="work-area-label"
+          </label>
+          <Select
+            value={selectedArea?.id ?? ""}
+            onValueChange={handleAreaChange}
           >
-            {areas.map((area) => {
-              const color = area.color?.trim() || null
-              const selected = area.id === selectedArea?.id
-              const fg = color ? readableForeground(color) : null
-              return (
-                <button
-                  key={area.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => handleAreaChange(area.id)}
-                  className={cn(
-                    PILL_BASE,
-                    !color &&
-                      (selected
-                        ? "border-transparent bg-primary text-primary-foreground"
-                        : "border-border bg-card text-foreground hover:bg-accent/40"),
-                    // Colored areas: selected => solid fill, unselected => soft
-                    // tint of the same color so every tab visibly carries its
-                    // area color (reads correctly in both light and dark themes).
-                    color && !selected && "text-foreground hover:opacity-90"
-                  )}
-                  style={
-                    color
-                      ? selected
-                        ? { backgroundColor: color, color: fg!, borderColor: color }
-                        : { backgroundColor: `${color}29`, borderColor: color }
-                      : undefined
-                  }
-                >
-                  <PillRadioDot selected={selected} />
-                  {area.name}
-                </button>
-              )
-            })}
-          </div>
+            <SelectTrigger
+              id="work-area-select"
+              aria-label="Work area"
+              className="h-12 text-base"
+            >
+              <SelectValue placeholder="Select a work area" />
+            </SelectTrigger>
+            <SelectContent>
+              {areas.map((area) => {
+                const color = area.color?.trim() || null
+                return (
+                  <SelectItem key={area.id} value={area.id}>
+                    <span className="flex items-center gap-2">
+                      {color ? (
+                        <span
+                          aria-hidden
+                          className="size-3 shrink-0 rounded-full border border-border"
+                          style={{ backgroundColor: color }}
+                        />
+                      ) : null}
+                      {area.name}
+                    </span>
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* Shift — tappable pills (no dropdown). Item count helps staff pick. */}
+        {/* Shift — dropdown sourced from the selected area's templates. Item
+            count stays alongside each option to help staff pick. */}
         <div className="flex flex-col gap-2 px-6">
-          <p
-            id="shift-label"
+          <label
+            htmlFor="shift-select"
             className="text-sm font-semibold text-muted-foreground"
           >
             Shift
-          </p>
+          </label>
           {templates.length === 0 ? (
             <p className="text-sm text-muted-foreground">No shifts available</p>
           ) : (
-            <div
-              className="flex flex-wrap gap-2"
-              role="radiogroup"
-              aria-labelledby="shift-label"
+            <Select
+              value={selectedTemplateId}
+              onValueChange={handleTemplateChange}
             >
-              {templates.map((t) => {
-                const selected = t.id === selectedTemplateId
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => handleTemplateChange(t.id)}
-                    className={cn(
-                      PILL_BASE,
-                      // Selected: module-accent border + soft tint (the same
-                      // treatment as SeverityRadioPill) — a solid module fill
-                      // can't meet AA contrast in dark mode, a tint always can.
-                      selected
-                        ? "border-[var(--module-daily)] bg-[var(--module-daily)]/15 text-foreground"
-                        : "border-border bg-card text-foreground hover:bg-accent/40"
-                    )}
-                  >
-                    <PillRadioDot selected={selected} />
-                    {t.name}
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {t.items.length} {t.items.length === 1 ? "item" : "items"}
+              <SelectTrigger
+                id="shift-select"
+                aria-label="Shift"
+                className="h-12 text-base"
+              >
+                <SelectValue placeholder="Choose shift type…" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    <span className="flex items-center gap-2">
+                      {t.name}
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {t.items.length} {t.items.length === 1 ? "item" : "items"}
+                      </span>
                     </span>
-                  </button>
-                )
-              })}
-            </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
       </Card>
@@ -522,21 +511,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
         <SubmitBar disabled={!selectedTemplate} />
       </div>
     </form>
-  )
-}
-
-// Shared pill chrome for the work-area and shift selectors.
-const PILL_BASE =
-  "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:[...]"
-
-function PillRadioDot({ selected }: { selected: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className="flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-current"
-    >
-      {selected ? <span className="size-2 rounded-full bg-current" /> : null}
-    </span>
   )
 }
 
