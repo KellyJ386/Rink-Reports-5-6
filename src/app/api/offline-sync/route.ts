@@ -41,6 +41,18 @@ const bodySchema = z.object({
   startedAt: z.number().int().positive().optional(),
 })
 
+// IDEMPOTENCY CONTRACT — read before touching any `onConflict: "local_id"` claim
+// below. `local_id` is a client-generated crypto.randomUUID() and is the SOLE
+// dedup key: every replay handler upserts with
+// `{ onConflict: "local_id", ignoreDuplicates: true }`, so a conflicting row
+// returns zero rows and is treated as "already processed". This assumes a given
+// `local_id` maps to exactly ONE logical submission. A client that ever reused a
+// local_id for a *different* payload would have its second payload silently
+// dropped (the first row wins). That is acceptable because randomUUID() collisions
+// are astronomically unlikely and each enqueue mints a fresh id; facility/employee
+// scoping is server-injected regardless, so this is a data-loss edge, not a
+// security one. Do NOT key the claim on anything client-supplied beyond local_id.
+
 export async function POST(request: NextRequest) {
   const current = await getCurrentUser()
   if (!current?.authUser) {
@@ -269,7 +281,12 @@ async function handleIncidentReplay({
 
   const refs = await resolveIncidentRefs(supabase, facilityId, input)
   if (!refs.ok) {
-    return NextResponse.json({ error: refs.error }, { status: 409 })
+    // The payload references a severity / activity / space that isn't available
+    // in this facility (e.g. an admin deactivated it while the device was
+    // offline). Replaying the identical payload will never resolve, so return a
+    // permanent 4xx (422) — NOT 409 — so the replay queue parks it immediately
+    // instead of burning all the transient retries.
+    return NextResponse.json({ error: refs.error }, { status: 422 })
   }
 
   // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)

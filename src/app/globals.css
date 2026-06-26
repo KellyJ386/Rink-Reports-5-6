@@ -7,8 +7,8 @@
   Rink Reports — Palette Refresh (May 2026)
 
   Brand anchors:
-    #69BE28 Action Green   (--green-500)
-    #002244 Rink Navy      (--navy-700)
+    #4DFF00 Action Green   (--rr-green)
+    #002244 Rink Navy      (--rr-navy / --navy-700)
 
   Source-of-truth: project/Palette Refresh.html. Ramps (green/navy/ice/
   sky/coral/amber/crimson/violet) are defined as raw HEX tokens; the
@@ -22,7 +22,7 @@
 
 :root {
   /* ─────────── Brand anchors ─────────── */
-  --action-green: var(--rr-green);   /* #4DFF00 — replaces legacy #69BE28 */
+  --action-green: var(--rr-green);   /* #4DFF00 — current brand action green */
   --rink-navy:    var(--rr-navy);    /* #002244 */
 
   /* ─────────── RinkReports tokens (mirror of src/lib/tokens.ts) ───────────
@@ -64,7 +64,9 @@
   --green-200: #BFE883;
   --green-300: #9DDA50;
   --green-400: #82CC36;
-  --green-500: #69BE28;
+  /* 500 anchor intentionally omitted: it was the legacy brand action green,
+     now superseded by --rr-green (#4DFF00). Nothing references --green-500;
+     the surrounding ramp (used by --success-soft / --module-ice-ops) stays. */
   --green-600: #54A01A;
   --green-700: #3F7C13;
   --green-800: #2A540D;

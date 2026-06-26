@@ -1039,6 +1039,42 @@ select pg_temp.expect_ok(
             'aaaa1111-d701-aaaa-aaaa-aaaa11110013')$$,
   'daily: alice CAN submit into own-facility area she is granted');
 
+-- ---------------------------------------------------------------------------
+-- Daily Reports append-only (migration 161): the partial unique index from
+-- migration 156 was dropped, so a SECOND same-day submission into the same
+-- (facility, area, template) with the SAME non-null business_date is now
+-- allowed. Each correction is a new, independent row. (Both rows below carry a
+-- non-null business_date precisely so the old `where business_date is not null`
+-- index would have rejected the second one — proving the index is gone.)
+-- UPDATE/DELETE remain admin-only (migration 7); staff corrections no longer
+-- depend on a silently-denied admin-only UPDATE, they are just new INSERTs.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('aaaa1111-5b11-aaaa-aaaa-aaaa11110097',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+            current_date)$$,
+  'daily: alice CAN submit a first same-day row (append-only)');
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('aaaa1111-5b11-aaaa-aaaa-aaaa11110098',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+            current_date)$$,
+  'daily: alice CAN submit a SECOND same-day row (append-only; unique-per-day index dropped)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where id in ('aaaa1111-5b11-aaaa-aaaa-aaaa11110097',
+                 'aaaa1111-5b11-aaaa-aaaa-aaaa11110098')$$,
+  2, 'daily: both same-day submissions coexist (append-only)');
+
 -- INSERT into facility B should fail. The user_permissions write policy
 -- (migration 77) restricts to super_admin or facility admin; alice is neither.
 select pg_temp.expect_error(
@@ -2274,6 +2310,54 @@ select pg_temp.expect_count(
     where facility_id = '33333333-3333-4333-8333-333333333333'
       and name = 'Operational'$$,
   0, 'SEED-139: no legacy Operational phase remains after rename');
+
+-- ---------------------------------------------------------------------------
+-- 2M-bis. Facility-bootstrap seeders locked down (migration 160).
+--
+-- seed_default_facility_air_quality_config(uuid) (migration 147) and
+-- seed_default_facility_modules(uuid) (migration 144) are SECURITY DEFINER
+-- facility-bootstrap helpers that were reachable over /rest/v1/rpc by
+-- anon/authenticated until migration 160 revoked EXECUTE from those roles.
+-- Like the other seeders, the EXECUTE grant (service_role only) IS the gate.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_air_quality_config(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'SEED-160: authenticated CANNOT execute seed_default_facility_air_quality_config');
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_modules(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'SEED-160: authenticated CANNOT execute seed_default_facility_modules');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_air_quality_config(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'SEED-160: anon CANNOT execute seed_default_facility_air_quality_config');
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_modules(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'SEED-160: anon CANNOT execute seed_default_facility_modules');
+
+reset role;
+set local role service_role;
+
+select pg_temp.expect_ok(
+  $$select public.seed_default_facility_air_quality_config(
+      '33333333-3333-4333-8333-333333333333')$$,
+  'SEED-160: service_role CAN execute seed_default_facility_air_quality_config');
+select pg_temp.expect_ok(
+  $$select public.seed_default_facility_modules(
+      '33333333-3333-4333-8333-333333333333')$$,
+  'SEED-160: service_role CAN execute seed_default_facility_modules');
+
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- 2N. Scheduling write-side gates (migration 136).

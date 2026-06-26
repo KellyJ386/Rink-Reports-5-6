@@ -3,6 +3,13 @@
 
 import type { Tables } from "@/types/database"
 
+// Maximum number of ACTIVE daily-report areas a facility may have. This MUST
+// stay in sync with the DB-side cap enforced by the `enforce_daily_report_areas_cap`
+// trigger (migration 00000000000007_daily_reports_schema.sql, `v_count >= 30`).
+// The trigger is the source of truth; this constant drives the admin UI's
+// at-cap state and copy so the limit lives in one place on the client.
+export const MAX_ACTIVE_DAILY_AREAS = 30
+
 export type AreaRow = Tables<"daily_report_areas">
 export type TemplateRow = Tables<"daily_report_templates">
 export type ChecklistItemRow = Tables<"daily_report_checklist_items">

@@ -9,7 +9,11 @@ import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
 import { areasImportSpec, type AreaImportRow } from "./_components/areas-import"
 import { checklistImportSpec } from "./_components/checklist-import"
-import type { ActionState, SimpleResult } from "./types"
+import {
+  MAX_ACTIVE_DAILY_AREAS,
+  type ActionState,
+  type SimpleResult,
+} from "./types"
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -43,12 +47,13 @@ function isAreaCapError(err: SupabaseError): boolean {
   // Migration uses raise_exception; PG returns code P0001 with our friendly
   // message. Match on either the code or the message text.
   if (err.code === "P0001") return true
-  return /30 active|maximum.*30|active areas/i.test(err.message ?? "")
+  return /\d+ active|maximum.*\d+|active areas/i.test(err.message ?? "")
 }
 
 function dbError(err: SupabaseError, fallback: string): string {
   if (!err) return fallback
-  if (isAreaCapError(err)) return "Maximum 30 active areas reached."
+  if (isAreaCapError(err))
+    return `Maximum ${MAX_ACTIVE_DAILY_AREAS} active areas reached.`
   if (err.code === "23505") {
     return "That value conflicts with an existing record (duplicate)."
   }
@@ -782,13 +787,19 @@ export async function toggleSubmissionItem(
         return data?.facility_id ?? null
       })())
     if (!facilityId) return { ok: false, error: "Could not resolve facility." }
-    const { error } = await supabase
+    // `.select()` makes a zero-row update detectable (RLS/permission denial or a
+    // stale id returns no rows rather than silently succeeding).
+    const { data, error } = await supabase
       .from("daily_report_submission_items")
       .update({ is_checked })
       .eq("id", submission_item_id)
       .eq("facility_id", facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Item not found." }
     }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
@@ -871,13 +882,19 @@ export async function updateNote(
         return data?.facility_id ?? null
       })())
     if (!facilityId) return { ok: false, error: "Could not resolve facility." }
-    const { error } = await supabase
+    // `.select()` makes a zero-row update detectable (RLS/permission denial or a
+    // stale id returns no rows rather than silently succeeding).
+    const { data, error } = await supabase
       .from("daily_report_notes")
       .update({ body: trimmed })
       .eq("id", note_id)
       .eq("facility_id", facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update note.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Note not found." }
     }
     revalidatePath("/admin/daily-reports")
     return { ok: true }

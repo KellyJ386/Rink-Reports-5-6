@@ -2518,6 +2518,7 @@ COMMENT ON FUNCTION public.resolve_rule_recipients(p_rule_id uuid) IS 'Expands a
 
 CREATE FUNCTION public.schedule_shifts_publish_lock() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
   -- Governed contexts may mutate a published shift:
@@ -2567,6 +2568,7 @@ COMMENT ON FUNCTION public.schedule_shifts_publish_lock() IS 'Publish-lock backs
 
 CREATE FUNCTION public.schedule_swap_set_expiry() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 declare v_hours int; v_shift_start timestamptz;
 begin
@@ -6159,7 +6161,7 @@ COMMENT ON TABLE public.daily_report_submissions IS 'Daily Reports: a single sub
 -- Name: COLUMN daily_report_submissions.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.daily_report_submissions.business_date IS 'Facility-local date of the submission (set server-side at submit time). Unique per (facility, area, template) so same-day re-submission updates the existing report rather than duplicating it.';
+COMMENT ON COLUMN public.daily_report_submissions.business_date IS 'Facility-local date of the submission (set server-side at submit time). A grouping key for a day''s submissions; NOT unique -- daily reports are append-only, so a same-day correction is a new row.';
 
 
 --
@@ -10010,13 +10012,6 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: daily_report_submissions_unique_per_day; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX daily_report_submissions_unique_per_day ON public.daily_report_submissions USING btree (facility_id, area_id, template_id, business_date) WHERE (business_date IS NOT NULL);
 
 
 --

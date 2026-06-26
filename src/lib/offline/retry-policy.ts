@@ -16,12 +16,15 @@ export const MAX_REPLAY_RETRIES = 4
 const RETRY_BACKOFF_MS = [5_000, 15_000, 60_000, 300_000]
 
 // 4xx codes that are actually worth retrying. Everything else in the 4xx range
-// means the request itself is wrong (bad payload, no permission) — retrying the
-// identical body will never succeed, so we park it immediately.
+// means the request itself is wrong (bad payload, no permission, references a
+// record that no longer validates) — retrying the identical body will never
+// succeed, so we park it immediately. In particular 422 is used for a permanent
+// payload-reference failure (e.g. a severity/activity/space deactivated while
+// offline) precisely so it is parked rather than retried.
 //   401 — session may have expired offline; a re-login refreshes the cookie.
 //   408/425/429 — timeout / too-early / rate-limited: back off and retry.
-//   409 — the offline-sync route returns this when a referenced record isn't
-//         resolvable yet; it may appear on a later attempt.
+//   409 — generic conflict that may clear on a later attempt (e.g. a transient
+//         row conflict); retried.
 const TRANSIENT_4XX = new Set([401, 408, 409, 425, 429])
 
 /**

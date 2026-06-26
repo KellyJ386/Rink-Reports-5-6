@@ -115,9 +115,11 @@ export async function persistDaily(
     return { ok: false, error: "You don't have access to submit here." }
   }
 
-  // Resolve the facility-local business date so a same-day re-submit of this
-  // area+template updates the existing report (correction) rather than
-  // duplicating it. A new local day always creates a fresh report.
+  // Resolve the facility-local business date used to group the submission under
+  // the correct day. Daily reports are append-only: every submit — including a
+  // same-day correction — is a NEW row (mirroring refrigeration / air-quality /
+  // ice-depth / ice-operations). A new local day naturally starts fresh, and
+  // past days are never targeted because the form only ever submits for today.
   const { data: facilityRow } = await supabase
     .from("facilities")
     .select("timezone")
@@ -128,59 +130,28 @@ export async function persistDaily(
     facilityRow?.timezone ?? null,
   )
 
-  const { data: existing } = await supabase
-    .from("daily_report_submissions")
-    .select("id")
-    .eq("facility_id", facilityId)
-    .eq("area_id", area_id)
-    .eq("template_id", template_id)
-    .eq("business_date", businessDate)
-    .maybeSingle()
-
-  const isCorrection = existing != null
   const nowIso = new Date().toISOString()
-  let submissionId: string
 
-  // 1. Insert a fresh submission, or update the existing same-day one and clear
-  //    its children so this submit fully replaces them (the correction).
-  if (existing) {
-    const { error: updErr } = await supabase
-      .from("daily_report_submissions")
-      .update({ employee_id: employeeId, submitted_at: nowIso, updated_at: nowIso })
-      .eq("id", existing.id)
-      .eq("facility_id", facilityId)
-    if (updErr) {
-      return { ok: false, error: dbError(updErr, "Failed to update report.") }
-    }
-    submissionId = existing.id as string
-    await supabase
-      .from("daily_report_submission_items")
-      .delete()
-      .eq("submission_id", submissionId)
-    // Replace only the staff-authored note; preserve any admin notes.
-    await supabase
-      .from("daily_report_notes")
-      .delete()
-      .eq("submission_id", submissionId)
-      .eq("is_admin_note", false)
-  } else {
-    const { data: submission, error: subErr } = await supabase
-      .from("daily_report_submissions")
-      .insert({
-        facility_id: facilityId,
-        area_id,
-        template_id,
-        employee_id: employeeId,
-        submitted_at: nowIso,
-        business_date: businessDate,
-      })
-      .select("id")
-      .single()
-    if (subErr || !submission) {
-      return { ok: false, error: dbError(subErr, "Failed to submit report.") }
-    }
-    submissionId = submission.id as string
+  // 1. Insert a fresh submission. We never UPDATE/DELETE an existing same-day
+  //    row: those policies are admin-only under RLS and would silently no-op for
+  //    staff (the bug this append-only model removes). Each correction is a new,
+  //    independently-auditable row.
+  const { data: submission, error: subErr } = await supabase
+    .from("daily_report_submissions")
+    .insert({
+      facility_id: facilityId,
+      area_id,
+      template_id,
+      employee_id: employeeId,
+      submitted_at: nowIso,
+      business_date: businessDate,
+    })
+    .select("id")
+    .single()
+  if (subErr || !submission) {
+    return { ok: false, error: dbError(subErr, "Failed to submit report.") }
   }
+  const submissionId = submission.id as string
 
   // 2. Insert the items (batch). On failure, best-effort delete the submission
   //    to roll back — Supabase REST has no client-side transactions, so we
@@ -202,14 +173,13 @@ export async function persistDaily(
         .from("daily_report_submission_items")
         .insert(itemRows)
       if (itemErr) {
-        // Rollback: best-effort delete the submission row — but only when this
-        // submit created it. For a correction we must not destroy the original.
-        if (!isCorrection) {
-          await supabase
-            .from("daily_report_submissions")
-            .delete()
-            .eq("id", submissionId)
-        }
+        // Rollback: best-effort delete the just-created submission row. Supabase
+        // REST has no client-side transactions, so a failed delete may leave an
+        // orphan submission with no items (documented, accepted risk).
+        await supabase
+          .from("daily_report_submissions")
+          .delete()
+          .eq("id", submissionId)
         return {
           ok: false,
           error: dbError(itemErr, "Failed to save checklist items."),
@@ -230,19 +200,16 @@ export async function persistDaily(
         body: note,
       })
     if (noteErr) {
-      // Rollback: best-effort cascade. For a fresh submit we remove the items
-      // and the shell; for a correction we leave the (updated) shell intact and
-      // only drop this submit's items.
+      // Rollback: best-effort cascade — remove this submit's items and the
+      // just-created shell.
       await supabase
         .from("daily_report_submission_items")
         .delete()
         .eq("submission_id", submissionId)
-      if (!isCorrection) {
-        await supabase
-          .from("daily_report_submissions")
-          .delete()
-          .eq("id", submissionId)
-      }
+      await supabase
+        .from("daily_report_submissions")
+        .delete()
+        .eq("id", submissionId)
       return { ok: false, error: dbError(noteErr, "Failed to save note.") }
     }
   }
