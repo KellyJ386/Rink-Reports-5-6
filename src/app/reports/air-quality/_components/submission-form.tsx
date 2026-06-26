@@ -47,7 +47,6 @@ import {
   type AirQualityFuelType,
   type AirQualityMeasurement,
   type AirQualityReadingKind,
-  type ComplianceRuleForForm,
   type EquipmentForForm,
   type LocationOption,
   type ReadingTypeForm,
@@ -68,7 +67,6 @@ type Props = {
   locations: LocationOption[]
   readingTypes: ReadingTypeForm[]
   equipment: EquipmentForForm[]
-  complianceRules: ComplianceRuleForForm[]
   compliance: FormComplianceContext | null
   frequency: FrequencyStatus | null
 }
@@ -91,7 +89,6 @@ export function SubmissionForm({
   locations,
   readingTypes,
   equipment,
-  complianceRules,
   compliance,
   frequency,
 }: Props) {
@@ -378,55 +375,6 @@ export function SubmissionForm({
             </Select>
           </div>
         </div>
-      ) : null}
-
-      {complianceRules.length > 0 ? (
-        <details
-          open
-          className="group rounded-xl border border-l-4 border-l-module-air bg-card"
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <div className="flex flex-col">
-              <span className="text-base font-semibold">
-                Compliance reference
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {complianceRules.length} active rule
-                {complianceRules.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            <span
-              aria-hidden
-              className="text-muted-foreground transition-transform group-open:rotate-180"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </span>
-          </summary>
-          <div className="flex flex-col gap-3 border-t border-border px-4 py-4">
-            {complianceRules.map((rule) => (
-              <div
-                key={rule.id}
-                className="flex flex-col gap-1 rounded-lg border bg-background p-3"
-              >
-                <div className="text-sm font-semibold">{rule.rule_name}</div>
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {rule.rule_body}
-                </p>
-              </div>
-            ))}
-          </div>
-        </details>
       ) : null}
 
       {availableEquipment.length > 0 ? (
