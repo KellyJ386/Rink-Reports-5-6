@@ -6161,7 +6161,7 @@ COMMENT ON TABLE public.daily_report_submissions IS 'Daily Reports: a single sub
 -- Name: COLUMN daily_report_submissions.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.daily_report_submissions.business_date IS 'Facility-local date of the submission (set server-side at submit time). Unique per (facility, area, template) so same-day re-submission updates the existing report rather than duplicating it.';
+COMMENT ON COLUMN public.daily_report_submissions.business_date IS 'Facility-local date of the submission (set server-side at submit time). A grouping key for a day''s submissions; NOT unique -- daily reports are append-only, so a same-day correction is a new row.';
 
 
 --
