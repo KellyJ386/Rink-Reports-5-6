@@ -19,7 +19,6 @@ import {
   type ComplianceContext,
 } from "./_lib/load-compliance"
 import type {
-  ComplianceRuleForForm,
   EquipmentForForm,
   LocationOption,
   ReadingTypeForm,
@@ -112,14 +111,10 @@ export default async function AirQualityHomePage() {
     )
   }
 
-  const nowIso = new Date().toISOString()
-
   const [
     { data: locationsRaw },
     { data: readingTypesRaw },
     { data: equipmentRaw },
-    { data: settingsRow },
-    { data: rulesRaw },
   ] = await Promise.all([
     // Shared facility-areas list (same source as Incident/Accident Reports).
     supabase
@@ -143,19 +138,6 @@ export default async function AirQualityHomePage() {
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
-    supabase
-      .from("air_quality_settings")
-      .select("default_jurisdiction, alerts_enabled")
-      .eq("facility_id", employeeRow.facility_id)
-      .maybeSingle(),
-    supabase
-      .from("air_quality_compliance_rules")
-      .select(
-        "id, rule_name, rule_body, jurisdiction, is_active, effective_from, effective_to, sort_order"
-      )
-      .eq("facility_id", employeeRow.facility_id)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true }),
   ])
 
   const locations: LocationOption[] = (locationsRaw ?? []).map((l) => ({
@@ -187,20 +169,6 @@ export default async function AirQualityHomePage() {
     name: e.name,
     location_id: e.location_id,
   }))
-
-  const jurisdiction = settingsRow?.default_jurisdiction ?? null
-  const rules: ComplianceRuleForForm[] = (rulesRaw ?? [])
-    .filter((r) => {
-      if (jurisdiction && r.jurisdiction !== jurisdiction) return false
-      if (r.effective_from && r.effective_from > nowIso) return false
-      if (r.effective_to && r.effective_to < nowIso) return false
-      return true
-    })
-    .map((r) => ({
-      id: r.id,
-      rule_name: r.rule_name,
-      rule_body: r.rule_body,
-    }))
 
   // Jurisdiction-aware compliance context + this-week frequency status.
   const complianceCtx = await loadComplianceContext(
@@ -268,7 +236,6 @@ export default async function AirQualityHomePage() {
         locations={locations}
         readingTypes={readingTypes}
         equipment={equipment}
-        complianceRules={rules}
         compliance={formCompliance}
         frequency={frequency}
       />

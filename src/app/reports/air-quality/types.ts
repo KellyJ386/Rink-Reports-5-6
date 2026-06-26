@@ -34,12 +34,6 @@ export type LocationOption = {
   name: string
 }
 
-export type ComplianceRuleForForm = {
-  id: string
-  rule_name: string
-  rule_body: string
-}
-
 /** What the reading was taken in response to (drives frequency tracking). */
 export type AirQualityReadingKind =
   | "routine"
