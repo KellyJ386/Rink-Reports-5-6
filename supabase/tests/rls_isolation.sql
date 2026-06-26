@@ -2757,6 +2757,41 @@ select pg_temp.expect_count(
     where err = 'not_published'$$,
   1, 'SCHED-149: edit RPC refuses a non-published (draft) shift');
 
+-- ---------------------------------------------------------------------------
+-- Drag-and-drop move regression (admin scheduling grid keyboard/pointer DnD).
+--
+-- A drag-move persists by writing starts_at/ends_at via updateGridShift. That
+-- is a DIRECT end-user write, so the publish-lock must reject relocating a
+-- PUBLISHED shift even for an authorized scheduling admin (Carol) — the client
+-- affordance is UX only; the DB trigger is the boundary. And a cross-facility
+-- drag-move must be scoped away by RLS (0 rows), never silently applied.
+-- Guards the new drag-persistence path added alongside the dnd-kit refit.
+-- (Role here is still Carol / facility A, authenticated, from section 2Q.)
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_error(
+  $$update public.schedule_shifts
+       set starts_at = now() + interval '5 days',
+           ends_at   = now() + interval '5 days 4 hours'
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
+  'SCHED-DND: direct drag-move (starts_at/ends_at) of a PUBLISHED shift is rejected (publish-lock)');
+-- Cross-facility drag-move: Carol (facility A) targets a facility-B shift. RLS's
+-- USING clause filters it out, so the statement runs but touches 0 rows.
+select pg_temp.expect_ok(
+  $$update public.schedule_shifts
+       set starts_at = now() + interval '5 days'
+     where id = 'bbbb2222-5511-bbbb-bbbb-bbbb22220083'$$,
+  'SCHED-DND: cross-facility drag-move runs but RLS scopes it to 0 rows');
+
+reset role;
+
+-- Verify (as owner) the facility-B shift was NOT relocated by the cross-facility
+-- move above — its start is still its seeded value (~now), not now()+5 days.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'bbbb2222-5511-bbbb-bbbb-bbbb22220083'
+       and starts_at < now() + interval '1 day'$$,
+  1, 'SCHED-DND: facility-B shift was NOT relocated by a cross-facility drag-move');
 reset role;
 
 -- Staff (Alice): cannot override and cannot read the override audit log.
