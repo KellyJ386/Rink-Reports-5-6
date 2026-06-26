@@ -59,6 +59,7 @@ import {
   DensitySwitcher,
   KpiStrip,
   Legend,
+  PositionFilter,
   ShiftDetail,
   ToolbarToggle,
 } from "./board-pieces"
@@ -139,6 +140,8 @@ export function WeekBoard(props: WeekBoardProps) {
   const [heatmap, setHeatmap] = useState(false)
   const [showTemplate, setShowTemplate] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // View-state only: narrows which events the grids render. `null` = all.
+  const [positionFilter, setPositionFilter] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   // Popover (create/edit) state + advisory warnings.
@@ -187,6 +190,16 @@ export function WeekBoard(props: WeekBoardProps) {
     [props.swapShiftIds],
   )
 
+  // Position filter (view-state): narrows the events fed to the grids and the
+  // week-scoped derivations so the whole board stays consistent with the chip.
+  const viewEvents = useMemo(
+    () =>
+      positionFilter
+        ? events.filter((e) => e.jobAreaId === positionFilter)
+        : events,
+    [events, positionFilter],
+  )
+
   // Visible-week window (local) for KPI + crew tallies.
   const weekWindow = useMemo(() => {
     const start = view === "day" ? anchor : weekStart
@@ -197,12 +210,12 @@ export function WeekBoard(props: WeekBoardProps) {
 
   const weekEvents = useMemo(
     () =>
-      events.filter(
+      viewEvents.filter(
         (e) =>
           e.start.getTime() >= weekWindow.startMs &&
           e.start.getTime() < weekWindow.endMs,
       ),
-    [events, weekWindow],
+    [viewEvents, weekWindow],
   )
 
   const scheduledHours = useMemo(
@@ -778,9 +791,16 @@ export function WeekBoard(props: WeekBoardProps) {
         </Button>
       </div>
 
+      <PositionFilter
+        jobAreas={props.jobAreas}
+        jobAreaOrder={jobAreaOrder}
+        value={positionFilter}
+        onChange={setPositionFilter}
+      />
+
       {view === "month" ? (
         <MonthGrid
-          events={events}
+          events={viewEvents}
           employees={props.employees}
           jobAreaOrder={jobAreaOrder}
           jobAreaNameById={jobAreaNameById}
@@ -793,7 +813,7 @@ export function WeekBoard(props: WeekBoardProps) {
       /* Grid + right rail */
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <WeekGrid
-          events={events}
+          events={viewEvents}
           employees={props.employees}
           jobAreaOrder={jobAreaOrder}
           days={days}
