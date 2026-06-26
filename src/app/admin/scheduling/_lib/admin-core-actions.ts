@@ -7,21 +7,11 @@ import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { addDaysToKey, wallTimeToUtc } from "@/lib/timezone"
 
-import {
-  complianceWeekWindow,
-  evaluateComplianceWarnings,
-  type EmployeeForCompliance,
-  type SettingsForCompliance,
-  type ShiftForHours,
-} from "./compliance"
-import { assertAssignable, formatViolations } from "./enforcement"
+import { formatViolations } from "./enforcement"
 import type {
   ActionState,
-  CreateShiftInput,
   CreateTemplateInput,
   CreateTemplateShiftInput,
-  ShiftStatus,
-  UpdateShiftInput,
 } from "./types"
 
 // ---------------------------------------------------------------------------
@@ -71,92 +61,7 @@ async function resolveAdminContext(): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Compliance computation (pure math lives in ./compliance — unit-tested)
-// ---------------------------------------------------------------------------
-
-type ComplianceContext = {
-  facilityId: string
-  settings: SettingsForCompliance | null
-  employee: EmployeeForCompliance | null
-  timezone: string | null
-  weekStartDay: number
-}
-
-async function computeComplianceWarnings(
-  shift: {
-    starts_at: string
-    ends_at: string
-    break_minutes: number | null
-    employee_id: string | null
-  },
-  ctx: ComplianceContext,
-  excludeShiftId: string | null
-): Promise<string[]> {
-  if (!shift.employee_id || !ctx.employee || !ctx.settings) return []
-
-  const window = complianceWeekWindow(shift.starts_at, {
-    timezone: ctx.timezone,
-    weekStartDay: ctx.weekStartDay,
-  })
-
-  const supabase = await createClient()
-  let query = supabase
-    .from("schedule_shifts")
-    .select("starts_at, ends_at, break_minutes")
-    .eq("employee_id", shift.employee_id)
-    .eq("facility_id", ctx.facilityId)
-    .in("status", ["draft", "published"])
-    .gte("starts_at", window.startIso)
-    .lt("starts_at", window.endIso)
-  if (excludeShiftId) query = query.neq("id", excludeShiftId)
-
-  const { data: existing } = await query
-  return evaluateComplianceWarnings({
-    shift,
-    otherShifts: (existing ?? []) as ShiftForHours[],
-    settings: ctx.settings,
-    employee: ctx.employee,
-  })
-}
-
-async function loadComplianceContext(
-  facilityId: string,
-  employeeId: string | null
-): Promise<ComplianceContext> {
-  const supabase = await createClient()
-  const [settingsRes, facilityRes] = await Promise.all([
-    supabase
-      .from("schedule_settings")
-      .select("minor_max_weekly_hours, overtime_weekly_hours, week_start_day")
-      .eq("facility_id", facilityId)
-      .maybeSingle<SettingsForCompliance & { week_start_day: number | null }>(),
-    supabase
-      .from("facilities")
-      .select("timezone")
-      .eq("id", facilityId)
-      .maybeSingle<{ timezone: string | null }>(),
-  ])
-
-  let employee: EmployeeForCompliance | null = null
-  if (employeeId) {
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id, is_minor")
-      .eq("id", employeeId)
-      .maybeSingle<EmployeeForCompliance>()
-    employee = emp ?? null
-  }
-  return {
-    facilityId,
-    settings: settingsRes.data ?? null,
-    employee,
-    timezone: facilityRes.data?.timezone ?? null,
-    weekStartDay: settingsRes.data?.week_start_day ?? 0,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Shift form parsing (server actions accept FormData)
+// Form parsing (server actions accept FormData)
 // ---------------------------------------------------------------------------
 
 function nonEmpty(value: FormDataEntryValue | null): string | null {
@@ -172,213 +77,18 @@ function parseInt0(value: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function parseStatus(value: FormDataEntryValue | null): ShiftStatus {
-  const s = nonEmpty(value) ?? "draft"
-  if (s === "published" || s === "cancelled") return s
-  return "draft"
-}
-
-function isoFromLocal(value: FormDataEntryValue | null): string | null {
-  const s = nonEmpty(value)
-  if (!s) return null
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? null : d.toISOString()
-}
-
-function parseShiftInput(
-  formData: FormData
-): { ok: true; value: CreateShiftInput } | { ok: false; error: string } {
-  const department_id = nonEmpty(formData.get("department_id"))
-  if (!department_id) return { ok: false, error: "Department is required." }
-
-  const employeeRaw = nonEmpty(formData.get("employee_id"))
-  const employee_id = employeeRaw === "__open__" ? null : employeeRaw
-
-  const starts_at = isoFromLocal(formData.get("starts_at"))
-  if (!starts_at) return { ok: false, error: "Start time is required." }
-  const ends_at = isoFromLocal(formData.get("ends_at"))
-  if (!ends_at) return { ok: false, error: "End time is required." }
-  if (new Date(ends_at).getTime() <= new Date(starts_at).getTime()) {
-    return { ok: false, error: "End must be after start." }
-  }
-
-  return {
-    ok: true,
-    value: {
-      department_id,
-      job_area_id: nonEmpty(formData.get("job_area_id")),
-      employee_id,
-      starts_at,
-      ends_at,
-      break_minutes: Math.max(0, parseInt0(formData.get("break_minutes")) ?? 0),
-      role_label: nonEmpty(formData.get("role_label")),
-      notes: nonEmpty(formData.get("notes")),
-      status: parseStatus(formData.get("status")),
-    },
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Shift actions
 // ---------------------------------------------------------------------------
-
-export async function createShift(
-  _prev: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  try {
-    const ctx = await resolveAdminContext()
-    if (!ctx.ok) return { ok: false, error: ctx.error }
-
-    const parsed = parseShiftInput(formData)
-    if (!parsed.ok) return { ok: false, error: parsed.error }
-    const input = parsed.value
-
-    const complianceCtx = await loadComplianceContext(
-      ctx.facilityId,
-      input.employee_id
-    )
-    const warnings = await computeComplianceWarnings(input, complianceCtx, null)
-
-    const supabase = await createClient()
-
-    // Hard block: refuse to create a shift that violates an active rule,
-    // availability, approved time-off, double-booking, qualification, or a
-    // required certification.
-    const gate = await assertAssignable(supabase, {
-      facilityId: ctx.facilityId,
-      employeeId: input.employee_id,
-      startsAt: input.starts_at,
-      endsAt: input.ends_at,
-      breakMinutes: input.break_minutes,
-      jobAreaId: input.job_area_id,
-      excludeShiftId: null,
-    })
-    if (!gate.ok) return { ok: false, error: gate.error }
-
-    const { error } = await supabase.from("schedule_shifts").insert({
-      facility_id: ctx.facilityId,
-      department_id: input.department_id,
-      job_area_id: input.job_area_id,
-      employee_id: input.employee_id,
-      starts_at: input.starts_at,
-      ends_at: input.ends_at,
-      break_minutes: input.break_minutes ?? 0,
-      role_label: input.role_label,
-      notes: input.notes,
-      status: input.status,
-      compliance_warnings: warnings,
-    })
-
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to create shift.") }
-    }
-
-    revalidatePath("/admin/scheduling/shifts")
-    revalidatePath("/admin/scheduling")
-    return { ok: true, message: "Shift created." }
-  } catch (e) {
-    logServerError("admin/scheduling/_lib/admin-core-actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function updateShift(
-  _prev: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  try {
-    const ctx = await resolveAdminContext()
-    if (!ctx.ok) return { ok: false, error: ctx.error }
-
-    const id = nonEmpty(formData.get("id"))
-    if (!id) return { ok: false, error: "Missing shift id." }
-
-    const parsed = parseShiftInput(formData)
-    if (!parsed.ok) return { ok: false, error: parsed.error }
-    const input: UpdateShiftInput & CreateShiftInput = parsed.value
-
-    const complianceCtx = await loadComplianceContext(
-      ctx.facilityId,
-      input.employee_id
-    )
-    const warnings = await computeComplianceWarnings(input, complianceCtx, id)
-
-    const supabase = await createClient()
-
-    // Hard block (exclude this shift from its own weekly-hours total).
-    const gate = await assertAssignable(supabase, {
-      facilityId: ctx.facilityId,
-      employeeId: input.employee_id,
-      startsAt: input.starts_at,
-      endsAt: input.ends_at,
-      breakMinutes: input.break_minutes,
-      jobAreaId: input.job_area_id,
-      excludeShiftId: id,
-    })
-    if (!gate.ok) return { ok: false, error: gate.error }
-
-    const { error } = await supabase
-      .from("schedule_shifts")
-      .update({
-        department_id: input.department_id,
-        job_area_id: input.job_area_id,
-        employee_id: input.employee_id,
-        starts_at: input.starts_at,
-        ends_at: input.ends_at,
-        break_minutes: input.break_minutes ?? 0,
-        role_label: input.role_label,
-        notes: input.notes,
-        status: input.status,
-        compliance_warnings: warnings,
-      })
-      .eq("id", id)
-      .eq("facility_id", ctx.facilityId)
-
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to update shift.") }
-    }
-
-    revalidatePath("/admin/scheduling/shifts")
-    revalidatePath("/admin/scheduling")
-    return { ok: true, message: "Shift updated." }
-  } catch (e) {
-    logServerError("admin/scheduling/_lib/admin-core-actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
-
-export async function deleteShift(id: string): Promise<ActionState> {
-  try {
-    const ctx = await resolveAdminContext()
-    if (!ctx.ok) return { ok: false, error: ctx.error }
-    if (!id) return { ok: false, error: "Missing shift id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("schedule_shifts")
-      .delete()
-      .eq("id", id)
-      .eq("facility_id", ctx.facilityId)
-    if (error) {
-      return { ok: false, error: dbError(error, "Failed to delete shift.") }
-    }
-    revalidatePath("/admin/scheduling/shifts")
-    revalidatePath("/admin/scheduling")
-    return { ok: true, message: "Shift deleted." }
-  } catch (e) {
-    logServerError("admin/scheduling/_lib/admin-core-actions", e)
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Unknown error.",
-    }
-  }
-}
+//
+// NOTE: direct create/update/delete of individual shifts is owned by the
+// scheduling grid (`./grid-actions.ts`), which routes published-shift mutations
+// through the audited `scheduling_admin_edit_published_shift` /
+// `scheduling_admin_cancel_shift` SECURITY DEFINER RPCs (respecting the
+// migration-148 publish lock). The legacy `createShift` / `updateShift` /
+// `deleteShift` form actions that used to live here were unwired and bypassed
+// that routing, so they were removed. The open-shift assignment / claim / cancel
+// actions below remain in use by the hub UI.
 
 type AdminAssignOpenRpcResult = {
   ok?: boolean

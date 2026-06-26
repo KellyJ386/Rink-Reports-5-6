@@ -104,7 +104,7 @@ export function OfflineQueueView() {
           <span
             className={cn(
               "inline-flex h-2 w-2 rounded-full",
-              isOnline ? "bg-green-500" : "bg-amber-500"
+              isOnline ? "bg-success" : "bg-warning"
             )}
             aria-hidden
           />
@@ -133,7 +133,7 @@ export function OfflineQueueView() {
       {!hasItems && (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-            <CheckCircle2 className="h-8 w-8 text-green-500" aria-hidden />
+            <CheckCircle2 className="h-8 w-8 text-success" aria-hidden />
             <p className="font-medium">Queue is empty</p>
             <p className="text-sm text-muted-foreground">
               All submissions have been synced.

@@ -2518,6 +2518,7 @@ COMMENT ON FUNCTION public.resolve_rule_recipients(p_rule_id uuid) IS 'Expands a
 
 CREATE FUNCTION public.schedule_shifts_publish_lock() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
   -- Governed contexts may mutate a published shift:
@@ -2567,6 +2568,7 @@ COMMENT ON FUNCTION public.schedule_shifts_publish_lock() IS 'Publish-lock backs
 
 CREATE FUNCTION public.schedule_swap_set_expiry() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 declare v_hours int; v_shift_start timestamptz;
 begin
@@ -10010,13 +10012,6 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: daily_report_submissions_unique_per_day; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX daily_report_submissions_unique_per_day ON public.daily_report_submissions USING btree (facility_id, area_id, template_id, business_date) WHERE (business_date IS NOT NULL);
 
 
 --

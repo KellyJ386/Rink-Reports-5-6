@@ -55,6 +55,17 @@ describe("classifyReplayResult", () => {
     })
   })
 
+  it("parks a 422 payload-reference failure immediately (incident ref mismatch)", () => {
+    // The offline-sync route returns 422 when a queued incident references a
+    // severity/activity/space that was deactivated while offline — permanent,
+    // so it must not burn the transient retry budget.
+    expect(classifyReplayResult(false, 422, 0, NOW)).toEqual({
+      kind: "failed",
+      retryCount: 1,
+      permanent: true,
+    })
+  })
+
   it("schedules a backoff retry for a 500 with the right delay ladder", () => {
     expect(classifyReplayResult(false, 500, 0, NOW)).toEqual({
       kind: "retry",

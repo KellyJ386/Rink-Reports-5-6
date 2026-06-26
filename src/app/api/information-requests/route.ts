@@ -113,6 +113,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // The `information_requests_insert` RLS policy is intentionally
+  // `with check (true)` for the anon/authenticated roles: this is a PUBLIC,
+  // unauthenticated sales-lead inbox, so there is no session/tenant to scope the
+  // insert against. It is NOT an open door — the table holds no tenant data, and
+  // writes are defended by the IP rate limit above (check_rate_limit) plus the
+  // per-field length caps (LIMITS, mirrored by CHECK constraints). SELECT/UPDATE/
+  // DELETE remain super-admin-only. Keep this the only writer of the table.
   const { error } = await supabase
     .from("information_requests")
     .insert({

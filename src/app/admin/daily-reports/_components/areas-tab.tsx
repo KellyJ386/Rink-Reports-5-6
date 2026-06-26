@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { deleteArea, importAreas, reorderArea, setAreaActive } from "../actions"
-import type { AreaRow } from "../types"
+import { MAX_ACTIVE_DAILY_AREAS, type AreaRow } from "../types"
 
 import { areasImportSpec } from "./areas-import"
 import { AreaForm } from "./area-form"
@@ -30,7 +30,7 @@ export function AreasTab({ areas }: Props) {
 
   const router = useRouter()
   const activeCount = areas.filter((a) => a.is_active).length
-  const atCap = activeCount >= 30
+  const atCap = activeCount >= MAX_ACTIVE_DAILY_AREAS
 
   const importSchema = useMemo<ImportSchema>(
     () => ({
@@ -79,7 +79,8 @@ export function AreasTab({ areas }: Props) {
             <CardDescription>
               Areas are the tabs that staff see on the Daily Reports page (e.g.
               &ldquo;Ice Resurfacer Room&rdquo;, &ldquo;Locker Rooms&rdquo;,
-              &ldquo;Concessions&rdquo;). You can create up to 30 active areas.
+              &ldquo;Concessions&rdquo;). You can create up to{" "}
+              {MAX_ACTIVE_DAILY_AREAS} active areas.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -107,7 +108,7 @@ export function AreasTab({ areas }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <Badge variant={atCap ? "warning" : "secondary"}>
-            {activeCount} / 30 active
+            {activeCount} / {MAX_ACTIVE_DAILY_AREAS} active
           </Badge>
           <span className="text-muted-foreground text-sm">
             {areas.length} total
@@ -234,7 +235,7 @@ export function AreasTab({ areas }: Props) {
                           disabled={isPending || atCap}
                           title={
                             atCap
-                              ? "30-area cap reached"
+                              ? `${MAX_ACTIVE_DAILY_AREAS}-area cap reached`
                               : undefined
                           }
                         >

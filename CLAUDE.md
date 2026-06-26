@@ -61,7 +61,7 @@ Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` and `
 
 2. Inside server components / route handlers, **always go through `src/lib/auth`** rather than calling Supabase directly:
    - `getCurrentUser()` — returns `{ authUser, profile } | null`. Wrapped in React `cache()` so layout + page share one DB round-trip.
-   - `requireUser()` / `requireAdmin()` — server-only guards that `redirect("/login")` or `redirect("/forbidden")`. `requireAdmin` allows `users.is_super_admin = true` OR an active `employees` row with `role.key in (admin, gm, super_admin)`, scoped to the user's `facility_id` if set.
+   - `requireUser()` / `requireAdmin()` — server-only guards that `redirect("/login")` or `redirect("/forbidden")`. `requireAdmin` allows `users.is_super_admin = true`, OR (primary, permission-model check) an enabled `user_permissions` row for `module_name = 'admin'` / `action = 'admin'` in the user's `facility_id`, OR (fallback for accounts not yet backfilled into `user_permissions`) an active `employees` row whose `role.key in (admin, super_admin)`. The role set is the **live** model: roles are `super_admin / admin / manager / staff` (plus per-facility custom roles such as `driver`) — `gm`/`supervisor` were retired (migrations 58/87; `gm` folded into `admin`). Authorization is resolved through `user_permissions`, not a fixed role tier; roles only seed permission defaults.
    The `/forbidden` route exists specifically so admin-denied users get a real message instead of a login bounce.
 
 ### Supabase clients (pick the right one)
