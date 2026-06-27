@@ -275,6 +275,81 @@ export function Legend({
 }
 
 // ---------------------------------------------------------------------------
+// Position filter (clickable job-area chips above the grid)
+// ---------------------------------------------------------------------------
+
+/**
+ * Single-select filter over job areas ("positions"). Pure view-state: the
+ * selected id is lifted into the board and used to narrow which events the
+ * grids render — it never mutates shift data. `null` = "All positions".
+ */
+export function PositionFilter({
+  jobAreas,
+  jobAreaOrder,
+  value,
+  onChange,
+}: {
+  jobAreas: JobAreaLite[]
+  jobAreaOrder: Map<string, number>
+  value: string | null
+  onChange: (next: string | null) => void
+}) {
+  if (jobAreas.length === 0) return null
+
+  const chip =
+    "flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+  const activeChip = "border-primary bg-primary text-primary-foreground"
+  const idleChip = "border-border bg-card text-foreground hover:bg-accent"
+
+  return (
+    <div
+      role="group"
+      aria-label="Filter schedule by position"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      <span className="mr-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+        Position
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        aria-pressed={value === null}
+        className={cn(chip, value === null ? activeChip : idleChip)}
+      >
+        All positions
+      </button>
+      {jobAreas.map((j) => {
+        const active = value === j.id
+        const c = shiftColor(
+          { jobAreaId: j.id, employeeId: "x" } as GridEvent,
+          "jobArea",
+          jobAreaOrder,
+        )
+        return (
+          <button
+            key={j.id}
+            type="button"
+            onClick={() => onChange(active ? null : j.id)}
+            aria-pressed={active}
+            className={cn(chip, active ? activeChip : idleChip)}
+          >
+            <span
+              aria-hidden
+              className="h-2.5 w-2.5 rounded-full border"
+              style={{
+                background: active ? "var(--primary-foreground)" : c.bg,
+                borderColor: active ? "var(--primary-foreground)" : c.edge,
+              }}
+            />
+            {j.name}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Crew roster
 // ---------------------------------------------------------------------------
 

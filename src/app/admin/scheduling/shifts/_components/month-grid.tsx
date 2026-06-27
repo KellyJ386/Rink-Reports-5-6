@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -127,6 +127,20 @@ export function MonthGrid({
   const today = useMemo(() => new Date(), [])
   const month = anchor.getMonth()
 
+  // Per-day expand view-state: which day cells reveal their full shift stack
+  // instead of the capped preview. Pure view-state — never touches shift data.
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const toggleDay = useCallback((key: string) => {
+    setExpandedDays((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="grid grid-cols-7 border-b border-border bg-muted/40">
@@ -143,16 +157,37 @@ export function MonthGrid({
         {gridDays.map((day) => {
           const inMonth = day.getMonth() === month
           const isToday = sameDay(day, today)
-          const dayEvents = eventsByDay.get(dayKey(day)) ?? []
-          const visible = dayEvents.slice(0, MAX_CHIPS_PER_DAY)
+          const key = dayKey(day)
+          const dayEvents = eventsByDay.get(key) ?? []
+          const isExpanded = expandedDays.has(key)
+          const visible =
+            isExpanded || dayEvents.length <= MAX_CHIPS_PER_DAY
+              ? dayEvents
+              : dayEvents.slice(0, MAX_CHIPS_PER_DAY)
           const overflow = dayEvents.length - visible.length
+          const dayLabel = day.toLocaleDateString("en-US", {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          })
           return (
-            <button
-              key={dayKey(day)}
-              type="button"
+            // Day cell navigates to the week view; a div (not a button) so the
+            // expand control below can be a real nested button. Keyboard-
+            // accessible via role/tabIndex + Enter/Space.
+            <div
+              key={key}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${dayLabel} in week view`}
               onClick={() => onSelectDay(day)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  onSelectDay(day)
+                }
+              }}
               className={cn(
-                "flex min-h-[7rem] flex-col gap-1 border-b border-r border-border/70 p-1.5 text-left transition-colors hover:bg-accent/50",
+                "flex min-h-[7rem] flex-col gap-1 border-b border-r border-border/70 p-1.5 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                 !inMonth && "bg-muted/30 text-muted-foreground",
               )}
             >
@@ -201,13 +236,26 @@ export function MonthGrid({
                     </span>
                   )
                 })}
-                {overflow > 0 ? (
-                  <span className="px-1 text-[11px] font-medium text-muted-foreground">
-                    +{overflow} more
-                  </span>
+                {dayEvents.length > MAX_CHIPS_PER_DAY ? (
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    aria-label={
+                      isExpanded
+                        ? `Collapse ${dayLabel}`
+                        : `Show all ${dayEvents.length} shifts on ${dayLabel}`
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleDay(key)
+                    }}
+                    className="rounded-md px-1 py-0.5 text-left text-[11px] font-semibold text-foreground-strong underline-offset-2 transition-colors hover:bg-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {isExpanded ? "Show less" : `+${overflow} more`}
+                  </button>
                 ) : null}
               </div>
-            </button>
+            </div>
           )
         })}
       </div>
