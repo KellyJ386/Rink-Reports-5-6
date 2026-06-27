@@ -147,7 +147,7 @@ export function TemplateShiftForm(props: Props) {
             name="start_time"
             type="time"
             required
-            defaultValue={editing?.start_time?.slice(0, 5) ?? ""}
+            defaultValue={editing?.start_time?.slice(0, 5) ?? "09:00"}
           />
         </div>
         <div className="flex flex-col gap-1.5">
@@ -157,7 +157,7 @@ export function TemplateShiftForm(props: Props) {
             name="end_time"
             type="time"
             required
-            defaultValue={editing?.end_time?.slice(0, 5) ?? ""}
+            defaultValue={editing?.end_time?.slice(0, 5) ?? "17:00"}
           />
         </div>
         <div className="flex flex-col gap-1.5">
