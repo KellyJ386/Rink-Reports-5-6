@@ -303,20 +303,24 @@ async function gateShiftWrite(
 ): Promise<{ ok: true } | { ok: false; error: string; gate?: GridGate }> {
   if (!args.employeeId) return { ok: true }
 
-  const { codes, capWarning } = await computeShiftSignals(supabase, {
-    facilityId,
-    employeeId: args.employeeId,
-    startsAt: args.startsAt,
-    endsAt: args.endsAt,
-    breakMinutes: args.breakMinutes,
-    jobAreaId: args.jobAreaId,
-    excludeShiftId: args.excludeShiftId,
-  })
+  const { codes, capWarning, boundsWarning } = await computeShiftSignals(
+    supabase,
+    {
+      facilityId,
+      employeeId: args.employeeId,
+      startsAt: args.startsAt,
+      endsAt: args.endsAt,
+      breakMinutes: args.breakMinutes,
+      jobAreaId: args.jobAreaId,
+      excludeShiftId: args.excludeShiftId,
+    }
+  )
 
   const { cert, advisory } = partitionViolations(codes)
   const advisoryWarnings = [
     ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
     ...(capWarning ? [capWarning] : []),
+    ...(boundsWarning ? [boundsWarning] : []),
   ]
   const certWarnings = cert.map((c) => capitalize(describeViolation(c)) + ".")
 
@@ -643,7 +647,7 @@ export async function previewShiftWarnings(
     const v = parsed.data
 
     const supabase = await createClient()
-    const [{ codes, capWarning }, blocking] = await Promise.all([
+    const [{ codes, capWarning, boundsWarning }, blocking] = await Promise.all([
       computeShiftSignals(supabase, {
         facilityId: ctx.facilityId,
         employeeId: v.employee_id,
@@ -661,6 +665,7 @@ export async function previewShiftWarnings(
     const advisoryWarnings = [
       ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
       ...(capWarning ? [capWarning] : []),
+      ...(boundsWarning ? [boundsWarning] : []),
     ]
     return {
       ok: true,

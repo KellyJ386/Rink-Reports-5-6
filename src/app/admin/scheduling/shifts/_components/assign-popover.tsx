@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils"
 
 import type { EmployeeLite, JobAreaLite } from "../../_lib/types"
+import { isEndAfterStart, toTimeInput, withTime } from "../_lib/time-edit"
 
 export const OPEN_VALUE = "__open__"
 export const NONE_VALUE = "__none__"
@@ -37,10 +38,6 @@ export type PopoverState =
       /** True when editing a published shift — saving republishes it. */
       published?: boolean
     }
-
-function formatRange(start: Date, end: Date): string {
-  return `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`
-}
 
 export type SaveOpts = {
   overrideCert?: boolean
@@ -94,6 +91,8 @@ export function AssignPopover({
   const advisoryBlockedByPolicy = warningsBlocking && advisoryWarnings.length > 0
   const needsConfirm =
     !certBlocked && !advisoryBlockedByPolicy && advisoryWarnings.length > 0
+  // Client-side end-after-start guard (server + DB CHECK enforce it too).
+  const endAfterStart = isEndAfterStart(state.start, state.end)
   const [templateMode, setTemplateMode] = useState(false)
   const [templateName, setTemplateName] = useState("")
   const [overrideReason, setOverrideReason] = useState("")
@@ -113,8 +112,7 @@ export function AssignPopover({
             {state.mode === "create" ? "New shift" : "Edit shift"}
           </h3>
           <p className="text-sm text-muted-foreground">
-            {format(state.start, "EEE, MMM d")} ·{" "}
-            {formatRange(state.start, state.end)}
+            {format(state.start, "EEE, MMM d")}
           </p>
           {state.mode === "edit" && state.published ? (
             <p className="mt-1 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
@@ -125,6 +123,50 @@ export function AssignPopover({
         </div>
 
         <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Start time</span>
+              <Input
+                type="time"
+                value={toTimeInput(state.start)}
+                onChange={(e) =>
+                  onChange({ ...state, start: withTime(state.start, e.target.value) })
+                }
+                aria-label="Shift start time"
+                aria-invalid={!endAfterStart}
+                className={cn(
+                  "h-11 font-mono tabular-nums focus-visible:ring-primary",
+                  !endAfterStart && "border-destructive",
+                )}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">End time</span>
+              <Input
+                type="time"
+                value={toTimeInput(state.end)}
+                onChange={(e) =>
+                  onChange({ ...state, end: withTime(state.end, e.target.value) })
+                }
+                aria-label="Shift end time"
+                aria-invalid={!endAfterStart}
+                className={cn(
+                  "h-11 font-mono tabular-nums focus-visible:ring-primary",
+                  !endAfterStart && "border-destructive",
+                )}
+              />
+            </label>
+          </div>
+
+          {!endAfterStart ? (
+            <p
+              role="alert"
+              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              End time must be after start time.
+            </p>
+          ) : null}
+
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium">Employee</span>
             <Select
@@ -315,7 +357,7 @@ export function AssignPopover({
               <Button
                 type="button"
                 variant="destructive"
-                disabled={pending}
+                disabled={pending || !endAfterStart}
                 onClick={() =>
                   onSave({
                     overrideCert: true,
@@ -329,7 +371,7 @@ export function AssignPopover({
             ) : (
               <Button
                 type="button"
-                disabled={pending || advisoryBlockedByPolicy}
+                disabled={pending || advisoryBlockedByPolicy || !endAfterStart}
                 onClick={() =>
                   onSave(needsConfirm ? { acknowledgeWarnings: true } : undefined)
                 }

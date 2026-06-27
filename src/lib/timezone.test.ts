@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
-import { addDaysToKey, dayKeyInTz, dayPartsInTz, wallTimeToUtc } from "./timezone"
+import {
+  addDaysToKey,
+  dayKeyInTz,
+  dayPartsInTz,
+  minutesOfDayInTz,
+  wallTimeToUtc,
+} from "./timezone"
 
 describe("wallTimeToUtc", () => {
   it("converts a facility-local wall time to the correct UTC instant (EST)", () => {
@@ -95,6 +101,21 @@ describe("dayPartsInTz", () => {
     // Same instant in UTC is Friday Jan 16.
     const q = dayPartsInTz("2026-01-16T02:00:00.000Z", "UTC")
     expect(q).toEqual({ dayOfWeek: 5, dayOfMonth: 16 })
+  })
+})
+
+describe("minutesOfDayInTz", () => {
+  it("returns facility-local minutes since midnight", () => {
+    // 2026-01-16T02:00Z = 21:00 (9pm) the previous day in New York.
+    expect(minutesOfDayInTz("2026-01-16T02:00:00.000Z", "America/New_York")).toBe(
+      21 * 60,
+    )
+    // Same instant is 02:00 in UTC.
+    expect(minutesOfDayInTz("2026-01-16T02:00:00.000Z", "UTC")).toBe(2 * 60)
+  })
+  it("handles a half-hour and midnight cleanly", () => {
+    expect(minutesOfDayInTz("2026-06-01T17:30:00.000Z", "UTC")).toBe(17 * 60 + 30)
+    expect(minutesOfDayInTz("2026-06-01T00:00:00.000Z", "UTC")).toBe(0)
   })
 })
 
