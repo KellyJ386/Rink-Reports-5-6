@@ -2774,6 +2774,16 @@ select pg_temp.expect_error(
            ends_at   = now() + interval '5 days 4 hours'
      where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
   'SCHED-DND: direct drag-move (starts_at/ends_at) of a PUBLISHED shift is rejected (publish-lock)');
+-- Time edit invariant: end must be after start. The saved-shift time editor
+-- (and the move/resize paths) all persist starts_at/ends_at; a direct write with
+-- ends_at <= starts_at is rejected by the schedule_shifts_time_order_chk CHECK,
+-- so a bypassed client guard can't persist an inverted shift. Targets the
+-- editable DRAFT shift (Carol can update it; the CHECK still fires).
+select pg_temp.expect_error(
+  $$update public.schedule_shifts
+       set ends_at = starts_at - interval '1 hour'
+     where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
+  'SCHED-DND: a time edit with end <= start is rejected (time-order CHECK)');
 -- Cross-facility drag-move: Carol (facility A) targets a facility-B shift. RLS's
 -- USING clause filters it out, so the statement runs but touches 0 rows.
 select pg_temp.expect_ok(
