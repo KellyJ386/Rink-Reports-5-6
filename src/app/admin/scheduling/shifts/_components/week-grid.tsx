@@ -210,6 +210,14 @@ export function WeekGrid(props: WeekGridProps) {
   ) {
     if (e.button !== 0) return
     e.stopPropagation()
+    // Published shifts are publish-locked: no casual drag-move on the grid. A
+    // pointer-down just selects, so the deliberate, governed republish edit
+    // (the popover, which warns it re-notifies staff) stays the only way to
+    // change them. The server + DB enforce the lock regardless of this guard.
+    if (p.ev.status === "published") {
+      onSelect(p.ev.id)
+      return
+    }
     const { hour, day } = pointToDayHour(e.clientX, e.clientY)
     startCapture(e.pointerId)
     setDrag({
@@ -600,16 +608,20 @@ export function WeekGrid(props: WeekGridProps) {
             const showTime = height >= 32
             const showRole = height >= 52
             const who = emp ? emp.first_name : "Open"
+            const isPublished = p.ev.status === "published"
 
             return (
               <ShiftBlock
                 key={p.ev.id}
                 id={p.ev.id}
                 pointerDragging={isPointerDragging}
-                published={p.ev.status === "published"}
-                ariaLabel={`${who} shift, ${fmtHour(s)} to ${fmtHour(e)}${
-                  p.ev.status === "published" ? ", published" : ""
-                }. Press space to move, arrow keys to reposition.`}
+                published={isPublished}
+                onActivate={() => onSelect(p.ev.id)}
+                ariaLabel={
+                  isPublished
+                    ? `${who} shift, ${fmtHour(s)} to ${fmtHour(e)}, published and locked. Press Enter to open and republish.`
+                    : `${who} shift, ${fmtHour(s)} to ${fmtHour(e)}. Press space to move, arrow keys to reposition.`
+                }
                 style={{
                   left: `calc(${GUTTER}px + (100% - ${GUTTER}px) * ${frac} + 4px)`,
                   width: `calc((100% - ${GUTTER}px) * ${widthFrac} - 8px)`,
@@ -627,11 +639,13 @@ export function WeekGrid(props: WeekGridProps) {
                 }}
                 onPointerDown={(ev) => onBlockPointerDown(ev, p)}
               >
-                {/* Top resize handle */}
-                <div
-                  onPointerDown={(ev) => onResizePointerDown(ev, p, "top")}
-                  className="absolute inset-x-0 top-0 h-1.5 cursor-ns-resize"
-                />
+                {/* Top resize handle (publish-locked shifts can't be resized) */}
+                {!isPublished ? (
+                  <div
+                    onPointerDown={(ev) => onResizePointerDown(ev, p, "top")}
+                    className="absolute inset-x-0 top-0 h-1.5 cursor-ns-resize"
+                  />
+                ) : null}
                 <div className="flex items-center gap-1.5 leading-tight">
                   <span
                     className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full text-[9px] font-extrabold text-white"
@@ -658,11 +672,13 @@ export function WeekGrid(props: WeekGridProps) {
                     {p.ev.roleLabel}
                   </div>
                 ) : null}
-                {/* Bottom resize handle */}
-                <div
-                  onPointerDown={(ev) => onResizePointerDown(ev, p, "bottom")}
-                  className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
-                />
+                {/* Bottom resize handle (publish-locked shifts can't be resized) */}
+                {!isPublished ? (
+                  <div
+                    onPointerDown={(ev) => onResizePointerDown(ev, p, "bottom")}
+                    className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
+                  />
+                ) : null}
               </ShiftBlock>
             )
           })}
@@ -725,6 +741,7 @@ function ShiftBlock({
   published,
   ariaLabel,
   onPointerDown,
+  onActivate,
   children,
 }: {
   id: string
@@ -733,10 +750,20 @@ function ShiftBlock({
   published: boolean
   ariaLabel: string
   onPointerDown: (e: React.PointerEvent) => void
+  onActivate: () => void
   children: React.ReactNode
 }) {
+  // Published shifts are publish-locked: keyboard drag is disabled (UX guard;
+  // the server + DB enforce the real lock). They stay focusable and open the
+  // governed republish editor on Enter/Space.
   const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({ id, attributes: { roleDescription: "schedule shift" } })
+    useDraggable({
+      id,
+      disabled: published,
+      attributes: {
+        roleDescription: published ? "published shift, locked" : "schedule shift",
+      },
+    })
 
   const mergedStyle: React.CSSProperties = {
     ...style,
@@ -750,17 +777,29 @@ function ShiftBlock({
     <div
       ref={setNodeRef}
       {...attributes}
-      {...listeners}
+      {...(published ? { tabIndex: 0, role: "button" } : listeners)}
       onPointerDown={onPointerDown}
+      onKeyDown={
+        published
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onActivate()
+              }
+            }
+          : undefined
+      }
       aria-label={ariaLabel}
       data-published={published || undefined}
       className={cn(
         "absolute overflow-hidden rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
-        isDragging
-          ? "cursor-grabbing"
-          : pointerDragging
-            ? "z-[6] cursor-grabbing"
-            : "z-[2] cursor-grab",
+        published
+          ? "z-[2] cursor-pointer"
+          : isDragging
+            ? "cursor-grabbing"
+            : pointerDragging
+              ? "z-[6] cursor-grabbing"
+              : "z-[2] cursor-grab",
       )}
       style={mergedStyle}
     >

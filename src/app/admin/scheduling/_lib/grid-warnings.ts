@@ -12,9 +12,11 @@
 // actions call it with their own RLS-scoped Supabase client.
 
 import type { createClient } from "@/lib/supabase/server"
+import { minutesOfDayInTz } from "@/lib/timezone"
 
 import { complianceWeekWindow } from "./compliance"
 import { checkAssignmentViolations, describeViolation } from "./enforcement"
+import { hhmmToMinutes, resolveOperatingHours } from "./operating-hours"
 import { shiftDurationHours } from "./weekly-hours"
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>
@@ -33,6 +35,14 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
 }
 
+/** "HH:MM" (24h) → a compact 12h label like "6 AM" / "11:30 PM". */
+function fmt12(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number)
+  const ampm = h >= 12 ? "PM" : "AM"
+  const hh = ((h + 11) % 12) + 1
+  return m ? `${hh}:${String(m).padStart(2, "0")} ${ampm}` : `${hh} ${ampm}`
+}
+
 export type ShiftSignals = {
   /** Raw violation codes from scheduling_assignment_violations(). */
   codes: string[]
@@ -42,6 +52,15 @@ export type ShiftSignals = {
    * does NOT cover this — it uses facility-level thresholds.
    */
   capWarning: string | null
+  /**
+   * Advisory when the shift falls outside the facility's configured operating
+   * hours (facilities.settings → scheduling.operating_hours), compared in the
+   * facility's timezone. Null when within hours. Surfaced as a confirm-to-save
+   * advisory (or a hard block when the facility opts into block_on_violations) —
+   * NOT a standalone hard block, so legitimate before-open / after-close shifts
+   * (setup, maintenance) remain savable with acknowledgement.
+   */
+  boundsWarning: string | null
 }
 
 /**
@@ -53,7 +72,7 @@ export async function computeShiftSignals(
   supabase: ServerSupabase,
   args: WarningArgs
 ): Promise<ShiftSignals> {
-  if (!args.employeeId) return { codes: [], capWarning: null }
+  if (!args.employeeId) return { codes: [], capWarning: null, boundsWarning: null }
 
   // 1. Shared engine (overlap, time-off, overtime, cert gaps, qualification…).
   const codes = await checkAssignmentViolations(supabase, args)
@@ -69,15 +88,30 @@ export async function computeShiftSignals(
         .maybeSingle(),
       supabase
         .from("facilities")
-        .select("timezone")
+        .select("timezone, settings")
         .eq("id", args.facilityId)
-        .maybeSingle<{ timezone: string | null }>(),
+        .maybeSingle<{ timezone: string | null; settings: unknown }>(),
       supabase
         .from("schedule_settings")
         .select("week_start_day")
         .eq("facility_id", args.facilityId)
         .maybeSingle<{ week_start_day: number | null }>(),
     ])
+
+  // 3. Operating-hours bounds (facility-local). Advisory only.
+  const oh = resolveOperatingHours(facility?.settings)
+  const openMin = hhmmToMinutes(oh.start)
+  const closeMin = hhmmToMinutes(oh.end)
+  const tz = facility?.timezone ?? null
+  const startMin = minutesOfDayInTz(args.startsAt, tz)
+  const endMin = minutesOfDayInTz(args.endsAt, tz)
+  // Outside if it starts before open, ends after close, or wraps past midnight
+  // (endMin <= startMin for a same-day shift means it crossed into the next day).
+  const outsideHours =
+    startMin < openMin || endMin > closeMin || endMin <= startMin
+  const boundsWarning = outsideHours
+    ? `Falls outside operating hours (${fmt12(oh.start)}–${fmt12(oh.end)}).`
+    : null
 
   let capWarning: string | null = null
   const cap = emp?.max_weekly_hours
@@ -118,7 +152,7 @@ export async function computeShiftSignals(
     }
   }
 
-  return { codes, capWarning }
+  return { codes, capWarning, boundsWarning }
 }
 
 /**
@@ -129,9 +163,13 @@ export async function collectShiftWarnings(
   supabase: ServerSupabase,
   args: WarningArgs
 ): Promise<string[]> {
-  const { codes, capWarning } = await computeShiftSignals(supabase, args)
+  const { codes, capWarning, boundsWarning } = await computeShiftSignals(
+    supabase,
+    args
+  )
   const warnings = codes.map((code) => capitalize(describeViolation(code)) + ".")
   if (capWarning) warnings.push(capWarning)
+  if (boundsWarning) warnings.push(boundsWarning)
   // De-dup while preserving order.
   return Array.from(new Set(warnings))
 }

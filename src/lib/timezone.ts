@@ -141,6 +141,27 @@ export function dayPartsInTz(
   return { dayOfWeek: probe.getUTCDay(), dayOfMonth: d }
 }
 
+/**
+ * Minutes since midnight (0–1439) of a UTC instant as seen in `timeZone`. A
+ * null/unresolvable timezone falls back to the runtime's local zone. Used to
+ * compare a shift's facility-local start/end against operating-hour bounds.
+ */
+export function minutesOfDayInTz(
+  iso: string | Date,
+  timeZone: string | null
+): number {
+  const date = typeof iso === "string" ? new Date(iso) : iso
+  if (timeZone) {
+    try {
+      const p = partsInZone(date, timeZone)
+      return p.hour * 60 + p.minute
+    } catch {
+      // fall through to local
+    }
+  }
+  return date.getHours() * 60 + date.getMinutes()
+}
+
 /** Add `n` calendar days to a "YYYY-MM-DD" key (pure calendar math). */
 export function addDaysToKey(key: string, n: number): string {
   const [y, m, d] = key.split("-").map(Number)
