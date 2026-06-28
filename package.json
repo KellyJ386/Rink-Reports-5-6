@@ -9,6 +9,10 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report e2e/report/html",
     "check:cron": "node scripts/check-cron-schedule.mjs",
     "types:write": "node scripts/generate-database-types.mjs --write",
     "types:check": "node scripts/generate-database-types.mjs --check"
@@ -42,6 +46,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@supabase/postgres-meta": "0.91.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
