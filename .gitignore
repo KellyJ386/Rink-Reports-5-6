@@ -39,6 +39,12 @@ yarn-error.log*
 .env.test
 .env*
 !.env.example
+# e2e: keep the example, ignore real local secrets + generated artifacts
+!e2e/.env.e2e.example
+/e2e/.auth/
+/e2e/report/
+/test-results/
+/playwright-report/
 # credential files
 *.key
 *.p12
