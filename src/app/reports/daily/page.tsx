@@ -157,23 +157,5 @@ export default async function DailyReportsPage() {
     templates: templatesByArea.get(a.id) ?? [],
   }))
 
-  const { data: facility } = await supabase
-    .from("facilities")
-    .select("name")
-    .eq("id", employeeRow.facility_id)
-    .maybeSingle()
-
-  const userName =
-    current.profile?.full_name ??
-    current.profile?.email ??
-    current.authUser.email ??
-    "Staff"
-
-  return shell(
-    <DailyReportConsole
-      areas={areas}
-      userName={userName}
-      facilityName={facility?.name ?? "Facility"}
-    />
-  )
+  return shell(<DailyReportConsole areas={areas} />)
 }

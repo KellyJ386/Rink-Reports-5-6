@@ -2,21 +2,17 @@
 
 import {
   type FormEvent,
-  type ReactNode,
   useEffect,
   useMemo,
   useState,
-  useSyncExternalStore,
 } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
-import { Building2, Calendar, Clock, User } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { SectionCard } from "@/components/ui/section-card"
 import {
   Select,
   SelectContent,
@@ -56,48 +52,9 @@ export type ConsoleArea = {
 
 type Props = {
   areas: ConsoleArea[]
-  userName: string
-  facilityName: string
 }
 
 const initialState: SubmissionFormState = {}
-
-function formatDate(d: Date): string {
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  })
-}
-
-// Live clock via useSyncExternalStore. The snapshot must be CACHED — returning a
-// fresh Date.now() on every getSnapshot call makes the store look perpetually
-// changed and sends React into an infinite render loop. We mutate `clockNow`
-// only inside the interval (alongside the notify callback), so getClockSnapshot
-// is stable between ticks. getServerSnapshot is null so SSR shows "—" and there
-// is no hydration mismatch.
-let clockNow = Date.now()
-function subscribeClock(cb: () => void) {
-  const id = setInterval(() => {
-    clockNow = Date.now()
-    cb()
-  }, 1000)
-  return () => clearInterval(id)
-}
-function getClockSnapshot(): number {
-  return clockNow
-}
-function getClockServerSnapshot(): number | null {
-  return null
-}
 
 // Auto-select a shift when the area has exactly one template (mirrors the old
 // single-template redirect); otherwise force the "Choose shift type…" prompt.
@@ -112,7 +69,7 @@ function genLocalId(): string {
   return `daily-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export function DailyReportConsole({ areas, userName, facilityName }: Props) {
+export function DailyReportConsole({ areas }: Props) {
   const [state, formAction] = useActionState(
     submitDailyReportAction,
     initialState
@@ -141,13 +98,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
     () => selectedTemplate?.items ?? [],
     [selectedTemplate]
   )
-
-  const nowMs = useSyncExternalStore(
-    subscribeClock,
-    getClockSnapshot,
-    getClockServerSnapshot
-  )
-  const now = nowMs == null ? null : new Date(nowMs)
 
   useEffect(() => {
     if (state.error) {
@@ -267,24 +217,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
       <input type="hidden" name="area_id" value={selectedArea?.id ?? ""} />
       <input type="hidden" name="area_slug" value={selectedArea?.slug ?? ""} />
       <input type="hidden" name="items_json" value={itemsJson} />
-
-      <SectionCard
-        as="div"
-        className="flex-row flex-wrap items-center gap-x-3 gap-y-2 p-4 text-sm"
-      >
-        <MetaChip icon={<User className="h-4 w-4" aria-hidden />}>
-          {userName}
-        </MetaChip>
-        <MetaChip icon={<Building2 className="h-4 w-4" aria-hidden />}>
-          {facilityName}
-        </MetaChip>
-        <MetaChip icon={<Calendar className="h-4 w-4" aria-hidden />}>
-          {now ? formatDate(now) : "—"}
-        </MetaChip>
-        <MetaChip icon={<Clock className="h-4 w-4" aria-hidden />}>
-          {now ? formatTime(now) : "—"}
-        </MetaChip>
-      </SectionCard>
 
       <FormError message={state.error} />
 
@@ -511,23 +443,6 @@ export function DailyReportConsole({ areas, userName, facilityName }: Props) {
         <SubmitBar disabled={!selectedTemplate} />
       </div>
     </form>
-  )
-}
-
-function MetaChip({
-  icon,
-  children,
-}: {
-  icon: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <span className="flex items-center gap-2 text-muted-foreground">
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        {icon}
-      </span>
-      <span className="font-medium text-foreground">{children}</span>
-    </span>
   )
 }
 
