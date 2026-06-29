@@ -2686,6 +2686,40 @@ select pg_temp.expect_ok(
   $$update public.schedule_shifts set notes = 'draft edit ok'
      where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
   'SCHED-148: a DRAFT shift is still directly editable');
+
+-- Publish-lock CREATE leg (migration 164 — publish-lock-bypass regression):
+-- a direct INSERT of a status='published' shift from an end-user role mints a
+-- locked shift outright, skipping the two-person publish-request approval. The
+-- create-leg of the original bypass — must be rejected at the DB boundary even
+-- for an authorized scheduling admin (Carol). The matching app-layer fix forces
+-- createGridShift to status='draft'; this probe guards the DB backstop and fails
+-- if either guard is ever removed.
+select pg_temp.expect_error(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            now() + interval '60 days', now() + interval '60 days 4 hours',
+            'published')$$,
+  'SCHED-164: direct INSERT of a PUBLISHED shift is rejected (publish-lock create-leg)');
+-- A brand-new DRAFT shift can still be inserted directly (the legitimate path).
+select pg_temp.expect_ok(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            now() + interval '61 days', now() + interval '61 days 4 hours',
+            'draft')$$,
+  'SCHED-164: a brand-new DRAFT shift can still be inserted directly');
+-- Defaulting the status (omitting it) must also yield an allowed draft insert,
+-- so the guard can never be sidestepped by simply leaving status unset.
+select pg_temp.expect_ok(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, starts_at, ends_at)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            now() + interval '62 days', now() + interval '62 days 4 hours')$$,
+  'SCHED-164: an INSERT that omits status defaults to draft and is allowed');
 -- The governed cancel RPC can transition a published shift.
 select pg_temp.expect_ok(
   $$select public.scheduling_admin_cancel_shift('aaaa1111-5513-aaaa-aaaa-aaaa11110094')$$,
