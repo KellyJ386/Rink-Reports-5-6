@@ -22,9 +22,12 @@
 -- writes status='draft').
 -- =============================================================================
 
+-- search_path is pinned (migration 162 function-hardening) — keep it on the
+-- replacement so this function stays consistent with the hardened set.
 create or replace function public.schedule_shifts_publish_lock()
 returns trigger
 language plpgsql
+set search_path = public, pg_temp
 as $$
 begin
   -- Governed contexts may mutate / create a published shift:
