@@ -4595,6 +4595,25 @@ CREATE FUNCTION public.seed_default_facility_dropdown_options(p_facility_id uuid
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
+  -- Authorization guard (added in this migration). Reachable as an
+  -- authenticated PostgREST RPC, so it must not trust an arbitrary
+  -- p_facility_id. Allow:
+  --   * trusted backend roles / the owner — under which the AFTER INSERT
+  --     auto-seed trigger and create_facility_with_roles run in definer
+  --     context (current_user is the owner, not the end user);
+  --   * a super admin (public.is_super_admin());
+  --   * a facility admin for THIS facility (public.is_facility_admin()).
+  -- AND short-circuits, so the helpers (which read auth.uid()) are only called
+  -- for an end-user role, never during provisioning. Mirrors requireAdmin()'s
+  -- primary checks; the rare employee-role-only admin (not in user_permissions)
+  -- should re-run provisioning rather than hit this RPC directly.
+  if current_user not in ('postgres', 'supabase_admin', 'service_role')
+     and not public.is_super_admin()
+     and not public.is_facility_admin(p_facility_id) then
+    raise exception 'not authorized to seed dropdown options for this facility'
+      using errcode = '42501';
+  end if;
+
   -- facility_timezone: mirrors TIMEZONE_OPTIONS. key = IANA identifier (stored
   -- verbatim in facilities.timezone), display_name = friendly label.
   insert into public.facility_dropdown_options
