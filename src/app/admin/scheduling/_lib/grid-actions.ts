@@ -89,6 +89,13 @@ const isoDateTime = z
 
 const nullableUuid = z.string().uuid().nullable().optional()
 
+// NOTE — publish-lock: `status` is intentionally NOT accepted on create. A new
+// shift is always born a `draft`; the only way a shift becomes `published` is
+// the governed two-person publish-request flow (requestSchedulePublish ->
+// scheduling_approve_publish_request). Letting the client choose `status` here
+// would let a direct call mint a `published` (locked) shift outright, bypassing
+// that approval — the create-leg of the publish-lock bypass. The DB trigger
+// (schedule_shifts_publish_lock) rejects a published INSERT as a second layer.
 const createSchema = z
   .object({
     starts_at: isoDateTime,
@@ -99,7 +106,6 @@ const createSchema = z
     break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
     role_label: z.string().trim().max(120).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
-    status: z.enum(["draft", "published", "cancelled"]).optional(),
     override_cert: z.boolean().optional(),
     acknowledge_warnings: z.boolean().optional(),
     override_reason: z.string().trim().max(1000).nullable().optional(),
@@ -442,7 +448,8 @@ export async function createGridShift(
         break_minutes: v.break_minutes ?? 0,
         role_label: v.role_label ?? null,
         notes: v.notes ?? null,
-        status: v.status ?? "draft",
+        // Always a draft — publishing is the governed two-person flow only.
+        status: "draft",
         compliance_warnings: [],
       })
       .select(SHIFT_SELECT)
