@@ -9,12 +9,14 @@ import {
 import { EmptyState } from "@/components/ui/empty-state"
 import { PageHeader } from "@/components/ui/page-header"
 import { PreviewBanner } from "@/components/preview-banner"
+import { StatusBubble } from "@/components/app/status-bubble"
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { requireUser } from "@/lib/auth"
 import { getPreviewContext } from "@/lib/auth/preview"
 import { createClient } from "@/lib/supabase/server"
 
 import { hideDashboardModule, showDashboardModule } from "./actions"
+import { getDashboardModuleStatus, type ModuleStatus } from "./_lib/status"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Dashboard | Rink Reports" }
@@ -85,11 +87,13 @@ function ModuleTile({
   href,
   title,
   showHideButton,
+  status,
 }: {
   moduleKey: ModuleKey
   href: string
   title: string
   showHideButton: boolean
+  status?: ModuleStatus | null
 }) {
   const accentVar = MODULE_ACCENT[moduleKey]
   const iconPath = MODULE_ICONS[moduleKey]
@@ -172,22 +176,24 @@ function ModuleTile({
         </div>
       </Link>
 
-      {showHideButton ? (
-        <form
-          action={hideDashboardModule}
-          className="absolute right-2.5 top-2.5 z-10 m-0"
-        >
-          <input type="hidden" name="moduleKey" value={moduleKey} />
-          <button
-            type="submit"
-            aria-label={`Hide ${title} from dashboard`}
-            title="Hide from dashboard"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-sm transition-colors hover:bg-black/55"
-          >
-            ×
-          </button>
-        </form>
-      ) : null}
+      {/* Top-right cluster: status "monitoring light" + hide control. Lives
+          outside the <Link> so neither intercepts the tile navigation. */}
+      <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1.5">
+        <StatusBubble status={status} moduleTitle={title} />
+        {showHideButton ? (
+          <form action={hideDashboardModule} className="m-0">
+            <input type="hidden" name="moduleKey" value={moduleKey} />
+            <button
+              type="submit"
+              aria-label={`Hide ${title} from dashboard`}
+              title="Hide from dashboard"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white backdrop-blur-sm transition-colors hover:bg-black/55"
+            >
+              ×
+            </button>
+          </form>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -262,6 +268,12 @@ export default async function DashboardPage() {
   const visibleModules = allKeys.filter((k) => !hiddenSet.has(k))
   const hiddenModules = allKeys.filter((k) => hiddenSet.has(k))
 
+  // Module "monitoring lights". facility_id is the server-resolved value from
+  // the employees row above (never client-supplied); reads are RLS-scoped. The
+  // helper degrades to {} on any failure, so the dashboard renders fine offline
+  // or when status data is unavailable — tiles simply show no bubble.
+  const statusMap = await getDashboardModuleStatus(employeeRow.facility_id)
+
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
   const firstName = employeeRow.first_name
@@ -302,6 +314,7 @@ export default async function DashboardPage() {
                 href={KNOWN_MODULES[key].href}
                 title={KNOWN_MODULES[key].title}
                 showHideButton={canEditPreferences}
+                status={statusMap[key]}
               />
             ))}
           </div>
