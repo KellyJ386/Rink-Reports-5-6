@@ -3,6 +3,48 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Brand typeface — Space Grotesk (sans + display) / Space Mono (mono),
+   self-hosted as static woff2 under public/fonts/ (SIL OFL 1.1, licenses
+   alongside the font files). Self-hosted rather than `next/font/google` or a
+   Google Fonts @import so `next build` never depends on a network fetch (see
+   the --font-* comment below) and CSP stays `font-src 'self'`
+   (next.config.ts). Weights: Space Grotesk 400/500/700, Space Mono 400/700. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/space-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/space-mono-latin-700-normal.woff2") format("woff2");
+}
+
 /*
   Rink Reports — Palette Refresh (May 2026)
 
@@ -44,19 +86,25 @@
   --rr-yellow:       #FFD600;
   --rr-red:          #F42A2A;
 
-  /* Font roles. Use local/system stacks so `next build` never depends on
-     Google Fonts network fetches. Display/data components keep using the same
-     --font-* API that next/font previously injected on <html>. */
-  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-                     "Segoe UI", sans-serif;
-  --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-                     "Liberation Mono", "Courier New", monospace;
-  --font-anton: Impact, "Arial Black", "Arial Narrow", sans-serif;
-  --font-jetbrains-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-                         "Liberation Mono", "Courier New", monospace;
-  --font-display: var(--font-anton, Impact, "Arial Narrow", sans-serif);
-  --font-mono:    var(--font-jetbrains-mono, ui-monospace, SFMono-Regular,
-                  Menlo, monospace);
+  /* Font roles. Space Grotesk / Space Mono are self-hosted via the @font-face
+     rules above (no `next/font` / Google Fonts network fetch at `next build`).
+     Variable NAMES are kept as-is (--font-geist-sans, --font-anton,
+     --font-jetbrains-mono) even though the underlying typeface changed, since
+     ~20 files already consume --font-anton / --font-display and page.tsx
+     reads --font-geist-sans directly — repointing the values here updates all
+     of them without touching component code. */
+  --font-geist-sans: "Space Grotesk", ui-sans-serif, system-ui, -apple-system,
+                     BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+                     Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-anton: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-jetbrains-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo,
+                         Monaco, Consolas, "Liberation Mono", "Courier New",
+                         monospace;
+  --font-sans:    var(--font-geist-sans);
+  --font-display: var(--font-anton, "Space Grotesk", sans-serif);
+  --font-mono:    var(--font-jetbrains-mono, "Space Mono", ui-monospace,
+                  SFMono-Regular, Menlo, monospace);
 
   /* ─────────── Green ramp (★ anchor = 500) ─────────── */
   --green-50:  #F2FBE4;
@@ -538,10 +586,15 @@
   --color-rr-yellow: var(--rr-yellow);
   --color-rr-red: var(--rr-red);
 
-  /* Font utilities — display and data/tabular text. */
-  --font-display: var(--font-anton, Impact, "Arial Narrow", sans-serif);
-  --font-mono: var(--font-jetbrains-mono, ui-monospace, SFMono-Regular, Menlo,
-               monospace);
+  /* --font-sans/--font-mono are Tailwind v4's recognized theme namespace keys,
+     so declaring them here (not just in :root) is what actually generates the
+     default `font-sans`/`font-mono` utilities and the unstyled body font.
+     --font-display is not a Tailwind-recognized key, so it stays a plain CSS
+     var consumed by the hand-written .font-display utility below. */
+  --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-anton, "Space Grotesk", sans-serif);
+  --font-mono: var(--font-jetbrains-mono, "Space Mono", ui-monospace,
+               SFMono-Regular, Menlo, monospace);
 
   /* Elevation scale — capped at the design rule's max blur on light
      (0 1px 3px rgba(0,0,0,.05)); deeper alpha on dark (set below). */

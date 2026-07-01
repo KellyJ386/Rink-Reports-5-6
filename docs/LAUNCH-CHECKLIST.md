@@ -39,6 +39,23 @@ deploy** — nothing here is executed automatically.
       anywhere non-production.
 - [ ] Supabase Auth (hosted project, DEPLOY.md §9): email confirmations ON,
       `site_url` = production domain, signup policy confirmed.
+- [ ] **Leaked-password (HaveIBeenPwned) protection enabled** on the hosted
+      project (clears the `auth_leaked_password_protection` Supabase advisor).
+      This is a **hosted-platform-only** setting — self-hosted GoTrue / the
+      local dev stack has no equivalent, and `supabase/config.toml`'s `[auth]`
+      schema has no key for it (confirmed against the CLI's own generated
+      template: no `password_hibp_enabled` or similar appears anywhere in
+      `supabase init`'s output), so this cannot be expressed as a repo config
+      change or a migration — it must be toggled per-project on the hosted
+      side. Enable via **Dashboard → Authentication → Sign In / Providers →
+      Password → "Leaked password protection"** for project
+      `bqbdgwlhbhabsibjgwmk`, or via the Management API
+      (`PATCH https://api.supabase.com/v1/projects/bqbdgwlhbhabsibjgwmk/config/auth`
+      with a body enabling the HIBP check — confirm the exact field name
+      against the current Management API reference before scripting this, as
+      it requires a Supabase access token this repo/session does not have).
+      Re-run the Supabase security advisors after enabling to confirm the
+      advisory clears.
 - [ ] PITR enabled on the Supabase project; rollback runbook reviewed
       (DEPLOY.md §10).
 

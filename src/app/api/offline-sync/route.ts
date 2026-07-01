@@ -506,7 +506,15 @@ async function handleSchedulingReplay({
     const to = asString(payload.effective_to)
     const notes = asString(payload.notes)
 
-    // A chosen job area must be one the employee is assigned to.
+    // A chosen job area must be one the employee is assigned to. This is
+    // intentionally always-enforced (no facility opt-out): staff are declaring
+    // their OWN availability, so it only makes sense for areas they actually
+    // work. This is a different rule from the admin scheduling grid's
+    // assertOwned (grid-actions.ts), which is a tenant fence only and lets an
+    // admin assign any facility job area unless the facility opts into
+    // `schedule_settings.require_job_area_qualification` (evaluated advisorily
+    // by scheduling_assignment_violations). The two paths are not meant to
+    // agree — they gate different actions by different actors.
     const jobAreaIdRaw = asString(payload.job_area_id)
     let jobAreaId: string | null = null
     if (jobAreaIdRaw.length > 0) {

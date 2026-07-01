@@ -222,6 +222,20 @@ function templateSlug(name: string): string {
  * match, so a crafted client payload could otherwise point a shift at another
  * tenant's employee or job area. Both reads are themselves RLS-scoped, so a
  * missing row here means "not in your facility (or doesn't exist)".
+ *
+ * This is a TENANT FENCE ONLY — it checks that job_area_id exists in this
+ * facility's `employee_job_areas` catalog, NOT that the assigned employee is
+ * personally qualified/trained for that area. Per-employee job-area
+ * qualification is a separate, intentionally opt-in concern: when a facility
+ * enables `schedule_settings.require_job_area_qualification`,
+ * `scheduling_assignment_violations` (called via `checkAssignmentViolations` in
+ * ./enforcement) checks the pairing against `employee_job_area_assignments` and
+ * surfaces a `not_qualified` violation. By default an admin may assign any
+ * facility job area to any employee — that is intended, not a gap. Contrast
+ * with the offline staff-availability replay (api/offline-sync/route.ts), which
+ * hard-blocks against `employee_job_area_assignments` unconditionally; that is
+ * a different feature (staff declaring their own availability) with a
+ * different, always-enforced rule, not the same check relaxed here.
  */
 async function assertOwned(
   supabase: ServerSupabase,
