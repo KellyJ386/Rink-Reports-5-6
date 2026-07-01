@@ -29,7 +29,18 @@ the case here — so per neighbor style the trigger is NOT recreated.
 
 ## D-02 (MEDIUM, RLS half) — facility_documents readable by all staff
 
-**File:** `supabase/migrations/00000000000166_facility_documents_module_gate.sql`
+> **⛔ REVERTED by the orchestrator (migration 166 deleted; harness D-02 parts
+> removed). Reason:** `facility_documents` is NOT a member of `MODULE_NAMES`
+> (`src/lib/permissions/actions.ts`), is not seeded into any role defaults, and
+> is not exposed in the permission matrix. `has_module_access('facility_documents')`
+> requires an explicit `user_permissions` row (module_name='facility_documents',
+> action='view') that **no admin UI can create** — so the gate would have
+> permanently locked every non-super-admin out of facility documents with no way
+> to grant access back. D-02 needs a product decision (make paperwork a
+> first-class permissioned module, vs. accept all-staff-visible) before any RLS
+> change. The description below documents the reverted attempt for reference.
+
+**File (deleted):** `supabase/migrations/00000000000166_facility_documents_module_gate.sql`
 
 The `facility_documents_select` policy (migration `00000000000085`) gated on
 facility only, so any active staff member could list + get signed download URLs

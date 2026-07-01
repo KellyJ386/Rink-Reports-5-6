@@ -184,12 +184,7 @@ from unnest(array[
   'ice_operations',
   'refrigeration',
   'air_quality',
-  'scheduling',
-  -- migration 166 gates facility_documents SELECT on has_module_access; grant
-  -- alice `view` so the "alice can browse her own facility's documents" test
-  -- below still passes. Mona (manager, facility A) deliberately gets NO
-  -- facility_documents grant so the D-02 negative test can prove the gate bites.
-  'facility_documents'
+  'scheduling'
 ]) as m
 cross join unnest(array['view', 'submit']) as a
 on conflict (user_id, facility_id, module_name, action) do nothing;
@@ -1496,19 +1491,6 @@ select pg_temp.expect_error(
   $$update public.users set is_super_admin = true
     where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
   'profile: manager CANNOT escalate staff is_super_admin');
-
--- ---------------------------------------------------------------------------
--- D-02 (migration 166): facility_documents SELECT is module-gated. Mona is a
--- manager in facility A with NO facility_documents user_permissions grant, so
--- has_module_access('facility_documents') is false for her — she must NOT be
--- able to read her own facility's documents even though she is same-facility.
--- (Alice, who WAS granted facility_documents view in the fixture, can — proven
--- in the paperwork block above.)
--- ---------------------------------------------------------------------------
-select pg_temp.expect_count(
-  $$select count(*) from public.facility_documents
-    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  0, 'paperwork/D-02: manager without facility_documents access CANNOT SELECT own-facility documents');
 
 -- ---------------------------------------------------------------------------
 -- INC: Incident Report redesign isolation (migrations 101-104).
