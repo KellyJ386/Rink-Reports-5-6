@@ -13,6 +13,7 @@ import { StatusBubble } from "@/components/app/status-bubble"
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { requireUser } from "@/lib/auth"
 import { getPreviewContext } from "@/lib/auth/preview"
+import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
 import { createClient } from "@/lib/supabase/server"
 
 import { hideDashboardModule, showDashboardModule } from "./actions"
@@ -261,7 +262,16 @@ export default async function DashboardPage() {
   // them while previewing.
   const canEditPreferences = !preview.active
 
-  const allKeys = Object.keys(KNOWN_MODULES) as ModuleKey[]
+  // Per-facility module toggle (facility_modules) — the same source the staff
+  // sidebar uses. `null` = show everything (fail-open); otherwise a module that
+  // the facility has disabled shows neither a nav link nor a dashboard tile.
+  const enabledModules = await getEnabledModuleKeys(employeeRow.facility_id)
+  const isFacilityEnabled = (k: ModuleKey) =>
+    enabledModules == null || enabledModules.includes(k)
+
+  const allKeys = (Object.keys(KNOWN_MODULES) as ModuleKey[]).filter(
+    isFacilityEnabled,
+  )
   const hiddenSet = new Set(
     (employeeRow.hidden_modules ?? []).filter(isKnownModuleKey),
   )

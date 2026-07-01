@@ -14,6 +14,16 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -140,6 +150,8 @@ export function WeekBoard(props: WeekBoardProps) {
   const [heatmap, setHeatmap] = useState(false)
   const [showTemplate, setShowTemplate] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Delete confirmation gate (UI-only): holds the shift id awaiting confirm.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   // View-state only: narrows which events the grids render. `null` = all.
   const [positionFilter, setPositionFilter] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -474,7 +486,8 @@ export function WeekBoard(props: WeekBoardProps) {
     [openPopover],
   )
 
-  const handleDelete = useCallback(
+  // Actual delete — only reachable after the confirmation dialog resolves.
+  const performDelete = useCallback(
     (id: string) => {
       startTransition(async () => {
         const res = await deleteGridShift(id)
@@ -489,6 +502,12 @@ export function WeekBoard(props: WeekBoardProps) {
     },
     [],
   )
+
+  // Gate the delete behind a confirmation step (published deletes cancel the
+  // shift for staff via the governed RPC — the copy warns about that).
+  const handleDelete = useCallback((id: string) => {
+    setPendingDeleteId(id)
+  }, [])
 
   // ---- Popover save / delete / template ----
   const handlePopoverSave = useCallback(
@@ -909,6 +928,40 @@ export function WeekBoard(props: WeekBoardProps) {
           onClose={closePopover}
         />
       ) : null}
+
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this shift?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteId &&
+              events.find((e) => e.id === pendingDeleteId)?.status ===
+                "published"
+                ? "This shift is published. Deleting it cancels the shift for the assigned staff member."
+                : "This removes the shift from the schedule. This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDeleteId) {
+                  performDelete(pendingDeleteId)
+                }
+                setPendingDeleteId(null)
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
