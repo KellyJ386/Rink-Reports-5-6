@@ -38,6 +38,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 import {
   cToF,
   fToC,
@@ -107,13 +108,6 @@ function fieldKey(fieldId: string, equipmentId: string | null): string {
 
 function noteErrorKey(key: string): string {
   return `note:${key}`
-}
-
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 /** Local datetime string (yyyy-MM-ddThh:mm) for a datetime-local input default. */

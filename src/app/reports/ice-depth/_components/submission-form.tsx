@@ -24,6 +24,7 @@ import {
 } from "@/components/ice-depth/usa-rink"
 import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 
 import { submitIceDepthSession, type SubmissionFormState } from "../actions"
 import type {
@@ -61,12 +62,6 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 const DISPLAY_FONT =
   "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 const NAVY = "#003B6F"
 const GREEN = "#4DFF00"

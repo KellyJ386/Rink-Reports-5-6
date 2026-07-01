@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 
 import { submitIncidentReport } from "../actions"
 import type { SubmissionFormState } from "../_lib/submit"
@@ -94,12 +95,6 @@ function emptyWitness(): Witness {
   return { name: "", phone: "", email: "", statement: "" }
 }
 
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
 
 export function SubmissionForm({
   severityLevels,

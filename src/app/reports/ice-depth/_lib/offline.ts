@@ -11,7 +11,7 @@ import { NextResponse } from "next/server"
 
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
-import type { Json } from "@/types/database"
+import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
 
 import { buildInputFromPayload, persistIceDepth } from "./submit"
 
@@ -52,29 +52,22 @@ export async function handleIceDepthReplay({
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
-  // local_id returns no rows → the submission was already processed.
-  const { data: claimRows, error: claimErr } = await supabase
-    .from("offline_sync_queue")
-    .upsert(
-      {
-        local_id: localId,
-        facility_id: facilityId,
-        employee_id: employeeId,
-        module_key: "ice_depth",
-        action,
-        payload: payload as Json,
-        sync_status: "pending",
-        started_at: startedAtIso,
-      },
-      { onConflict: "local_id", ignoreDuplicates: true }
-    )
-    .select("local_id")
-
-  if (claimErr) {
-    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  // Claim the queue slot (idempotency token). A duplicate that already reached
+  // `synced` is a no-op; an orphaned `pending` row is re-driven (see claim.ts).
+  const claim = await claimQueueSlot({
+    supabase,
+    localId,
+    facilityId,
+    employeeId,
+    moduleKey: "ice_depth",
+    action,
+    payload,
+    startedAtIso,
+  })
+  if (claim.kind === "error") {
+    return NextResponse.json({ error: claim.message }, { status: 500 })
   }
-  if (!claimRows || claimRows.length === 0) {
+  if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
@@ -86,14 +79,11 @@ export async function handleIceDepthReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
-    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    await releaseClaim(supabase, localId)
     return NextResponse.json({ error: result.error }, { status: 500 })
   }
 
-  await supabase
-    .from("offline_sync_queue")
-    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
-    .eq("local_id", localId)
+  await markClaimSynced(supabase, localId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }

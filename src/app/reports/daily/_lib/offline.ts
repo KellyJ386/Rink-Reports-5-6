@@ -11,7 +11,7 @@ import { NextResponse } from "next/server"
 
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
-import type { Json } from "@/types/database"
+import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
 
 import { buildInputFromPayload, persistDaily } from "./submit"
 
@@ -51,29 +51,49 @@ export async function handleDailyReplay({
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
-  // local_id returns no rows → the submission was already processed.
-  const { data: claimRows, error: claimErr } = await supabase
-    .from("offline_sync_queue")
-    .upsert(
-      {
-        local_id: localId,
-        facility_id: facilityId,
-        employee_id: employeeId,
-        module_key: "daily_reports",
-        action,
-        payload: payload as Json,
-        sync_status: "pending",
-        started_at: startedAtIso,
-      },
-      { onConflict: "local_id", ignoreDuplicates: true }
-    )
-    .select("local_id")
-
-  if (claimErr) {
-    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  // E-07 — pre-validate the referenced area + template are still active BEFORE
+  // claiming, mirroring the incident replay's ref check. If an admin deactivated
+  // the area/template while the device was offline, `persistDaily` would fail
+  // with a 500 that will NEVER succeed on retry — burning ~6 min of transient
+  // retries. Detecting it here returns a permanent 422 so the SW parks the item
+  // immediately with a clear reason.
+  const { data: area } = await supabase
+    .from("daily_report_areas")
+    .select("is_active")
+    .eq("id", input.area_id)
+    .eq("facility_id", facilityId)
+    .maybeSingle<{ is_active: boolean | null }>()
+  if (!area || area.is_active === false) {
+    return NextResponse.json({ error: "Area not available." }, { status: 422 })
   }
-  if (!claimRows || claimRows.length === 0) {
+
+  const { data: template } = await supabase
+    .from("daily_report_templates")
+    .select("is_active")
+    .eq("id", input.template_id)
+    .eq("facility_id", facilityId)
+    .eq("area_id", input.area_id)
+    .maybeSingle<{ is_active: boolean | null }>()
+  if (!template || template.is_active === false) {
+    return NextResponse.json({ error: "Template not available." }, { status: 422 })
+  }
+
+  // Claim the queue slot (idempotency token). A duplicate that already reached
+  // `synced` is a no-op; an orphaned `pending` row is re-driven (see claim.ts).
+  const claim = await claimQueueSlot({
+    supabase,
+    localId,
+    facilityId,
+    employeeId,
+    moduleKey: "daily_reports",
+    action,
+    payload,
+    startedAtIso,
+  })
+  if (claim.kind === "error") {
+    return NextResponse.json({ error: claim.message }, { status: 500 })
+  }
+  if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
@@ -85,14 +105,11 @@ export async function handleDailyReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
-    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    await releaseClaim(supabase, localId)
     return NextResponse.json({ error: result.error }, { status: 500 })
   }
 
-  await supabase
-    .from("offline_sync_queue")
-    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
-    .eq("local_id", localId)
+  await markClaimSynced(supabase, localId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }

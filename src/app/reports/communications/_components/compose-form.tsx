@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 import { Button } from "@/components/ui/button"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
@@ -47,13 +48,6 @@ type Props = {
 }
 
 const initialState: SendMessageFormState = {}
-
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `comm-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 export function ComposeForm({ groups, templates }: Props) {
   const [state, formAction] = useActionState(

@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -62,12 +63,6 @@ function defaultTemplateId(area: ConsoleArea | undefined): string {
   return area && area.templates.length === 1 ? area.templates[0]!.id : ""
 }
 
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `daily-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 export function DailyReportConsole({ areas }: Props) {
   const [state, formAction] = useActionState(
