@@ -1,0 +1,60 @@
+-- =============================================================================
+-- 00000000000165_move_extensions_out_of_public.sql
+--
+-- Advisor: extension_in_public. citext and pg_trgm were installed directly
+-- into `public` by migration 1 (00000000000001_extensions.sql), unqualified —
+-- which pollutes the public schema namespace with extension-owned support
+-- functions (citext_*, gtrgm_* — visible today in src/types/database.ts's
+-- generated public.Functions map) and trips Supabase's security-advisor
+-- "extension in public" finding. Deferred from migration 163
+-- (00000000000163_lock_down_internal_rpc_functions.sql) pending this
+-- carefully-sequenced follow-up.
+--
+-- pgcrypto (also installed unqualified by migration 1, for gen_random_uuid())
+-- is deliberately NOT moved here — it backs every table's uuid primary-key
+-- default, so relocating it is a separate, higher-blast-radius change; it was
+-- not part of the deferred item and is out of scope for this migration.
+--
+-- `extensions` schema already exists (created in migration 140 for
+-- btree_gist) and is already on PostgREST's extra_search_path
+-- (supabase/config.toml: extra_search_path = ["public", "extensions"]), so no
+-- new schema-creation or API-layer config change is needed beyond the
+-- `create schema if not exists` safety net below.
+--
+-- Mechanics / why this is safe:
+--   * ALTER EXTENSION ... SET SCHEMA is a metadata-only operation: Postgres
+--     resolves types/operators by OID (pg_type.typnamespace,
+--     pg_attribute.atttypid), not by re-resolving a schema-qualified name at
+--     every query. The two existing citext columns (public.users.email,
+--     public.employees.email) and users_email_key's unique constraint keep
+--     working uninterrupted — no table rewrite, no index rebuild, near-instant
+--     lock on catalog rows only.
+--   * Both citext and pg_trgm declare `relocatable = true` in their .control
+--     files, which is what makes `SET SCHEMA` valid for them at all.
+--   * pg_trgm currently has ZERO dependent objects in this schema (no
+--     gin_trgm_ops / gist_trgm_ops indexes exist anywhere in
+--     supabase/migrations/ as of this writing) — it was installed
+--     forward-looking for fuzzy/ILIKE search and is unused today, so this move
+--     carries no index-rebuild risk whatsoever for it.
+--   * No function in this codebase currently references citext or trgm
+--     functions/operators UNQUALIFIED inside a body whose own `search_path`
+--     excludes `extensions` (every function pins search_path explicitly; all
+--     are `public, pg_temp` / `public` and none call citext/trgm internals
+--     directly — call sites only use the `citext` TYPE on a column
+--     declaration, which resolves by OID at read time, not by search_path).
+--     If a future migration adds a function that calls a trgm function (e.g.
+--     similarity()) or casts to ::citext unqualified, add `extensions` to that
+--     function's own `set search_path` line, matching the pattern already
+--     used for pinned functions in this repo.
+--
+-- Regenerate src/types/database.ts (pnpm types:write against a fully-migrated
+-- database) in the same PR — the citext_*/gtrgm_* support-function stubs will
+-- disappear from the public.Functions map since they now live in
+-- extensions.*, which CI's `pnpm types:check` (rls-isolation workflow)
+-- otherwise flags as stale.
+-- =============================================================================
+
+create schema if not exists extensions;
+
+alter extension citext set schema extensions;
+alter extension pg_trgm set schema extensions;
