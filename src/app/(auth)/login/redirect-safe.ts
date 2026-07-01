@@ -30,7 +30,6 @@ export function isSafeRedirectPath(value: unknown): string | null {
 
   // Reject any control character or whitespace (0x00-0x20) that could be used
   // to smuggle or obscure a scheme (e.g. a tab before "javascript:").
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0020]/.test(path)) return null
 
   // Reject any embedded scheme (e.g. a smuggled "javascript:" / "http:").
