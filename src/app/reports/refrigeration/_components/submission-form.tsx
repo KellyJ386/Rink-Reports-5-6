@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
@@ -206,7 +205,6 @@ export function SubmissionForm({
   tempF,
   tempLocation,
 }: Props) {
-  const router = useRouter()
   const [state, formAction] = useActionState(
     submitRefrigerationReport,
     initialState
@@ -459,14 +457,11 @@ export function SubmissionForm({
         title="Refrigeration"
         actions={
           <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              Back
+            <Button asChild variant="outline" size="sm">
+              <Link href="/reports">
+                <ArrowLeft className="h-4 w-4" aria-hidden />
+                Back
+              </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/dashboard">
