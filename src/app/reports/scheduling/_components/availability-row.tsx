@@ -1,9 +1,19 @@
 "use client"
 
-import { useActionState, useEffect, useState } from "react"
-import { useFormStatus } from "react-dom"
+import { useActionState, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge, type BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
@@ -25,21 +35,6 @@ type Row = {
   job_area_name?: string | null
 }
 
-function DeleteSubmit() {
-  const { pending } = useFormStatus()
-  return (
-    <Button
-      type="submit"
-      variant="outline"
-      size="sm"
-      disabled={pending}
-      className="h-11"
-    >
-      {pending ? "Removing…" : "Delete"}
-    </Button>
-  )
-}
-
 function typeBadgeVariant(type: string): BadgeProps["variant"] {
   switch (type) {
     case "preferred":
@@ -59,7 +54,9 @@ export function AvailabilityRow({
   jobAreas?: JobAreaOption[]
 }) {
   const [editing, setEditing] = useState(false)
-  const [state, formAction] = useActionState(
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
+  const [state, formAction, isPending] = useActionState(
     deleteAvailability,
     INITIAL_ACTION_STATE
   )
@@ -116,9 +113,47 @@ export function AvailabilityRow({
         >
           Edit
         </Button>
-        <form action={formAction}>
+        <form ref={formRef} action={formAction}>
           <input type="hidden" name="id" value={row.id} />
-          <DeleteSubmit />
+          {/* AlertDialogContent is portaled outside this form, so confirm
+              submits via formRef.requestSubmit() rather than type="submit". */}
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPending}
+                className="h-11"
+              >
+                {isPending ? "Removing…" : "Delete"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Delete this availability window?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes the availability window from your schedule.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setConfirmOpen(false)}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmOpen(false)
+                    formRef.current?.requestSubmit()
+                  }}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </form>
       </div>
     </div>

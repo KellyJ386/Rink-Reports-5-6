@@ -2910,6 +2910,72 @@ select pg_temp.expect_error(
     values ('11111111-1111-1111-1111-111111111111', 'refrigeration_field_type', 'x', 'X')$$,
   'FDO: domain CHECK rejects a non-whitelisted domain');
 
+-- ---------------------------------------------------------------------------
+-- D-01 (migration 165): the super-admin immutability guard must hold even for
+-- FACILITY ADMINS. Pre-165, guard_users_profile_update() early-returned for any
+-- is_facility_admin(), so a facility admin could raw-PostgREST
+--   update public.users set is_super_admin = true
+-- on any same-facility user (or themselves) and mint a cross-tenant super-admin.
+--
+-- Actor: Fred — a genuine facility admin in facility A (fresh, unused identity;
+-- the ffffffff/dddddddd ids are already claimed by staff-role Frank/Dave
+-- fixtures elsewhere in this file). He needs BOTH
+--   (a) an `admin`-role employees row, so current_user_role() = 'admin' and the
+--       users_update RLS USING/CHECK admin-branch lets his UPDATE reach the
+--       target row (rather than being filtered to zero rows by RLS), AND
+--   (b) an admin/admin user_permissions grant, so is_facility_admin() is true
+--       and the OLD (buggy) guard would have taken its facility-admin exemption.
+-- Target: Mona (manager, same facility A, non-admin) and Fred himself. Both
+-- escalations MUST raise post-165.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into auth.users (id, email)
+values ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', 'fred@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0',
+        '11111111-1111-1111-1111-111111111111', 'fred@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'a0a06666-a0a0-a0a0-a0a0-a0a0a0a0a0a0'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0'::uuid,
+       r.id, 'Fred', 'Admin', 'fred@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'admin'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0',
+        '11111111-1111-1111-1111-111111111111',
+        'admin', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+
+-- Sanity: Fred really is a facility admin (RLS write path is open to him) — an
+-- allowed privileged edit (no-op is_active write on a same-facility user)
+-- succeeds, proving the escalation failures below are the guard, not RLS
+-- filtering the row to zero.
+select pg_temp.expect_ok(
+  $$update public.users set is_active = is_active
+    where id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
+  'D-01: facility admin CAN perform an allowed privileged users update (control)');
+
+select pg_temp.expect_error(
+  $$update public.users set is_super_admin = true
+    where id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
+  'D-01: facility admin CANNOT escalate is_super_admin on a same-facility user');
+
+select pg_temp.expect_error(
+  $$update public.users set is_super_admin = true
+    where id = 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0'$$,
+  'D-01: facility admin CANNOT self-escalate is_super_admin');
+
 reset role;
 
 -- ---------------------------------------------------------------------------

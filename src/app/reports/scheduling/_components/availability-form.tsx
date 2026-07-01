@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 
 import { upsertAvailability } from "../actions"
 import {
@@ -26,12 +27,6 @@ import {
 } from "../types"
 
 const NO_AREA = "__none__"
-
-function genLocalId(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 type Props = {
   initial?: {

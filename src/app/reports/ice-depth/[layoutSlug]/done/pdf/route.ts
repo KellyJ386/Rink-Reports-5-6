@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { renderPdfForModule } from "@/lib/notifications/pdf/render"
 
 export const dynamic = "force-dynamic"
@@ -21,6 +22,13 @@ export async function GET(req: Request) {
   }
 
   const supabase = await createClient()
+
+  // Explicit permission gate (D-05): fail closed independent of RLS. A user
+  // without ice_depth view access cannot render the PDF even if RLS regressed.
+  if (!(await currentUserCan(supabase, "ice_depth", "view"))) {
+    return new Response("Forbidden", { status: 403 })
+  }
+
   const rendered = await renderPdfForModule(supabase, "ice_depth", id)
   if (!rendered) {
     return new Response("Not found", { status: 404 })

@@ -509,7 +509,29 @@ export async function deleteEmployee(id: string): Promise<ActionState> {
       return { ok: false, error: "Only super admins can delete employees." }
     }
     const supabase = await createClient()
-    const { error } = await supabase.from("employees").delete().eq("id", id)
+
+    // Belt-and-suspenders: resolve the target's facility and scope the delete to
+    // (id, facility_id) so it can only ever affect the intended row, not relying
+    // solely on RLS + the primary key. (Super admins manage employees in a
+    // chosen facility via ?facility=, which may differ from their own facility,
+    // so we scope to the *target's* facility rather than the caller's.)
+    const { data: target, error: targetErr } = await supabase
+      .from("employees")
+      .select("id, facility_id")
+      .eq("id", id)
+      .maybeSingle()
+    if (targetErr) {
+      return { ok: false, error: dbError(targetErr, "Failed to delete.") }
+    }
+    if (!target) {
+      return { ok: false, error: "Employee not found." }
+    }
+
+    const { error } = await supabase
+      .from("employees")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", target.facility_id)
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete.") }
     }
@@ -539,13 +561,35 @@ export async function seedRolesForCurrentFacility(
   facilityId: string
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
-    if (!facilityId) {
-      return { ok: false, error: "Missing facility id." }
+    const current = await requireAdmin()
+    const profile = current.profile
+    if (!profile) {
+      return { ok: false, error: "Not signed in." }
+    }
+    // Server-derived facility (facility_id invariant): a non-super-admin may
+    // only seed roles into their OWN facility. The client-supplied arg is
+    // ignored for them and hard-validated for super admins.
+    let resolvedFacilityId: string
+    if (profile.is_super_admin) {
+      if (!facilityId) {
+        return { ok: false, error: "Super admin requires explicit facility id." }
+      }
+      resolvedFacilityId = facilityId
+    } else {
+      if (!profile.facility_id) {
+        return { ok: false, error: "No facility assigned to your account." }
+      }
+      if (facilityId && facilityId !== profile.facility_id) {
+        return {
+          ok: false,
+          error: "You can only seed roles for your own facility.",
+        }
+      }
+      resolvedFacilityId = profile.facility_id
     }
     const supabase = await createClient()
     const rows = CANONICAL_ROLES.map((r) => ({
-      facility_id: facilityId,
+      facility_id: resolvedFacilityId,
       key: r.key,
       display_name: r.display_name,
       hierarchy_level: r.hierarchy_level,

@@ -3,13 +3,7 @@
 import { useState, type FormEvent } from "react"
 
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
-
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `ice-ops-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
+import { genLocalId } from "@/lib/offline/local-id"
 
 /**
  * Shared offline-submit plumbing for the four ice-operations forms. When the

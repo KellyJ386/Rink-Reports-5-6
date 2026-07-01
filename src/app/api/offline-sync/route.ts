@@ -22,6 +22,7 @@ import {
   buildInputFromPayload as buildAirQualityInput,
   persistAirQuality,
 } from "@/app/reports/air-quality/_lib/submit"
+import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
 import { handleAccidentReplay } from "@/app/reports/accidents/_lib/offline"
 import { handleDailyReplay } from "@/app/reports/daily/_lib/offline"
 import { handleIceDepthReplay } from "@/app/reports/ice-depth/_lib/offline"
@@ -39,6 +40,10 @@ const bodySchema = z.object({
   action: z.string().min(1).default("submit"),
   payload: z.record(z.string(), z.unknown()),
   startedAt: z.number().int().positive().optional(),
+  // Auth uid of the user who queued this item (stamped client-side at enqueue).
+  // Optional for backward-compat with any pre-upgrade queued records; when
+  // present the route rejects a flush under a different session (E-01).
+  ownerId: z.string().min(1).nullish(),
 })
 
 // IDEMPOTENCY CONTRACT — read before touching any `onConflict: "local_id"` claim
@@ -76,7 +81,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing or invalid fields" }, { status: 400 })
   }
 
-  const { localId, moduleKey, action, payload, startedAt } = parsed.data
+  const { localId, moduleKey, action, payload, startedAt, ownerId } = parsed.data
+
+  // E-01 — owner check. The offline queue is origin-global; on a shared kiosk a
+  // report queued by user A can reach this endpoint under user B's session. If
+  // the item was stamped with an owner uid at enqueue time and it does NOT match
+  // the current session user, REJECT it (never silently re-attribute). This runs
+  // BEFORE we derive employee_id from the current session below. A 422 is a
+  // permanent status, so the service worker parks the item as "failed" rather
+  // than burning transient retries; it can then sync when its owner signs in.
+  if (ownerId && ownerId !== current.authUser.id) {
+    return NextResponse.json(
+      { error: "This submission was queued by a different user." },
+      { status: 422 }
+    )
+  }
 
   const supabase = await createClient()
 
@@ -208,8 +227,14 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Upsert into the sync queue (ON CONFLICT local_id = no-op for dedup).
-  const { error } = await supabase
+  // E-04 — unknown moduleKey. There is NO replay handler for this key, so no
+  // report table would be written. Previously the item was upserted as `synced`
+  // and the service worker deleted it — telling the user it synced while nothing
+  // landed (a silent drop). Instead, record it as `failed` and return a
+  // permanent 422 so the SW parks it as failed rather than faking success. This
+  // is only reachable for a typo'd/never-wired key; all shipped keys dispatch
+  // above.
+  await supabase
     .from("offline_sync_queue")
     .upsert(
       {
@@ -219,18 +244,17 @@ export async function POST(request: NextRequest) {
         module_key: moduleKey,
         action,
         payload: payload as Json,
-        sync_status: "synced",
+        sync_status: "failed",
         started_at: startedAtIso,
-        synced_at: new Date().toISOString(),
+        error_message: `Unknown module: ${moduleKey}`,
       },
       { onConflict: "local_id", ignoreDuplicates: true }
     )
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ ok: true })
+  return NextResponse.json(
+    { error: `Unknown module: ${moduleKey}` },
+    { status: 422 }
+  )
 }
 
 type IncidentReplayArgs = {
@@ -289,29 +313,22 @@ async function handleIncidentReplay({
     return NextResponse.json({ error: refs.error }, { status: 422 })
   }
 
-  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
-  // local_id returns no rows → the submission was already processed.
-  const { data: claimRows, error: claimErr } = await supabase
-    .from("offline_sync_queue")
-    .upsert(
-      {
-        local_id: localId,
-        facility_id: facilityId,
-        employee_id: employeeId,
-        module_key: "incident_reports",
-        action,
-        payload: payload as Json,
-        sync_status: "pending",
-        started_at: startedAtIso,
-      },
-      { onConflict: "local_id", ignoreDuplicates: true }
-    )
-    .select("local_id")
-
-  if (claimErr) {
-    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  // Claim the queue slot (idempotency token). A duplicate that already reached
+  // `synced` is a no-op; an orphaned `pending` row is re-driven (see claim.ts).
+  const claim = await claimQueueSlot({
+    supabase,
+    localId,
+    facilityId,
+    employeeId,
+    moduleKey: "incident_reports",
+    action,
+    payload,
+    startedAtIso,
+  })
+  if (claim.kind === "error") {
+    return NextResponse.json({ error: claim.message }, { status: 500 })
   }
-  if (!claimRows || claimRows.length === 0) {
+  if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
@@ -324,14 +341,11 @@ async function handleIncidentReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
-    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    await releaseClaim(supabase, localId)
     return NextResponse.json({ error: result.error }, { status: 500 })
   }
 
-  await supabase
-    .from("offline_sync_queue")
-    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
-    .eq("local_id", localId)
+  await markClaimSynced(supabase, localId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }
@@ -382,28 +396,22 @@ async function handleRefrigerationReplay({
     return NextResponse.json({ error: precheck.error }, { status: 400 })
   }
 
-  // Claim the queue slot (idempotency token). No rows ⇒ already processed.
-  const { data: claimRows, error: claimErr } = await supabase
-    .from("offline_sync_queue")
-    .upsert(
-      {
-        local_id: localId,
-        facility_id: facilityId,
-        employee_id: employeeId,
-        module_key: "refrigeration",
-        action,
-        payload: payload as Json,
-        sync_status: "pending",
-        started_at: startedAtIso,
-      },
-      { onConflict: "local_id", ignoreDuplicates: true }
-    )
-    .select("local_id")
-
-  if (claimErr) {
-    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  // Claim the queue slot (idempotency token). A duplicate that already reached
+  // `synced` is a no-op; an orphaned `pending` row is re-driven (see claim.ts).
+  const claim = await claimQueueSlot({
+    supabase,
+    localId,
+    facilityId,
+    employeeId,
+    moduleKey: "refrigeration",
+    action,
+    payload,
+    startedAtIso,
+  })
+  if (claim.kind === "error") {
+    return NextResponse.json({ error: claim.message }, { status: 500 })
   }
-  if (!claimRows || claimRows.length === 0) {
+  if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
@@ -415,14 +423,11 @@ async function handleRefrigerationReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
-    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    await releaseClaim(supabase, localId)
     return NextResponse.json({ error: result.error }, { status: 500 })
   }
 
-  await supabase
-    .from("offline_sync_queue")
-    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
-    .eq("local_id", localId)
+  await markClaimSynced(supabase, localId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }
@@ -471,8 +476,14 @@ async function handleSchedulingReplay({
 
   // Build the write to persist, validating the same way the server actions
   // do. Each branch captures a fully-typed row in a closure; the closure runs
-  // only after the queue claim below succeeds.
-  let doWrite: () => Promise<{ error: { message: string } | null }>
+  // only after the queue claim below succeeds. `permanent` marks a failure that
+  // will never succeed on retry (e.g. an availability edit whose target row was
+  // deleted before sync — E-08), so the route returns 422 instead of a
+  // transient 500 the SW would keep retrying.
+  let doWrite: () => Promise<{
+    error: { message: string } | null
+    permanent?: boolean
+  }>
 
   if (action === "submit_availability") {
     const day = Number(payload.day_of_week)
@@ -547,13 +558,31 @@ async function handleSchedulingReplay({
     }
     const updateId = asString(payload.id) || null
     doWrite = updateId !== null
-      ? async () =>
-          supabase
+      ? async () => {
+          // E-08: an offline availability EDIT whose target row was deleted
+          // before sync updates 0 rows. Supabase returns no error for a 0-row
+          // update, so without checking we would mark it `synced` and silently
+          // drop the edit. `.select("id")` lets us detect the empty result and
+          // fail permanently (the row is gone — retrying won't bring it back).
+          const { data, error } = await supabase
             .from("schedule_availability")
             .update(availabilityRow)
             .eq("id", updateId)
             .eq("facility_id", facilityId)
             .eq("employee_id", employeeId)
+            .select("id")
+          if (error) return { error }
+          if (!data || data.length === 0) {
+            return {
+              error: {
+                message:
+                  "The availability entry you edited offline no longer exists.",
+              },
+              permanent: true,
+            }
+          }
+          return { error: null }
+        }
       : async () =>
           supabase.from("schedule_availability").insert(availabilityRow)
   } else if (action === "request_time_off") {
@@ -588,43 +617,39 @@ async function handleSchedulingReplay({
     return NextResponse.json({ error: "Unsupported scheduling action" }, { status: 400 })
   }
 
-  // Claim the queue slot (idempotency token). No rows ⇒ already processed.
-  const { data: claimRows, error: claimErr } = await supabase
-    .from("offline_sync_queue")
-    .upsert(
-      {
-        local_id: localId,
-        facility_id: facilityId,
-        employee_id: employeeId,
-        module_key: "scheduling",
-        action,
-        payload: payload as Json,
-        sync_status: "pending",
-        started_at: startedAtIso,
-      },
-      { onConflict: "local_id", ignoreDuplicates: true }
-    )
-    .select("local_id")
-
-  if (claimErr) {
-    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  // Claim the queue slot (idempotency token). A duplicate that already reached
+  // `synced` is a no-op; an orphaned `pending` row is re-driven (see claim.ts).
+  const claim = await claimQueueSlot({
+    supabase,
+    localId,
+    facilityId,
+    employeeId,
+    moduleKey: "scheduling",
+    action,
+    payload,
+    startedAtIso,
+  })
+  if (claim.kind === "error") {
+    return NextResponse.json({ error: claim.message }, { status: 500 })
   }
-  if (!claimRows || claimRows.length === 0) {
+  if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
-  const { error: writeError } = await doWrite()
+  const { error: writeError, permanent } = await doWrite()
 
   if (writeError) {
     // Release the claim so a future retry re-attempts the persist.
-    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
-    return NextResponse.json({ error: writeError.message }, { status: 500 })
+    await releaseClaim(supabase, localId)
+    // A permanent write failure (E-08: the edited row is gone) parks the item
+    // immediately with 422 instead of burning transient 500 retries.
+    return NextResponse.json(
+      { error: writeError.message },
+      { status: permanent ? 422 : 500 }
+    )
   }
 
-  await supabase
-    .from("offline_sync_queue")
-    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
-    .eq("local_id", localId)
+  await markClaimSynced(supabase, localId)
 
   return NextResponse.json({ ok: true })
 }
@@ -663,29 +688,22 @@ async function handleAirQualityReplay({
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // Claim the queue slot. With ignoreDuplicates, a conflicting (already-claimed)
-  // local_id returns no rows → the submission was already processed.
-  const { data: claimRows, error: claimErr } = await supabase
-    .from("offline_sync_queue")
-    .upsert(
-      {
-        local_id: localId,
-        facility_id: facilityId,
-        employee_id: employeeId,
-        module_key: "air_quality",
-        action,
-        payload: payload as Json,
-        sync_status: "pending",
-        started_at: startedAtIso,
-      },
-      { onConflict: "local_id", ignoreDuplicates: true }
-    )
-    .select("local_id")
-
-  if (claimErr) {
-    return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  // Claim the queue slot (idempotency token). A duplicate that already reached
+  // `synced` is a no-op; an orphaned `pending` row is re-driven (see claim.ts).
+  const claim = await claimQueueSlot({
+    supabase,
+    localId,
+    facilityId,
+    employeeId,
+    moduleKey: "air_quality",
+    action,
+    payload,
+    startedAtIso,
+  })
+  if (claim.kind === "error") {
+    return NextResponse.json({ error: claim.message }, { status: 500 })
   }
-  if (!claimRows || claimRows.length === 0) {
+  if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
   }
 
@@ -697,14 +715,11 @@ async function handleAirQualityReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
-    await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+    await releaseClaim(supabase, localId)
     return NextResponse.json({ error: result.error }, { status: 500 })
   }
 
-  await supabase
-    .from("offline_sync_queue")
-    .update({ sync_status: "synced", synced_at: new Date().toISOString() })
-    .eq("local_id", localId)
+  await markClaimSynced(supabase, localId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }

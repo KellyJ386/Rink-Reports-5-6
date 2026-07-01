@@ -51,8 +51,9 @@ export function SettingsTab({ settings }: Props) {
   const [unit, setUnit] = useState<MeasurementUnit>(
     (settings?.measurement_unit as MeasurementUnit) ?? "inches",
   )
-  const lowThr = settings?.low_threshold ?? 1
-  const highThr = settings?.high_threshold ?? 2
+  // Defaults mirror the DB column defaults (migration 14: 0.99 / 1.75).
+  const lowThr = settings?.low_threshold ?? 0.99
+  const highThr = settings?.high_threshold ?? 1.75
   const lowColor = settings?.low_color ?? "#1d4ed8"
   const okColor = settings?.ok_color ?? "#16a34a"
   const highColor = settings?.high_color ?? "#dc2626"

@@ -1,6 +1,7 @@
 "use client"
 
 import { useActionState } from "react"
+import { useSearchParams } from "next/navigation"
 
 import { FormError } from "@/components/auth/form-error"
 import { SubmitButton } from "@/components/auth/submit-button"
@@ -13,9 +14,12 @@ const initialState: LoginState = {}
 
 export function LoginForm() {
   const [state, formAction] = useActionState(loginAction, initialState)
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get("redirectTo") ?? ""
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="redirectTo" value={redirectTo} />
       <FormError message={state.error} />
       <div className="flex flex-col gap-2">
         <Label htmlFor="email">Email</Label>
