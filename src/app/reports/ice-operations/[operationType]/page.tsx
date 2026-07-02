@@ -174,7 +174,7 @@ export default async function OperationTypePage({
     supabase
       .from("ice_operations_equipment")
       .select(
-        "id, name, equipment_type, hours_count, sort_order, is_active, fuel_type_id"
+        "id, name, equipment_type, hours_count, sort_order, is_active, fuel_type_id, tank_capacity_gal"
       )
       .eq("facility_id", facilityId)
       .eq("is_active", true)
@@ -199,6 +199,7 @@ export default async function OperationTypePage({
     equipment_type: string
     hours_count: number | null
     fuel_type_id: string | null
+    tank_capacity_gal: number | null
   }
   const equipment = ((equipmentRaw ?? []) as EquipmentDbRow[]).map((row) => ({
     id: row.id,
@@ -206,6 +207,7 @@ export default async function OperationTypePage({
     equipment_type: row.equipment_type as EquipmentType,
     hours_count: row.hours_count,
     fuel_type_id: row.fuel_type_id ?? null,
+    tank_capacity_gal: row.tank_capacity_gal ?? null,
   }))
 
   type RecentDbRow = {
