@@ -1,5 +1,7 @@
 "use server"
 
+import { randomBytes } from "node:crypto"
+
 import { revalidatePath } from "next/cache"
 
 import { requireUser } from "@/lib/auth"
@@ -647,6 +649,109 @@ export async function markAllNotificationsRead(
   revalidatePath("/reports/scheduling/notifications")
   revalidatePath("/reports/scheduling")
   return { status: "success", message: "All caught up." }
+}
+
+export async function acknowledgeSchedule(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const auth = await getActiveEmployee()
+  if (!auth.ok) return { status: "error", error: auth.error }
+  const supabase = await createClient()
+
+  const id = String(formData.get("id") ?? "").trim()
+  if (!id) return { status: "error", error: "Missing notification id." }
+
+  // Acknowledging implies having read it; both stamps in one write. Scoped to
+  // the caller's own schedule_published notifications.
+  const nowIso = new Date().toISOString()
+  const { error } = await supabase
+    .from("schedule_notifications")
+    .update({ acknowledged_at: nowIso, read_at: nowIso })
+    .eq("id", id)
+    .eq("employee_id", auth.employee.id)
+    .eq("notification_type", "schedule_published")
+    .is("acknowledged_at", null)
+
+  if (error) {
+    return { status: "error", error: dbError(error, "Failed to acknowledge.") }
+  }
+
+  revalidatePath("/reports/scheduling/notifications")
+  revalidatePath("/reports/scheduling")
+  return { status: "success", message: "Schedule acknowledged." }
+}
+
+// ---------------------------------------------------------------------------
+// ICS calendar-feed token (migration 166). The token is the credential for
+// the public /api/schedule-ics/<token> route — owner-only RLS; rotating it
+// invalidates any previously shared subscription URL.
+// ---------------------------------------------------------------------------
+
+function newIcsToken(): string {
+  // 48 hex chars (24 random bytes) — comfortably over the DB's 32-char floor.
+  return randomBytes(24).toString("hex")
+}
+
+export async function getOrCreateIcsToken(): Promise<
+  { ok: true; token: string } | { ok: false; error: string }
+> {
+  const auth = await getActiveEmployee()
+  if (!auth.ok) return { ok: false, error: auth.error }
+  if (!(await currentUserCan(await createClient(), "scheduling", "view"))) {
+    return { ok: false, error: "You don't have access to scheduling." }
+  }
+  const supabase = await createClient()
+
+  const { data: existing } = await supabase
+    .from("schedule_ics_tokens")
+    .select("token")
+    .eq("employee_id", auth.employee.id)
+    .maybeSingle<{ token: string }>()
+  if (existing?.token) return { ok: true, token: existing.token }
+
+  const token = newIcsToken()
+  const { error } = await supabase.from("schedule_ics_tokens").insert({
+    employee_id: auth.employee.id,
+    facility_id: auth.employee.facility_id,
+    token,
+  })
+  if (error) {
+    return {
+      ok: false,
+      error: dbError(error, "Failed to create the calendar link."),
+    }
+  }
+  revalidatePath("/reports/scheduling/my-schedule")
+  return { ok: true, token }
+}
+
+export async function rotateIcsToken(): Promise<
+  { ok: true; token: string } | { ok: false; error: string }
+> {
+  const auth = await getActiveEmployee()
+  if (!auth.ok) return { ok: false, error: auth.error }
+  const supabase = await createClient()
+
+  const token = newIcsToken()
+  const { error } = await supabase
+    .from("schedule_ics_tokens")
+    .upsert(
+      {
+        employee_id: auth.employee.id,
+        facility_id: auth.employee.facility_id,
+        token,
+      },
+      { onConflict: "employee_id" }
+    )
+  if (error) {
+    return {
+      ok: false,
+      error: dbError(error, "Failed to reset the calendar link."),
+    }
+  }
+  revalidatePath("/reports/scheduling/my-schedule")
+  return { ok: true, token }
 }
 
 export { INITIAL_ACTION_STATE }

@@ -600,6 +600,19 @@ values
    '22222222-2222-2222-2222-222222222222', 19.00)
 on conflict (employee_id) do nothing;
 
+-- ICS calendar tokens (migration 166): owner-only credential. Seed one for
+-- Carol (SAME facility as Alice) and one for Bob (facility B) — Alice must
+-- read neither, but can manage her own.
+insert into public.schedule_ics_tokens (employee_id, facility_id, token)
+values
+  ('aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   '11111111-1111-1111-1111-111111111111',
+   'carol-token-0000000000000000000000000000'),
+  ('bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222',
+   'bob-token-000000000000000000000000000000')
+on conflict (employee_id) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -719,6 +732,36 @@ select pg_temp.expect_error(
     values ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
             '11111111-1111-1111-1111-111111111111', 99)$$,
   'wages: staff alice CANNOT INSERT a wage row (admin-only)');
+
+-- ICS tokens (migration 166): owner-only. Alice sees neither Carol's token
+-- (SAME facility — this is the credential-leak case) nor Bob's, can create
+-- her own, and cannot mint one for another employee.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_ics_tokens$$,
+  0, 'ics: alice CANNOT SELECT any other employee''s calendar token (incl. same-facility)');
+
+select pg_temp.expect_ok(
+  $$insert into public.schedule_ics_tokens (employee_id, facility_id, token)
+    values ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            '11111111-1111-1111-1111-111111111111',
+            'alice-token-00000000000000000000000000')$$,
+  'ics: alice CAN create her own calendar token');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_ics_tokens
+    where employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  1, 'ics: alice sees exactly her own token');
+
+-- Policy probe (not a constraint error): updating Carol's token must simply
+-- match 0 rows under the USING clause.
+select pg_temp.expect_count(
+  $$with u as (
+     update public.schedule_ics_tokens
+        set token = 'hijacked-token-00000000000000000000000'
+      where employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
+     returning 1
+   ) select count(*) from u$$,
+  0, 'ics: alice CANNOT UPDATE another employee''s token (0 rows)');
 
 -- Roles: Alice can see her facility's roles, not Bob's.
 select pg_temp.expect_count(

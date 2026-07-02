@@ -5473,14 +5473,55 @@ export type Database = {
           },
         ]
       }
+      schedule_ics_tokens: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          token: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          token: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          token?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_ics_tokens_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_ics_tokens_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedule_notifications: {
         Row: {
+          acknowledged_at: string | null
           created_at: string
           employee_id: string
           facility_id: string
           id: string
           notification_type: string
           payload: Json
+          publish_event_id: string | null
           read_at: string | null
           shift_id: string | null
           swap_id: string | null
@@ -5488,12 +5529,14 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          acknowledged_at?: string | null
           created_at?: string
           employee_id: string
           facility_id: string
           id?: string
           notification_type: string
           payload?: Json
+          publish_event_id?: string | null
           read_at?: string | null
           shift_id?: string | null
           swap_id?: string | null
@@ -5501,12 +5544,14 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          acknowledged_at?: string | null
           created_at?: string
           employee_id?: string
           facility_id?: string
           id?: string
           notification_type?: string
           payload?: Json
+          publish_event_id?: string | null
           read_at?: string | null
           shift_id?: string | null
           swap_id?: string | null
@@ -5526,6 +5571,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_notifications_publish_event_id_fkey"
+            columns: ["publish_event_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_publish_events"
             referencedColumns: ["id"]
           },
           {
