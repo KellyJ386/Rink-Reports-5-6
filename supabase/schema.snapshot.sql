@@ -1563,18 +1563,30 @@ begin
     return new;
   end if;
 
-  -- Super admins and facility admins are allowed to change privileged columns
-  -- (e.g. activating/deactivating users, moving facilities).
-  if public.is_super_admin() or public.is_facility_admin(old.facility_id) then
+  -- Super admins may change anything.
+  if public.is_super_admin() then
+    return new;
+  end if;
+
+  -- Only super admins may EVER change super-admin status or a user id,
+  -- regardless of facility-admin status. This is the fix for D-01: the check
+  -- runs BEFORE the facility-admin exemption below.
+  if new.id is distinct from old.id
+     or new.is_super_admin is distinct from old.is_super_admin then
+    raise exception 'Only super admins may modify super-admin status'
+      using errcode = '42501';
+  end if;
+
+  -- Facility admins may still change the remaining privileged columns
+  -- (activate/deactivate, move facility) for users in their facility.
+  if public.is_facility_admin(old.facility_id) then
     return new;
   end if;
 
   -- Everyone else (self-service / supervisor profile edits) must not be able
-  -- to escalate privilege or relocate a user.
-  if new.id            is distinct from old.id
-     or new.is_super_admin is distinct from old.is_super_admin
-     or new.is_active      is distinct from old.is_active
-     or new.facility_id    is distinct from old.facility_id then
+  -- to toggle active status or relocate a user.
+  if new.is_active   is distinct from old.is_active
+     or new.facility_id is distinct from old.facility_id then
     raise exception 'Not allowed to modify privileged account fields'
       using errcode = '42501';
   end if;
@@ -7129,6 +7141,7 @@ CREATE TABLE public.ice_operations_equipment (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     fuel_type_id uuid,
+    tank_capacity_gal numeric,
     CONSTRAINT ice_operations_equipment_equipment_type_check CHECK ((equipment_type = ANY (ARRAY['ice_resurfacer'::text, 'edger'::text, 'blade_set'::text, 'hand_edger'::text, 'other'::text])))
 );
 
@@ -7145,6 +7158,13 @@ COMMENT ON TABLE public.ice_operations_equipment IS 'Ice Operations: equipment d
 --
 
 COMMENT ON COLUMN public.ice_operations_equipment.hours_count IS 'Admin-maintained cumulative hours counter. Not auto-updated from submissions; admins update manually after maintenance events.';
+
+
+--
+-- Name: COLUMN ice_operations_equipment.tank_capacity_gal; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_operations_equipment.tank_capacity_gal IS 'Admin-maintained water tank capacity in gallons. Enables the ice_make water-usage unit toggle to convert a "% of tank" entry to/from gallons. Null means the percentage option is unavailable for this machine.';
 
 
 --

@@ -243,6 +243,7 @@ export async function createEquipment(
     const model = nonEmpty(formData.get("model"))
     const serial_number = nonEmpty(formData.get("serial_number"))
     const hours_count = asNumber(formData.get("hours_count"))
+    const tank_capacity_gal = asNumber(formData.get("tank_capacity_gal"))
     const sort_order = asInt(formData.get("sort_order")) ?? 0
     const is_active = formData.get("is_active") !== "off"
     const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
@@ -258,6 +259,7 @@ export async function createEquipment(
         model,
         serial_number,
         hours_count,
+        tank_capacity_gal,
         sort_order,
         is_active,
         fuel_type_id,
@@ -303,6 +305,7 @@ export async function updateEquipment(
     const model = nonEmpty(formData.get("model"))
     const serial_number = nonEmpty(formData.get("serial_number"))
     const hours_count = asNumber(formData.get("hours_count"))
+    const tank_capacity_gal = asNumber(formData.get("tank_capacity_gal"))
     const sort_order = asInt(formData.get("sort_order"))
     const fuel_type_id = nonEmpty(formData.get("fuel_type_id"))
 
@@ -316,6 +319,7 @@ export async function updateEquipment(
         model,
         serial_number,
         hours_count,
+        tank_capacity_gal,
         fuel_type_id,
         ...(sort_order !== null ? { sort_order } : {}),
       })
