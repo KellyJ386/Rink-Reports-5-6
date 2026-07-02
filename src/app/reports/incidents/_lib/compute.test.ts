@@ -16,6 +16,7 @@ function validInput(overrides: Partial<IncidentInput> = {}): IncidentInput {
     description: "Skater collided with the boards.",
     occurred_at: "2026-06-08T14:30",
     severity_level_id: "sev-1",
+    incident_type_id: "",
     activity_id: "",
     activity_other: "",
     location_other: "",

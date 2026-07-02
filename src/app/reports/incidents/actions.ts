@@ -110,7 +110,7 @@ export async function updateIncidentReport(
   const { data: existing, error: fetchErr } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
+      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, incident_type_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
     )
     .eq("id", reportId)
     .maybeSingle()
@@ -154,6 +154,7 @@ export async function updateIncidentReport(
     .from("incident_reports")
     .update({
       severity_level_id: input.severity_level_id,
+      incident_type_id: refs.resolvedIncidentTypeId || null,
       activity_id: refs.resolvedActivityId,
       activity_other: activityOther,
       location_other: input.location_other || null,
@@ -226,6 +227,7 @@ export async function updateIncidentReport(
     action: "update",
     before: {
       severity_level_id: existing.severity_level_id,
+      incident_type_id: existing.incident_type_id,
       activity_id: existing.activity_id,
       activity_other: existing.activity_other,
       location_other: existing.location_other,
@@ -242,6 +244,7 @@ export async function updateIncidentReport(
     },
     after: {
       severity_level_id: input.severity_level_id,
+      incident_type_id: refs.resolvedIncidentTypeId || null,
       activity_id: refs.resolvedActivityId,
       activity_other: activityOther,
       location_other: input.location_other || null,
