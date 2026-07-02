@@ -589,6 +589,17 @@ insert into public.schedule_availability (
           'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 3, '09:00', '17:00')
 on conflict (id) do nothing;
 
+-- Wage rows in BOTH facilities (migration 165). employee_wages has NO staff
+-- RLS branch — staff Alice must read zero rows even in her own facility (her
+-- own wage included), while scheduling-admin Carol reads only Facility A.
+insert into public.employee_wages (employee_id, facility_id, hourly_rate)
+values
+  ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111', 21.50),
+  ('bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222', 19.00)
+on conflict (employee_id) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -689,6 +700,25 @@ select pg_temp.expect_count(
 select pg_temp.expect_count(
   $$select count(*) from public.employees where id = 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'$$,
   0, 'alice CANNOT SELECT bob (different facility)');
+
+-- Wages (migration 165): employee_wages has NO staff branch — staff Alice
+-- reads ZERO rows even in her own facility, including her own wage, and
+-- cannot write one.
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'wages: staff alice CANNOT SELECT any employee_wages in her own facility');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  0, 'wages: staff alice CANNOT SELECT even her OWN wage row');
+
+select pg_temp.expect_error(
+  $$insert into public.employee_wages (employee_id, facility_id, hourly_rate)
+    values ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            '11111111-1111-1111-1111-111111111111', 99)$$,
+  'wages: staff alice CANNOT INSERT a wage row (admin-only)');
 
 -- Roles: Alice can see her facility's roles, not Bob's.
 select pg_temp.expect_count(
@@ -2131,6 +2161,17 @@ select pg_temp.expect_count(
   $$select count(*) from public.schedule_availability
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
   1, 'ISO-ADMIN: scheduling admin STILL sees own-facility availability (fix is not over-broad)');
+
+-- Wages (migration 165): the scheduling admin reads her OWN facility's wage
+-- rows and zero cross-facility rows.
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'ISO-ADMIN: scheduling admin CAN SELECT own-facility employee_wages');
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B employee_wages');
 
 reset role;
 

@@ -2192,6 +2192,45 @@ export type Database = {
           },
         ]
       }
+      employee_wages: {
+        Row: {
+          created_at: string
+          employee_id: string
+          facility_id: string
+          hourly_rate: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          hourly_rate: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          hourly_rate?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_wages_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_wages_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           created_at: string
@@ -5716,6 +5755,7 @@ export type Database = {
           availability_submission_enabled: boolean
           block_on_violations: boolean
           created_at: string
+          default_hourly_rate: number | null
           default_shift_minutes: number
           facility_id: string
           id: string
@@ -5736,6 +5776,7 @@ export type Database = {
           availability_submission_enabled?: boolean
           block_on_violations?: boolean
           created_at?: string
+          default_hourly_rate?: number | null
           default_shift_minutes?: number
           facility_id: string
           id?: string
@@ -5756,6 +5797,7 @@ export type Database = {
           availability_submission_enabled?: boolean
           block_on_violations?: boolean
           created_at?: string
+          default_hourly_rate?: number | null
           default_shift_minutes?: number
           facility_id?: string
           id?: string

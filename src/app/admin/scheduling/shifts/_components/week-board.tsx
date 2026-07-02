@@ -11,6 +11,7 @@ import {
   ExternalLink,
   LayoutGrid,
   Plus,
+  Printer,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -77,13 +78,13 @@ import { WeekGrid } from "./week-grid"
 import { MonthGrid } from "./month-grid"
 import {
   dtoToEvent,
+  monthGridRange,
   type BoardView,
   type ColorBy,
   type Density,
   type GridEvent,
 } from "../_lib/board-model"
 
-const DEFAULT_HOURLY_RATE = 26
 const ROW_H: Record<Density, number> = {
   compact: 22,
   comfortable: 30,
@@ -132,6 +133,11 @@ export type WeekBoardProps = {
   weekLabel: string
   /** Facility-local "YYYY-MM-DD" of the visible week's start. */
   weekStartKey: string
+  /** Hourly rates from the admin-only employee_wages table. */
+  wageByEmployee: Record<string, number>
+  /** Facility fallback rate (schedule_settings); null = unrated shifts are
+   * excluded from cost totals. */
+  defaultHourlyRate: number | null
   openShifts: OpenShiftItem[]
   employeeOptions: EmployeeOption[]
   pendingSwaps: PendingSwap[]
@@ -212,27 +218,33 @@ export function WeekBoard(props: WeekBoardProps) {
     [events, positionFilter],
   )
 
-  // Visible-week window (local) for KPI + crew tallies.
-  const weekWindow = useMemo(() => {
+  // Visible-period window (local) for KPI + crew tallies + export. Matches
+  // exactly what the active grid displays: one day, one week, or the month
+  // grid's whole-week range (including leading/trailing days).
+  const visibleWindow = useMemo(() => {
+    if (view === "month") {
+      const { start, end } = monthGridRange(anchor, props.weekStartDay)
+      return { startMs: start.getTime(), endMs: end.getTime() }
+    }
     const start = view === "day" ? anchor : weekStart
     const span = view === "day" ? 1 : 7
     const end = addLocalDays(start, span)
     return { startMs: start.getTime(), endMs: end.getTime() }
-  }, [view, anchor, weekStart])
+  }, [view, anchor, weekStart, props.weekStartDay])
 
-  const weekEvents = useMemo(
+  const visibleEvents = useMemo(
     () =>
       viewEvents.filter(
         (e) =>
-          e.start.getTime() >= weekWindow.startMs &&
-          e.start.getTime() < weekWindow.endMs,
+          e.start.getTime() >= visibleWindow.startMs &&
+          e.start.getTime() < visibleWindow.endMs,
       ),
-    [viewEvents, weekWindow],
+    [viewEvents, visibleWindow],
   )
 
   const scheduledHours = useMemo(
     () =>
-      weekEvents.reduce(
+      visibleEvents.reduce(
         (a, e) =>
           a +
           Math.max(
@@ -242,11 +254,35 @@ export function WeekBoard(props: WeekBoardProps) {
           ),
         0,
       ),
-    [weekEvents],
+    [visibleEvents],
   )
 
+  // Real labor cost: Σ shift hours × the assigned employee's rate (falling
+  // back to the facility default). Shifts with no known rate are excluded and
+  // surfaced as coverage in the KPI sub-label.
+  const labor = useMemo(() => {
+    let cost = 0
+    let ratedCount = 0
+    let assignedCount = 0
+    for (const e of visibleEvents) {
+      if (!e.employeeId) continue
+      assignedCount++
+      const rate =
+        props.wageByEmployee[e.employeeId] ?? props.defaultHourlyRate
+      if (rate == null) continue
+      ratedCount++
+      cost +=
+        Math.max(
+          0,
+          (e.end.getTime() - e.start.getTime()) / 3_600_000 -
+            (e.breakMinutes || 0) / 60,
+        ) * rate
+    }
+    return { cost, ratedCount, assignedCount }
+  }, [visibleEvents, props.wageByEmployee, props.defaultHourlyRate])
+
   const crewRows = useMemo(() => {
-    const items: TallyItem[] = weekEvents.map((e) => ({
+    const items: TallyItem[] = visibleEvents.map((e) => ({
       employeeId: e.employeeId,
       startMs: e.start.getTime(),
       endMs: e.end.getTime(),
@@ -254,8 +290,8 @@ export function WeekBoard(props: WeekBoardProps) {
     }))
     const totals = tallyWeeklyHoursByEmployee(
       items,
-      weekWindow.startMs,
-      weekWindow.endMs,
+      visibleWindow.startMs,
+      visibleWindow.endMs,
     )
     return props.employees
       .map((emp) => ({
@@ -265,7 +301,7 @@ export function WeekBoard(props: WeekBoardProps) {
       }))
       .filter((r) => r.hours > 0)
       .sort((a, b) => b.hours - a.hours)
-  }, [weekEvents, weekWindow, props.employees])
+  }, [visibleEvents, visibleWindow, props.employees])
 
   const selectedEvent = useMemo(
     () => events.find((e) => e.id === selectedId) ?? null,
@@ -695,7 +731,7 @@ export function WeekBoard(props: WeekBoardProps) {
   const exportCsv = useCallback(() => {
     const rows = [["Date", "Day", "Start", "End", "Employee", "Job area", "Status"]]
     const empById = new Map(props.employees.map((e) => [e.id, e]))
-    for (const e of [...weekEvents].sort(
+    for (const e of [...visibleEvents].sort(
       (a, b) => a.start.getTime() - b.start.getTime(),
     )) {
       const emp = e.employeeId ? empById.get(e.employeeId) : null
@@ -717,10 +753,14 @@ export function WeekBoard(props: WeekBoardProps) {
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
     const a = document.createElement("a")
     a.href = url
-    a.download = `schedule-${isoDateKey(days[0])}.csv`
+    // Month view exports the visible month grid; day/week export their range.
+    a.download =
+      view === "month"
+        ? `schedule-${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}.csv`
+        : `schedule-${isoDateKey(days[0])}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [weekEvents, props.employees, jobAreaNameById, days])
+  }, [visibleEvents, props.employees, jobAreaNameById, days, view, anchor])
 
   const weekRangeLabel = useMemo(() => {
     if (view === "month") {
@@ -814,11 +854,16 @@ export function WeekBoard(props: WeekBoardProps) {
 
       <KpiStrip
         scheduledHours={scheduledHours}
-        shiftCount={weekEvents.length}
+        shiftCount={visibleEvents.length}
         employeeCount={props.employees.length}
         openShiftCount={props.openShifts.length}
         swapCount={props.pendingSwaps.length}
-        hourlyRate={DEFAULT_HOURLY_RATE}
+        laborCost={labor.cost}
+        ratedShiftCount={labor.ratedCount}
+        assignedShiftCount={labor.assignedCount}
+        periodLabel={
+          view === "month" ? "This month" : view === "day" ? "This day" : "This week"
+        }
       />
 
       {/* Sub-toolbar */}
@@ -844,6 +889,15 @@ export function WeekBoard(props: WeekBoardProps) {
         <Legend jobAreas={props.jobAreas} jobAreaOrder={jobAreaOrder} colorBy={colorBy} />
         <Button type="button" variant="outline" className="h-9" onClick={exportCsv}>
           <Download className="h-3.5 w-3.5" /> Export
+        </Button>
+        <Button asChild variant="outline" className="h-9">
+          <a
+            href={`/admin/scheduling/shifts/print?date=${isoDateKey(days[0])}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Printer className="h-3.5 w-3.5" /> Print
+          </a>
         </Button>
       </div>
 
@@ -894,7 +948,12 @@ export function WeekBoard(props: WeekBoardProps) {
               event={selectedEvent}
               employees={props.employees}
               jobAreas={props.jobAreas}
-              hourlyRate={DEFAULT_HOURLY_RATE}
+              hourlyRate={
+                selectedEvent.employeeId
+                  ? (props.wageByEmployee[selectedEvent.employeeId] ??
+                    props.defaultHourlyRate)
+                  : null
+              }
               pending={isPending}
               onAssign={(patch) => handleAssign(selectedEvent.id, patch)}
               onDuplicate={() => handleDuplicate(selectedEvent)}

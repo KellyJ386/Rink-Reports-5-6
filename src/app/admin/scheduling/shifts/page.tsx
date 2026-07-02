@@ -37,7 +37,9 @@ type SearchParams = Promise<{ date?: string }>
 
 // How much shift history/future to preload around the anchor so week-nav has
 // data to show without a round-trip (the board keeps events client-side).
-const WINDOW_DAYS = 28
+// 42 covers the month view's whole-week grid (anchored on the 1st, a 31-day
+// month plus trailing cells reaches ~+37 days).
+const WINDOW_DAYS = 42
 
 function parseAnchorDate(date: string | undefined): Date {
   if (date) {
@@ -104,6 +106,7 @@ export default async function ShiftsPage({
     openShiftsRes,
     pendingSwapsRes,
     pendingTimeOffRes,
+    wagesRes,
   ] = await Promise.all([
     supabase
       .from("employees")
@@ -130,9 +133,12 @@ export default async function ShiftsPage({
       .maybeSingle<{ settings: unknown; timezone: string | null }>(),
     supabase
       .from("schedule_settings")
-      .select("week_start_day")
+      .select("week_start_day, default_hourly_rate")
       .eq("facility_id", facilityId)
-      .maybeSingle<{ week_start_day: number }>(),
+      .maybeSingle<{
+        week_start_day: number
+        default_hourly_rate: number | null
+      }>(),
     supabase
       .from("schedule_shifts")
       .select("*")
@@ -140,7 +146,7 @@ export default async function ShiftsPage({
       .gte("starts_at", windowStart.toISOString())
       .lt("starts_at", windowEnd.toISOString())
       .order("starts_at", { ascending: true })
-      .limit(1000),
+      .limit(2000),
     supabase
       .from("schedule_templates")
       .select("*")
@@ -168,6 +174,11 @@ export default async function ShiftsPage({
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(20),
+    // Admin-only table (migration 165): powers real labor-cost estimates.
+    supabase
+      .from("employee_wages")
+      .select("employee_id, hourly_rate")
+      .eq("facility_id", facilityId),
   ])
 
   const employees = (employeesRes.data ?? []) as (EmployeeLite & {
@@ -176,6 +187,14 @@ export default async function ShiftsPage({
   const jobAreas = (jobAreasRes.data ?? []) as JobAreaLite[]
   const operatingHours = resolveOperatingHours(facilityRes.data?.settings)
   const weekStartDay = settingsRes.data?.week_start_day ?? 0
+  const defaultHourlyRate = settingsRes.data?.default_hourly_rate ?? null
+  const wageByEmployee: Record<string, number> = {}
+  for (const w of (wagesRes.data ?? []) as {
+    employee_id: string
+    hourly_rate: number
+  }[]) {
+    wageByEmployee[w.employee_id] = w.hourly_rate
+  }
 
   const shifts: ShiftRow[] = shiftsRes.data ?? []
   const initialShifts: GridShiftDTO[] = shifts.map((s) => ({
@@ -322,6 +341,8 @@ export default async function ShiftsPage({
         weekEndsAtIso={week.endUtc.toISOString()}
         weekLabel={weekLabel}
         weekStartKey={week.startKey}
+        wageByEmployee={wageByEmployee}
+        defaultHourlyRate={defaultHourlyRate}
         openShifts={openShifts}
         employeeOptions={employeeOptions}
         pendingSwaps={pendingSwaps}

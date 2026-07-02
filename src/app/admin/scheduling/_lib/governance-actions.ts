@@ -921,6 +921,17 @@ export async function updateSchedulingSettings(
         error: "Swap expiry hours must be a positive whole number.",
       }
     }
+    let dhr: number | null = null
+    if (values.default_hourly_rate !== null) {
+      const n = Number(values.default_hourly_rate)
+      if (!Number.isFinite(n) || n < 0 || n > 10000) {
+        return {
+          ok: false,
+          error: "Default hourly rate must be between 0 and 10,000.",
+        }
+      }
+      dhr = Math.round(n * 100) / 100
+    }
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -942,6 +953,7 @@ export async function updateSchedulingSettings(
           availability_submission_enabled: values.availability_submission_enabled,
           require_job_area_qualification: values.require_job_area_qualification,
           block_on_violations: values.block_on_violations,
+          default_hourly_rate: dhr,
         },
         { onConflict: "facility_id" }
       )

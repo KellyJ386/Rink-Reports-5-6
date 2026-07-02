@@ -24,6 +24,8 @@ export type EmployeeListItem = EmployeeRow & {
   job_areas: JobAreaOption[]
   job_area_ids: string[]
   primary_job_area: JobAreaOption | null
+  /** Hourly wage from the admin-only employee_wages table; null = facility default. */
+  hourly_rate: number | null
 }
 
 export type EmployeeFormInput = {
@@ -41,6 +43,10 @@ export type EmployeeFormInput = {
   // individual cap; the scheduling grid's weekly-hours warning then falls back
   // to the facility-level schedule_settings thresholds. (employees.max_weekly_hours)
   max_weekly_hours: number | null
+  // Optional hourly wage for scheduling labor-cost estimates. Stored in the
+  // admin-only employee_wages table (NOT on employees — that table is
+  // facility-wide readable by all staff). NULL = use the facility default.
+  hourly_rate: number | null
   // Job-area assignments (Employee Scheduling). Complete desired set (max 4);
   // primary must be one of job_area_ids or it's ignored. Empty when the form
   // doesn't submit areas yet.

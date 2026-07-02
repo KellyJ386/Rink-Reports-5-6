@@ -91,6 +91,21 @@ function parseFormInput(
     max_weekly_hours = n
   }
 
+  // Optional hourly wage (admin-only employee_wages table). Two decimals,
+  // 0..10000 — mirrors the DB check so the form gets a clean error.
+  let hourly_rate: number | null = null
+  const wageRaw = nonEmpty(formData.get("hourly_rate"))
+  if (wageRaw !== null) {
+    const n = Number(wageRaw)
+    if (!Number.isFinite(n) || n < 0 || n > 10000) {
+      return {
+        ok: false,
+        error: "Hourly wage must be a number between 0 and 10,000.",
+      }
+    }
+    hourly_rate = Math.round(n * 100) / 100
+  }
+
   const isMinor = formData.get("is_minor") === "on"
   const needsLogin = formData.get("needs_login") === "on"
 
@@ -149,12 +164,44 @@ function parseFormInput(
       emergency_contact_phone: emergency_phone,
       hire_date: nonEmpty(formData.get("hire_date")),
       max_weekly_hours,
+      hourly_rate,
       job_area_ids,
       primary_job_area_id,
       job_areas_submitted,
       needs_login: needsLogin,
     },
   }
+}
+
+/**
+ * Sync the employee's optional wage row (admin-only employee_wages table).
+ * NULL clears the row (fall back to the facility default rate). Runs under
+ * the caller's RLS — the wage policies require an in-facility admin.
+ * Returns an error message, or null on success.
+ */
+async function persistWage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  facilityId: string,
+  employeeId: string,
+  hourlyRate: number | null
+): Promise<string | null> {
+  if (hourlyRate === null) {
+    const { error } = await supabase
+      .from("employee_wages")
+      .delete()
+      .eq("employee_id", employeeId)
+      .eq("facility_id", facilityId)
+    return error ? error.message : null
+  }
+  const { error } = await supabase.from("employee_wages").upsert(
+    {
+      employee_id: employeeId,
+      facility_id: facilityId,
+      hourly_rate: hourlyRate,
+    },
+    { onConflict: "employee_id" }
+  )
+  return error ? error.message : null
 }
 
 async function resolveFacilityIdFromForm(
@@ -264,6 +311,21 @@ export async function createEmployee(
       }
     }
 
+    if (input.hourly_rate !== null) {
+      const wageErr = await persistWage(
+        supabase,
+        facility.facilityId,
+        employeeId as string,
+        input.hourly_rate
+      )
+      if (wageErr) {
+        return {
+          ok: false,
+          error: `Employee created, but the hourly wage couldn't be saved: ${wageErr}`,
+        }
+      }
+    }
+
     // Provision a login only when the admin opted in ("Needs system login").
     // On success we link employees.user_id and seed this role's default
     // permissions. Failures here do NOT roll back the employee record — the
@@ -369,6 +431,22 @@ export async function updateEmployee(
 
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to update employee.") }
+    }
+
+    // Wage: blank clears the row (falls back to the facility default rate).
+    {
+      const wageErr = await persistWage(
+        supabase,
+        facility.facilityId,
+        id,
+        input.hourly_rate
+      )
+      if (wageErr) {
+        return {
+          ok: false,
+          error: `Employee updated, but the hourly wage couldn't be saved: ${wageErr}`,
+        }
+      }
     }
 
     // Reconcile job-area assignments (Employee Scheduling) — but ONLY when the

@@ -81,28 +81,48 @@ function Kpi({
   )
 }
 
+/** "$1,234" — whole dollars are enough for schedule-level estimates. */
+function fmtUsd(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-US")}`
+}
+
 export function KpiStrip({
   scheduledHours,
   shiftCount,
   employeeCount,
   openShiftCount,
   swapCount,
-  hourlyRate,
+  laborCost,
+  ratedShiftCount,
+  assignedShiftCount,
+  periodLabel,
 }: {
   scheduledHours: number
   shiftCount: number
   employeeCount: number
   openShiftCount: number
   swapCount: number
-  hourlyRate: number
+  /** Σ shift hours × per-employee rate (facility default as fallback). */
+  laborCost: number
+  /** Assigned shifts that had a usable rate. */
+  ratedShiftCount: number
+  /** All assigned shifts in the visible period. */
+  assignedShiftCount: number
+  /** "This week" / "This month" / "This day" — matches the active view. */
+  periodLabel: string
 }) {
-  const cost = Math.round(scheduledHours * hourlyRate).toLocaleString()
+  const laborSub =
+    ratedShiftCount === 0
+      ? "Set wages to track cost"
+      : ratedShiftCount < assignedShiftCount
+        ? `Rates for ${ratedShiftCount}/${assignedShiftCount} shifts`
+        : "All shifts rated"
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <Kpi
         label="Scheduled hrs"
         value={roundHours(scheduledHours)}
-        sub="This week"
+        sub={periodLabel}
         icon={<CalendarDays className="h-[18px] w-[18px]" />}
       />
       <Kpi
@@ -113,8 +133,8 @@ export function KpiStrip({
       />
       <Kpi
         label="Labor cost"
-        value={`$${cost}`}
-        sub={`Est · $${hourlyRate}/hr`}
+        value={ratedShiftCount === 0 ? "—" : fmtUsd(laborCost)}
+        sub={laborSub}
         icon={<DollarSign className="h-[18px] w-[18px]" />}
         tone="green"
       />
@@ -411,7 +431,7 @@ export function CrewRoster({
       })}
       {rows.length === 0 ? (
         <li className="px-4 py-6 text-sm text-muted-foreground">
-          No assigned hours this week.
+          No assigned hours in this view.
         </li>
       ) : null}
     </ul>
@@ -448,7 +468,8 @@ export function ShiftDetail({
   event: GridEvent
   employees: EmployeeLite[]
   jobAreas: JobAreaLite[]
-  hourlyRate: number
+  /** The assigned employee's rate (or the facility default); null = unknown. */
+  hourlyRate: number | null
   pending: boolean
   onAssign: (patch: { employeeId?: string | null; jobAreaId?: string | null }) => void
   onDuplicate: () => void
@@ -537,7 +558,10 @@ export function ShiftDetail({
       <div className="grid grid-cols-3 gap-2">
         <DetailChip k="Duration" v={`${roundHours(dur)}h`} />
         <DetailChip k="Break" v={`${event.breakMinutes}m`} />
-        <DetailChip k="Est. pay" v={`$${Math.round(dur * hourlyRate)}`} />
+        <DetailChip
+          k="Est. pay"
+          v={hourlyRate == null ? "—" : fmtUsd(dur * hourlyRate)}
+        />
       </div>
 
       <div className="flex gap-2">

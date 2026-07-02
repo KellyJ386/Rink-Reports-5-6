@@ -75,6 +75,11 @@ export function SettingsForm({ settings }: { settings: Settings }) {
   const [notifyOnOvertime, setNotifyOnOvertime] = useState<boolean>(
     settings.notify_on_overtime
   )
+  const [defaultHourlyRate, setDefaultHourlyRate] = useState<string>(
+    settings.default_hourly_rate == null
+      ? ""
+      : String(settings.default_hourly_rate)
+  )
   const [availabilitySubmissionEnabled, setAvailabilitySubmissionEnabled] =
     useState<boolean>(settings.availability_submission_enabled)
   const [requireJobAreaQualification, setRequireJobAreaQualification] =
@@ -111,6 +116,7 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         availability_submission_enabled: availabilitySubmissionEnabled,
         require_job_area_qualification: requireJobAreaQualification,
         block_on_violations: blockOnViolations,
+        default_hourly_rate: nullableNumber(defaultHourlyRate),
       })
       if (r.ok === true) toast.success(r.message ?? "Saved.")
       else if (r.ok === false) toast.error(r.error)
@@ -193,6 +199,20 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           <p className="text-muted-foreground text-xs">
             Undecided swap requests lapse to “expired” after this window
             (capped at the shift’s start). Default 72.
+          </p>
+        </Field>
+        <Field label="Default hourly rate ($)">
+          <Input
+            type="number"
+            min={0}
+            step={0.01}
+            value={defaultHourlyRate}
+            onChange={(e) => setDefaultHourlyRate(e.target.value)}
+            placeholder="(none)"
+          />
+          <p className="text-muted-foreground text-xs">
+            Fallback for labor-cost estimates when an employee has no
+            individual wage (set wages on the Employees page). Admin-only.
           </p>
         </Field>
       </div>

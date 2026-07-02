@@ -162,6 +162,7 @@ export default async function EmployeesPage({
     { data: roleDefaultsRaw },
     { data: jobAreasRaw },
     { data: ejaRaw },
+    { data: wagesRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -189,6 +190,12 @@ export default async function EmployeesPage({
     supabase
       .from("employee_job_area_assignments")
       .select("employee_id, job_area_id, is_primary")
+      .eq("facility_id", facilityId),
+    // Admin-only table (migration 165): readable here because this page is
+    // requireAdmin-gated; staff RLS returns nothing.
+    supabase
+      .from("employee_wages")
+      .select("employee_id, hourly_rate")
       .eq("facility_id", facilityId),
   ])
 
@@ -264,6 +271,12 @@ export default async function EmployeesPage({
 
   const roleById = new Map(roles.map((r) => [r.id, r]))
 
+  const wageByEmployee = new Map(
+    ((wagesRaw ?? []) as { employee_id: string; hourly_rate: number }[]).map(
+      (w) => [w.employee_id, w.hourly_rate]
+    )
+  )
+
   const list: EmployeeListItem[] = employees.map((e) => {
     const role = roleById.get(e.role_id) ?? null
     const areaBucket = jobAreasByEmployee.get(e.id)
@@ -275,6 +288,7 @@ export default async function EmployeesPage({
       job_areas: areaBucket?.areas ?? [],
       job_area_ids: areaBucket?.ids ?? [],
       primary_job_area: areaBucket?.primary ?? null,
+      hourly_rate: wageByEmployee.get(e.id) ?? null,
     }
   })
 
