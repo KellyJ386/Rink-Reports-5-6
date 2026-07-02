@@ -169,3 +169,54 @@ export function addDaysToKey(key: string, n: number): string {
   const pad = (x: number) => String(x).padStart(2, "0")
   return `${probe.getUTCFullYear()}-${pad(probe.getUTCMonth() + 1)}-${pad(probe.getUTCDate())}`
 }
+
+/** Weekday (0 = Sunday) of a "YYYY-MM-DD" key — pure calendar math. */
+export function weekdayOfKey(key: string): number {
+  const [y, m, d] = key.split("-").map(Number)
+  // UTC-noon probe so the derived weekday can't straddle a zone boundary.
+  return new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
+}
+
+export type WeekWindow = {
+  /** "YYYY-MM-DD" of the facility-local week start. */
+  startKey: string
+  /** The 7 facility-local day keys of the week, in order. */
+  dayKeys: string[]
+  /** UTC instant of the week start's facility-local midnight (inclusive). */
+  startUtc: Date
+  /** UTC instant of the NEXT week start's facility-local midnight (exclusive). */
+  endUtc: Date
+}
+
+/**
+ * The facility-local week containing `anchor`, honoring the facility's
+ * configured week start (0 = Sunday … 6 = Saturday).
+ *
+ * This is the ONE definition of "this week" the scheduling module should use
+ * for query bounds, KPIs, publish ranges, and day bucketing — it matches how
+ * the DB engine computes weekly windows (migration 137: facilities.timezone +
+ * schedule_settings.week_start_day). `anchor` may be a UTC instant (bucketed
+ * onto the facility-local calendar first) or a "YYYY-MM-DD" key used as-is.
+ */
+export function weekWindowInTz(
+  anchor: Date | string,
+  weekStartDay: number,
+  timeZone: string | null
+): WeekWindow {
+  const anchorKey =
+    typeof anchor === "string" && /^\d{4}-\d{2}-\d{2}$/.test(anchor)
+      ? anchor
+      : dayKeyInTz(anchor, timeZone)
+  const wsd = ((weekStartDay % 7) + 7) % 7
+  const offset = (weekdayOfKey(anchorKey) - wsd + 7) % 7
+  const startKey = addDaysToKey(anchorKey, -offset)
+  const dayKeys = Array.from({ length: 7 }, (_, i) => addDaysToKey(startKey, i))
+  const endKey = addDaysToKey(startKey, 7)
+  // Midnights always parse, so the non-null fallbacks are unreachable; they
+  // exist to keep the return type non-nullable.
+  const startUtc =
+    wallTimeToUtc(`${startKey}T00:00:00`, timeZone) ?? new Date(`${startKey}T00:00:00Z`)
+  const endUtc =
+    wallTimeToUtc(`${endKey}T00:00:00`, timeZone) ?? new Date(`${endKey}T00:00:00Z`)
+  return { startKey, dayKeys, startUtc, endUtc }
+}

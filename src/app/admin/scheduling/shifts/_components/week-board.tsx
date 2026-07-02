@@ -130,6 +130,8 @@ export type WeekBoardProps = {
   weekStartsAtIso: string
   weekEndsAtIso: string
   weekLabel: string
+  /** Facility-local "YYYY-MM-DD" of the visible week's start. */
+  weekStartKey: string
   openShifts: OpenShiftItem[]
   employeeOptions: EmployeeOption[]
   pendingSwaps: PendingSwap[]
@@ -804,6 +806,8 @@ export function WeekBoard(props: WeekBoardProps) {
       {showTemplate ? (
         <ApplyTemplateForm
           templates={props.templates}
+          weekStartDay={props.weekStartDay}
+          defaultWeekStartKey={props.weekStartKey}
           onClose={() => setShowTemplate(false)}
         />
       ) : null}

@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { StatCard } from "@/components/ui/stat-card"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { dayKeyInTz, weekWindowInTz } from "@/lib/timezone"
 
 import {
   ModuleCard,
@@ -27,23 +28,19 @@ import {
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Scheduling | MFO / Rink Reports" }
 
-function startOfWeek(weekStartDay: number) {
-  const now = new Date()
-  const today = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  )
-  const dow = today.getUTCDay()
-  const offset = ((dow - weekStartDay) + 7) % 7
-  const start = new Date(today)
-  start.setUTCDate(today.getUTCDate() - offset)
-  const end = new Date(start)
-  end.setUTCDate(start.getUTCDate() + 7)
-  return { start, end }
+/** "Jun 28" for a facility-local "YYYY-MM-DD" key (pure calendar math). */
+function fmtKeyMonthDay(key: string) {
+  const [y, m, d] = key.split("-").map(Number)
+  const probe = new Date(Date.UTC(y, m - 1, d, 12))
+  return `${probe.toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${d}`
 }
 
-function fmtMonthDay(d: Date) {
-  const m = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" })
-  return `${m} ${d.getUTCDate()}`
+function keyWeekdayShort(key: string) {
+  const [y, m, d] = key.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleString("en-US", {
+    weekday: "short",
+    timeZone: "UTC",
+  })
 }
 
 function shiftHours(starts_at: string, ends_at: string): number {
@@ -87,15 +84,17 @@ export default async function SchedulingOverviewPage() {
       .maybeSingle<{ week_start_day: number }>(),
     supabase
       .from("facilities")
-      .select("name")
+      .select("name, timezone")
       .eq("id", facilityId)
-      .maybeSingle<{ name: string }>(),
+      .maybeSingle<{ name: string; timezone: string | null }>(),
   ])
 
   // Default 0 (Sunday) — must match the shifts grid's fallback so the hub's
-  // "this week" agrees with the grid.
+  // "this week" agrees with the grid. The window itself is computed on the
+  // facility's local calendar (same model as the DB engine, migration 137).
   const weekStartDay = settings?.week_start_day ?? 0
-  const { start: weekStart, end: weekEnd } = startOfWeek(weekStartDay)
+  const tz = facility?.timezone ?? null
+  const week = weekWindowInTz(new Date(), weekStartDay, tz)
 
   const [
     shiftsRes,
@@ -106,13 +105,14 @@ export default async function SchedulingOverviewPage() {
     pendingTimeOffRes,
     templatesRes,
     publishRes,
+    availabilityRes,
   ] = await Promise.all([
     supabase
       .from("schedule_shifts")
       .select("id, department_id, employee_id, starts_at, ends_at, status, role_label, compliance_warnings")
       .eq("facility_id", facilityId)
-      .gte("starts_at", weekStart.toISOString())
-      .lt("starts_at", weekEnd.toISOString()),
+      .gte("starts_at", week.startUtc.toISOString())
+      .lt("starts_at", week.endUtc.toISOString()),
     supabase
       .from("departments")
       .select("id, name")
@@ -157,6 +157,11 @@ export default async function SchedulingOverviewPage() {
       .eq("facility_id", facilityId)
       .order("created_at", { ascending: false })
       .limit(1),
+    supabase
+      .from("schedule_availability")
+      .select("employee_id")
+      .eq("facility_id", facilityId)
+      .limit(2000),
   ])
 
   type ShiftRow = {
@@ -212,6 +217,11 @@ export default async function SchedulingOverviewPage() {
   const lastPublish = (publishRes.data ?? [])[0] as
     | { id: string; created_at: string | null }
     | undefined
+  const availabilityEmployeeCount = new Set(
+    ((availabilityRes.data ?? []) as { employee_id: string }[]).map(
+      (r) => r.employee_id
+    )
+  ).size
 
   const empById = new Map(employees.map((e) => [e.id, e]))
   const deptById = new Map(departments.map((d) => [d.id, d]))
@@ -235,19 +245,15 @@ export default async function SchedulingOverviewPage() {
       !openShiftRows.some((o) => o.shift_id === s.id)
   ).length
 
-  // Per-day shift counts (for the at-a-glance row).
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart)
-    d.setUTCDate(weekStart.getUTCDate() + i)
-    const startMs = d.getTime()
-    const endMs = startMs + 24 * 3_600_000
-    const dayShifts = shifts.filter((s) => {
-      const t = new Date(s.starts_at).getTime()
-      return t >= startMs && t < endMs
-    })
+  // Per-day shift counts (for the at-a-glance row), bucketed onto the
+  // facility-local calendar day so evening shifts land on the right column.
+  const weekDays = week.dayKeys.map((key) => {
+    const dayShifts = shifts.filter(
+      (s) => dayKeyInTz(s.starts_at, tz) === key
+    )
     return {
-      label: d.toLocaleString("en-US", { weekday: "short", timeZone: "UTC" }),
-      date: d.getUTCDate(),
+      label: keyWeekdayShort(key),
+      date: Number(key.slice(8, 10)),
       count: dayShifts.length,
       hours: Math.round(
         dayShifts.reduce((a, s) => a + shiftHours(s.starts_at, s.ends_at), 0)
@@ -316,15 +322,16 @@ export default async function SchedulingOverviewPage() {
     }`,
   }))
 
-  const weekLabel = `Week of ${fmtMonthDay(weekStart)} – ${fmtMonthDay(
-    new Date(weekEnd.getTime() - 24 * 60 * 60 * 1000)
-  )} · ${weekStart.getUTCFullYear()}`
+  const weekLabel = `Week of ${fmtKeyMonthDay(week.startKey)} – ${fmtKeyMonthDay(
+    week.dayKeys[6]
+  )} · ${week.startKey.slice(0, 4)}`
 
   const activeTemplateCount = templates.filter((t) => t.is_active).length
   const lastPublishedLabel = lastPublish?.created_at
     ? new Date(lastPublish.created_at).toLocaleString("en-US", {
         dateStyle: "medium",
         timeStyle: "short",
+        timeZone: tz ?? undefined,
       })
     : "Never"
 
@@ -485,6 +492,13 @@ export default async function SchedulingOverviewPage() {
             cta="Open queue"
           />
           <ModuleCard
+            title="Availability"
+            description="Weekly availability submitted by staff, by employee and day."
+            href="/admin/scheduling/availability"
+            count={`${availabilityEmployeeCount} submitted`}
+            cta="View grid"
+          />
+          <ModuleCard
             title="Swaps"
             description="Review shift swap requests and assign targets."
             href="/admin/scheduling/swaps"
@@ -500,6 +514,12 @@ export default async function SchedulingOverviewPage() {
             }
             href="/admin/scheduling/compliance"
             cta="View rules"
+          />
+          <ModuleCard
+            title="Job areas"
+            description="Positions staff can be scheduled into, with required certifications."
+            href="/admin/scheduling/job-areas"
+            cta="Manage areas"
           />
           <ModuleCard
             title="Settings"

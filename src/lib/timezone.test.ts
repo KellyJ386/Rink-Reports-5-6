@@ -6,6 +6,8 @@ import {
   dayPartsInTz,
   minutesOfDayInTz,
   wallTimeToUtc,
+  weekdayOfKey,
+  weekWindowInTz,
 } from "./timezone"
 
 describe("wallTimeToUtc", () => {
@@ -124,5 +126,71 @@ describe("addDaysToKey", () => {
     expect(addDaysToKey("2026-01-30", 3)).toBe("2026-02-02")
     expect(addDaysToKey("2026-12-31", 1)).toBe("2027-01-01")
     expect(addDaysToKey("2026-03-01", -1)).toBe("2026-02-28")
+  })
+})
+
+describe("weekdayOfKey", () => {
+  it("returns the calendar weekday of a key", () => {
+    expect(weekdayOfKey("2026-07-02")).toBe(4) // Thursday
+    expect(weekdayOfKey("2026-07-05")).toBe(0) // Sunday
+    expect(weekdayOfKey("2026-07-06")).toBe(1) // Monday
+  })
+})
+
+describe("weekWindowInTz", () => {
+  it("computes a Sunday-start week from a key anchor", () => {
+    // 2026-07-02 is a Thursday; the containing Sunday-start week is Jun 28 – Jul 4.
+    const w = weekWindowInTz("2026-07-02", 0, "UTC")
+    expect(w.startKey).toBe("2026-06-28")
+    expect(w.dayKeys).toHaveLength(7)
+    expect(w.dayKeys[6]).toBe("2026-07-04")
+    expect(w.startUtc.toISOString()).toBe("2026-06-28T00:00:00.000Z")
+    expect(w.endUtc.toISOString()).toBe("2026-07-05T00:00:00.000Z")
+  })
+
+  it("honors a Monday week start", () => {
+    const w = weekWindowInTz("2026-07-02", 1, "UTC")
+    expect(w.startKey).toBe("2026-06-29") // the preceding Monday
+    expect(w.dayKeys[6]).toBe("2026-07-05")
+  })
+
+  it("anchors on an exact week-start date without backing up", () => {
+    const w = weekWindowInTz("2026-07-06", 1, "UTC") // a Monday, Monday start
+    expect(w.startKey).toBe("2026-07-06")
+  })
+
+  it("buckets a UTC instant onto the facility-local calendar first", () => {
+    // 2026-07-05T02:00Z is still Saturday Jul 4 in Los Angeles (19:00 PDT),
+    // so the Sunday-start week is Jun 28 — not Jul 5.
+    const w = weekWindowInTz(
+      new Date("2026-07-05T02:00:00.000Z"),
+      0,
+      "America/Los_Angeles"
+    )
+    expect(w.startKey).toBe("2026-06-28")
+    // Facility-local midnight Jun 28 = 07:00 UTC (PDT, -07:00).
+    expect(w.startUtc.toISOString()).toBe("2026-06-28T07:00:00.000Z")
+    expect(w.endUtc.toISOString()).toBe("2026-07-05T07:00:00.000Z")
+  })
+
+  it("spans a DST transition with wall-clock midnights on both edges", () => {
+    // US DST began 2026-03-08 02:00. Week of Mar 8 in New York:
+    // start midnight is EST (-05:00), end midnight (Mar 15) is EDT (-04:00).
+    const w = weekWindowInTz("2026-03-10", 0, "America/New_York")
+    expect(w.startKey).toBe("2026-03-08")
+    expect(w.startUtc.toISOString()).toBe("2026-03-08T05:00:00.000Z")
+    expect(w.endUtc.toISOString()).toBe("2026-03-15T04:00:00.000Z")
+  })
+
+  it("falls back to runtime-local midnights when timezone is null", () => {
+    const w = weekWindowInTz("2026-07-02", 0, null)
+    expect(w.startKey).toBe("2026-06-28")
+    const local = new Date("2026-06-28T00:00:00")
+    expect(w.startUtc.getTime()).toBe(local.getTime())
+  })
+
+  it("normalizes an out-of-range weekStartDay", () => {
+    const w = weekWindowInTz("2026-07-02", 8, "UTC") // 8 → 1 (Monday)
+    expect(w.startKey).toBe("2026-06-29")
   })
 })

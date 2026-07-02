@@ -109,14 +109,23 @@ export default async function NotificationsPage({
 
   const supabase = await createClient()
 
-  const { data: empsRaw } = await supabase
-    .from("employees")
-    .select("id, first_name, last_name, employee_code")
-    .eq("facility_id", facilityId)
-    .order("last_name", { ascending: true })
-    .limit(500)
+  const [{ data: empsRaw }, { data: facilityRow }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, first_name, last_name, employee_code")
+      .eq("facility_id", facilityId)
+      .order("last_name", { ascending: true })
+      .limit(500),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
   const emps = (empsRaw ?? []) as EmployeeLite[]
   const empMap = new Map(emps.map((e) => [e.id, e]))
+  // Server-rendered timestamps: pin to the facility zone, not the server's.
+  const tz = facilityRow?.timezone ?? null
 
   let query = supabase
     .from("schedule_notifications")
@@ -257,7 +266,7 @@ export default async function NotificationsPage({
                 return (
                   <tr key={n.id} className="border-t">
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {formatDateTime(n.created_at)}
+                      {formatDateTime(n.created_at, tz)}
                     </td>
                     <td className="px-3 py-2">
                       {emp
@@ -279,7 +288,7 @@ export default async function NotificationsPage({
                     <td className="px-3 py-2 whitespace-nowrap">
                       {n.read_at ? (
                         <span className="text-muted-foreground text-xs">
-                          Read {formatDateTime(n.read_at)}
+                          Read {formatDateTime(n.read_at, tz)}
                         </span>
                       ) : (
                         <Badge variant="warning">Unread</Badge>

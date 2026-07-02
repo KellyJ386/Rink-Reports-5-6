@@ -46,12 +46,21 @@ export default async function PublishHistoryPage() {
 
   const supabase = await createClient()
 
-  const { data: eventsRaw } = await supabase
-    .from("schedule_publish_events")
-    .select("*")
-    .eq("facility_id", facilityId)
-    .order("created_at", { ascending: false })
-    .limit(200)
+  const [{ data: eventsRaw }, { data: facilityRow }] = await Promise.all([
+    supabase
+      .from("schedule_publish_events")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
+  // Server-rendered timestamps: pin to the facility zone, not the server's.
+  const tz = facilityRow?.timezone ?? null
 
   const events = (eventsRaw ?? []) as PublishEventRow[]
 
@@ -104,13 +113,13 @@ export default async function PublishHistoryPage() {
                 return (
                   <tr key={e.id}>
                     <td className="border-b px-3 py-2 tabular-nums">
-                      {formatDateTime(e.created_at)}
+                      {formatDateTime(e.created_at, tz)}
                     </td>
                     <td className="border-b px-3 py-2 tabular-nums">
-                      {formatDateTime(e.range_starts_at)}
+                      {formatDateTime(e.range_starts_at, tz)}
                     </td>
                     <td className="border-b px-3 py-2 tabular-nums">
-                      {formatDateTime(e.range_ends_at)}
+                      {formatDateTime(e.range_ends_at, tz)}
                     </td>
                     <td className="border-b px-3 py-2 tabular-nums">
                       {e.shift_count}
