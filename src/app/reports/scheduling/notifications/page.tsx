@@ -77,6 +77,7 @@ function notificationTypeLabel(row: NotifRow): string {
     const decision = payloadString(row.payload, "decision")
     if (decision === "approved") return "Time off approved"
     if (decision === "denied") return "Time off denied"
+    if (decision === "cancelled") return "Time off cancelled"
   }
   return (
     NOTIFICATION_TYPE_LABELS[row.notification_type] ??
@@ -102,7 +103,9 @@ function bodyFromPayload(row: NotifRow): string | null {
         ? "Your time-off request was approved."
         : decision === "denied"
           ? "Your time-off request was denied."
-          : null
+          : decision === "cancelled"
+            ? "Your time-off request was cancelled by a manager."
+            : null
     if (base) return note ? `${base} Note: ${note}` : base
     return note ? `Note: ${note}` : null
   }

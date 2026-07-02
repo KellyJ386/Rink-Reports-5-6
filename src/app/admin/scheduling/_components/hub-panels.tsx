@@ -27,6 +27,8 @@ import {
   approveSwap,
   decideTimeOffRequest,
   denySwap,
+  type TimeOffConflict,
+  type TimeOffConflictResolution,
 } from "../_lib/governance-actions"
 
 export type EmployeeOption = { id: string; label: string }
@@ -180,17 +182,31 @@ export function PendingTimeOffPanel({ rows }: { rows: PendingTimeOff[] }) {
 function TimeOffItem({ row }: { row: PendingTimeOff }) {
   const [mode, setMode] = useState<null | "approved" | "denied">(null)
   const [note, setNote] = useState("")
+  const [conflicts, setConflicts] = useState<TimeOffConflict[] | null>(null)
   const [pending, startTransition] = useTransition()
 
-  function run(decision: "approved" | "denied") {
+  function run(
+    decision: "approved" | "denied",
+    onConflict?: TimeOffConflictResolution
+  ) {
     startTransition(async () => {
-      const r = await decideTimeOffRequest(row.id, decision, note.trim() || undefined)
+      const r = await decideTimeOffRequest(
+        row.id,
+        decision,
+        note.trim() || undefined,
+        onConflict ? { onConflict } : undefined
+      )
       if (r.ok === true) {
         toast.success(r.message ?? "Updated.")
         setMode(null)
         setNote("")
+        setConflicts(null)
       } else if (r.ok === false) {
-        toast.error(r.error)
+        if (r.conflicts && r.conflicts.length > 0) {
+          setConflicts(r.conflicts)
+        } else {
+          toast.error(r.error)
+        }
       }
     })
   }
@@ -231,22 +247,84 @@ function TimeOffItem({ row }: { row: PendingTimeOff }) {
             rows={2}
             placeholder="Visible to the requesting employee"
           />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => run(mode)} disabled={pending}>
-              {pending ? "Saving…" : `Confirm ${mode}`}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setMode(null)
-                setNote("")
-              }}
-              disabled={pending}
-            >
-              Cancel
-            </Button>
-          </div>
+          {conflicts && conflicts.length > 0 ? (
+            <div className="border-warning/50 bg-warning/10 flex flex-col gap-2 rounded-md border p-3">
+              <p className="text-sm font-medium">
+                Scheduled during this time off:
+              </p>
+              <ul className="flex flex-col gap-1 text-sm">
+                {conflicts.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-2">
+                    <span>
+                      {formatDateOnly(c.starts_at)} ·{" "}
+                      {formatTimeRange(c.starts_at, c.ends_at)}
+                    </span>
+                    {c.role_label ? (
+                      <span className="text-muted-foreground">
+                        · {c.role_label}
+                      </span>
+                    ) : null}
+                    <Badge
+                      variant={c.status === "published" ? "success" : "secondary"}
+                    >
+                      {c.status}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground text-xs">
+                Unassigning removes the employee from these shifts; published
+                shifts return to the open-shift claim queue and the employee is
+                notified.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => run("approved", "unassign")}
+                  disabled={pending}
+                >
+                  {pending ? "Saving…" : "Approve & unassign shifts"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => run("approved", "approve_anyway")}
+                  disabled={pending}
+                >
+                  Approve anyway
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setMode(null)
+                    setNote("")
+                    setConflicts(null)
+                  }}
+                  disabled={pending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => run(mode)} disabled={pending}>
+                {pending ? "Saving…" : `Confirm ${mode}`}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setMode(null)
+                  setNote("")
+                }}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

@@ -29,9 +29,10 @@ export function SendRemindersForm() {
       <CardHeader>
         <CardTitle>Send shift reminders</CardTitle>
         <CardDescription>
-          Sends an in-app reminder notification to every employee with a
-          published shift starting within the next N hours. Reminders are
-          de-duplicated — a shift only receives one reminder.
+          Reminders go out automatically (in-app and email) 24 hours before
+          each published shift. Use this to send them earlier for a wider
+          window. Reminders are de-duplicated — a shift only receives one
+          reminder.
         </CardDescription>
       </CardHeader>
       <CardContent>

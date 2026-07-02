@@ -40,9 +40,6 @@ export type JobAreaLite = {
 }
 
 export type ShiftWithRefs = ShiftRow & {
-  // job_area_id isn't in the generated ShiftRow type yet (added by migration
-  // 115); declare it here so components can read it type-safely.
-  job_area_id: string | null
   employee: EmployeeLite | null
   department: DepartmentLite | null
   job_area: JobAreaLite | null

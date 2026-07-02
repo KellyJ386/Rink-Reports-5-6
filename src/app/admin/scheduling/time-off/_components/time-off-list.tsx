@@ -11,6 +11,8 @@ import { formatDateOnly, formatDateTime } from "../../_lib/datetime"
 import {
   cancelTimeOffRequest,
   decideTimeOffRequest,
+  type TimeOffConflict,
+  type TimeOffConflictResolution,
 } from "../../_lib/governance-actions"
 
 type Row = {
@@ -73,6 +75,7 @@ function TimeOffRow({ row }: { row: Row }) {
     null | "approved" | "denied"
   >(null)
   const [note, setNote] = useState("")
+  const [conflicts, setConflicts] = useState<TimeOffConflict[] | null>(null)
   const [pending, startTransition] = useTransition()
 
   const employeeName = row.employee
@@ -80,15 +83,28 @@ function TimeOffRow({ row }: { row: Row }) {
     : "Unknown employee"
   const code = row.employee?.employee_code ? ` (${row.employee.employee_code})` : ""
 
-  function submitDecision(decision: "approved" | "denied") {
+  function submitDecision(
+    decision: "approved" | "denied",
+    onConflict?: TimeOffConflictResolution
+  ) {
     startTransition(async () => {
-      const r = await decideTimeOffRequest(row.id, decision, note.trim() || undefined)
+      const r = await decideTimeOffRequest(
+        row.id,
+        decision,
+        note.trim() || undefined,
+        onConflict ? { onConflict } : undefined
+      )
       if (r.ok === true) {
         toast.success(r.message ?? "Updated.")
         setOpenDecision(null)
         setNote("")
+        setConflicts(null)
       } else if (r.ok === false) {
-        toast.error(r.error)
+        if (r.conflicts && r.conflicts.length > 0) {
+          setConflicts(r.conflicts)
+        } else {
+          toast.error(r.error)
+        }
       }
     })
   }
@@ -177,26 +193,84 @@ function TimeOffRow({ row }: { row: Row }) {
             rows={2}
             placeholder="Visible to the requesting employee"
           />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              onClick={() => submitDecision(openDecision)}
-              disabled={pending}
-            >
-              {pending ? "Saving…" : `Confirm ${openDecision}`}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setOpenDecision(null)
-                setNote("")
-              }}
-              disabled={pending}
-            >
-              Cancel
-            </Button>
-          </div>
+          {conflicts && conflicts.length > 0 ? (
+            <div className="border-warning/50 bg-warning/10 flex flex-col gap-2 rounded-md border p-3">
+              <p className="text-sm font-medium">
+                Scheduled during this time off:
+              </p>
+              <ul className="flex flex-col gap-1 text-sm">
+                {conflicts.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-2">
+                    <span>{formatDateTime(c.starts_at)}</span>
+                    <span className="text-muted-foreground">
+                      – {formatDateTime(c.ends_at)}
+                    </span>
+                    {c.role_label ? (
+                      <span className="text-muted-foreground">
+                        · {c.role_label}
+                      </span>
+                    ) : null}
+                    <StatusBadge status={c.status} />
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground text-xs">
+                Unassigning removes the employee from these shifts; published
+                shifts return to the open-shift claim queue and the employee is
+                notified.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => submitDecision("approved", "unassign")}
+                  disabled={pending}
+                >
+                  {pending ? "Saving…" : "Approve & unassign shifts"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => submitDecision("approved", "approve_anyway")}
+                  disabled={pending}
+                >
+                  Approve anyway
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setOpenDecision(null)
+                    setNote("")
+                    setConflicts(null)
+                  }}
+                  disabled={pending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => submitDecision(openDecision)}
+                disabled={pending}
+              >
+                {pending ? "Saving…" : `Confirm ${openDecision}`}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setOpenDecision(null)
+                  setNote("")
+                }}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

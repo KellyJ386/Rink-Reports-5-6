@@ -5,18 +5,26 @@ import { NextResponse } from "next/server"
 
 import type { Database } from "@/types/database"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { sendDueShiftReminders } from "@/app/admin/scheduling/_lib/shift-reminders"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
+/** Shift reminders go out this far before a published shift starts. */
+const REMINDER_WINDOW_HOURS = 24
+
 /**
- * Sweeps stale scheduling state on a short cadence (vercel.json schedules it
- * every 10 minutes, offset from the other crons):
+ * Scheduling housekeeping on a short cadence (vercel.json schedules it every
+ * 10 minutes, offset from the other crons):
  *   - scheduling_expire_stale_swaps  — pending/accepted swap requests whose
  *     expiry window has passed (migration 139), notifying both parties.
  *   - scheduling_expire_open_claims  — open-shift listings whose claim window
  *     has passed (migration 137 expires_at + migration 139 sweeper).
+ *   - sendDueShiftReminders — automated shift reminders (in-app + email) for
+ *     published shifts starting within REMINDER_WINDOW_HOURS, across all
+ *     facilities. Deduped per shift, so the 10-minute cadence never
+ *     double-reminds; the manual admin button shares the same sweep.
  *
  * Both RPCs are SECURITY DEFINER, batched, and FOR UPDATE SKIP LOCKED, so a
  * single short batch per invocation is sufficient and safe under overlap.
@@ -77,6 +85,20 @@ export async function GET(request: Request) {
     expiredClaims = typeof claimRes.data === "number" ? claimRes.data : 0
   }
 
+  let remindersSent: number | "error" = 0
+  const remindRes = await sendDueShiftReminders(supabase, {
+    windowHours: REMINDER_WINDOW_HOURS,
+  })
+  if (!remindRes.ok) {
+    logServerError("cron/expire-scheduling", new Error(remindRes.error), {
+      fn: "sendDueShiftReminders",
+    })
+    remindersSent = "error"
+    anyFailed = true
+  } else {
+    remindersSent = remindRes.sent
+  }
+
   console.log(
     "[cron/expire-scheduling] run complete",
     JSON.stringify({
@@ -84,6 +106,7 @@ export async function GET(request: Request) {
       duration_ms: Date.now() - startedAt,
       expiredSwaps,
       expiredClaims,
+      remindersSent,
       ok: !anyFailed,
     }),
   )
@@ -93,6 +116,7 @@ export async function GET(request: Request) {
       ok: !anyFailed,
       expiredSwaps,
       expiredClaims,
+      remindersSent,
     },
     { status: anyFailed ? 500 : 200 },
   )

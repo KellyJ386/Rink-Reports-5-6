@@ -14,6 +14,16 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -474,21 +484,63 @@ export function WeekBoard(props: WeekBoardProps) {
     [openPopover],
   )
 
+  // Deletion is destructive (drafts are removed outright; published shifts
+  // are cancelled and staff notified), so every path confirms first.
+  const [deleteTarget, setDeleteTarget] = useState<GridEvent | null>(null)
+
   const handleDelete = useCallback(
     (id: string) => {
-      startTransition(async () => {
-        const res = await deleteGridShift(id)
-        if (!res.ok) {
-          toast.error(res.error)
-          return
-        }
-        setEvents((evs) => evs.filter((e) => e.id !== id))
-        setSelectedId((cur) => (cur === id ? null : cur))
-        toast.success("Shift deleted.")
-      })
+      const ev = events.find((e) => e.id === id)
+      if (ev) setDeleteTarget(ev)
     },
-    [],
+    [events],
   )
+
+  const undoDelete = useCallback((ev: GridEvent) => {
+    startTransition(async () => {
+      const res = await createGridShift({
+        starts_at: ev.start.toISOString(),
+        ends_at: ev.end.toISOString(),
+        employee_id: ev.employeeId,
+        job_area_id: ev.jobAreaId,
+        department_id: ev.departmentId,
+        break_minutes: ev.breakMinutes,
+        role_label: ev.roleLabel,
+        notes: ev.notes,
+        // The shift existed moments ago; don't re-raise advisory warnings the
+        // manager already accepted. A cert hard-block still refuses.
+        acknowledge_warnings: true,
+      })
+      if (!res.ok) {
+        toast.error(`Couldn't restore the shift: ${res.error}`)
+        return
+      }
+      setEvents((evs) => [...evs, dtoToEvent(res.data)])
+      toast.success("Shift restored.")
+    })
+  }, [])
+
+  const confirmDelete = useCallback(() => {
+    const ev = deleteTarget
+    if (!ev) return
+    setDeleteTarget(null)
+    startTransition(async () => {
+      const res = await deleteGridShift(ev.id)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setEvents((evs) => evs.filter((e) => e.id !== ev.id))
+      setSelectedId((cur) => (cur === ev.id ? null : cur))
+      if (ev.status === "published") {
+        toast.success("Shift cancelled — the employee has been notified.")
+      } else {
+        toast.success("Shift deleted.", {
+          action: { label: "Undo", onClick: () => undoDelete(ev) },
+        })
+      }
+    })
+  }, [deleteTarget, undoDelete])
 
   // ---- Popover save / delete / template ----
   const handlePopoverSave = useCallback(
@@ -909,8 +961,54 @@ export function WeekBoard(props: WeekBoardProps) {
           onClose={closePopover}
         />
       ) : null}
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteTarget?.status === "published"
+                ? "Cancel this published shift?"
+                : "Delete this shift?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? describeShift(deleteTarget, props.employees) : ""}
+              {deleteTarget?.status === "published"
+                ? " The shift will be cancelled and the assigned employee notified."
+                : " Draft shifts are removed immediately — you can undo from the toast."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep shift</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>
+              {deleteTarget?.status === "published"
+                ? "Cancel shift"
+                : "Delete shift"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
+}
+
+function describeShift(ev: GridEvent, employees: EmployeeLite[]): string {
+  const emp = ev.employeeId
+    ? employees.find((e) => e.id === ev.employeeId)
+    : null
+  const who = emp ? `${emp.first_name} ${emp.last_name}` : "Open / unassigned"
+  const day = ev.start.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })
+  const t = (d: Date) =>
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  return `${who} · ${day}, ${t(ev.start)}–${t(ev.end)}.`
 }
 
 function RailCard({
