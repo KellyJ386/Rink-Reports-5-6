@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
+import { resolveCertificationType } from "@/lib/certifications"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 
@@ -244,12 +245,22 @@ export async function addEmployeeCertification(
     if (empErr) return { ok: false, error: empErr.message }
     if (!employee) return { ok: false, error: "Employee not found" }
 
+    // Link to the certification catalog (migration 167) so scheduling
+    // enforcement matches by id, not by fragile name equality.
+    const type = await resolveCertificationType(
+      supabase,
+      employee.facility_id,
+      input.name
+    )
+    if (!type.ok) return { ok: false, error: type.error }
+
     const { error } = await supabase
       .from("employee_certifications")
       .insert({
         facility_id: employee.facility_id,
         employee_id: employeeId,
         name: input.name.trim(),
+        certification_type_id: type.id,
         issuer: input.issuer?.trim() || null,
         issued_at: input.issued_at || null,
         expires_at: input.expires_at || null,
@@ -276,10 +287,27 @@ export async function updateEmployeeCertification(
     if (err) return { ok: false, error: err }
 
     const supabase = await createClient()
+    const { data: employee, error: empErr } = await supabase
+      .from("employees")
+      .select("id, facility_id")
+      .eq("id", employeeId)
+      .maybeSingle()
+    if (empErr) return { ok: false, error: empErr.message }
+    if (!employee) return { ok: false, error: "Employee not found" }
+
+    // Re-link on rename so the catalog reference tracks the edited name.
+    const type = await resolveCertificationType(
+      supabase,
+      employee.facility_id,
+      input.name
+    )
+    if (!type.ok) return { ok: false, error: type.error }
+
     const { error } = await supabase
       .from("employee_certifications")
       .update({
         name: input.name.trim(),
+        certification_type_id: type.id,
         issuer: input.issuer?.trim() || null,
         issued_at: input.issued_at || null,
         expires_at: input.expires_at || null,

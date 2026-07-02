@@ -64,6 +64,9 @@ export type EmployeeDetailData = {
     entity_id: string | null
     created_at: string
   }>
+  /** Facility certification catalog names — datalist suggestions so cert
+   * names are picked, not re-typed (typo = broken scheduling enforcement). */
+  certTypeNames: string[]
   certifications: Array<{
     id: string
     name: string
@@ -286,8 +289,14 @@ function CertificationsTab({ data }: { data: EmployeeDetailData }) {
               className="border-input bg-background col-span-2 rounded border px-2 py-1 text-sm"
               placeholder="Name (e.g. CPR/AED)"
               value={draft.name}
+              list="employee-cert-type-suggestions"
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             />
+            <datalist id="employee-cert-type-suggestions">
+              {data.certTypeNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
             <input
               className="border-input bg-background rounded border px-2 py-1 text-sm"
               placeholder="Issuer (optional)"
@@ -414,6 +423,7 @@ function CertificationEditor({
         <input
           className="border-input bg-background col-span-2 rounded border px-2 py-1 text-sm"
           value={v.name}
+          list="employee-cert-type-suggestions"
           onChange={(e) => setV({ ...v, name: e.target.value })}
         />
         <input

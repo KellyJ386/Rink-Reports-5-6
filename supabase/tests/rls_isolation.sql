@@ -391,15 +391,27 @@ values
    '22222222-2222-2222-2222-222222222222', 'Front Desk B', 'front-desk-b', 0, true)
 on conflict (id) do nothing;
 
+-- Certification catalog (migration 167): requirements now reference a type
+-- row (NOT NULL), so seed the catalog first.
+insert into public.certification_types (id, facility_id, name)
+values
+  ('aaaa1111-ce7c-aaaa-aaaa-aaaa11110001',
+   '11111111-1111-1111-1111-111111111111', 'CPR'),
+  ('bbbb2222-ce7c-bbbb-bbbb-bbbb22220001',
+   '22222222-2222-2222-2222-222222222222', 'CPR')
+on conflict (id) do nothing;
+
 insert into public.job_area_certification_requirements
-  (id, facility_id, job_area_id, cert_name, is_active)
+  (id, facility_id, job_area_id, cert_name, certification_type_id, is_active)
 values
   ('aaaa1111-ce70-aaaa-aaaa-aaaa11110003',
    '11111111-1111-1111-1111-111111111111',
-   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'CPR', true),
+   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'CPR',
+   'aaaa1111-ce7c-aaaa-aaaa-aaaa11110001', true),
   ('bbbb2222-ce70-bbbb-bbbb-bbbb22220003',
    '22222222-2222-2222-2222-222222222222',
-   'bbbb2222-30b0-bbbb-bbbb-bbbb22220002', 'CPR', true)
+   'bbbb2222-30b0-bbbb-bbbb-bbbb22220002', 'CPR',
+   'bbbb2222-ce7c-bbbb-bbbb-bbbb22220001', true)
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -823,13 +835,32 @@ select pg_temp.expect_count(
   0, 'cert requirements: alice CANNOT SELECT requirements in facility B');
 
 -- Admin-write gate: staff Alice (scheduling view/submit, not admin) cannot add
--- a requirement even in her own facility.
+-- a requirement even in her own facility. (Valid type id so the failure is
+-- the RLS policy, not the NOT NULL constraint.)
 select pg_temp.expect_error(
   $$insert into public.job_area_certification_requirements
-      (facility_id, job_area_id, cert_name)
+      (facility_id, job_area_id, cert_name, certification_type_id)
     values ('11111111-1111-1111-1111-111111111111',
-            'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'Sneaky Cert')$$,
+            'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'Sneaky Cert',
+            'aaaa1111-ce7c-aaaa-aaaa-aaaa11110001')$$,
   'cert requirements: staff alice CANNOT INSERT a requirement');
+
+-- Certification catalog (migration 167): readable in-facility (both editors
+-- need name suggestions), write is admin-gated, facility-scoped.
+select pg_temp.expect_count(
+  $$select count(*) from public.certification_types
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'cert types: alice can SELECT her own facility''s catalog');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.certification_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'cert types: alice CANNOT SELECT facility-B catalog');
+
+select pg_temp.expect_error(
+  $$insert into public.certification_types (facility_id, name)
+    values ('11111111-1111-1111-1111-111111111111', 'Sneaky Type')$$,
+  'cert types: staff alice CANNOT INSERT a catalog entry');
 
 -- Employee invites + certifications: empty for now, but RLS must scope.
 select pg_temp.expect_count(
@@ -2216,6 +2247,17 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B employee_wages');
 
+-- Certification catalog (migration 167): the scheduling admin can create a
+-- type in her own facility (positive) and reads zero cross-facility rows.
+select pg_temp.expect_ok(
+  $$insert into public.certification_types (facility_id, name)
+    values ('11111111-1111-1111-1111-111111111111', 'Forklift')$$,
+  'ISO-ADMIN: scheduling admin CAN INSERT a certification type in her facility');
+select pg_temp.expect_count(
+  $$select count(*) from public.certification_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B certification types');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -2709,9 +2751,11 @@ insert into public.employee_job_areas (id, facility_id, name, slug)
 values ('aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
         '11111111-1111-1111-1111-111111111111', 'Zamboni', 'zamboni')
 on conflict (id) do nothing;
-insert into public.job_area_certification_requirements (facility_id, job_area_id, cert_name)
+insert into public.job_area_certification_requirements
+  (facility_id, job_area_id, cert_name, certification_type_id)
 values ('11111111-1111-1111-1111-111111111111',
-        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', 'CPR')
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', 'CPR',
+        'aaaa1111-ce7c-aaaa-aaaa-aaaa11110001')
 on conflict do nothing;
 insert into public.employee_certifications (facility_id, employee_id, name, expires_at)
 values ('11111111-1111-1111-1111-111111111111',

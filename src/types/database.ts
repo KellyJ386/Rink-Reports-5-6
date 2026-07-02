@@ -989,6 +989,41 @@ export type Database = {
           },
         ]
       }
+      certification_types: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "certification_types_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       communication_acknowledgements: {
         Row: {
           acknowledged_at: string
@@ -1987,6 +2022,7 @@ export type Database = {
       }
       employee_certifications: {
         Row: {
+          certification_type_id: string | null
           created_at: string
           employee_id: string
           expires_at: string | null
@@ -1999,6 +2035,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          certification_type_id?: string | null
           created_at?: string
           employee_id: string
           expires_at?: string | null
@@ -2011,6 +2048,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          certification_type_id?: string | null
           created_at?: string
           employee_id?: string
           expires_at?: string | null
@@ -2023,6 +2061,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "employee_certifications_certification_type_id_fkey"
+            columns: ["certification_type_id"]
+            isOneToOne: false
+            referencedRelation: "certification_types"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "employee_certifications_employee_id_fkey"
             columns: ["employee_id"]
@@ -4245,6 +4290,7 @@ export type Database = {
       job_area_certification_requirements: {
         Row: {
           cert_name: string
+          certification_type_id: string
           created_at: string
           facility_id: string
           id: string
@@ -4254,6 +4300,7 @@ export type Database = {
         }
         Insert: {
           cert_name: string
+          certification_type_id: string
           created_at?: string
           facility_id: string
           id?: string
@@ -4263,6 +4310,7 @@ export type Database = {
         }
         Update: {
           cert_name?: string
+          certification_type_id?: string
           created_at?: string
           facility_id?: string
           id?: string
@@ -4271,6 +4319,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "job_area_certification_requirements_certification_type_id_fkey"
+            columns: ["certification_type_id"]
+            isOneToOne: false
+            referencedRelation: "certification_types"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "job_area_certification_requirements_facility_id_fkey"
             columns: ["facility_id"]
