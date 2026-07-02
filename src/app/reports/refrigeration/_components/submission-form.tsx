@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
@@ -39,6 +38,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 import {
   cToF,
   fToC,
@@ -108,13 +108,6 @@ function fieldKey(fieldId: string, equipmentId: string | null): string {
 
 function noteErrorKey(key: string): string {
   return `note:${key}`
-}
-
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 /** Local datetime string (yyyy-MM-ddThh:mm) for a datetime-local input default. */
@@ -206,7 +199,6 @@ export function SubmissionForm({
   tempF,
   tempLocation,
 }: Props) {
-  const router = useRouter()
   const [state, formAction] = useActionState(
     submitRefrigerationReport,
     initialState
@@ -459,14 +451,11 @@ export function SubmissionForm({
         title="Refrigeration"
         actions={
           <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              Back
+            <Button asChild variant="outline" size="sm">
+              <Link href="/reports">
+                <ArrowLeft className="h-4 w-4" aria-hidden />
+                Back
+              </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/dashboard">

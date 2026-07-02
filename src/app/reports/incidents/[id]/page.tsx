@@ -78,7 +78,7 @@ export default async function IncidentReportPage({
   const { data: report } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, occurred_at, submitted_at, status, severity_level_id, activity_id, activity_other, location_other, immediate_actions, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
+      "id, facility_id, employee_id, edit_window_ends_at, occurred_at, submitted_at, status, severity_level_id, incident_type_id, activity_id, activity_other, location_other, immediate_actions, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
     )
     .eq("id", id)
     .maybeSingle()
@@ -91,6 +91,7 @@ export default async function IncidentReportPage({
     { data: severityLevels },
     { data: activityRows },
     { data: spaceRows },
+    { data: incidentTypeRows },
   ] = await Promise.all([
     supabase
       .from("incident_report_spaces")
@@ -122,11 +123,22 @@ export default async function IncidentReportPage({
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
+    supabase
+      .from("incident_types")
+      .select("id, name, sort_order, is_active")
+      .eq("facility_id", report.facility_id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
   ])
 
   const severities = (severityLevels ?? []).map((s) => ({
     id: s.id,
     display_name: s.display_name,
+  }))
+  const incidentTypes = (incidentTypeRows ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
   }))
   const activities = (activityRows ?? []).map((a) => ({
     id: a.id,
@@ -259,6 +271,7 @@ export default async function IncidentReportPage({
   const initial: IncidentFormInitial = {
     occurredAtLocal: isoToDateTimeLocal(report.occurred_at),
     severityLevelId: report.severity_level_id ?? "",
+    incidentTypeId: report.incident_type_id ?? "",
     activityValue: report.activity_id
       ? report.activity_id
       : report.activity_other
@@ -309,6 +322,7 @@ export default async function IncidentReportPage({
         severityLevels={severities}
         activities={activities}
         spaces={spaces}
+        incidentTypes={incidentTypes}
       />
     </div>
   )

@@ -1,34 +1,31 @@
 "use client"
 
-import { useActionState, useEffect } from "react"
-import { useFormStatus } from "react-dom"
+import { useActionState, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 
 import { cancelTimeOffRequest } from "../actions"
 import { INITIAL_ACTION_STATE } from "../types"
 
-function Submit() {
-  const { pending } = useFormStatus()
-  return (
-    <Button
-      type="submit"
-      variant="outline"
-      size="sm"
-      disabled={pending}
-      className="h-11"
-    >
-      {pending ? "Cancelling…" : "Cancel request"}
-    </Button>
-  )
-}
-
 export function CancelTimeOffButton({ id }: { id: string }) {
-  const [state, formAction] = useActionState(
+  const [state, formAction, isPending] = useActionState(
     cancelTimeOffRequest,
     INITIAL_ACTION_STATE
   )
+  const formRef = useRef<HTMLFormElement>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (state.status === "error") {
@@ -39,9 +36,45 @@ export function CancelTimeOffButton({ id }: { id: string }) {
   }, [state])
 
   return (
-    <form action={formAction}>
+    <form ref={formRef} action={formAction}>
       <input type="hidden" name="id" value={id} />
-      <Submit />
+      {/* AlertDialogContent is portaled outside this form, so the confirm
+          button submits via formRef.requestSubmit() rather than type="submit". */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isPending}
+            className="h-11"
+          >
+            {isPending ? "Cancelling…" : "Cancel request"}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this time-off request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This withdraws your time-off request.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmOpen(false)}>
+              Keep request
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false)
+                formRef.current?.requestSubmit()
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Cancel request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </form>
   )
 }

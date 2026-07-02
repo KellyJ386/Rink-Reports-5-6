@@ -8,6 +8,7 @@ import { FormError } from "@/components/auth/form-error"
 import { useUnsavedGuard } from "@/hooks/use-unsaved-guard"
 import { Card } from "@/components/ui/card"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   BODY_PART_KEYS,
@@ -104,13 +105,6 @@ const MAX_WITNESSES = 5
 const EMPTY_WITNESS: WitnessRow = { name: "", contact: "", statement: "" }
 
 const initialState: AccidentFormState = {}
-
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `acc-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 function nowForDateTimeLocal(): string {
   const d = new Date()

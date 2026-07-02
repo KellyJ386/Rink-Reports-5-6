@@ -38,17 +38,20 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 
 import { submitIncidentReport } from "../actions"
 import type { SubmissionFormState } from "../_lib/submit"
 
 type Option = { id: string; display_name: string }
 type SpaceOption = { id: string; name: string }
+type IncidentTypeOption = { id: string; name: string }
 type Witness = { name: string; phone: string; email: string; statement: string }
 
 export type IncidentFormInitial = {
   occurredAtLocal: string
   severityLevelId: string
+  incidentTypeId: string
   activityValue: string
   activityOther: string
   selectedSpaceIds: string[]
@@ -71,6 +74,7 @@ type Props = {
   severityLevels: Option[]
   activities: Option[]
   spaces: SpaceOption[]
+  incidentTypes: IncidentTypeOption[]
   mode?: "create" | "edit"
   action?: FormAction
   initial?: IncidentFormInitial
@@ -94,17 +98,12 @@ function emptyWitness(): Witness {
   return { name: "", phone: "", email: "", statement: "" }
 }
 
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
 
 export function SubmissionForm({
   severityLevels,
   activities,
   spaces,
+  incidentTypes,
   mode = "create",
   action = submitIncidentReport,
   initial,
@@ -122,6 +121,9 @@ export function SubmissionForm({
   )
   const [severityLevelId, setSeverityLevelId] = useState(
     initial?.severityLevelId ?? "",
+  )
+  const [incidentTypeId, setIncidentTypeId] = useState(
+    initial?.incidentTypeId ?? "",
   )
   const [activityValue, setActivityValue] = useState(
     initial?.activityValue ?? "",
@@ -267,6 +269,7 @@ export function SubmissionForm({
       description: description.trim(),
       occurred_at: occurredAt,
       severity_level_id: severityLevelId,
+      incident_type_id: incidentTypeId,
       activity_id: activityId,
       activity_other: activityValue === ACTIVITY_OTHER ? activityOther.trim() : "",
       location_other: otherSpace ? locationOther.trim() : "",
@@ -287,6 +290,7 @@ export function SubmissionForm({
   function resetForNextOfflineEntry() {
     setOccurredAt(nowForDateTimeLocal())
     setSeverityLevelId("")
+    setIncidentTypeId("")
     setActivityValue("")
     setActivityOther("")
     setDescription("")
@@ -369,6 +373,7 @@ export function SubmissionForm({
       <form ref={formRef} action={formAction} className="flex flex-col gap-5">
         {/* Hidden inputs carrying complex state for the server action */}
         <input type="hidden" name="severity_level_id" value={severityLevelId} />
+        <input type="hidden" name="incident_type_id" value={incidentTypeId} />
         <input type="hidden" name="activity_id" value={activityId} />
         <input
           type="hidden"
@@ -629,6 +634,29 @@ export function SubmissionForm({
                 </Select>
                 <FieldError id="severity_level_id-error" message={state.fieldErrors?.severity_level_id} />
               </div>
+
+              {incidentTypes.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="incident_type_id_trigger">
+                    Incident type
+                  </Label>
+                  <Select
+                    value={incidentTypeId}
+                    onValueChange={setIncidentTypeId}
+                  >
+                    <SelectTrigger id="incident_type_id_trigger" className="h-12">
+                      <SelectValue placeholder="Select type (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {incidentTypes.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-2">

@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+import { genLocalId } from "@/lib/offline/local-id"
 import {
   Select,
   SelectContent,
@@ -72,13 +73,6 @@ type Props = {
 }
 
 const initialState: SubmissionFormState = {}
-
-function genLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `aq-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 function stepFromDecimals(decimals: number): string {
   if (decimals <= 0) return "1"

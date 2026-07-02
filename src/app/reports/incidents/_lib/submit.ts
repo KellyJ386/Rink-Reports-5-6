@@ -53,7 +53,12 @@ export async function resolveReporterIdentity(
 }
 
 export type ResolvedRefs =
-  | { ok: true; resolvedActivityId: string | null; validSpaceIds: string[] }
+  | {
+      ok: true
+      resolvedActivityId: string | null
+      resolvedIncidentTypeId: string | null
+      validSpaceIds: string[]
+    }
   | { ok: false; error: string }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +78,20 @@ export async function resolveIncidentRefs(
     .maybeSingle()
   if (!severity || !severity.is_active) {
     return { ok: false, error: "Selected severity level is not available." }
+  }
+
+  let resolvedIncidentTypeId: string | null = null
+  if (input.incident_type_id) {
+    const { data: incidentType } = await supabase
+      .from("incident_types")
+      .select("id, is_active")
+      .eq("id", input.incident_type_id)
+      .eq("facility_id", facilityId)
+      .maybeSingle()
+    if (!incidentType || !incidentType.is_active) {
+      return { ok: false, error: "Selected incident type is not available." }
+    }
+    resolvedIncidentTypeId = incidentType.id
   }
 
   let resolvedActivityId: string | null = null
@@ -106,7 +125,12 @@ export async function resolveIncidentRefs(
     }
   }
 
-  return { ok: true, resolvedActivityId, validSpaceIds }
+  return {
+    ok: true,
+    resolvedActivityId,
+    resolvedIncidentTypeId,
+    validSpaceIds,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +153,11 @@ export async function persistIncident(
     employeeId: string
     facilityId: string
     input: IncidentInput
-    refs: { resolvedActivityId: string | null; validSpaceIds: string[] }
+    refs: {
+      resolvedActivityId: string | null
+      resolvedIncidentTypeId: string | null
+      validSpaceIds: string[]
+    }
   },
 ): Promise<PersistResult> {
   const { employeeId, facilityId, input, refs } = args
@@ -144,6 +172,7 @@ export async function persistIncident(
       facility_id: facilityId,
       employee_id: employeeId,
       severity_level_id: input.severity_level_id,
+      incident_type_id: refs.resolvedIncidentTypeId || null,
       activity_id: refs.resolvedActivityId,
       activity_other: activityOther,
       location_other: input.location_other || null,
@@ -212,6 +241,7 @@ export async function persistIncident(
     after: {
       id: reportId,
       severity_level_id: input.severity_level_id,
+      incident_type_id: refs.resolvedIncidentTypeId || null,
       activity_id: refs.resolvedActivityId,
       activity_other: activityOther,
       location_other: input.location_other || null,

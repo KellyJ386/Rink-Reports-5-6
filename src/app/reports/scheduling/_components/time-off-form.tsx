@@ -13,12 +13,7 @@ import { enqueueSubmission } from "@/lib/offline/use-sync-queue"
 
 import { submitTimeOffRequest } from "../actions"
 import { INITIAL_ACTION_STATE } from "../types"
-
-function genLocalId(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
+import { genLocalId } from "@/lib/offline/local-id"
 
 function nowForDateTimeLocal(offsetHours = 0): string {
   const d = new Date()

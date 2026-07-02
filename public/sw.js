@@ -79,8 +79,27 @@ self.addEventListener("activate", (event) => {
         )
       )
       .then(() => self.clients.claim())
+      // Best-effort persistent-storage grant so the browser is less likely to
+      // evict the IndexedDB queue under storage pressure (E-09). Guarded: not
+      // all engines expose navigator.storage.persist.
+      .then(() => requestPersistentStorage())
+      // A freshly-activated SW (relaunch / update-apply) should drain anything
+      // that was left pending — the fast path (Background Sync) may never fire
+      // on Safari/iOS (E-02).
+      .then(() => replayQueue().catch(() => {}))
   )
 })
+
+// Best-effort persistent-storage request (E-09). Never throws.
+async function requestPersistentStorage() {
+  try {
+    if (self.navigator && self.navigator.storage && self.navigator.storage.persist) {
+      await self.navigator.storage.persist()
+    }
+  } catch {
+    // ignore — this is a best-effort hint only
+  }
+}
 
 // ---------------------------------------------------------------------------
 // IndexedDB helpers
@@ -305,6 +324,10 @@ self.addEventListener("message", (event) => {
           moduleKey: event.data.moduleKey,
           action: event.data.action ?? "submit",
           payload: event.data.payload,
+          // Owner = the auth uid signed in when this was queued. Carried through
+          // to the replay POST so the server rejects (never re-attributes) a
+          // flush under a different session on a shared kiosk (E-01).
+          ownerId: event.data.ownerId ?? null,
           startedAt: event.data.startedAt ?? Date.now(),
           status: "pending",
           retryCount: 0,
@@ -344,6 +367,59 @@ self.addEventListener("message", (event) => {
         } else {
           replayQueue().catch(() => {})
         }
+      })
+      break
+    }
+
+    case "FLUSH_QUEUE": {
+      // Drain EVERYTHING queued now — both pending and (non-permanent) failed
+      // items — reset for an immediate attempt. This is the reliable flush the
+      // client fires on reconnect/foreground for browsers without Background
+      // Sync, where nothing else survives SW termination (E-02). Items that
+      // failed *permanently* (4xx/422) are left alone; only the explicit
+      // "Retry failed" action re-drives those.
+      openDB().then(async (db) => {
+        const failed = await dbGetAll(db, "byStatus", "failed")
+        for (const item of failed) {
+          if (item.permanent) continue
+          await dbPut(db, {
+            ...item,
+            status: "pending",
+            retryCount: 0,
+            nextAttemptAt: 0,
+            lastStatus: null,
+            lastError: null,
+          })
+        }
+        await replayQueue().catch(() => {})
+      })
+      break
+    }
+
+    case "QUARANTINE_FOREIGN": {
+      // A different user signed in (or signed out) on this device. Park any
+      // queued item that belongs to another owner as a permanent failure so it
+      // is NEVER replayed under the new session — mirrors the schedule-cache
+      // hygiene AuthStateListener already applies (E-01). `currentOwnerId` may
+      // be null on sign-out, which quarantines everything with a known owner.
+      const currentOwnerId = event.data.currentOwnerId ?? null
+      openDB().then(async (db) => {
+        const pending = await dbGetAll(db, "byStatus", "pending")
+        const failed = await dbGetAll(db, "byStatus", "failed")
+        for (const item of [...pending, ...failed]) {
+          if (item.ownerId && item.ownerId !== currentOwnerId) {
+            await dbPut(db, {
+              ...item,
+              status: "failed",
+              permanent: true,
+              nextAttemptAt: null,
+              lastStatus: null,
+              lastError:
+                "Queued by a different user — sign in as that user to sync.",
+            })
+          }
+        }
+        await broadcastQueueUpdate()
       })
       break
     }

@@ -137,6 +137,7 @@ export default async function IncidentsHomePage() {
     { data: severityLevels },
     { data: activityRows },
     { data: spaceRows },
+    { data: incidentTypeRows },
     { data: facility },
   ] = await Promise.all([
     supabase
@@ -161,6 +162,13 @@ export default async function IncidentsHomePage() {
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     supabase
+      .from("incident_types")
+      .select("id, name, sort_order, is_active, color")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
       .from("facilities")
       .select("timezone")
       .eq("id", employeeRow.facility_id)
@@ -170,6 +178,7 @@ export default async function IncidentsHomePage() {
   const severities = severityLevels ?? []
   const activities = activityRows ?? []
   const spaces = spaceRows ?? []
+  const incidentTypes = incidentTypeRows ?? []
 
   if (severities.length === 0) {
     return (
@@ -223,6 +232,7 @@ export default async function IncidentsHomePage() {
           display_name: a.display_name,
         }))}
         spaces={spaces.map((s) => ({ id: s.id, name: s.name }))}
+        incidentTypes={incidentTypes.map((t) => ({ id: t.id, name: t.name }))}
       />
 
       {recent.length > 0 ? (

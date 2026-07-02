@@ -119,14 +119,17 @@ export async function persistIceDepth(
     .maybeSingle()
 
   const measurementUnitSnapshot = settingsRow?.measurement_unit ?? "inches"
+  // Fallbacks mirror the DB column defaults (migration 14:
+  // low_threshold 0.99 / high_threshold 1.75) so an unconfigured facility
+  // classifies depths identically across submit, admin display, and DB.
   const lowThresholdSnapshot =
     typeof settingsRow?.low_threshold === "number"
       ? settingsRow.low_threshold
-      : 1
+      : 0.99
   const highThresholdSnapshot =
     typeof settingsRow?.high_threshold === "number"
       ? settingsRow.high_threshold
-      : 1.5
+      : 1.75
 
   // 4) Insert the session shell with zero counters first.
   const { data: insertedSession, error: sessionErr } = await supabase
