@@ -3107,6 +3107,367 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- COMM-170: communications security remediation (migration 170) and
+-- COMM-171: role-default permission backfill (migration 171).
+--
+-- Self-contained section: seeds its own fixtures as postgres, then runs
+-- assertion blocks as alice (staff), dana (communications admin), and erin
+-- (role-fallback admin with no user_permissions — the account shape
+-- migration 171 exists to repair).
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Carol gets VIEW-ONLY (no submit) on refrigeration. Before migration 170,
+-- communication_alerts INSERT accepted mere view access on the row's
+-- source_module; the carol assertion below proves view is no longer enough.
+-- (Alice can't serve as the view-only subject — by this point in the harness
+-- she has accumulated submit or admin on every module she can see.)
+insert into public.user_permissions (
+  user_id, facility_id, module_name, action, enabled
+) values (
+  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  '11111111-1111-1111-1111-111111111111',
+  'refrigeration', 'view'::public.user_action, true
+) on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- A-side message SENT BY alice with carol as recipient (sender-receipt SELECT),
+-- and a system message where alice is the RECIPIENT (read_at / delivery-column
+-- trigger assertions).
+insert into public.communication_messages (id, facility_id, sender_employee_id, body)
+values ('aaaa1111-c0c1-aaaa-aaaa-aaaa11110201',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Alice-authored message')
+on conflict (id) do nothing;
+
+insert into public.communication_recipients (id, facility_id, message_id, employee_id)
+values ('aaaa1111-c0c2-aaaa-aaaa-aaaa11110202',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-c0c1-aaaa-aaaa-aaaa11110201',
+        'aaaa1111-ca01-aaaa-aaaa-aaaa11110099')
+on conflict (id) do nothing;
+
+insert into public.communication_messages (id, facility_id, sender_employee_id, body)
+values ('aaaa1111-c0c3-aaaa-aaaa-aaaa11110203',
+        '11111111-1111-1111-1111-111111111111', null, 'System message to alice')
+on conflict (id) do nothing;
+
+insert into public.communication_recipients (id, facility_id, message_id, employee_id)
+values ('aaaa1111-c0c4-aaaa-aaaa-aaaa11110204',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-c0c3-aaaa-aaaa-aaaa11110203',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+on conflict (id) do nothing;
+
+-- Dana: a COMMUNICATIONS ADMIN in facility A (mirrors the Carol pattern).
+insert into auth.users (id, email)
+values ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dana@fac-a.test')
+on conflict (id) do nothing;
+
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+        '11111111-1111-1111-1111-111111111111', 'dana@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select
+  'aaaa1111-d0d0-aaaa-aaaa-aaaa11110205'::uuid,
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid,
+  r.id, 'Dana', 'Delgado', 'dana@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+
+insert into public.user_permissions (
+  user_id, facility_id, module_name, action, enabled
+) values
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+   '11111111-1111-1111-1111-111111111111', 'communications', 'admin', true),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+   '11111111-1111-1111-1111-111111111111', 'communications', 'view', true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- B-side rows for the six tables that previously had NO cross-facility
+-- isolation assertion: templates, recurring reminders, acknowledgements,
+-- communication audit log, group members, notification outbox.
+insert into public.communication_templates (id, facility_id, name, slug, body)
+values ('bbbb2222-c0c5-bbbb-bbbb-bbbb22220210',
+        '22222222-2222-2222-2222-222222222222',
+        'B Template', 'b-template', 'B facility template body')
+on conflict (id) do nothing;
+
+insert into public.communication_recurring_reminders (
+  id, facility_id, name, schedule_cron, template_id, target_role_key
+) values ('bbbb2222-c0c6-bbbb-bbbb-bbbb22220211',
+          '22222222-2222-2222-2222-222222222222',
+          'B Reminder', '0 9 * * *',
+          'bbbb2222-c0c5-bbbb-bbbb-bbbb22220210', 'staff')
+on conflict (id) do nothing;
+
+insert into public.communication_acknowledgements (
+  id, facility_id, alert_id, employee_id
+) values ('bbbb2222-c0c7-bbbb-bbbb-bbbb22220212',
+          '22222222-2222-2222-2222-222222222222',
+          'bbbb2222-c0a3-bbbb-bbbb-bbbb22220081',
+          'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+on conflict (id) do nothing;
+
+insert into public.communication_audit_log (
+  id, facility_id, entity_type, entity_id, action, actor_employee_id
+) values ('bbbb2222-c0c8-bbbb-bbbb-bbbb22220213',
+          '22222222-2222-2222-2222-222222222222',
+          'message', 'bbbb2222-c0a1-bbbb-bbbb-bbbb22220079',
+          'message_sent', 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+on conflict (id) do nothing;
+
+insert into public.communication_group_members (facility_id, group_id, employee_id)
+select '22222222-2222-2222-2222-222222222222', g.id,
+       'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+from public.communication_groups g
+where g.facility_id = '22222222-2222-2222-2222-222222222222'
+  and g.slug = 'managers-b'
+on conflict (group_id, employee_id) do nothing;
+
+insert into public.notification_outbox (
+  id, facility_id, source_module, recipient_employee_id,
+  subject, body, scheduled_for, status
+) values ('bbbb2222-c0c9-bbbb-bbbb-bbbb22220214',
+          '22222222-2222-2222-2222-222222222222',
+          'incident_reports', 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          'B outbox row', 'B outbox body', now(), 'pending')
+on conflict (id) do nothing;
+
+-- --- Block 1: alice (staff, view+submit) -----------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Recipient self-service still works: read_at is hers to set...
+select pg_temp.expect_ok(
+  $$update public.communication_recipients
+    set read_at = now()
+    where id = 'aaaa1111-c0c4-aaaa-aaaa-aaaa11110204'$$,
+  'COMM-170a: recipient CAN update read_at on their own row');
+
+-- ...but the delivery-state columns are not (mig 170 trigger).
+select pg_temp.expect_error(
+  $$update public.communication_recipients
+    set email_status = 'sent'
+    where id = 'aaaa1111-c0c4-aaaa-aaaa-aaaa11110204'$$,
+  'COMM-170a: recipient CANNOT update email_status on their own row');
+
+select pg_temp.expect_error(
+  $$update public.communication_recipients
+    set email_attempts = 99
+    where id = 'aaaa1111-c0c4-aaaa-aaaa-aaaa11110204'$$,
+  'COMM-170a: recipient CANNOT update email_attempts on their own row');
+
+-- Sender receipts: alice authored aaaa...0201, carol is the recipient — the
+-- mig-170 SELECT extension lets the sender read that recipient row.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recipients
+    where message_id = 'aaaa1111-c0c1-aaaa-aaaa-aaaa11110201'$$,
+  1, 'COMM-170e: message sender CAN read the recipient rows of their message');
+
+-- Alerts INSERT now needs submit-or-higher on the source module: submit
+-- passes here (alice); view-only is rejected in the carol block below.
+select pg_temp.expect_ok(
+  $$insert into public.communication_alerts (
+      facility_id, source_module, severity, title
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'air_quality', 'warn', 'Legit alert from a submitter'
+    )$$,
+  'COMM-170b: submit on source module CAN insert an alert');
+
+-- Audit-log INSERT binds actor_employee_id to the caller.
+select pg_temp.expect_error(
+  $$insert into public.communication_audit_log (
+      facility_id, entity_type, entity_id, action, actor_employee_id
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'message', gen_random_uuid(), 'message_sent',
+      'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
+    )$$,
+  'COMM-170c: audit-log INSERT with a forged actor_employee_id is rejected');
+
+select pg_temp.expect_ok(
+  $$insert into public.communication_audit_log (
+      facility_id, entity_type, entity_id, action, actor_employee_id
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'message', gen_random_uuid(), 'message_sent',
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    )$$,
+  'COMM-170c: audit-log INSERT with the caller''s own actor_employee_id succeeds');
+
+-- Cross-facility isolation for the six previously-unasserted tables.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_templates
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_templates');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recurring_reminders
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_recurring_reminders');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_acknowledgements
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_acknowledgements');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_audit_log
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_audit_log');
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_group_members
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B communication_group_members');
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO: alice CANNOT SELECT facility-B notification_outbox');
+
+-- --- Block 1b: carol (view-only on refrigeration, no comms admin) -----------
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_error(
+  $$insert into public.communication_alerts (
+      facility_id, source_module, severity, title
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'refrigeration', 'critical', 'Forged alert'
+    )$$,
+  'COMM-170b: view-only on source module CANNOT insert an alert');
+
+-- --- Block 2: dana (communications admin) ----------------------------------
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true);
+
+-- Outbox writes now key off has_module_admin_access('communications') instead
+-- of the retired role-name list (mig 170d): a comms admin can queue a row...
+select pg_temp.expect_ok(
+  $$insert into public.notification_outbox (
+      facility_id, source_module, recipient_employee_id,
+      subject, body, scheduled_for, status
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'communications', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'Scheduled broadcast', 'Body', now() + interval '1 hour', 'pending'
+    )$$,
+  'COMM-170d: communications admin CAN insert a notification_outbox row');
+
+-- ...and the Deliveries-tab retry path (reset email delivery state) still
+-- works because the mig-170 trigger exempts comms admins.
+select pg_temp.expect_ok(
+  $$update public.communication_recipients
+    set email_status = 'pending', email_attempts = 0
+    where id = 'aaaa1111-c0c4-aaaa-aaaa-aaaa11110204'$$,
+  'COMM-170a: communications admin CAN reset email delivery state (retry path)');
+
+-- --- Block 3: hana (role-fallback admin, migration 171) ---------------------
+reset role;
+set local role postgres;
+
+-- role_permission_defaults for the admin role in facility A, mirroring the
+-- production seed (migration 80): communications admin.
+insert into public.role_permission_defaults (
+  facility_id, role_id, module_name, action, enabled
+)
+select r.facility_id, r.id, 'communications', 'admin'::public.user_action, true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'admin'
+on conflict (facility_id, role_id, module_name, action) do nothing;
+
+insert into auth.users (id, email)
+values ('e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1', 'hana@fac-a.test')
+on conflict (id) do nothing;
+
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1',
+        '11111111-1111-1111-1111-111111111111', 'hana@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select
+  'aaaa1111-e1e1-aaaa-aaaa-aaaa11110206'::uuid,
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1'::uuid,
+  r.id, 'Hana', 'Holm', 'hana@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'admin'
+on conflict (id) do nothing;
+
+-- Simulate a pre-migration-77 account for Hana: strip whatever the auto-seed trigger
+-- chain just granted, leaving an admin-role employee with ZERO
+-- user_permissions rows — exactly the account shape that passed requireAdmin
+-- via its role fallback but failed every has_module_admin_access RLS write.
+delete from public.user_permissions
+ where user_id = 'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1', true);
+
+select pg_temp.expect_error(
+  $$insert into public.communication_templates (facility_id, name, slug, body)
+    values ('11111111-1111-1111-1111-111111111111',
+            'Hana pre-backfill', 'hana-pre-backfill', 'body')$$,
+  'COMM-171: role-fallback admin with no user_permissions CANNOT write (the bug)');
+
+-- Run the migration-171 backfill logic against hana's account shape.
+reset role;
+set local role postgres;
+
+do $$
+declare
+  v_emp record;
+begin
+  for v_emp in
+    select e.user_id, e.facility_id, e.role_id
+      from public.employees e
+     where e.is_active
+       and e.user_id is not null
+       and e.role_id is not null
+       and e.facility_id is not null
+       and not exists (
+         select 1
+           from public.user_permissions up
+          where up.user_id = e.user_id
+            and up.facility_id = e.facility_id
+       )
+  loop
+    perform public.apply_role_permission_defaults(
+      v_emp.user_id, v_emp.facility_id, v_emp.role_id
+    );
+  end loop;
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.communication_templates (facility_id, name, slug, body)
+    values ('11111111-1111-1111-1111-111111111111',
+            'Hana post-backfill', 'hana-post-backfill', 'body')$$,
+  'COMM-171: after the backfill the same admin CAN write communications config');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
