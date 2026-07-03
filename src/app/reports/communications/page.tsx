@@ -21,6 +21,8 @@ import { AlertsList } from "./_components/alerts-list"
 import { InboxTabs } from "./_components/inbox-tabs"
 import { MessageDetail } from "./_components/message-detail"
 import { MessagesList } from "./_components/messages-list"
+import { ReceiptsList, type Receipt } from "./_components/receipts-list"
+import { SentList, type SentListItem } from "./_components/sent-list"
 import {
   excerpt,
   formatTimestamp,
@@ -45,6 +47,7 @@ type SearchParams = {
   inbox?: string | string[]
   alert?: string | string[]
   message?: string | string[]
+  sent?: string | string[]
 }
 
 function pickParam(value: string | string[] | undefined): string | null {
@@ -368,10 +371,121 @@ export default async function CommunicationsInboxPage({
     )
   }
 
+  // ---- DRILLDOWN: SENT MESSAGE (sender receipts) ----
+  const sentParam = pickParam(sp.sent)
+  if (sentParam && UUID_RE.test(sentParam)) {
+    const { data: sentMessage } = await supabase
+      .from("communication_messages")
+      .select(
+        "id, subject, body, sent_at, requires_acknowledgement, sender_employee_id",
+      )
+      .eq("id", sentParam)
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("sender_employee_id", employeeRow.id)
+      .maybeSingle()
+
+    if (!sentMessage) {
+      return (
+        <NotAvailable
+          title="Message not found"
+          description="That message isn't in your sent messages."
+        />
+      )
+    }
+
+    type ReceiptRow = {
+      id: string
+      read_at: string | null
+      acknowledged_at: string | null
+      employee: { first_name: string | null; last_name: string | null } | null
+    }
+    const { data: receiptRowsRaw } = await supabase
+      .from("communication_recipients")
+      .select(
+        "id, read_at, acknowledged_at, employee:employees!communication_recipients_employee_id_fkey(first_name, last_name)",
+      )
+      .eq("message_id", sentMessage.id)
+      .order("created_at", { ascending: true })
+
+    const receipts: Receipt[] = (
+      (receiptRowsRaw ?? []) as unknown as ReceiptRow[]
+    ).map((r) => ({
+      recipientId: r.id,
+      name: fullName(r.employee) ?? "Unknown employee",
+      read_at: r.read_at,
+      acknowledged_at: r.acknowledged_at,
+    }))
+
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
+        <PageHeader
+          variant="display"
+          module="comms"
+          band
+          eyebrow="Communications"
+          breadcrumb={
+            <Breadcrumb
+              segments={[
+                { label: "Reports", href: "/reports" },
+                {
+                  label: "Communications",
+                  href: "/reports/communications?inbox=sent",
+                },
+                { label: "Sent message" },
+              ]}
+            />
+          }
+          title="Sent message"
+        />
+
+        <Card>
+          <CardHeader>
+            <p className="text-sm text-muted-foreground">
+              Sent {formatTimestamp(sentMessage.sent_at, tz)}
+            </p>
+            <CardTitle className="mt-1 text-xl">
+              {sentMessage.subject && sentMessage.subject.trim().length > 0
+                ? sentMessage.subject
+                : "(No subject)"}
+            </CardTitle>
+            {sentMessage.requires_acknowledgement ? (
+              <CardDescription className="mt-1">
+                Acknowledgement required.
+              </CardDescription>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">
+              {sentMessage.body}
+            </p>
+          </CardContent>
+        </Card>
+
+        <ReceiptsList
+          receipts={receipts}
+          requiresAck={sentMessage.requires_acknowledgement}
+          timezone={tz}
+        />
+
+        <div>
+          <Button asChild variant="outline">
+            <Link href="/reports/communications?inbox=sent">
+              Back to sent messages
+            </Link>
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   // ---- INBOX LIST ----
   const inboxParam = pickParam(sp.inbox)
-  const tab: "alerts" | "messages" =
-    inboxParam === "messages" ? "messages" : "alerts"
+  const tab: "alerts" | "messages" | "sent" =
+    inboxParam === "messages"
+      ? "messages"
+      : inboxParam === "sent" && canSubmit
+        ? "sent"
+        : "alerts"
 
   // NOTE on routing: the staff inbox intentionally shows EVERY facility alert
   // to every viewer with communications access — alerts are operational safety
@@ -485,6 +599,56 @@ export default async function CommunicationsInboxPage({
     (m) => m.recipient.read_at === null
   ).length
 
+  // Sent tab: my authored messages with read/ack rollups (sender receipt
+  // visibility comes from the mig-170 recipients SELECT extension).
+  let sentItems: SentListItem[] = []
+  if (tab === "sent") {
+    const { data: sentRaw } = await supabase
+      .from("communication_messages")
+      .select("id, subject, body, sent_at, requires_acknowledgement")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("sender_employee_id", employeeRow.id)
+      .order("sent_at", { ascending: false })
+      .limit(100)
+
+    const sentMessages = sentRaw ?? []
+    const sentIds = sentMessages.map((m) => m.id)
+    const rollups = new Map<
+      string,
+      { recipients: number; read: number; acked: number }
+    >()
+    if (sentIds.length > 0) {
+      const { data: recipRows } = await supabase
+        .from("communication_recipients")
+        .select("message_id, read_at, acknowledged_at")
+        .in("message_id", sentIds)
+      for (const r of recipRows ?? []) {
+        const c = rollups.get(r.message_id) ?? {
+          recipients: 0,
+          read: 0,
+          acked: 0,
+        }
+        c.recipients += 1
+        if (r.read_at) c.read += 1
+        if (r.acknowledged_at) c.acked += 1
+        rollups.set(r.message_id, c)
+      }
+    }
+    sentItems = sentMessages.map((m) => {
+      const c = rollups.get(m.id)
+      return {
+        messageId: m.id,
+        subject: m.subject,
+        body: m.body,
+        sent_at: m.sent_at,
+        requires_acknowledgement: m.requires_acknowledgement,
+        recipientCount: c?.recipients ?? 0,
+        readCount: c?.read ?? 0,
+        ackCount: c?.acked ?? 0,
+      }
+    })
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
       <PageHeader
@@ -513,6 +677,7 @@ export default async function CommunicationsInboxPage({
         active={tab}
         unreadAlerts={unreadAlerts}
         unreadMessages={unreadMessages}
+        showSent={canSubmit}
       />
 
       {tab === "alerts" ? (
@@ -541,6 +706,20 @@ export default async function CommunicationsInboxPage({
             }))}
             timezone={tz}
           />
+        )
+      ) : tab === "sent" ? (
+        sentItems.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>No sent messages</CardTitle>
+              <CardDescription>
+                Messages you send will show up here with read and
+                acknowledgement receipts.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          <SentList items={sentItems} timezone={tz} />
         )
       ) : messageItems.length === 0 ? (
         <Card>

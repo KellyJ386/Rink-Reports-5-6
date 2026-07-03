@@ -1,12 +1,19 @@
 import Link from "next/link"
 
 type Props = {
-  active: "alerts" | "messages"
+  active: "alerts" | "messages" | "sent"
   unreadAlerts: number
   unreadMessages: number
+  /** Hide the Sent tab for users who can't compose. */
+  showSent?: boolean
 }
 
-export function InboxTabs({ active, unreadAlerts, unreadMessages }: Props) {
+export function InboxTabs({
+  active,
+  unreadAlerts,
+  unreadMessages,
+  showSent = false,
+}: Props) {
   // These are links that trigger full navigations, not an ARIA tabs widget —
   // faking role="tablist"/"tab" without the tabs keyboard contract reads
   // worse to assistive tech than honest navigation semantics.
@@ -24,6 +31,14 @@ export function InboxTabs({ active, unreadAlerts, unreadMessages }: Props) {
         label="Messages"
         count={unreadMessages}
       />
+      {showSent ? (
+        <TabLink
+          href="/reports/communications?inbox=sent"
+          active={active === "sent"}
+          label="Sent"
+          count={0}
+        />
+      ) : null}
     </nav>
   )
 }

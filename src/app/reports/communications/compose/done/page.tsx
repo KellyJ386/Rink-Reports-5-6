@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { formatTimestamp } from "../../_components/format"
+import { ReceiptsList, type Receipt } from "../../_components/receipts-list"
 
 export const dynamic = "force-dynamic"
 
@@ -42,10 +43,35 @@ export default async function ComposeDonePage({
     redirect("/reports/communications/compose")
   }
 
-  const { count: recipientCount } = await supabase
+  // Per-recipient receipts. RLS (mig 170) lets the message's sender read its
+  // recipient rows; for anyone else this select returns only their own row.
+  type ReceiptRow = {
+    id: string
+    read_at: string | null
+    acknowledged_at: string | null
+    employee: { first_name: string | null; last_name: string | null } | null
+  }
+  const { data: receiptRowsRaw } = await supabase
     .from("communication_recipients")
-    .select("id", { count: "exact", head: true })
+    .select(
+      "id, read_at, acknowledged_at, employee:employees!communication_recipients_employee_id_fkey(first_name, last_name)",
+    )
     .eq("message_id", message.id)
+    .order("created_at", { ascending: true })
+
+  const receipts: Receipt[] = (
+    (receiptRowsRaw ?? []) as unknown as ReceiptRow[]
+  ).map((r) => {
+    const name = r.employee
+      ? `${r.employee.first_name ?? ""} ${r.employee.last_name ?? ""}`.trim()
+      : ""
+    return {
+      recipientId: r.id,
+      name: name.length > 0 ? name : "Unknown employee",
+      read_at: r.read_at,
+      acknowledged_at: r.acknowledged_at,
+    }
+  })
 
   const { data: facility } = await supabase
     .from("facilities")
@@ -54,7 +80,7 @@ export default async function ComposeDonePage({
     .maybeSingle()
 
   const tz = facility?.timezone ?? null
-  const count = recipientCount ?? 0
+  const count = receipts.length
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
@@ -105,6 +131,12 @@ export default async function ComposeDonePage({
           />
         </CardContent>
       </Card>
+
+      <ReceiptsList
+        receipts={receipts}
+        requiresAck={message.requires_acknowledgement}
+        timezone={tz}
+      />
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <Button asChild size="lg" className="h-12 w-full text-base sm:flex-1">
