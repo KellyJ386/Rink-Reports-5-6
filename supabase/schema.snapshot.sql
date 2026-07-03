@@ -1554,6 +1554,47 @@ $$;
 
 
 --
+-- Name: enforce_recipient_delivery_column_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_recipient_delivery_column_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.email_status            is distinct from old.email_status
+     or new.email_sent_at        is distinct from old.email_sent_at
+     or new.email_error          is distinct from old.email_error
+     or new.email_attempts       is distinct from old.email_attempts
+     or new.email_next_attempt_at is distinct from old.email_next_attempt_at
+     or new.email_claim_token    is distinct from old.email_claim_token
+     or new.delivered_at         is distinct from old.delivered_at
+  then
+    -- Service-role / postgres sessions (the send + drain crons) carry no JWT
+    -- subject; comms admins run the Deliveries-tab retry under their own
+    -- session and legitimately reset email_status / email_attempts.
+    if auth.uid() is null
+       or public.is_super_admin()
+       or public.has_module_admin_access('communications')
+    then
+      return new;
+    end if;
+    raise exception
+      'communication_recipients delivery columns are managed by the delivery pipeline';
+  end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_recipient_delivery_column_guard(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_recipient_delivery_column_guard() IS 'BEFORE UPDATE trigger on communication_recipients: RLS lets a recipient update their own row (read_at / acknowledged_at), but Postgres RLS has no column granularity, so this trigger rejects changes to the email-delivery state columns unless the writer is the service role, a super admin, or a communications admin.';
+
+
+--
 -- Name: get_employee_counts_by_facility(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5966,7 +6007,8 @@ CREATE TABLE public.communication_messages (
     sent_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    pdf_url text
+    pdf_url text,
+    parent_message_id uuid
 );
 
 
@@ -5982,6 +6024,13 @@ COMMENT ON TABLE public.communication_messages IS 'Communications: a sent in-app
 --
 
 COMMENT ON COLUMN public.communication_messages.pdf_url IS 'Storage object path (within the notification-pdfs bucket) for the rendered PDF. The inbox server-component signs this on read; never publicly exposed.';
+
+
+--
+-- Name: COLUMN communication_messages.parent_message_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.communication_messages.parent_message_id IS 'Message this one replies to; null for top-level messages. Set-null on parent delete.';
 
 
 --
@@ -10642,6 +10691,13 @@ CREATE INDEX idx_communication_messages_facility_sent_at ON public.communication
 
 
 --
+-- Name: idx_communication_messages_parent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_communication_messages_parent ON public.communication_messages USING btree (parent_message_id) WHERE (parent_message_id IS NOT NULL);
+
+
+--
 -- Name: idx_communication_messages_sender; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -12203,10 +12259,24 @@ CREATE TRIGGER trg_audit_communication_groups AFTER INSERT OR DELETE OR UPDATE O
 
 
 --
+-- Name: communication_recurring_reminders trg_audit_communication_recurring_reminders; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_communication_recurring_reminders AFTER INSERT OR DELETE OR UPDATE ON public.communication_recurring_reminders FOR EACH ROW EXECUTE FUNCTION public.audit_row_change();
+
+
+--
 -- Name: communication_routing_rules trg_audit_communication_routing_rules; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER trg_audit_communication_routing_rules AFTER INSERT OR DELETE OR UPDATE ON public.communication_routing_rules FOR EACH ROW EXECUTE FUNCTION public.audit_row_change();
+
+
+--
+-- Name: communication_templates trg_audit_communication_templates; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_communication_templates AFTER INSERT OR DELETE OR UPDATE ON public.communication_templates FOR EACH ROW EXECUTE FUNCTION public.audit_row_change();
 
 
 --
@@ -12683,6 +12753,13 @@ CREATE TRIGGER trg_job_area_cert_requirements_updated_at BEFORE UPDATE ON public
 --
 
 CREATE TRIGGER trg_notification_outbox_updated_at BEFORE UPDATE ON public.notification_outbox FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: communication_recipients trg_recipient_delivery_column_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_recipient_delivery_column_guard BEFORE UPDATE ON public.communication_recipients FOR EACH ROW EXECUTE FUNCTION public.enforce_recipient_delivery_column_guard();
 
 
 --
@@ -13320,6 +13397,14 @@ ALTER TABLE ONLY public.communication_groups
 
 ALTER TABLE ONLY public.communication_messages
     ADD CONSTRAINT communication_messages_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: communication_messages communication_messages_parent_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.communication_messages
+    ADD CONSTRAINT communication_messages_parent_message_id_fkey FOREIGN KEY (parent_message_id) REFERENCES public.communication_messages(id) ON DELETE SET NULL;
 
 
 --
@@ -15603,7 +15688,7 @@ CREATE POLICY communication_alerts_delete ON public.communication_alerts FOR DEL
 -- Name: communication_alerts communication_alerts_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY communication_alerts_insert ON public.communication_alerts FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_access(source_module) OR public.has_module_admin_access('communications'::text)))));
+CREATE POLICY communication_alerts_insert ON public.communication_alerts FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND ((public.current_employee_module_permission(source_module) >= 'submit'::public.module_permission_level) OR public.has_module_admin_access('communications'::text)))));
 
 
 --
@@ -15630,7 +15715,7 @@ ALTER TABLE public.communication_audit_log ENABLE ROW LEVEL SECURITY;
 -- Name: communication_audit_log communication_audit_log_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY communication_audit_log_insert ON public.communication_audit_log FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+CREATE POLICY communication_audit_log_insert ON public.communication_audit_log FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('communications'::text) AND (NOT (actor_employee_id IS DISTINCT FROM public.current_employee_id())))));
 
 
 --
@@ -15768,7 +15853,9 @@ CREATE POLICY communication_recipients_insert ON public.communication_recipients
 -- Name: communication_recipients communication_recipients_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY communication_recipients_select ON public.communication_recipients FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.has_module_admin_access('communications'::text) OR ((facility_id = public.current_facility_id()) AND (employee_id = public.current_employee_id()))));
+CREATE POLICY communication_recipients_select ON public.communication_recipients FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.has_module_admin_access('communications'::text) OR ((facility_id = public.current_facility_id()) AND ((employee_id = public.current_employee_id()) OR (EXISTS ( SELECT 1
+   FROM public.communication_messages m
+  WHERE ((m.id = communication_recipients.message_id) AND (m.sender_employee_id = public.current_employee_id()))))))));
 
 
 --
@@ -17542,7 +17629,7 @@ CREATE POLICY notification_outbox_delete ON public.notification_outbox FOR DELET
 -- Name: notification_outbox notification_outbox_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY notification_outbox_insert ON public.notification_outbox FOR INSERT TO authenticated WITH CHECK (false);
+CREATE POLICY notification_outbox_insert ON public.notification_outbox FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('communications'::text))));
 
 
 --
@@ -17556,7 +17643,7 @@ CREATE POLICY notification_outbox_select ON public.notification_outbox FOR SELEC
 -- Name: notification_outbox notification_outbox_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY notification_outbox_update ON public.notification_outbox FOR UPDATE TO authenticated USING (false) WITH CHECK (false);
+CREATE POLICY notification_outbox_update ON public.notification_outbox FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('communications'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('communications'::text))));
 
 
 --
