@@ -455,18 +455,13 @@ function RuleForm({
             className="w-32"
           />
         </div>
-        <div className="flex flex-col gap-1 sm:col-span-2">
-          <Label htmlFor={`rr-area-${rule?.id ?? "new"}`}>
-            Area ID (optional UUID)
-          </Label>
-          <Input
-            id={`rr-area-${rule?.id ?? "new"}`}
-            name="area_id"
-            defaultValue={rule?.area_id ?? ""}
-            placeholder="leave blank to match all areas"
-            className="font-mono text-xs"
-          />
-        </div>
+        <AreaField
+          rule={rule}
+          sourceModule={sourceModule}
+          areaOptions={areaOptionsByModule[sourceModule] ?? null}
+          areaId={areaId}
+          onAreaIdChange={setAreaId}
+        />
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rr-timing-${rule?.id ?? "new"}`}>Timing</Label>
           <input type="hidden" name="timing" value={timing} />
@@ -671,7 +666,7 @@ function AreaField({
     const ANY = "__any__"
     const known = areaOptions.some((a) => a.id === areaId)
     return (
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 sm:col-span-2">
         <Label htmlFor={fieldId}>Area (optional)</Label>
         <input type="hidden" name="area_id" value={areaId} />
         <Select
@@ -700,7 +695,7 @@ function AreaField({
     )
   }
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1 sm:col-span-2">
       <Label htmlFor={fieldId}>Area ID (optional UUID)</Label>
       <Input
         id={fieldId}
