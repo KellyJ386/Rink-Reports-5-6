@@ -406,6 +406,25 @@ COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-
 
 
 --
+-- Name: certification_types_sync_names(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.certification_types_sync_names() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.name is distinct from old.name then
+    update public.job_area_certification_requirements
+       set cert_name = new.name
+     where certification_type_id = new.id;
+  end if;
+  return new;
+end;
+$$;
+
+
+--
 -- Name: check_rate_limit(text, text, integer, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3107,10 +3126,11 @@ begin
   get diagnostics v_open_count = row_count;
 
   if coalesce(v_settings.notify_on_publish, true) then
-    -- Per-shift notification for each assigned employee.
+    -- Per-shift notification for each assigned employee, linked to the
+    -- publish event so acknowledgment progress can be reported per publish.
     insert into public.schedule_notifications
-      (facility_id, employee_id, notification_type, shift_id, payload)
-    select s.facility_id, s.employee_id, 'schedule_published', s.id,
+      (facility_id, employee_id, notification_type, shift_id, publish_event_id, payload)
+    select s.facility_id, s.employee_id, 'schedule_published', s.id, v_event_id,
            jsonb_build_object(
              'range_starts_at', v_req.range_starts_at,
              'range_ends_at',   v_req.range_ends_at)
@@ -3153,7 +3173,7 @@ $$;
 -- Name: FUNCTION scheduling_approve_publish_request(p_request_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.scheduling_approve_publish_request(p_request_id uuid) IS 'Two-person publish approval, atomically: locks the request, re-validates every assigned draft, publishes, writes the audit event, creates schedule_open_shifts listings for unassigned shifts, notifies assigned employees per shift and all active employees once when claimable shifts opened (honoring notify_on_publish), and finalizes the request. Returns jsonb {ok, error?, shift_count?, open_count?}.';
+COMMENT ON FUNCTION public.scheduling_approve_publish_request(p_request_id uuid) IS 'Two-person publish approval, atomically: locks the request, re-validates every assigned draft, publishes, writes the audit event, creates schedule_open_shifts listings for unassigned shifts, notifies assigned employees per shift (stamping publish_event_id for acknowledgment tracking) and all active employees once when claimable shifts opened (honoring notify_on_publish), and finalizes the request. Returns jsonb {ok, error?, shift_count?, open_count?}.';
 
 
 --
@@ -3353,21 +3373,33 @@ begin
   end if;
 
   -- ---- Required certifications for the job area ---------------------------
+  -- Requirements reference the certification catalog; an employee satisfies
+  -- one with a non-expired cert matched BY TYPE ID, or — legacy fallback for
+  -- unlinked historical rows — by normalized name against the type's CURRENT
+  -- name. Renaming a catalog entry can no longer break enforcement.
   if p_job_area_id is not null then
     for v_req in
-      select cert_name
-        from public.job_area_certification_requirements
-       where facility_id = p_facility_id
-         and job_area_id = p_job_area_id
-         and is_active
+      select r.certification_type_id, t.name as type_name
+        from public.job_area_certification_requirements r
+        join public.certification_types t on t.id = r.certification_type_id
+       where r.facility_id = p_facility_id
+         and r.job_area_id = p_job_area_id
+         and r.is_active
+         and t.is_active
     loop
       if not exists (
         select 1 from public.employee_certifications c
          where c.employee_id = p_employee_id
-           and lower(btrim(c.name)) = lower(btrim(v_req.cert_name))
+           and (
+             c.certification_type_id = v_req.certification_type_id
+             or (
+               c.certification_type_id is null
+               and lower(btrim(c.name)) = lower(btrim(v_req.type_name))
+             )
+           )
            and (c.expires_at is null or c.expires_at >= current_date)
       ) then
-        v_codes := array_append(v_codes, 'cert_missing:' || v_req.cert_name);
+        v_codes := array_append(v_codes, 'cert_missing:' || v_req.type_name);
       end if;
     end loop;
   end if;
@@ -3386,7 +3418,7 @@ $$;
 -- Name: FUNCTION scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid) IS 'Returns the array of hard-block violation codes for assigning an employee to a shift slot (empty = allowed). Single source of truth used by the admin server actions, the swap-apply / publish-approve / open-claim RPCs, and the staff self-claim RPC. Weekly windows and availability matching are computed on the facility''s local calendar (facilities.timezone, schedule_settings.week_start_day).';
+COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid) IS 'Returns the array of hard-block violation codes for assigning an employee to a shift slot (empty = allowed). Single source of truth used by the admin server actions, the swap-apply / publish-approve / open-claim RPCs, and the staff self-claim RPC. Weekly windows and availability matching are computed on the facility''s local calendar (facilities.timezone, schedule_settings.week_start_day). Certification requirements join the certification_types catalog (id match, legacy name fallback for unlinked employee certs).';
 
 
 --
@@ -5745,6 +5777,28 @@ COMMENT ON COLUMN public.audit_logs.entity_type IS 'Logical type (table or domai
 
 
 --
+-- Name: certification_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.certification_types (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT certification_types_name_check CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 200)))
+);
+
+
+--
+-- Name: TABLE certification_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.certification_types IS 'Per-facility certification catalog (CPR, refrigeration operator, ...). Job-area requirements and employee certifications link here by id, so renaming a certification cannot break scheduling enforcement (which previously matched free-text names).';
+
+
+--
 -- Name: communication_acknowledgements; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6278,6 +6332,7 @@ CREATE TABLE public.employee_certifications (
     notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    certification_type_id uuid,
     CONSTRAINT employee_certifications_issuer_check CHECK (((issuer IS NULL) OR (length(issuer) <= 200))),
     CONSTRAINT employee_certifications_name_check CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 200)))
 );
@@ -6288,6 +6343,13 @@ CREATE TABLE public.employee_certifications (
 --
 
 COMMENT ON TABLE public.employee_certifications IS 'Per-employee certifications and training records with optional issuance and expiration dates. Facility-scoped via RLS.';
+
+
+--
+-- Name: COLUMN employee_certifications.certification_type_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.employee_certifications.certification_type_id IS 'Optional catalog link. NULL = legacy/unlinked row; enforcement then falls back to matching the normalized name against the type''s current name.';
 
 
 --
@@ -6361,6 +6423,27 @@ CREATE TABLE public.employee_job_areas (
 --
 
 COMMENT ON TABLE public.employee_job_areas IS 'Scheduling: per-facility, admin-configurable list of employee job areas (Front Desk, Pro Shop, etc.). Separate from Daily Report areas (daily_report_areas).';
+
+
+--
+-- Name: employee_wages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.employee_wages (
+    employee_id uuid NOT NULL,
+    facility_id uuid NOT NULL,
+    hourly_rate numeric NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT employee_wages_hourly_rate_check CHECK (((hourly_rate >= (0)::numeric) AND (hourly_rate <= (10000)::numeric)))
+);
+
+
+--
+-- Name: TABLE employee_wages; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.employee_wages IS 'Optional hourly wage per employee, powering scheduling labor-cost estimates. Kept separate from public.employees because that table is facility-wide readable by ALL staff; this one is admin-only (no staff RLS branch).';
 
 
 --
@@ -7628,6 +7711,7 @@ CREATE TABLE public.job_area_certification_requirements (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    certification_type_id uuid NOT NULL,
     CONSTRAINT job_area_certification_requirements_cert_name_check CHECK (((length(btrim(cert_name)) >= 1) AND (length(btrim(cert_name)) <= 200)))
 );
 
@@ -7637,6 +7721,13 @@ CREATE TABLE public.job_area_certification_requirements (
 --
 
 COMMENT ON TABLE public.job_area_certification_requirements IS 'Scheduling: certifications required to work a given job area. cert_name is matched case-insensitively against employee_certifications.name (non-expired) by scheduling_assignment_violations().';
+
+
+--
+-- Name: COLUMN job_area_certification_requirements.certification_type_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.job_area_certification_requirements.certification_type_id IS 'The required certification (catalog id) — the enforcement key. cert_name remains as a display copy, synced by trigger when the type is renamed.';
 
 
 --
@@ -8340,6 +8431,27 @@ The UI should treat rule_type as the dispatcher. Unknown keys must be preserved 
 
 
 --
+-- Name: schedule_ics_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.schedule_ics_tokens (
+    employee_id uuid NOT NULL,
+    facility_id uuid NOT NULL,
+    token text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT schedule_ics_tokens_token_check CHECK ((length(token) >= 32))
+);
+
+
+--
+-- Name: TABLE schedule_ics_tokens; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.schedule_ics_tokens IS 'One secret per employee for the public ICS calendar-feed route. The unguessable token is the credential (calendar apps cannot authenticate). Owner-only RLS; the feed route reads via service role. Rotating (rotate = delete + insert or update) invalidates old subscription URLs.';
+
+
+--
 -- Name: schedule_notifications; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -8355,6 +8467,8 @@ CREATE TABLE public.schedule_notifications (
     read_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    acknowledged_at timestamp with time zone,
+    publish_event_id uuid,
     CONSTRAINT schedule_notifications_notification_type_check CHECK ((notification_type = ANY (ARRAY['schedule_published'::text, 'shift_changed'::text, 'open_shift_available'::text, 'swap_request_received'::text, 'swap_approved'::text, 'swap_denied'::text, 'time_off_decided'::text, 'overtime_warning'::text, 'shift_reminder'::text, 'swap_expired'::text, 'claim_expired'::text])))
 );
 
@@ -8364,6 +8478,20 @@ CREATE TABLE public.schedule_notifications (
 --
 
 COMMENT ON TABLE public.schedule_notifications IS 'Scheduling: in-app notification inbox per employee. Optional FK columns (shift_id, swap_id, time_off_id) link the notification to the originating row when applicable. payload carries any extra context the UI needs to render without joining (e.g. snapshotted shift times). read_at NULL = unread.';
+
+
+--
+-- Name: COLUMN schedule_notifications.acknowledged_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_notifications.acknowledged_at IS 'Set when the employee explicitly acknowledges the notification (currently used for schedule_published). Stronger than read_at; powers the admin "who has seen the posted week" view.';
+
+
+--
+-- Name: COLUMN schedule_notifications.publish_event_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_notifications.publish_event_id IS 'For schedule_published notifications: the schedule_publish_events row this notification belongs to. Stamped by scheduling_approve_publish_request.';
 
 
 --
@@ -8485,6 +8613,8 @@ CREATE TABLE public.schedule_settings (
     require_job_area_qualification boolean DEFAULT false NOT NULL,
     block_on_violations boolean DEFAULT false NOT NULL,
     swap_expiry_hours integer DEFAULT 72 NOT NULL,
+    default_hourly_rate numeric,
+    CONSTRAINT schedule_settings_default_hourly_rate_check CHECK (((default_hourly_rate IS NULL) OR ((default_hourly_rate >= (0)::numeric) AND (default_hourly_rate <= (10000)::numeric)))),
     CONSTRAINT schedule_settings_swap_expiry_hours_check CHECK ((swap_expiry_hours > 0)),
     CONSTRAINT schedule_settings_week_start_day_check CHECK (((week_start_day >= 0) AND (week_start_day <= 6)))
 );
@@ -8530,6 +8660,13 @@ COMMENT ON COLUMN public.schedule_settings.require_job_area_qualification IS 'Wh
 --
 
 COMMENT ON COLUMN public.schedule_settings.block_on_violations IS 'Scheduling grid: when true, assignment warnings (weekly-hours cap, overlap, required-cert gaps, time-off, overtime) become hard blocks in the grid create/update actions. Default false = advisory only.';
+
+
+--
+-- Name: COLUMN schedule_settings.default_hourly_rate; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_settings.default_hourly_rate IS 'Optional facility-wide hourly rate used for labor-cost estimates when an employee has no employee_wages row. NULL = no default; unrated shifts are excluded from cost totals.';
 
 
 --
@@ -8963,6 +9100,14 @@ ALTER TABLE ONLY public.audit_logs
 
 
 --
+-- Name: certification_types certification_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.certification_types
+    ADD CONSTRAINT certification_types_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: communication_acknowledgements communication_acknowledgements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9192,6 +9337,14 @@ ALTER TABLE ONLY public.employee_job_areas
 
 ALTER TABLE ONLY public.employee_job_areas
     ADD CONSTRAINT employee_job_areas_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: employee_wages employee_wages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_wages
+    ADD CONSTRAINT employee_wages_pkey PRIMARY KEY (employee_id);
 
 
 --
@@ -9923,6 +10076,22 @@ ALTER TABLE ONLY public.schedule_compliance_rules
 
 
 --
+-- Name: schedule_ics_tokens schedule_ics_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_ics_tokens
+    ADD CONSTRAINT schedule_ics_tokens_pkey PRIMARY KEY (employee_id);
+
+
+--
+-- Name: schedule_ics_tokens schedule_ics_tokens_token_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_ics_tokens
+    ADD CONSTRAINT schedule_ics_tokens_token_key UNIQUE (token);
+
+
+--
 -- Name: schedule_notifications schedule_notifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10064,6 +10233,13 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: certification_types_ci_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX certification_types_ci_uniq ON public.certification_types USING btree (facility_id, lower(btrim(name)));
 
 
 --
@@ -10368,6 +10544,13 @@ CREATE INDEX idx_audit_logs_facility_id ON public.audit_logs USING btree (facili
 
 
 --
+-- Name: idx_certification_types_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_certification_types_facility ON public.certification_types USING btree (facility_id);
+
+
+--
 -- Name: idx_communication_acknowledgements_employee; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10648,6 +10831,13 @@ CREATE INDEX idx_departments_facility_id ON public.departments USING btree (faci
 
 
 --
+-- Name: idx_employee_certifications_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_employee_certifications_type ON public.employee_certifications USING btree (certification_type_id);
+
+
+--
 -- Name: idx_employee_job_area_assignments_employee; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10680,6 +10870,13 @@ CREATE INDEX idx_employee_job_areas_facility ON public.employee_job_areas USING 
 --
 
 CREATE INDEX idx_employee_job_areas_facility_active_sort ON public.employee_job_areas USING btree (facility_id, is_active, sort_order);
+
+
+--
+-- Name: idx_employee_wages_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_employee_wages_facility ON public.employee_wages USING btree (facility_id);
 
 
 --
@@ -11236,6 +11433,13 @@ CREATE INDEX idx_job_area_cert_requirements_facility_area ON public.job_area_cer
 
 
 --
+-- Name: idx_job_area_cert_requirements_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_job_area_cert_requirements_type ON public.job_area_certification_requirements USING btree (certification_type_id);
+
+
+--
 -- Name: idx_module_area_permissions_area_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11541,6 +11745,13 @@ CREATE INDEX idx_schedule_notifications_employee_unread ON public.schedule_notif
 --
 
 CREATE INDEX idx_schedule_notifications_facility_id ON public.schedule_notifications USING btree (facility_id);
+
+
+--
+-- Name: idx_schedule_notifications_publish_event; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_schedule_notifications_publish_event ON public.schedule_notifications USING btree (publish_event_id) WHERE (publish_event_id IS NOT NULL);
 
 
 --
@@ -12104,6 +12315,20 @@ CREATE TRIGGER trg_audit_users AFTER INSERT OR DELETE OR UPDATE ON public.users 
 
 
 --
+-- Name: certification_types trg_certification_types_sync_names; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_certification_types_sync_names AFTER UPDATE OF name ON public.certification_types FOR EACH ROW EXECUTE FUNCTION public.certification_types_sync_names();
+
+
+--
+-- Name: certification_types trg_certification_types_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_certification_types_updated_at BEFORE UPDATE ON public.certification_types FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: communication_alerts trg_communication_alerts_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -12227,6 +12452,13 @@ CREATE TRIGGER trg_employee_job_area_assignments_updated_at BEFORE UPDATE ON pub
 --
 
 CREATE TRIGGER trg_employee_job_areas_updated_at BEFORE UPDATE ON public.employee_job_areas FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: employee_wages trg_employee_wages_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_employee_wages_updated_at BEFORE UPDATE ON public.employee_wages FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -12528,6 +12760,13 @@ CREATE TRIGGER trg_schedule_availability_updated_at BEFORE UPDATE ON public.sche
 --
 
 CREATE TRIGGER trg_schedule_compliance_rules_updated_at BEFORE UPDATE ON public.schedule_compliance_rules FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: schedule_ics_tokens trg_schedule_ics_tokens_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_schedule_ics_tokens_updated_at BEFORE UPDATE ON public.schedule_ics_tokens FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -12964,6 +13203,14 @@ ALTER TABLE ONLY public.audit_logs
 
 
 --
+-- Name: certification_types certification_types_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.certification_types
+    ADD CONSTRAINT certification_types_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
 -- Name: communication_acknowledgements communication_acknowledgements_alert_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13308,6 +13555,14 @@ ALTER TABLE ONLY public.departments
 
 
 --
+-- Name: employee_certifications employee_certifications_certification_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_certifications
+    ADD CONSTRAINT employee_certifications_certification_type_id_fkey FOREIGN KEY (certification_type_id) REFERENCES public.certification_types(id) ON DELETE SET NULL;
+
+
+--
 -- Name: employee_certifications employee_certifications_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13377,6 +13632,22 @@ ALTER TABLE ONLY public.employee_job_area_assignments
 
 ALTER TABLE ONLY public.employee_job_areas
     ADD CONSTRAINT employee_job_areas_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: employee_wages employee_wages_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_wages
+    ADD CONSTRAINT employee_wages_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+
+--
+-- Name: employee_wages employee_wages_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_wages
+    ADD CONSTRAINT employee_wages_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
 
 
 --
@@ -13956,6 +14227,14 @@ ALTER TABLE ONLY public.incident_witnesses
 
 
 --
+-- Name: job_area_certification_requirements job_area_certification_requirements_certification_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_area_certification_requirements
+    ADD CONSTRAINT job_area_certification_requirements_certification_type_id_fkey FOREIGN KEY (certification_type_id) REFERENCES public.certification_types(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: job_area_certification_requirements job_area_certification_requirements_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14372,6 +14651,22 @@ ALTER TABLE ONLY public.schedule_compliance_rules
 
 
 --
+-- Name: schedule_ics_tokens schedule_ics_tokens_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_ics_tokens
+    ADD CONSTRAINT schedule_ics_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+
+--
+-- Name: schedule_ics_tokens schedule_ics_tokens_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_ics_tokens
+    ADD CONSTRAINT schedule_ics_tokens_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
 -- Name: schedule_notifications schedule_notifications_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14385,6 +14680,14 @@ ALTER TABLE ONLY public.schedule_notifications
 
 ALTER TABLE ONLY public.schedule_notifications
     ADD CONSTRAINT schedule_notifications_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: schedule_notifications schedule_notifications_publish_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_notifications
+    ADD CONSTRAINT schedule_notifications_publish_event_id_fkey FOREIGN KEY (publish_event_id) REFERENCES public.schedule_publish_events(id) ON DELETE SET NULL;
 
 
 --
@@ -15230,6 +15533,40 @@ CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT USING ((public.i
 
 
 --
+-- Name: certification_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.certification_types ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: certification_types certification_types_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY certification_types_delete ON public.certification_types FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
+
+
+--
+-- Name: certification_types certification_types_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY certification_types_insert ON public.certification_types FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
+
+
+--
+-- Name: certification_types certification_types_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY certification_types_select ON public.certification_types FOR SELECT TO authenticated USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: certification_types certification_types_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY certification_types_update ON public.certification_types FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
+
+
+--
 -- Name: communication_acknowledgements; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -15933,6 +16270,40 @@ CREATE POLICY employee_job_areas_select ON public.employee_job_areas FOR SELECT 
 --
 
 CREATE POLICY employee_job_areas_update ON public.employee_job_areas FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))));
+
+
+--
+-- Name: employee_wages; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.employee_wages ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: employee_wages employee_wages_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY employee_wages_delete ON public.employee_wages FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
+
+
+--
+-- Name: employee_wages employee_wages_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY employee_wages_insert ON public.employee_wages FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
+
+
+--
+-- Name: employee_wages employee_wages_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY employee_wages_select ON public.employee_wages FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
+
+
+--
+-- Name: employee_wages employee_wages_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY employee_wages_update ON public.employee_wages FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('scheduling'::text) OR (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))));
 
 
 --
@@ -17747,6 +18118,40 @@ CREATE POLICY schedule_compliance_rules_select ON public.schedule_compliance_rul
 --
 
 CREATE POLICY schedule_compliance_rules_update ON public.schedule_compliance_rules FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))));
+
+
+--
+-- Name: schedule_ics_tokens; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.schedule_ics_tokens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: schedule_ics_tokens schedule_ics_tokens_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_ics_tokens_delete ON public.schedule_ics_tokens FOR DELETE TO authenticated USING ((employee_id = public.current_employee_id()));
+
+
+--
+-- Name: schedule_ics_tokens schedule_ics_tokens_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_ics_tokens_insert ON public.schedule_ics_tokens FOR INSERT TO authenticated WITH CHECK (((employee_id = public.current_employee_id()) AND (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: schedule_ics_tokens schedule_ics_tokens_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_ics_tokens_select ON public.schedule_ics_tokens FOR SELECT TO authenticated USING ((employee_id = public.current_employee_id()));
+
+
+--
+-- Name: schedule_ics_tokens schedule_ics_tokens_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_ics_tokens_update ON public.schedule_ics_tokens FOR UPDATE TO authenticated USING ((employee_id = public.current_employee_id())) WITH CHECK (((employee_id = public.current_employee_id()) AND (facility_id = public.current_facility_id())));
 
 
 --
