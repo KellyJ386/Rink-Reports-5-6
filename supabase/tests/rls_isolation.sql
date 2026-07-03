@@ -3365,6 +3365,16 @@ select pg_temp.expect_ok(
     )$$,
   'COMM-170d: communications admin CAN insert a notification_outbox row');
 
+-- ...and cancel it (the scheduled-broadcast cancel path is a status UPDATE
+-- under the admin's own session).
+select pg_temp.expect_ok(
+  $$update public.notification_outbox
+    set status = 'cancelled'
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and subject = 'Scheduled broadcast'
+      and status = 'pending'$$,
+  'COMM-170d: communications admin CAN cancel their pending outbox rows');
+
 -- ...and the Deliveries-tab retry path (reset email delivery state) still
 -- works because the mig-170 trigger exempts comms admins.
 select pg_temp.expect_ok(

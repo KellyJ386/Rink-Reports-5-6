@@ -142,3 +142,29 @@ wanted, as a separate individually-reviewed pass.
 Nothing in this document has been executed. The role-canon migration (087) is a
 reviewable draft; the permission-model consolidation requires the code migration
 above before any table is dropped.
+
+## 2026-07 addendum: module-scoped admin guards (communications audit)
+
+The communications module audit found the two-layer gate could disagree:
+`requireAdmin()` accepts the global `admin`/`admin` grant or an
+employee-role fallback, while the communication RLS write policies check
+`has_module_admin_access('communications')` — a *module-scoped*
+`user_permissions` row with no role fallback. Fixes shipped with migrations
+170/171:
+
+- `requireModuleAdmin(moduleName)` (src/lib/auth/require-module-admin.ts)
+  resolves the module-scoped `admin` grant through
+  `current_user_has_permission` — the same source of truth as the RLS
+  helper. Module admin consoles whose writes are RLS-gated per-module should
+  call it *in addition to* `requireAdmin()` (communications does; other
+  module consoles can adopt the pattern as needed).
+- Migration 171 backfills `user_permissions` from role defaults for active
+  employees with zero rows (accounts predating the migration-77/82
+  auto-seeding), so the role fallback and the RLS layer agree again.
+
+**Latent manager grant (decision, unchanged):** the role defaults (migration
+80) give `manager` a `communications`/`admin` grant, but managers cannot pass
+`requireAdmin`, so the grant is unreachable through the UI. It is left in
+place deliberately — it correctly authorizes DB-level module administration
+if the console gate is ever loosened per-module. Revisit only alongside a
+per-module console-access design.

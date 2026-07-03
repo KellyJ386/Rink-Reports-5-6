@@ -472,7 +472,7 @@ async function GroupsTabLoader({
 
 async function BroadcastTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [groupsRes, templatesRes, rolesRes] = await Promise.all([
+  const [groupsRes, templatesRes, rolesRes, scheduledRes] = await Promise.all([
     supabase
       .from("communication_groups")
       .select("*")
@@ -491,12 +491,42 @@ async function BroadcastTabLoader({ facilityId }: { facilityId: string }) {
       .eq("facility_id", facilityId)
       .eq("is_active", true)
       .order("hierarchy_level", { ascending: true }),
+    supabase
+      .from("notification_outbox")
+      .select("source_record_id, subject, scheduled_for")
+      .eq("facility_id", facilityId)
+      .eq("source_module", "communications")
+      .eq("status", "pending")
+      .gt("scheduled_for", new Date().toISOString())
+      .order("scheduled_for", { ascending: true })
+      .limit(500),
   ])
+
+  // Group pending scheduled rows into batches (one row per recipient shares
+  // the batch's source_record_id).
+  const batches = new Map<
+    string,
+    { batchId: string; subject: string | null; scheduledFor: string; recipients: number }
+  >()
+  for (const row of scheduledRes.data ?? []) {
+    if (!row.source_record_id) continue
+    const b = batches.get(row.source_record_id)
+    if (b) b.recipients += 1
+    else
+      batches.set(row.source_record_id, {
+        batchId: row.source_record_id,
+        subject: row.subject,
+        scheduledFor: row.scheduled_for,
+        recipients: 1,
+      })
+  }
+
   return (
     <BroadcastTab
       groups={(groupsRes.data ?? []) as GroupRow[]}
       templates={(templatesRes.data ?? []) as TemplateRow[]}
       roles={rolesRes.data ?? []}
+      scheduled={Array.from(batches.values())}
     />
   )
 }

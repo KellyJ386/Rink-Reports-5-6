@@ -1415,6 +1415,79 @@ export async function sendAdminBroadcast(
 
     const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
 
+    // Optional schedule-for-later: instead of sending now, fan out one
+    // pending notification_outbox row per recipient with scheduled_for set.
+    // The drain-notifications cron converts due rows into ONE message +
+    // recipients (it groups by facility/rule/source_record_id/subject, so a
+    // fresh batch uuid as source_record_id isolates this broadcast). Note:
+    // drained messages carry a null sender (system message).
+    const scheduledRaw = nonEmpty(formData.get("scheduled_for"))
+    if (scheduledRaw) {
+      const when = new Date(scheduledRaw)
+      if (Number.isNaN(when.getTime())) {
+        return { ok: false, error: "Scheduled time is invalid." }
+      }
+      if (when.getTime() <= Date.now()) {
+        return { ok: false, error: "Scheduled time must be in the future." }
+      }
+
+      // Outbox rows are per-recipient, so resolve group scopes to employees.
+      if (groupIds.length > 0) {
+        const { data: members, error } = await supabase
+          .from("communication_group_members")
+          .select("employee_id")
+          .in("group_id", groupIds)
+          .eq("facility_id", facility.facilityId)
+        if (error) {
+          return { ok: false, error: dbError(error, "Failed to resolve group members.") }
+        }
+        recipientEmployeeIds = recipientEmployeeIds.concat(
+          (members ?? []).map((m) => m.employee_id),
+        )
+      }
+      recipientEmployeeIds = Array.from(new Set(recipientEmployeeIds))
+      if (recipientEmployeeIds.length === 0) {
+        return { ok: false, error: "The selected groups don't have any members." }
+      }
+
+      const batchId = crypto.randomUUID()
+      const { error: outboxErr } = await supabase
+        .from("notification_outbox")
+        .insert(
+          recipientEmployeeIds.map((employee_id) => ({
+            facility_id: facility.facilityId,
+            source_module: "communications",
+            source_record_id: batchId,
+            recipient_employee_id: employee_id,
+            subject,
+            body,
+            requires_acknowledgement: requiresAck,
+            scheduled_for: when.toISOString(),
+            status: "pending",
+          })),
+        )
+      if (outboxErr) {
+        return { ok: false, error: dbError(outboxErr, "Failed to schedule the broadcast.") }
+      }
+
+      await writeAudit(supabase, facility.facilityId, actor, {
+        entity_type: "communication_broadcast",
+        entity_id: batchId,
+        action: "broadcast_scheduled",
+        after: {
+          subject,
+          scheduled_for: when.toISOString(),
+          recipient_count: recipientEmployeeIds.length,
+        } as unknown as Json,
+      })
+
+      revalidate()
+      return {
+        ok: true,
+        message: `Broadcast scheduled for ${recipientEmployeeIds.length} recipient${recipientEmployeeIds.length === 1 ? "" : "s"}.`,
+      }
+    }
+
     const result = await persistMessage(supabase, {
       employeeId: actor,
       facilityId: facility.facilityId,
@@ -1441,6 +1514,58 @@ export async function sendAdminBroadcast(
       ok: true,
       message: `Broadcast sent to ${count ?? 0} recipient${(count ?? 0) === 1 ? "" : "s"}.`,
     }
+  } catch (e) {
+    logServerError("admin/communications/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+/**
+ * Cancel a scheduled broadcast batch: flips every still-pending outbox row of
+ * the batch (source_record_id) to cancelled. Rows the drain cron already
+ * converted are untouched — those messages were delivered.
+ */
+export async function cancelScheduledBroadcast(
+  batchId: string,
+): Promise<SimpleResult> {
+  try {
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!batchId || !UUID_RE.test(batchId)) {
+      return { ok: false, error: "Invalid broadcast id." }
+    }
+
+    const supabase = await createClient()
+    const { data: cancelled, error } = await supabase
+      .from("notification_outbox")
+      .update({ status: "cancelled" })
+      .eq("facility_id", facility.facilityId)
+      .eq("source_module", "communications")
+      .eq("source_record_id", batchId)
+      .eq("status", "pending")
+      .select("id")
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to cancel the broadcast.") }
+    }
+    if (!cancelled || cancelled.length === 0) {
+      return { ok: false, error: "Nothing left to cancel — it may have already been sent." }
+    }
+
+    const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
+    await writeAudit(supabase, facility.facilityId, actor, {
+      entity_type: "communication_broadcast",
+      entity_id: batchId,
+      action: "broadcast_cancelled",
+      after: { cancelled_rows: cancelled.length } as unknown as Json,
+    })
+
+    revalidate()
+    return { ok: true }
   } catch (e) {
     logServerError("admin/communications/actions", e)
     return {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect, useState } from "react"
+import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -22,22 +22,30 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-import { sendAdminBroadcast } from "../actions"
+import { cancelScheduledBroadcast, sendAdminBroadcast } from "../actions"
 import type { ActionState, GroupRow, TemplateRow } from "../types"
 
 type RoleOption = { id: string; key: string; display_name: string }
+
+export type ScheduledBatch = {
+  batchId: string
+  subject: string | null
+  scheduledFor: string
+  recipients: number
+}
 
 type Props = {
   groups: GroupRow[]
   templates: TemplateRow[]
   roles: RoleOption[]
+  scheduled: ScheduledBatch[]
 }
 
 type Scope = "groups" | "role" | "everyone"
 
 const NULL_STATE: ActionState = { ok: null }
 
-export function BroadcastTab({ groups, templates, roles }: Props) {
+export function BroadcastTab({ groups, templates, roles, scheduled }: Props) {
   const [state, action, pending] = useActionState(sendAdminBroadcast, NULL_STATE)
 
   const [scope, setScope] = useState<Scope>("groups")
@@ -47,6 +55,7 @@ export function BroadcastTab({ groups, templates, roles }: Props) {
   const [requiresAck, setRequiresAck] = useState(false)
   const [roleId, setRoleId] = useState("")
   const [groupIds, setGroupIds] = useState<Set<string>>(new Set())
+  const [scheduledFor, setScheduledFor] = useState("")
 
   // Clear the composer after a successful send. Render-phase derived-state
   // reset (not an effect): compare against the last handled action state.
@@ -59,6 +68,7 @@ export function BroadcastTab({ groups, templates, roles }: Props) {
       setBody("")
       setRequiresAck(false)
       setGroupIds(new Set())
+      setScheduledFor("")
     }
   }
 
@@ -86,6 +96,26 @@ export function BroadcastTab({ groups, templates, roles }: Props) {
   }
 
   return (
+    <div className="flex flex-col gap-4">
+      {scheduled.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Scheduled broadcasts</CardTitle>
+            <CardDescription>
+              Queued and waiting for their send time. Cancelling only affects
+              deliveries that haven&apos;t gone out yet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2">
+              {scheduled.map((b) => (
+                <ScheduledRow key={b.batchId} batch={b} />
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
     <Card>
       <CardHeader>
         <CardTitle>Broadcast a message</CardTitle>
@@ -226,6 +256,24 @@ export function BroadcastTab({ groups, templates, roles }: Props) {
             ) : null}
           </fieldset>
 
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="bc-scheduled">Send later (optional)</Label>
+            <Input
+              id="bc-scheduled"
+              type="datetime-local"
+              name="scheduled_for"
+              value={scheduledFor}
+              onChange={(e) => setScheduledFor(e.target.value)}
+              className="max-w-xs"
+            />
+            <span className="text-muted-foreground text-xs">
+              Leave blank to send immediately. Scheduled broadcasts are queued
+              and delivered by the notifications cron at the chosen time (they
+              arrive as a system message, without your name as sender). You
+              can cancel them below until they go out.
+            </span>
+          </div>
+
           <label className="flex min-h-9 items-center gap-3 rounded-md border px-3 py-2">
             <input
               type="checkbox"
@@ -247,11 +295,52 @@ export function BroadcastTab({ groups, templates, roles }: Props) {
 
           <div>
             <Button type="submit" disabled={pending}>
-              {pending ? "Sending…" : "Send broadcast"}
+              {pending
+                ? "Sending…"
+                : scheduledFor
+                  ? "Schedule broadcast"
+                  : "Send broadcast"}
             </Button>
           </div>
         </form>
       </CardContent>
     </Card>
+    </div>
+  )
+}
+
+function ScheduledRow({ batch }: { batch: ScheduledBatch }) {
+  const [pending, startTransition] = useTransition()
+  function onCancel() {
+    if (!confirm("Cancel this scheduled broadcast? Recipients won't get it.")) {
+      return
+    }
+    startTransition(async () => {
+      const r = await cancelScheduledBroadcast(batch.batchId)
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Scheduled broadcast cancelled.")
+    })
+  }
+  return (
+    <li className="bg-muted/30 flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate font-medium">
+          {batch.subject?.trim() || "(No subject)"}
+        </span>
+        <span className="text-muted-foreground text-xs">
+          {new Date(batch.scheduledFor).toLocaleString()} · {batch.recipients}{" "}
+          recipient{batch.recipients === 1 ? "" : "s"}
+        </span>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onCancel}
+        disabled={pending}
+      >
+        {pending ? "Cancelling…" : "Cancel"}
+      </Button>
+    </li>
   )
 }
