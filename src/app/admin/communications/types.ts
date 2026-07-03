@@ -55,6 +55,7 @@ export const SOURCE_MODULES: ReadonlyArray<{ key: string; label: string }> = [
 
 export type Tab =
   | "inbox"
+  | "broadcast"
   | "templates"
   | "groups"
   | "routing"
@@ -64,6 +65,7 @@ export type Tab =
 
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "inbox", label: "Inbox" },
+  { key: "broadcast", label: "Broadcast" },
   { key: "templates", label: "Templates" },
   { key: "groups", label: "Groups" },
   { key: "routing", label: "Routing" },

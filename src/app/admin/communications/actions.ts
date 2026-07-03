@@ -10,6 +10,8 @@ import { logServerError } from "@/lib/observability/log-server-error"
 import { dbError } from "@/lib/db-error"
 import type { Database, Json } from "@/types/database"
 
+import { persistMessage } from "@/app/reports/communications/_lib/submit"
+
 import type { ActionState, SimpleResult } from "./types"
 import {
   SLUG_RE,
@@ -1323,6 +1325,122 @@ export async function retryFailedOutboxRow(outboxId: string): Promise<SimpleResu
     })
     revalidate()
     return { ok: true }
+  } catch (e) {
+    logServerError("admin/communications/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+// ============================================================================
+// Broadcast (admin compose)
+// ============================================================================
+
+/**
+ * Admin broadcast: compose a message to groups, everyone with a role, or the
+ * whole facility. Reuses the staff pipeline's persistMessage (message +
+ * recipient fan-out + audit row) with isAdmin=true, so delivery — in-app
+ * inbox plus the send-communications email cron — is identical to a staff
+ * send. sender_employee_id is the admin's employee row when they have one,
+ * else null (renders as a system message).
+ */
+export async function sendAdminBroadcast(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const body = nonEmpty(formData.get("body"))
+    if (!body) return { ok: false, error: "Message body is required." }
+    const subject = nonEmpty(formData.get("subject"))
+    const requiresAck = formData.get("requires_acknowledgement") === "on"
+    const templateIdRaw = nonEmpty(formData.get("template_id"))
+    const templateId =
+      templateIdRaw && UUID_RE.test(templateIdRaw) ? templateIdRaw : null
+
+    const scope = nonEmpty(formData.get("scope"))
+    const supabase = await createClient()
+
+    let groupIds: string[] = []
+    let recipientEmployeeIds: string[] = []
+
+    if (scope === "groups") {
+      groupIds = formData
+        .getAll("group_ids")
+        .map((v) => String(v))
+        .filter((v) => UUID_RE.test(v))
+      if (groupIds.length === 0) {
+        return { ok: false, error: "Pick at least one group." }
+      }
+    } else if (scope === "role") {
+      const roleId = nonEmpty(formData.get("role_id"))
+      if (!roleId || !UUID_RE.test(roleId)) {
+        return { ok: false, error: "Pick a role." }
+      }
+      const { data: emps, error } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("facility_id", facility.facilityId)
+        .eq("is_active", true)
+        .eq("role_id", roleId)
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to resolve the role's employees.") }
+      }
+      recipientEmployeeIds = (emps ?? []).map((e) => e.id)
+      if (recipientEmployeeIds.length === 0) {
+        return { ok: false, error: "No active employees hold that role." }
+      }
+    } else if (scope === "everyone") {
+      const { data: emps, error } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("facility_id", facility.facilityId)
+        .eq("is_active", true)
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to resolve employees.") }
+      }
+      recipientEmployeeIds = (emps ?? []).map((e) => e.id)
+      if (recipientEmployeeIds.length === 0) {
+        return { ok: false, error: "No active employees in this facility." }
+      }
+    } else {
+      return { ok: false, error: "Pick who should receive this broadcast." }
+    }
+
+    const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
+
+    const result = await persistMessage(supabase, {
+      employeeId: actor,
+      facilityId: facility.facilityId,
+      isAdmin: true,
+      input: {
+        subject,
+        body,
+        requiresAck,
+        templateId,
+        groupIds,
+        recipientEmployeeIds,
+        parentMessageId: null,
+      },
+    })
+    if (!result.ok) return { ok: false, error: result.error }
+
+    const { count } = await supabase
+      .from("communication_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("message_id", result.messageId)
+
+    revalidate()
+    return {
+      ok: true,
+      message: `Broadcast sent to ${count ?? 0} recipient${(count ?? 0) === 1 ? "" : "s"}.`,
+    }
   } catch (e) {
     logServerError("admin/communications/actions", e)
     return {

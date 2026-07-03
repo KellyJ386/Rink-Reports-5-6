@@ -307,7 +307,7 @@ export default async function CommunicationsInboxPage({
     const { data: messageRaw } = await supabase
       .from("communication_messages")
       .select(
-        "id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
+        "id, facility_id, sender_employee_id, parent_message_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
       )
       .eq("id", messageParam)
       .maybeSingle()
@@ -352,6 +352,7 @@ export default async function CommunicationsInboxPage({
         />
 
         <MessageDetail
+          canReply={message.sender_employee_id !== null}
           message={{
             id: message.id,
             subject: message.subject,
@@ -546,7 +547,7 @@ export default async function CommunicationsInboxPage({
   const { data: recipientsRaw } = await supabase
     .from("communication_recipients")
     .select(
-      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, email_status, email_sent_at, email_error, email_attempts, email_next_attempt_at, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
+      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, email_status, email_sent_at, email_error, email_attempts, email_next_attempt_at, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, parent_message_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
     )
     .eq("employee_id", employeeRow.id)
     .order("created_at", { ascending: false })
@@ -577,6 +578,7 @@ export default async function CommunicationsInboxPage({
         id: r.message.id,
         facility_id: r.message.facility_id,
         sender_employee_id: r.message.sender_employee_id,
+        parent_message_id: r.message.parent_message_id ?? null,
         subject: r.message.subject,
         body: r.message.body,
         requires_acknowledgement: r.message.requires_acknowledgement,

@@ -44,9 +44,16 @@ type Props = {
     acknowledged_at: string | null
   }
   timezone: string | null
+  /** False for system-authored messages (no employee sender to reply to). */
+  canReply?: boolean
 }
 
-export function MessageDetail({ message, recipient, timezone }: Props) {
+export function MessageDetail({
+  message,
+  recipient,
+  timezone,
+  canReply = false,
+}: Props) {
   return (
     <>
       <Card>
@@ -107,7 +114,14 @@ export function MessageDetail({ message, recipient, timezone }: Props) {
         )
       ) : null}
 
-      <div>
+      <div className="flex flex-wrap gap-3">
+        {canReply ? (
+          <Button asChild size="lg" className="h-11 text-sm">
+            <Link href={`/reports/communications/compose?replyTo=${message.id}`}>
+              Reply
+            </Link>
+          </Button>
+        ) : null}
         <Link
           href="/reports/communications?inbox=messages"
           className="inline-flex h-11 items-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"

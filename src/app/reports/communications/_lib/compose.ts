@@ -16,8 +16,12 @@ function str(v: unknown): string {
 
 /**
  * Normalized compose-message input. Mirrors what the online `sendMessage`
- * action collects from its `FormData`. `subject` and `templateId` are nullable;
- * `body` and `groupIds` are validated to be non-empty by the caller.
+ * action collects from its `FormData`. `subject` and `templateId` are
+ * nullable; `body` and the recipient set (groups OR direct employee ids) are
+ * validated to be non-empty by the caller. `recipientEmployeeIds` +
+ * `parentMessageId` power the reply flow (and admin broadcast): for
+ * non-admins, persistMessage only honors direct recipients on a reply to a
+ * message they received.
  */
 export type MessageInput = {
   subject: string | null
@@ -25,6 +29,8 @@ export type MessageInput = {
   requiresAck: boolean
   templateId: string | null
   groupIds: string[]
+  recipientEmployeeIds: string[]
+  parentMessageId: string | null
 }
 
 /** Build a normalized input from a parsed JSON object (e.g. offline replay). */
@@ -44,14 +50,21 @@ export function buildMessageInputFromObject(obj: unknown): MessageInput | null {
   const templateId =
     templateIdRaw.length > 0 && isUuid(templateIdRaw) ? templateIdRaw : null
 
-  const rawGroupIds = Array.isArray(o.group_ids) ? o.group_ids : []
-  const groupIds = Array.from(
-    new Set(
-      rawGroupIds
-        .map((v) => str(v))
-        .filter((v) => v.length > 0 && isUuid(v)),
-    ),
-  )
+  const uuidList = (value: unknown): string[] =>
+    Array.from(
+      new Set(
+        (Array.isArray(value) ? value : [])
+          .map((v) => str(v))
+          .filter((v) => v.length > 0 && isUuid(v)),
+      ),
+    )
+
+  const groupIds = uuidList(o.group_ids)
+  const recipientEmployeeIds = uuidList(o.recipient_employee_ids)
+
+  const parentRaw = str(o.parent_message_id)
+  const parentMessageId =
+    parentRaw.length > 0 && isUuid(parentRaw) ? parentRaw : null
 
   return {
     subject: subject.length > 0 ? subject : null,
@@ -59,6 +72,8 @@ export function buildMessageInputFromObject(obj: unknown): MessageInput | null {
     requiresAck,
     templateId,
     groupIds,
+    recipientEmployeeIds,
+    parentMessageId,
   }
 }
 
@@ -72,6 +87,10 @@ export function buildMessageInputFromForm(
     requires_acknowledgement: formData.get("requires_acknowledgement"),
     template_id: formData.get("template_id"),
     group_ids: formData.getAll("group_ids").map((v) => String(v)),
+    recipient_employee_ids: formData
+      .getAll("recipient_employee_ids")
+      .map((v) => String(v)),
+    parent_message_id: formData.get("parent_message_id"),
   })
 }
 
@@ -129,7 +148,7 @@ export type MessageValidation =
 export function validateMessageInput(input: MessageInput): MessageValidation {
   const fieldErrors: Partial<Record<ComposeFieldName, string>> = {}
   if (!input.body) fieldErrors.body = "Please enter a message."
-  if (input.groupIds.length === 0) {
+  if (input.groupIds.length === 0 && input.recipientEmployeeIds.length === 0) {
     fieldErrors.group_ids = "Pick at least one recipient group."
   }
   if (Object.keys(fieldErrors).length > 0) {

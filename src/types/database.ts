@@ -1315,6 +1315,7 @@ export type Database = {
           created_at: string
           facility_id: string
           id: string
+          parent_message_id: string | null
           pdf_url: string | null
           requires_acknowledgement: boolean
           sender_employee_id: string | null
@@ -1328,6 +1329,7 @@ export type Database = {
           created_at?: string
           facility_id: string
           id?: string
+          parent_message_id?: string | null
           pdf_url?: string | null
           requires_acknowledgement?: boolean
           sender_employee_id?: string | null
@@ -1341,6 +1343,7 @@ export type Database = {
           created_at?: string
           facility_id?: string
           id?: string
+          parent_message_id?: string | null
           pdf_url?: string | null
           requires_acknowledgement?: boolean
           sender_employee_id?: string | null
@@ -1355,6 +1358,13 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_messages_parent_message_id_fkey"
+            columns: ["parent_message_id"]
+            isOneToOne: false
+            referencedRelation: "communication_messages"
             referencedColumns: ["id"]
           },
           {

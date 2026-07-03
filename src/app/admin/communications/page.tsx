@@ -15,6 +15,7 @@ import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { AuditTab } from "./_components/audit-tab"
+import { BroadcastTab } from "./_components/broadcast-tab"
 import {
   DeliveriesTab,
   type FailedOutboxItem,
@@ -126,6 +127,7 @@ export default async function CommunicationsAdminPage({
       {tab === "inbox" && (
         <InboxTabLoader facilityId={facilityId} params={params} />
       )}
+      {tab === "broadcast" && <BroadcastTabLoader facilityId={facilityId} />}
       {tab === "templates" && <TemplatesTabLoader facilityId={facilityId} />}
       {tab === "groups" && (
         <GroupsTabLoader facilityId={facilityId} params={params} />
@@ -460,6 +462,41 @@ async function GroupsTabLoader({
       groups={list}
       detail={detail}
       activeGroupId={params.group ?? null}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Broadcast tab loader
+// ---------------------------------------------------------------------------
+
+async function BroadcastTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const [groupsRes, templatesRes, rolesRes] = await Promise.all([
+    supabase
+      .from("communication_groups")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("communication_templates")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("roles")
+      .select("id, key, display_name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("hierarchy_level", { ascending: true }),
+  ])
+  return (
+    <BroadcastTab
+      groups={(groupsRes.data ?? []) as GroupRow[]}
+      templates={(templatesRes.data ?? []) as TemplateRow[]}
+      roles={rolesRes.data ?? []}
     />
   )
 }

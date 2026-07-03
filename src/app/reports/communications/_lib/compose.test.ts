@@ -73,7 +73,23 @@ describe("buildMessageInputFromObject", () => {
       requiresAck: false,
       templateId: null,
       groupIds: [],
+      recipientEmployeeIds: [],
+      parentMessageId: null,
     })
+  })
+
+  it("parses reply fields: direct recipients + parent message id", () => {
+    const out = buildMessageInputFromObject({
+      body: "reply body",
+      recipient_employee_ids: [G1, "junk", G1],
+      parent_message_id: TPL,
+    })!
+    expect(out.recipientEmployeeIds).toEqual([G1])
+    expect(out.parentMessageId).toBe(TPL)
+    expect(
+      buildMessageInputFromObject({ parent_message_id: "nope" })!
+        .parentMessageId,
+    ).toBeNull()
   })
 })
 
@@ -95,6 +111,15 @@ describe("validateMessageInput", () => {
     const res = validateMessageInput(input)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.fieldErrors.group_ids).toBeTruthy()
+  })
+
+  it("accepts direct recipients in place of groups (reply flow)", () => {
+    const input = buildMessageInputFromObject({
+      body: "hi",
+      recipient_employee_ids: [G1],
+      parent_message_id: TPL,
+    })!
+    expect(validateMessageInput(input)).toEqual({ ok: true })
   })
 
   it("reports both errors at once, body first (focus order)", () => {
