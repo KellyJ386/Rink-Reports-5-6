@@ -75,6 +75,47 @@ export function buildMessageInputFromForm(
   })
 }
 
+/**
+ * Which of the sender's selected groups may actually receive the message:
+ * active groups only, and non-admin staff are further restricted to groups
+ * flagged staff_can_message (mig 59). Pure seam extracted from persistMessage
+ * (submit.ts) so the send-eligibility rule is unit-testable.
+ */
+export function filterSendableGroups<
+  T extends { is_active: boolean; staff_can_message: boolean },
+>(groups: T[], opts: { isAdmin: boolean }): T[] {
+  return groups.filter(
+    (g) => g.is_active && (opts.isAdmin || g.staff_can_message),
+  )
+}
+
+export type RecipientRow = {
+  message_id: string
+  employee_id: string
+  facility_id: string
+  delivered_at: string
+}
+
+/**
+ * Shape the batch of communication_recipients rows for a send: dedupes
+ * employee ids (an employee in several selected groups gets ONE row — the
+ * unique (message_id, employee_id) index would reject duplicates) and stamps
+ * every row with the same delivery timestamp.
+ */
+export function buildRecipientRows(
+  messageId: string,
+  facilityId: string,
+  memberEmployeeIds: string[],
+  nowIso: string,
+): RecipientRow[] {
+  return Array.from(new Set(memberEmployeeIds)).map((employeeId) => ({
+    message_id: messageId,
+    employee_id: employeeId,
+    facility_id: facilityId,
+    delivered_at: nowIso,
+  }))
+}
+
 export type ComposeFieldName = "body" | "group_ids"
 
 export type MessageValidation =

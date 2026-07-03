@@ -6,7 +6,11 @@
 
 import type { createClient } from "@/lib/supabase/server"
 
-import type { MessageInput } from "./compose"
+import {
+  buildRecipientRows,
+  filterSendableGroups,
+  type MessageInput,
+} from "./compose"
 
 // Re-export the parsers/validators callers import from here.
 export {
@@ -47,27 +51,24 @@ export async function persistMessage(
 ): Promise<PersistMessageResult> {
   const { employeeId, facilityId, isAdmin, input } = args
 
-  // Confirm groups belong to this facility and are active. Non-admin staff are
+  // Confirm groups belong to this facility, then apply the pure
+  // send-eligibility rule: active groups only, and non-admin staff are
   // further restricted to groups with staff_can_message=true (mig 59).
-  let groupSelect = supabase
+  const { data: groupRows, error: groupErr } = await supabase
     .from("communication_groups")
     .select("id, facility_id, is_active, staff_can_message")
     .in("id", input.groupIds)
     .eq("facility_id", facilityId)
-    .eq("is_active", true)
-  if (!isAdmin) {
-    groupSelect = groupSelect.eq("staff_can_message", true)
-  }
-  const { data: groupRows, error: groupErr } = await groupSelect
 
   if (groupErr) {
     return { ok: false, error: dbError(groupErr, "Failed to load recipient groups.") }
   }
-  if (!groupRows || groupRows.length === 0) {
+  const sendableGroups = filterSendableGroups(groupRows ?? [], { isAdmin })
+  if (sendableGroups.length === 0) {
     return { ok: false, error: "Selected groups are not available." }
   }
 
-  const validGroupIds = groupRows.map((g) => g.id)
+  const validGroupIds = sendableGroups.map((g) => g.id)
 
   // Resolve recipients by union of group memberships.
   const { data: memberRows, error: memberErr } = await supabase
@@ -107,14 +108,13 @@ export async function persistMessage(
     return { ok: false, error: dbError(insertErr, "Failed to send message.") }
   }
 
-  // Batch-insert recipients.
-  const nowIso = new Date().toISOString()
-  const recipientRows = recipientIds.map((rid) => ({
-    message_id: inserted.id,
-    employee_id: rid,
-    facility_id: facilityId,
-    delivered_at: nowIso,
-  }))
+  // Batch-insert recipients (deduped + shaped by the pure helper).
+  const recipientRows = buildRecipientRows(
+    inserted.id,
+    facilityId,
+    recipientIds,
+    new Date().toISOString(),
+  )
 
   const { error: recipErr } = await supabase
     .from("communication_recipients")

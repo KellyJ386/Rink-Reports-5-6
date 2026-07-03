@@ -571,16 +571,18 @@ const buildIceOperations: ModuleBuilder = async ({ sb, facilityId, range, settin
   }
 }
 
-// Communications and scheduling have no entry in MODULE_COLUMN_OPTIONS, so we
-// define sensible default column sets inline (degrade to the primary table per
-// task guidance rather than crashing).
-
+// Communications columns mirror MODULE_COLUMN_OPTIONS.communications
+// (src/app/admin/exports/types.ts) — per-facility column visibility flows
+// through the central filter like every other first-class module.
 const COMMUNICATIONS_COLUMNS = [
   { key: "subject", label: "Subject" },
   { key: "body", label: "Message" },
   { key: "requires_ack", label: "Requires acknowledgement" },
   { key: "sender", label: "Sender" },
   { key: "sent_at", label: "Sent at" },
+  { key: "recipient_count", label: "Recipients" },
+  { key: "read_count", label: "Read count" },
+  { key: "ack_count", label: "Acknowledged count" },
 ]
 
 const buildCommunications: ModuleBuilder = async ({ sb, facilityId, range, settings }) => {
@@ -602,15 +604,43 @@ const buildCommunications: ModuleBuilder = async ({ sb, facilityId, range, setti
     "sent_at",
   )
   const emps = await loadEmployeeNames(sb, facilityId, subs.map((s) => s.sender_employee_id))
+
+  // One batched query for read/ack rollups across all exported messages.
+  const counts = new Map<
+    string,
+    { recipients: number; read: number; acked: number }
+  >()
+  const messageIds = subs.map((s) => s.id)
+  if (messageIds.length > 0) {
+    const { data: recips } = await sb
+      .from("communication_recipients")
+      .select("message_id, read_at, acknowledged_at")
+      .eq("facility_id", facilityId)
+      .in("message_id", messageIds)
+    for (const r of recips ?? []) {
+      const c = counts.get(r.message_id) ?? { recipients: 0, read: 0, acked: 0 }
+      c.recipients += 1
+      if (r.read_at) c.read += 1
+      if (r.acknowledged_at) c.acked += 1
+      counts.set(r.message_id, c)
+    }
+  }
+
   return {
     columns: COMMUNICATIONS_COLUMNS,
-    rows: subs.map((s) => ({
-      subject: s.subject ?? "",
-      body: s.body,
-      requires_ack: s.requires_acknowledgement ? "Yes" : "No",
-      sender: s.sender_employee_id ? (emps.get(s.sender_employee_id) ?? "") : "",
-      sent_at: fmt(s.sent_at),
-    })),
+    rows: subs.map((s) => {
+      const c = counts.get(s.id)
+      return {
+        subject: s.subject ?? "",
+        body: s.body,
+        requires_ack: s.requires_acknowledgement ? "Yes" : "No",
+        sender: s.sender_employee_id ? (emps.get(s.sender_employee_id) ?? "") : "",
+        sent_at: fmt(s.sent_at),
+        recipient_count: String(c?.recipients ?? 0),
+        read_count: String(c?.read ?? 0),
+        ack_count: String(c?.acked ?? 0),
+      }
+    }),
   }
 }
 
