@@ -3,44 +3,27 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { dbError } from "@/lib/db-error"
 import type { Database, Json } from "@/types/database"
 
-import type { ActionState, Severity, SimpleResult } from "./types"
-import { isSeverity } from "./types"
+import { persistMessage } from "@/app/reports/communications/_lib/submit"
+
+import type { ActionState, SimpleResult } from "./types"
+import {
+  SLUG_RE,
+  UUID_RE,
+  asInt,
+  nonEmpty,
+  parseReminderForm,
+  parseRoutingForm,
+  slugify,
+} from "./_lib/validate"
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
-
-const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
-const ROLE_KEY_RE = /^[a-z0-9]+(_[a-z0-9]+)*$/
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64)
-}
-
-function nonEmpty(value: FormDataEntryValue | null): string | null {
-  if (typeof value !== "string") return null
-  const trimmed = value.trim()
-  return trimmed.length === 0 ? null : trimmed
-}
-
-function asInt(value: FormDataEntryValue | null): number | null {
-  const s = nonEmpty(value)
-  if (s === null) return null
-  const n = Number(s)
-  return Number.isFinite(n) ? Math.trunc(n) : null
-}
 
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
@@ -108,6 +91,26 @@ async function writeAudit(
   })
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the communications RLS write
+ * policies gate on has_module_admin_access('communications') — a
+ * module-scoped user_permissions grant requireAdmin does NOT imply. Without
+ * this check, an admin lacking the module grant reaches the action and the
+ * mutation dies at the RLS layer with an opaque error. Returns a
+ * human-readable denial message, or null when allowed. (A message, not a
+ * redirect: these actions run inside try/catch blocks that would swallow the
+ * NEXT_REDIRECT control-flow error.)
+ */
+async function ensureCommsAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "communications", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the communications module's admin permission. Ask an administrator to grant it under Admin \u2192 Permissions."
+}
+
 function revalidate(): void {
   revalidatePath("/admin/communications")
 }
@@ -121,7 +124,8 @@ export async function createTemplate(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -188,7 +192,8 @@ export async function updateTemplate(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -261,7 +266,8 @@ export async function setTemplateActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
@@ -296,7 +302,8 @@ export async function setTemplateActive(
 
 export async function deleteTemplate(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
@@ -353,7 +360,8 @@ export async function createGroup(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const name = nonEmpty(formData.get("name"))
@@ -408,7 +416,8 @@ export async function updateGroup(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -475,7 +484,8 @@ export async function setGroupActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing group id." }
@@ -510,7 +520,8 @@ export async function setGroupActive(
 
 export async function deleteGroup(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing group id." }
@@ -559,7 +570,8 @@ export async function addGroupMember(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const group_id = nonEmpty(formData.get("group_id"))
@@ -599,7 +611,8 @@ export async function addGroupMember(
 
 export async function removeGroupMember(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing member id." }
@@ -640,123 +653,13 @@ export async function removeGroupMember(id: string): Promise<SimpleResult> {
 // Routing rules
 // ============================================================================
 
-type TargetKind = "group" | "role" | "employee" | "department"
-
-function isTargetKind(v: string): v is TargetKind {
-  return v === "group" || v === "role" || v === "employee" || v === "department"
-}
-
-const ALLOWED_TIMINGS = ["immediate", "end_of_day", "weekly", "manual"] as const
-type Timing = (typeof ALLOWED_TIMINGS)[number]
-function isTiming(s: string): s is Timing {
-  return (ALLOWED_TIMINGS as readonly string[]).includes(s)
-}
-
-function parseRoutingForm(formData: FormData): {
-  ok: true
-  data: {
-    name: string | null
-    source_module: string
-    severity: Severity | null
-    area_id: string | null
-    target_group_id: string | null
-    target_role_key: string | null
-    target_employee_id: string | null
-    target_department_id: string | null
-    timing: Timing
-    attach_pdf: boolean
-    requires_acknowledgement: boolean
-    priority: number
-    is_active: boolean
-  }
-} | { ok: false; error: string } {
-  const source_module = nonEmpty(formData.get("source_module"))
-  if (!source_module)
-    return { ok: false, error: "Source module is required." }
-
-  const sevRaw = nonEmpty(formData.get("severity"))
-  let severity: Severity | null = null
-  if (sevRaw && sevRaw !== "any") {
-    if (!isSeverity(sevRaw)) return { ok: false, error: "Invalid severity." }
-    severity = sevRaw
-  }
-
-  const area_id = nonEmpty(formData.get("area_id"))
-  if (area_id && !UUID_RE.test(area_id)) {
-    return {
-      ok: false,
-      error: "Area ID must be a valid UUID, or leave it blank.",
-    }
-  }
-
-  const targetKindRaw = nonEmpty(formData.get("target_kind")) ?? ""
-  if (!isTargetKind(targetKindRaw)) {
-    return { ok: false, error: "Pick a target type (group, role, or employee)." }
-  }
-  let target_group_id: string | null = null
-  let target_role_key: string | null = null
-  let target_employee_id: string | null = null
-  let target_department_id: string | null = null
-  if (targetKindRaw === "group") {
-    target_group_id = nonEmpty(formData.get("target_group_id"))
-    if (!target_group_id)
-      return { ok: false, error: "Pick a target group." }
-  } else if (targetKindRaw === "role") {
-    target_role_key = nonEmpty(formData.get("target_role_key"))
-    if (!target_role_key)
-      return { ok: false, error: "Pick a target role." }
-    if (!ROLE_KEY_RE.test(target_role_key))
-      return { ok: false, error: "Invalid role key." }
-  } else if (targetKindRaw === "department") {
-    target_department_id = nonEmpty(formData.get("target_department_id"))
-    if (!target_department_id)
-      return { ok: false, error: "Pick a target department." }
-    if (!UUID_RE.test(target_department_id))
-      return { ok: false, error: "Invalid department id." }
-  } else {
-    target_employee_id = nonEmpty(formData.get("target_employee_id"))
-    if (!target_employee_id)
-      return { ok: false, error: "Pick a target employee." }
-  }
-
-  const priority = asInt(formData.get("priority")) ?? 0
-  const is_active = formData.get("is_active") !== "off"
-  const name = nonEmpty(formData.get("name"))
-
-  const timingRaw = nonEmpty(formData.get("timing")) ?? "immediate"
-  if (!isTiming(timingRaw)) {
-    return { ok: false, error: "Invalid timing value." }
-  }
-  const attach_pdf = formData.get("attach_pdf") === "on"
-  const requires_acknowledgement =
-    formData.get("requires_acknowledgement") === "on"
-
-  return {
-    ok: true,
-    data: {
-      name,
-      source_module,
-      severity,
-      area_id,
-      target_group_id,
-      target_role_key,
-      target_employee_id,
-      target_department_id,
-      timing: timingRaw,
-      attach_pdf,
-      requires_acknowledgement,
-      priority,
-      is_active,
-    },
-  }
-}
-
 export async function createRoutingRule(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const parsed = parseRoutingForm(formData)
@@ -796,7 +699,8 @@ export async function updateRoutingRule(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -847,7 +751,8 @@ export async function setRoutingRuleActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rule id." }
@@ -885,7 +790,8 @@ export async function setRoutingRuleActive(
 
 export async function deleteRoutingRule(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rule id." }
@@ -934,7 +840,8 @@ export async function previewRoutingRecipients(ruleId: string): Promise<
   | { ok: false; error: string }
 > {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     if (!ruleId) return { ok: false, error: "Missing rule id." }
     const supabase = await createClient()
     const { data: ids, error } = await supabase.rpc(
@@ -961,85 +868,13 @@ export async function previewRoutingRecipients(ruleId: string): Promise<
 // Reminders
 // ============================================================================
 
-function parseReminderForm(formData: FormData): {
-  ok: true
-  data: {
-    name: string
-    schedule_cron: string
-    template_id: string
-    target_group_id: string | null
-    target_role_key: string | null
-    next_run_at: string | null
-    is_active: boolean
-  }
-} | { ok: false; error: string } {
-  const name = nonEmpty(formData.get("name"))
-  if (!name) return { ok: false, error: "Name is required." }
-  const schedule_cron = nonEmpty(formData.get("schedule_cron"))
-  if (!schedule_cron)
-    return { ok: false, error: "Schedule (cron) is required." }
-  const cronParts = schedule_cron.split(/\s+/)
-  if (cronParts.length !== 5) {
-    return {
-      ok: false,
-      error: "Cron must have 5 fields, e.g. '0 8 * * 1'.",
-    }
-  }
-  // Validate each cron field: only allow digits, *, -, /, and commas.
-  if (cronParts.some((p) => !/^[\d*/,\-]+$/.test(p))) {
-    return {
-      ok: false,
-      error: "Cron fields may only contain digits, *, -, /, and commas.",
-    }
-  }
-  const template_id = nonEmpty(formData.get("template_id"))
-  if (!template_id) return { ok: false, error: "Pick a template." }
-
-  const targetKindRaw = nonEmpty(formData.get("target_kind")) ?? ""
-  let target_group_id: string | null = null
-  let target_role_key: string | null = null
-  if (targetKindRaw === "group") {
-    target_group_id = nonEmpty(formData.get("target_group_id"))
-    if (!target_group_id)
-      return { ok: false, error: "Pick a target group." }
-  } else if (targetKindRaw === "role") {
-    target_role_key = nonEmpty(formData.get("target_role_key"))
-    if (!target_role_key) return { ok: false, error: "Pick a target role." }
-    if (!ROLE_KEY_RE.test(target_role_key))
-      return { ok: false, error: "Invalid role key." }
-  } else {
-    return { ok: false, error: "Pick a target type (group or role)." }
-  }
-  const next_run_raw = nonEmpty(formData.get("next_run_at"))
-  let next_run_at: string | null = null
-  if (next_run_raw) {
-    const d = new Date(next_run_raw)
-    if (Number.isNaN(d.getTime())) {
-      return { ok: false, error: "Next run timestamp is invalid." }
-    }
-    next_run_at = d.toISOString()
-  }
-  const is_active = formData.get("is_active") !== "off"
-  return {
-    ok: true,
-    data: {
-      name,
-      schedule_cron,
-      template_id,
-      target_group_id,
-      target_role_key,
-      next_run_at,
-      is_active,
-    },
-  }
-}
-
 export async function createReminder(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const parsed = parseReminderForm(formData)
@@ -1076,7 +911,8 @@ export async function updateReminder(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -1124,7 +960,8 @@ export async function setReminderActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reminder id." }
@@ -1159,7 +996,8 @@ export async function setReminderActive(
 
 export async function deleteReminder(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reminder id." }
@@ -1202,7 +1040,8 @@ export async function deleteReminder(id: string): Promise<SimpleResult> {
 
 export async function resolveAlert(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing alert id." }
@@ -1247,7 +1086,8 @@ export async function resolveAlert(id: string): Promise<SimpleResult> {
 
 export async function reopenAlert(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing alert id." }
@@ -1292,7 +1132,8 @@ export async function reopenAlert(id: string): Promise<SimpleResult> {
 
 export async function deleteAlert(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing alert id." }
@@ -1336,7 +1177,8 @@ export async function deleteAlert(id: string): Promise<SimpleResult> {
 
 export async function deleteMessage(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing message id." }
@@ -1385,7 +1227,8 @@ export async function deleteMessage(id: string): Promise<SimpleResult> {
  */
 export async function retryFailedEmail(recipientId: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!UUID_RE.test(recipientId)) {
@@ -1435,7 +1278,8 @@ export async function retryFailedEmail(recipientId: string): Promise<SimpleResul
  */
 export async function retryFailedOutboxRow(outboxId: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!UUID_RE.test(outboxId)) {
@@ -1479,6 +1323,247 @@ export async function retryFailedOutboxRow(outboxId: string): Promise<SimpleResu
       entity_id: outboxId,
       action: "retry_outbox",
     })
+    revalidate()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/communications/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+// ============================================================================
+// Broadcast (admin compose)
+// ============================================================================
+
+/**
+ * Admin broadcast: compose a message to groups, everyone with a role, or the
+ * whole facility. Reuses the staff pipeline's persistMessage (message +
+ * recipient fan-out + audit row) with isAdmin=true, so delivery — in-app
+ * inbox plus the send-communications email cron — is identical to a staff
+ * send. sender_employee_id is the admin's employee row when they have one,
+ * else null (renders as a system message).
+ */
+export async function sendAdminBroadcast(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const body = nonEmpty(formData.get("body"))
+    if (!body) return { ok: false, error: "Message body is required." }
+    const subject = nonEmpty(formData.get("subject"))
+    const requiresAck = formData.get("requires_acknowledgement") === "on"
+    const templateIdRaw = nonEmpty(formData.get("template_id"))
+    const templateId =
+      templateIdRaw && UUID_RE.test(templateIdRaw) ? templateIdRaw : null
+
+    const scope = nonEmpty(formData.get("scope"))
+    const supabase = await createClient()
+
+    let groupIds: string[] = []
+    let recipientEmployeeIds: string[] = []
+
+    if (scope === "groups") {
+      groupIds = formData
+        .getAll("group_ids")
+        .map((v) => String(v))
+        .filter((v) => UUID_RE.test(v))
+      if (groupIds.length === 0) {
+        return { ok: false, error: "Pick at least one group." }
+      }
+    } else if (scope === "role") {
+      const roleId = nonEmpty(formData.get("role_id"))
+      if (!roleId || !UUID_RE.test(roleId)) {
+        return { ok: false, error: "Pick a role." }
+      }
+      const { data: emps, error } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("facility_id", facility.facilityId)
+        .eq("is_active", true)
+        .eq("role_id", roleId)
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to resolve the role's employees.") }
+      }
+      recipientEmployeeIds = (emps ?? []).map((e) => e.id)
+      if (recipientEmployeeIds.length === 0) {
+        return { ok: false, error: "No active employees hold that role." }
+      }
+    } else if (scope === "everyone") {
+      const { data: emps, error } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("facility_id", facility.facilityId)
+        .eq("is_active", true)
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to resolve employees.") }
+      }
+      recipientEmployeeIds = (emps ?? []).map((e) => e.id)
+      if (recipientEmployeeIds.length === 0) {
+        return { ok: false, error: "No active employees in this facility." }
+      }
+    } else {
+      return { ok: false, error: "Pick who should receive this broadcast." }
+    }
+
+    const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
+
+    // Optional schedule-for-later: instead of sending now, fan out one
+    // pending notification_outbox row per recipient with scheduled_for set.
+    // The drain-notifications cron converts due rows into ONE message +
+    // recipients (it groups by facility/rule/source_record_id/subject, so a
+    // fresh batch uuid as source_record_id isolates this broadcast). Note:
+    // drained messages carry a null sender (system message).
+    const scheduledRaw = nonEmpty(formData.get("scheduled_for"))
+    if (scheduledRaw) {
+      const when = new Date(scheduledRaw)
+      if (Number.isNaN(when.getTime())) {
+        return { ok: false, error: "Scheduled time is invalid." }
+      }
+      if (when.getTime() <= Date.now()) {
+        return { ok: false, error: "Scheduled time must be in the future." }
+      }
+
+      // Outbox rows are per-recipient, so resolve group scopes to employees.
+      if (groupIds.length > 0) {
+        const { data: members, error } = await supabase
+          .from("communication_group_members")
+          .select("employee_id")
+          .in("group_id", groupIds)
+          .eq("facility_id", facility.facilityId)
+        if (error) {
+          return { ok: false, error: dbError(error, "Failed to resolve group members.") }
+        }
+        recipientEmployeeIds = recipientEmployeeIds.concat(
+          (members ?? []).map((m) => m.employee_id),
+        )
+      }
+      recipientEmployeeIds = Array.from(new Set(recipientEmployeeIds))
+      if (recipientEmployeeIds.length === 0) {
+        return { ok: false, error: "The selected groups don't have any members." }
+      }
+
+      const batchId = crypto.randomUUID()
+      const { error: outboxErr } = await supabase
+        .from("notification_outbox")
+        .insert(
+          recipientEmployeeIds.map((employee_id) => ({
+            facility_id: facility.facilityId,
+            source_module: "communications",
+            source_record_id: batchId,
+            recipient_employee_id: employee_id,
+            subject,
+            body,
+            requires_acknowledgement: requiresAck,
+            scheduled_for: when.toISOString(),
+            status: "pending",
+          })),
+        )
+      if (outboxErr) {
+        return { ok: false, error: dbError(outboxErr, "Failed to schedule the broadcast.") }
+      }
+
+      await writeAudit(supabase, facility.facilityId, actor, {
+        entity_type: "communication_broadcast",
+        entity_id: batchId,
+        action: "broadcast_scheduled",
+        after: {
+          subject,
+          scheduled_for: when.toISOString(),
+          recipient_count: recipientEmployeeIds.length,
+        } as unknown as Json,
+      })
+
+      revalidate()
+      return {
+        ok: true,
+        message: `Broadcast scheduled for ${recipientEmployeeIds.length} recipient${recipientEmployeeIds.length === 1 ? "" : "s"}.`,
+      }
+    }
+
+    const result = await persistMessage(supabase, {
+      employeeId: actor,
+      facilityId: facility.facilityId,
+      isAdmin: true,
+      input: {
+        subject,
+        body,
+        requiresAck,
+        templateId,
+        groupIds,
+        recipientEmployeeIds,
+        parentMessageId: null,
+      },
+    })
+    if (!result.ok) return { ok: false, error: result.error }
+
+    const { count } = await supabase
+      .from("communication_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("message_id", result.messageId)
+
+    revalidate()
+    return {
+      ok: true,
+      message: `Broadcast sent to ${count ?? 0} recipient${(count ?? 0) === 1 ? "" : "s"}.`,
+    }
+  } catch (e) {
+    logServerError("admin/communications/actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+/**
+ * Cancel a scheduled broadcast batch: flips every still-pending outbox row of
+ * the batch (source_record_id) to cancelled. Rows the drain cron already
+ * converted are untouched — those messages were delivered.
+ */
+export async function cancelScheduledBroadcast(
+  batchId: string,
+): Promise<SimpleResult> {
+  try {
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!batchId || !UUID_RE.test(batchId)) {
+      return { ok: false, error: "Invalid broadcast id." }
+    }
+
+    const supabase = await createClient()
+    const { data: cancelled, error } = await supabase
+      .from("notification_outbox")
+      .update({ status: "cancelled" })
+      .eq("facility_id", facility.facilityId)
+      .eq("source_module", "communications")
+      .eq("source_record_id", batchId)
+      .eq("status", "pending")
+      .select("id")
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to cancel the broadcast.") }
+    }
+    if (!cancelled || cancelled.length === 0) {
+      return { ok: false, error: "Nothing left to cancel — it may have already been sent." }
+    }
+
+    const actor = await resolveActorEmployeeId(supabase, facility.facilityId)
+    await writeAudit(supabase, facility.facilityId, actor, {
+      entity_type: "communication_broadcast",
+      entity_id: batchId,
+      action: "broadcast_cancelled",
+      after: { cancelled_rows: cancelled.length } as unknown as Json,
+    })
+
     revalidate()
     return { ok: true }
   } catch (e) {

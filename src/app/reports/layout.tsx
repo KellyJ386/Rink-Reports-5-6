@@ -10,6 +10,7 @@ import { AuthStateListener } from "@/components/app/auth-state-listener"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { getHeaderContext } from "@/lib/header/context"
 import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
+import { getCommunicationsUnreadCount } from "@/lib/communications/unread"
 
 export default async function ReportsLayout({
   children,
@@ -22,6 +23,10 @@ export default async function ReportsLayout({
   const fullName = profile?.full_name ?? null
   const isAdmin = await getIsAdmin(current)
   const enabledModules = await getEnabledModuleKeys(profile?.facility_id)
+  const communicationsUnread = await getCommunicationsUnreadCount(
+    profile?.facility_id,
+  )
+  const badgeCounts = { communications: communicationsUnread }
   const { facilityName, tempF, tempLocation } = await getHeaderContext(
     profile?.facility_id,
   )
@@ -33,6 +38,7 @@ export default async function ReportsLayout({
         email={email}
         fullName={fullName}
         enabledModules={enabledModules}
+        badgeCounts={badgeCounts}
       />
       <div className="flex min-h-screen flex-col lg:pl-64 xl:pl-72">
         <PreviewBanner />
@@ -52,6 +58,7 @@ export default async function ReportsLayout({
         email={email}
         fullName={fullName}
         enabledModules={enabledModules}
+        badgeCounts={badgeCounts}
       />
       <AuthStateListener />
       <Toaster />

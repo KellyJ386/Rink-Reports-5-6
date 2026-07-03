@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { getCommunicationsUnreadCount } from "@/lib/communications/unread"
 
 // =============================================================================
 // Dashboard module status ("monitoring lights")
@@ -163,6 +164,18 @@ async function incidentsStatus(
   return n > 0 ? { state: "red", count: n } : null
 }
 
+/**
+ * Communications is per-user, not per-facility: unread message deliveries for
+ * the session user plus unresolved ack-required alerts they haven't
+ * acknowledged. Uses the shared badge helper (which fails to 0 ⇒ no bubble).
+ */
+async function communicationsStatus(
+  facilityId: string,
+): Promise<ModuleStatus | null> {
+  const n = await getCommunicationsUnreadCount(facilityId)
+  return n > 0 ? { state: "red", count: n } : null
+}
+
 async function accidentsStatus(
   supabase: Client,
   facilityId: string,
@@ -200,6 +213,7 @@ export async function getDashboardModuleStatus(
     ice_depth,
     incident_reports,
     accident_reports,
+    communications,
   ] = await Promise.all([
     settle(() => refrigerationStatus(supabase, facilityId)),
     settle(() => airQualityStatus(supabase, facilityId)),
@@ -207,6 +221,7 @@ export async function getDashboardModuleStatus(
     settle(() => iceDepthStatus(supabase, facilityId)),
     settle(() => incidentsStatus(supabase, facilityId)),
     settle(() => accidentsStatus(supabase, facilityId)),
+    settle(() => communicationsStatus(facilityId)),
   ])
 
   const map: DashboardStatusMap = {}
@@ -216,5 +231,6 @@ export async function getDashboardModuleStatus(
   if (ice_depth) map.ice_depth = ice_depth
   if (incident_reports) map.incident_reports = incident_reports
   if (accident_reports) map.accident_reports = accident_reports
+  if (communications) map.communications = communications
   return map
 }

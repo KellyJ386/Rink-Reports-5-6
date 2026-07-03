@@ -42,14 +42,25 @@ type TemplateOption = {
   requires_acknowledgement: boolean
 }
 
+export type ReplyTarget = {
+  /** Message being replied to. */
+  messageId: string
+  /** The original sender — the reply's one and only recipient. */
+  senderEmployeeId: string
+  senderName: string
+  subject: string | null
+}
+
 type Props = {
   groups: GroupOption[]
   templates: TemplateOption[]
+  /** Reply mode: recipient is locked to the original sender; groups hidden. */
+  replyTo?: ReplyTarget | null
 }
 
 const initialState: SendMessageFormState = {}
 
-export function ComposeForm({ groups, templates }: Props) {
+export function ComposeForm({ groups, templates, replyTo = null }: Props) {
   const [state, formAction] = useActionState(
     sendCommunicationsMessage,
     initialState
@@ -60,7 +71,12 @@ export function ComposeForm({ groups, templates }: Props) {
   const [queued, setQueued] = useState(false)
 
   const [templateId, setTemplateId] = useState("")
-  const [subject, setSubject] = useState("")
+  const [subject, setSubject] = useState(() => {
+    if (!replyTo) return ""
+    const base = replyTo.subject?.trim() ?? ""
+    if (base.length === 0) return "Re:"
+    return /^re:/i.test(base) ? base : `Re: ${base}`
+  })
   const [body, setBody] = useState("")
   const [requiresAck, setRequiresAck] = useState(false)
   const [groupIds, setGroupIds] = useState<Set<string>>(new Set())
@@ -116,7 +132,9 @@ export function ComposeForm({ groups, templates }: Props) {
       body: body.trim(),
       requires_acknowledgement: requiresAck,
       template_id: templateId || null,
-      group_ids: Array.from(groupIds),
+      group_ids: replyTo ? [] : Array.from(groupIds),
+      recipient_employee_ids: replyTo ? [replyTo.senderEmployeeId] : [],
+      parent_message_id: replyTo?.messageId ?? null,
     }
   }
 
@@ -129,7 +147,8 @@ export function ComposeForm({ groups, templates }: Props) {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       // Mirror the action's required-field guard so an empty offline compose
       // still shows inline errors instead of queueing a doomed submission.
-      if (body.trim().length === 0 || groupIds.size === 0) return
+      if (body.trim().length === 0) return
+      if (!replyTo && groupIds.size === 0) return
       const ok = enqueueSubmission({
         localId,
         moduleKey: "communications",
@@ -182,7 +201,26 @@ export function ComposeForm({ groups, templates }: Props) {
     >
       <FormError message={state.error} />
 
-      {templates.length > 0 ? (
+      {replyTo ? (
+        <>
+          <input
+            type="hidden"
+            name="parent_message_id"
+            value={replyTo.messageId}
+          />
+          <input
+            type="hidden"
+            name="recipient_employee_ids"
+            value={replyTo.senderEmployeeId}
+          />
+          <div className="flex min-h-11 items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm">
+            <span className="text-muted-foreground">To:</span>
+            <span className="font-medium">{replyTo.senderName}</span>
+          </div>
+        </>
+      ) : null}
+
+      {!replyTo && templates.length > 0 ? (
         <div className="flex flex-col gap-2">
           <Label>Use a template (optional)</Label>
           <Select value={templateId || undefined} onValueChange={applyTemplate}>
@@ -231,6 +269,7 @@ export function ComposeForm({ groups, templates }: Props) {
         <FieldError id="body-error" message={state.fieldErrors?.body} />
       </div>
 
+      {replyTo ? null : (
       <fieldset
         className="flex flex-col gap-2 rounded-xl border bg-card p-3"
         aria-invalid={state.fieldErrors?.group_ids ? "true" : undefined}
@@ -273,6 +312,7 @@ export function ComposeForm({ groups, templates }: Props) {
         </div>
         <FieldError id="group_ids-error" message={state.fieldErrors?.group_ids} />
       </fieldset>
+      )}
 
       <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-card px-3 py-2">
         <input

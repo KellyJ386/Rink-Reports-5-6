@@ -11,10 +11,11 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { AuditTab } from "./_components/audit-tab"
+import { BroadcastTab } from "./_components/broadcast-tab"
 import {
   DeliveriesTab,
   type FailedOutboxItem,
@@ -88,6 +89,10 @@ export default async function CommunicationsAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // Console access alone is not enough: the communications RLS write policies
+  // gate on the module-scoped communications/admin grant. Denying here (with a
+  // real /forbidden page) beats rendering a console whose every write fails.
+  await requireModuleAdmin("communications")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
@@ -122,6 +127,7 @@ export default async function CommunicationsAdminPage({
       {tab === "inbox" && (
         <InboxTabLoader facilityId={facilityId} params={params} />
       )}
+      {tab === "broadcast" && <BroadcastTabLoader facilityId={facilityId} />}
       {tab === "templates" && <TemplatesTabLoader facilityId={facilityId} />}
       {tab === "groups" && (
         <GroupsTabLoader facilityId={facilityId} params={params} />
@@ -461,12 +467,84 @@ async function GroupsTabLoader({
 }
 
 // ---------------------------------------------------------------------------
+// Broadcast tab loader
+// ---------------------------------------------------------------------------
+
+async function BroadcastTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const [groupsRes, templatesRes, rolesRes, scheduledRes] = await Promise.all([
+    supabase
+      .from("communication_groups")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("communication_templates")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("roles")
+      .select("id, key, display_name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("hierarchy_level", { ascending: true }),
+    supabase
+      .from("notification_outbox")
+      .select("source_record_id, subject, scheduled_for")
+      .eq("facility_id", facilityId)
+      .eq("source_module", "communications")
+      .eq("status", "pending")
+      .gt("scheduled_for", new Date().toISOString())
+      .order("scheduled_for", { ascending: true })
+      .limit(500),
+  ])
+
+  // Group pending scheduled rows into batches (one row per recipient shares
+  // the batch's source_record_id).
+  const batches = new Map<
+    string,
+    { batchId: string; subject: string | null; scheduledFor: string; recipients: number }
+  >()
+  for (const row of scheduledRes.data ?? []) {
+    if (!row.source_record_id) continue
+    const b = batches.get(row.source_record_id)
+    if (b) b.recipients += 1
+    else
+      batches.set(row.source_record_id, {
+        batchId: row.source_record_id,
+        subject: row.subject,
+        scheduledFor: row.scheduled_for,
+        recipients: 1,
+      })
+  }
+
+  return (
+    <BroadcastTab
+      groups={(groupsRes.data ?? []) as GroupRow[]}
+      templates={(templatesRes.data ?? []) as TemplateRow[]}
+      roles={rolesRes.data ?? []}
+      scheduled={Array.from(batches.values())}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Routing tab loader
 // ---------------------------------------------------------------------------
 
 async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [rulesRes, groupsRes, employeesRes, deptsRes] = await Promise.all([
+  const [
+    rulesRes,
+    groupsRes,
+    employeesRes,
+    deptsRes,
+    dailyAreasRes,
+    spacesRes,
+  ] = await Promise.all([
     supabase
       .from("communication_routing_rules")
       .select("*")
@@ -490,18 +568,23 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       .select("id, name")
       .eq("facility_id", facilityId)
       .order("name", { ascending: true }),
+    supabase
+      .from("daily_report_areas")
+      .select("id, name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("facility_spaces")
+      .select("id, name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
   ])
-  // rulesRes.data carries columns added in migrations 45 + 63
-  // (target_department_id, timing, attach_pdf, requires_acknowledgement) at
-  // runtime, but the generated RoutingRuleRow type doesn't yet know about
-  // them. Cast through unknown to widen.
-  const rules = (rulesRes.data ?? []) as unknown as Array<
-    RoutingRuleRow & {
-      target_department_id: string | null
-      timing: "immediate" | "end_of_day" | "weekly" | "manual" | null
-      attach_pdf: boolean | null
-      requires_acknowledgement: boolean | null
-    }
+  // The migration-45/63 columns are in the generated RoutingRuleRow now; the
+  // cast only narrows `timing` from `string` to its CHECK-constrained values.
+  const rules = (rulesRes.data ?? []) as Array<
+    RoutingRuleRow & { timing: "immediate" | "end_of_day" | "weekly" | "manual" }
   >
   const groups = (groupsRes.data ?? []) as GroupRow[]
   const employees = (employeesRes.data ?? []) as EmployeeLite[]
@@ -518,12 +601,22 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       : null,
   }))
 
+  // Area option lists, keyed by the source modules that stamp an area id on
+  // dispatch (see the reports' _lib/submit.ts): daily reports use
+  // daily_report_areas; air quality uses facility_spaces (its "locations").
+  // Modules without an entry fall back to the raw-UUID input in the form.
+  const areaOptionsByModule: Record<string, Array<{ id: string; name: string }>> = {
+    daily_reports: dailyAreasRes.data ?? [],
+    air_quality: spacesRes.data ?? [],
+  }
+
   return (
     <RoutingTab
       rules={list}
       groups={groups}
       employees={employees}
       departments={departments}
+      areaOptionsByModule={areaOptionsByModule}
     />
   )
 }

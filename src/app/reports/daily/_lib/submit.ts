@@ -218,6 +218,9 @@ export async function persistDaily(
     facilityId,
     sourceModule: "daily_reports",
     sourceRecordId: submissionId,
+    // The submission's daily_report_areas id is the routing "area": rules
+    // scoped to an area only match events that carry the same id.
+    areaId: area_id,
     subject: `Daily report submitted (${area_slug})`,
   })
 

@@ -55,6 +55,7 @@ export const SOURCE_MODULES: ReadonlyArray<{ key: string; label: string }> = [
 
 export type Tab =
   | "inbox"
+  | "broadcast"
   | "templates"
   | "groups"
   | "routing"
@@ -64,6 +65,7 @@ export type Tab =
 
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "inbox", label: "Inbox" },
+  { key: "broadcast", label: "Broadcast" },
   { key: "templates", label: "Templates" },
   { key: "groups", label: "Groups" },
   { key: "routing", label: "Routing" },
@@ -116,15 +118,14 @@ export type GroupDetail = {
   facility_employees: EmployeeLite[]
 }
 
-// Columns added in migration 45 aren't yet in the generated RoutingRuleRow
-// type. Override them explicitly so the UI can read them without an `any` cast.
+// The migration-45/63 columns (target_department_id, timing, attach_pdf,
+// requires_acknowledgement) are in the generated RoutingRuleRow now; the only
+// override left is narrowing `timing` from plain `string` to the values the
+// CHECK constraint allows.
 export type RoutingRuleWithRefs = RoutingRuleRow & {
   target_group: GroupRow | null
   target_employee: EmployeeLite | null
-  target_department_id: string | null
-  timing: "immediate" | "end_of_day" | "weekly" | "manual" | null
-  attach_pdf: boolean | null
-  requires_acknowledgement: boolean | null
+  timing: "immediate" | "end_of_day" | "weekly" | "manual"
 }
 
 export type ReminderWithRefs = ReminderRow & {

@@ -95,6 +95,16 @@ export const MODULE_COLUMN_OPTIONS: Record<string, { key: string; label: string 
     { key: "submitted_by", label: "Submitted by" },
     { key: "submitted_at", label: "Date/time" },
   ],
+  communications: [
+    { key: "subject", label: "Subject" },
+    { key: "body", label: "Message" },
+    { key: "requires_ack", label: "Requires acknowledgement" },
+    { key: "sender", label: "Sender" },
+    { key: "sent_at", label: "Sent at" },
+    { key: "recipient_count", label: "Recipients" },
+    { key: "read_count", label: "Read count" },
+    { key: "ack_count", label: "Acknowledged count" },
+  ],
 }
 
 export const MODULE_LABELS: Record<string, string> = {

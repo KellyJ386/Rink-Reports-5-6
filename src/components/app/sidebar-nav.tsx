@@ -64,10 +64,18 @@ interface AppSidebarNavProps {
   isAdmin: boolean
   // Enabled module keys for the facility, or null to show all (fail-open).
   enabledModules?: string[] | null
+  // Optional badge counts keyed by moduleKey (e.g. { communications: 3 }).
+  // Computed server-side at render time; absent/0 = no badge.
+  badgeCounts?: Record<string, number>
   onNavigate?: () => void
 }
 
-export function AppSidebarNav({ isAdmin, enabledModules, onNavigate }: AppSidebarNavProps) {
+export function AppSidebarNav({
+  isAdmin,
+  enabledModules,
+  badgeCounts,
+  onNavigate,
+}: AppSidebarNavProps) {
   const pathname = usePathname()
 
   const visibleItems = NAV_ITEMS.filter(
@@ -95,6 +103,7 @@ export function AppSidebarNav({ isAdmin, enabledModules, onNavigate }: AppSideba
       {visibleItems.map((item) => {
         const Icon = item.icon
         const active = isActive(item.href, item.exact)
+        const badge = item.moduleKey ? (badgeCounts?.[item.moduleKey] ?? 0) : 0
         return (
           <Link
             key={item.href}
@@ -105,6 +114,12 @@ export function AppSidebarNav({ isAdmin, enabledModules, onNavigate }: AppSideba
           >
             <Icon className="h-4 w-4 shrink-0" />
             <span className="truncate">{item.label}</span>
+            {badge > 0 ? (
+              <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-sidebar-primary px-1.5 py-0.5 text-xs font-semibold text-sidebar-primary-foreground">
+                {badge > 99 ? "99+" : badge}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
           </Link>
         )
       })}

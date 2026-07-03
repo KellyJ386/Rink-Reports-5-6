@@ -12,9 +12,16 @@ import { getIsAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
-import { ComposeForm } from "../_components/compose-form"
+import { ComposeForm, type ReplyTarget } from "../_components/compose-form"
 
 export const dynamic = "force-dynamic"
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+type SearchParams = {
+  replyTo?: string | string[]
+}
 
 function NotAvailable({
   title,
@@ -49,8 +56,13 @@ function NotAvailable({
   )
 }
 
-export default async function CommunicationsComposePage() {
+export default async function CommunicationsComposePage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>
+}) {
   const current = await requireUser()
+  const sp = await searchParams
   const supabase = await createClient()
 
   const { data: employeeRow } = await supabase
@@ -103,7 +115,57 @@ export default async function CommunicationsComposePage() {
   const groups = groupsRaw ?? []
   const templates = templatesRaw ?? []
 
-  if (groups.length === 0) {
+  // Reply mode: ?replyTo=<message id>. Only valid for a message the current
+  // employee actually received whose sender is still a known employee — the
+  // reply's recipient is locked to that sender (enforced again server-side in
+  // persistMessage).
+  let replyTo: ReplyTarget | null = null
+  const replyParam = Array.isArray(sp.replyTo) ? sp.replyTo[0] : sp.replyTo
+  if (replyParam && UUID_RE.test(replyParam)) {
+    const { data: receipt } = await supabase
+      .from("communication_recipients")
+      .select("id")
+      .eq("message_id", replyParam)
+      .eq("employee_id", employeeRow.id)
+      .maybeSingle()
+    if (receipt) {
+      const { data: parentRaw } = await supabase
+        .from("communication_messages")
+        .select(
+          "id, subject, sender_employee_id, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
+        )
+        .eq("id", replyParam)
+        .eq("facility_id", employeeRow.facility_id)
+        .maybeSingle()
+      const parent = parentRaw as unknown as {
+        id: string
+        subject: string | null
+        sender_employee_id: string | null
+        sender: { first_name: string | null; last_name: string | null } | null
+      } | null
+      if (parent?.sender_employee_id) {
+        const name = parent.sender
+          ? `${parent.sender.first_name ?? ""} ${parent.sender.last_name ?? ""}`.trim()
+          : ""
+        replyTo = {
+          messageId: parent.id,
+          senderEmployeeId: parent.sender_employee_id,
+          senderName: name.length > 0 ? name : "Original sender",
+          subject: parent.subject,
+        }
+      }
+    }
+    if (!replyTo) {
+      return (
+        <NotAvailable
+          title="Can't reply to that message"
+          description="The message isn't in your inbox, or it was sent by the system rather than a person."
+        />
+      )
+    }
+  }
+
+  if (groups.length === 0 && !replyTo) {
     return (
       <NotAvailable
         title="No recipient groups"
@@ -127,12 +189,17 @@ export default async function CommunicationsComposePage() {
             ]}
           />
         }
-        eyebrow="New message"
-        title="Compose"
-        description="Send a message to one or more groups in your facility."
+        eyebrow={replyTo ? "Reply" : "New message"}
+        title={replyTo ? "Reply" : "Compose"}
+        description={
+          replyTo
+            ? `Replying to ${replyTo.senderName}.`
+            : "Send a message to one or more groups in your facility."
+        }
       />
 
       <ComposeForm
+        replyTo={replyTo}
         groups={groups.map((g) => ({
           id: g.id,
           name: g.name,

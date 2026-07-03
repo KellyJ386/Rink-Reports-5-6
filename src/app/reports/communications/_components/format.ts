@@ -46,17 +46,22 @@ export function severityLabel(value: string): string {
   return value
 }
 
-export function severityClasses(value: string): string {
+/**
+ * Active-state classes for the severity filter pills. Semantic tokens only
+ * (see globals.css) so the pills adapt to light/dark; mirrors the Badge
+ * variants severityBadgeVariant() maps to.
+ */
+export function severityPillClasses(value: string): string {
   switch (value) {
     case "critical":
-      return "bg-red-600 text-white"
+      return "bg-destructive text-destructive-foreground"
     case "high":
-      return "bg-orange-100 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100"
+      return "bg-destructive-soft text-destructive-soft-foreground"
     case "warn":
-      return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+      return "bg-warning-soft text-warning-soft-foreground"
     case "info":
     default:
-      return "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100"
+      return "bg-info-soft text-info-soft-foreground"
   }
 }
 

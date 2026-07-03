@@ -25,7 +25,12 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-import { reopenAlert, resolveAlert } from "../actions"
+import {
+  deleteAlert,
+  deleteMessage,
+  reopenAlert,
+  resolveAlert,
+} from "../actions"
 import type {
   AlertDetailData,
   AlertWithCounts,
@@ -409,6 +414,36 @@ function AlertsList({
   )
 }
 
+function DeleteMessageButton({ messageId }: { messageId: string }) {
+  const [pending, startTransition] = useTransition()
+  function onDelete() {
+    if (
+      !confirm(
+        "Delete this message? Recipients lose it from their inbox, and read/acknowledgement records go with it.",
+      )
+    ) {
+      return
+    }
+    startTransition(async () => {
+      const r = await deleteMessage(messageId)
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Message deleted.")
+    })
+  }
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onDelete}
+      disabled={pending}
+      className="text-destructive hover:text-destructive"
+    >
+      Delete
+    </Button>
+  )
+}
+
 function MessagesList({ messages }: { messages: MessageListItem[] }) {
   if (messages.length === 0) {
     return (
@@ -438,6 +473,9 @@ function MessagesList({ messages }: { messages: MessageListItem[] }) {
             </th>
             <th className="border-b px-3 py-2 text-left font-medium">Read</th>
             <th className="border-b px-3 py-2 text-left font-medium">Ack</th>
+            <th className="border-b px-3 py-2 text-right font-medium">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -466,6 +504,9 @@ function MessagesList({ messages }: { messages: MessageListItem[] }) {
               <td className="border-b px-3 py-2 align-middle">
                 {m.requires_acknowledgement ? m.ack_count : "—"}
               </td>
+              <td className="border-b px-3 py-2 text-right align-middle">
+                <DeleteMessageButton messageId={m.id} />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -481,6 +522,7 @@ function AlertDrilldown({
   detail: AlertDetailData
   params: InboxParams
 }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const a = detail.alert
   const sev: Severity = (
@@ -507,6 +549,23 @@ function AlertDrilldown({
       const r = await reopenAlert(a.id)
       if (!r.ok) toast.error(r.error)
       else toast.success("Alert re-opened.")
+    })
+  }
+  function onDelete() {
+    if (
+      !confirm(
+        "Delete this alert? Its acknowledgement records go with it. Resolving is usually the better way to close out a real alert.",
+      )
+    ) {
+      return
+    }
+    startTransition(async () => {
+      const r = await deleteAlert(a.id)
+      if (!r.ok) toast.error(r.error)
+      else {
+        toast.success("Alert deleted.")
+        router.push(backHref)
+      }
     })
   }
 
@@ -558,6 +617,15 @@ function AlertDrilldown({
                   Resolve
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onDelete}
+                disabled={pending}
+                className="text-destructive hover:text-destructive"
+              >
+                Delete
+              </Button>
             </div>
           </div>
           <CardTitle className="mt-3">{a.title}</CardTitle>

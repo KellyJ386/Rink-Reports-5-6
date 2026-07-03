@@ -50,14 +50,28 @@ const TIMINGS = [
 
 const NULL_STATE: ActionState = { ok: null }
 
+export type AreaOption = { id: string; name: string }
+
 type Props = {
   rules: RoutingRuleWithRefs[]
   groups: GroupRow[]
   employees: EmployeeLite[]
   departments: DepartmentLite[]
+  /**
+   * Area option lists keyed by source-module key, for modules whose submit
+   * path stamps an area id on dispatch (daily_reports, air_quality). Modules
+   * without an entry fall back to a raw-UUID input.
+   */
+  areaOptionsByModule: Record<string, AreaOption[]>
 }
 
-export function RoutingTab({ rules, groups, employees, departments }: Props) {
+export function RoutingTab({
+  rules,
+  groups,
+  employees,
+  departments,
+  areaOptionsByModule,
+}: Props) {
   return (
     <div className="flex flex-col gap-4">
       {rules.length === 0 ? (
@@ -79,6 +93,7 @@ export function RoutingTab({ rules, groups, employees, departments }: Props) {
               groups={groups}
               employees={employees}
               departments={departments}
+              areaOptionsByModule={areaOptionsByModule}
             />
           ))}
         </ul>
@@ -87,6 +102,7 @@ export function RoutingTab({ rules, groups, employees, departments }: Props) {
         groups={groups}
         employees={employees}
         departments={departments}
+        areaOptionsByModule={areaOptionsByModule}
       />
     </div>
   )
@@ -121,11 +137,13 @@ function RuleRowItem({
   groups,
   employees,
   departments,
+  areaOptionsByModule,
 }: {
   rule: RoutingRuleWithRefs
   groups: GroupRow[]
   employees: EmployeeLite[]
   departments: DepartmentLite[]
+  areaOptionsByModule: Record<string, AreaOption[]>
 }) {
   const [editing, setEditing] = useState(false)
   const [activePending, startActive] = useTransition()
@@ -220,7 +238,11 @@ function RuleRowItem({
           </div>
           <div>
             <span className="font-medium uppercase">Area:</span>{" "}
-            {rule.area_id ?? "any"}
+            {rule.area_id
+              ? (areaOptionsByModule[rule.source_module]?.find(
+                  (a) => a.id === rule.area_id,
+                )?.name ?? rule.area_id)
+              : "any"}
           </div>
           <div>
             <span className="font-medium uppercase">Target:</span>{" "}
@@ -272,6 +294,7 @@ function RuleRowItem({
           groups={groups}
           employees={employees}
           departments={departments}
+          areaOptionsByModule={areaOptionsByModule}
           onDone={() => setEditing(false)}
         />
       )}
@@ -283,10 +306,12 @@ function RuleCreateCard({
   groups,
   employees,
   departments,
+  areaOptionsByModule,
 }: {
   groups: GroupRow[]
   employees: EmployeeLite[]
   departments: DepartmentLite[]
+  areaOptionsByModule: Record<string, AreaOption[]>
 }) {
   return (
     <Card>
@@ -294,8 +319,9 @@ function RuleCreateCard({
         <CardTitle>Add routing rule</CardTitle>
         <CardDescription>
           Higher priority rules apply first. Severity may be left blank to
-          match any. Area picker is module-specific and isn&apos;t part of this
-          iteration — paste a UUID if you need to scope by area.
+          match any. Routing controls who gets <em>notified</em> (in-app
+          message + email fan-out) — every staff member with communications
+          access still sees all facility alerts in their inbox.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -305,6 +331,7 @@ function RuleCreateCard({
           groups={groups}
           employees={employees}
           departments={departments}
+          areaOptionsByModule={areaOptionsByModule}
         />
       </CardContent>
     </Card>
@@ -325,6 +352,7 @@ function RuleForm({
   groups,
   employees,
   departments,
+  areaOptionsByModule,
   onDone,
 }: {
   mode: "create" | "edit"
@@ -332,6 +360,7 @@ function RuleForm({
   groups: GroupRow[]
   employees: EmployeeLite[]
   departments: DepartmentLite[]
+  areaOptionsByModule: Record<string, AreaOption[]>
   onDone?: () => void
 }) {
   const [state, action, pending] = useActionState(
@@ -350,6 +379,7 @@ function RuleForm({
     rule?.target_department_id ?? "",
   )
   const [timing, setTiming] = useState<string>(rule?.timing ?? "immediate")
+  const [areaId, setAreaId] = useState(rule?.area_id ?? "")
   const [attachPdf, setAttachPdf] = useState<boolean>(!!rule?.attach_pdf)
   const [requiresAck, setRequiresAck] = useState<boolean>(
     !!rule?.requires_acknowledgement,
@@ -378,7 +408,14 @@ function RuleForm({
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rr-mod-${rule?.id ?? "new"}`}>Source module</Label>
           <input type="hidden" name="source_module" value={sourceModule} />
-          <Select value={sourceModule} onValueChange={(v) => setSourceModule(v)}>
+          <Select
+            value={sourceModule}
+            onValueChange={(v) => {
+              setSourceModule(v)
+              if (v !== rule?.source_module) setAreaId("")
+              else setAreaId(rule?.area_id ?? "")
+            }}
+          >
             <SelectTrigger id={`rr-mod-${rule?.id ?? "new"}`}>
               <SelectValue />
             </SelectTrigger>
@@ -418,18 +455,13 @@ function RuleForm({
             className="w-32"
           />
         </div>
-        <div className="flex flex-col gap-1 sm:col-span-2">
-          <Label htmlFor={`rr-area-${rule?.id ?? "new"}`}>
-            Area ID (optional UUID)
-          </Label>
-          <Input
-            id={`rr-area-${rule?.id ?? "new"}`}
-            name="area_id"
-            defaultValue={rule?.area_id ?? ""}
-            placeholder="leave blank to match all areas"
-            className="font-mono text-xs"
-          />
-        </div>
+        <AreaField
+          rule={rule}
+          sourceModule={sourceModule}
+          areaOptions={areaOptionsByModule[sourceModule] ?? null}
+          areaId={areaId}
+          onAreaIdChange={setAreaId}
+        />
         <div className="flex flex-col gap-1">
           <Label htmlFor={`rr-timing-${rule?.id ?? "new"}`}>Timing</Label>
           <input type="hidden" name="timing" value={timing} />
@@ -607,5 +639,76 @@ function RuleForm({
         </Button>
       </div>
     </form>
+  )
+}
+
+/**
+ * Area scope for a routing rule. Modules whose submit path stamps an area id
+ * on dispatch (daily reports, air quality) get a real picker; other modules
+ * fall back to a raw-UUID input since there is no unified areas table to
+ * enumerate.
+ */
+function AreaField({
+  rule,
+  sourceModule,
+  areaOptions,
+  areaId,
+  onAreaIdChange,
+}: {
+  rule: RoutingRuleWithRefs | null
+  sourceModule: string
+  areaOptions: AreaOption[] | null
+  areaId: string
+  onAreaIdChange: (v: string) => void
+}) {
+  const fieldId = `rr-area-${rule?.id ?? "new"}`
+  if (areaOptions && areaOptions.length > 0) {
+    const ANY = "__any__"
+    const known = areaOptions.some((a) => a.id === areaId)
+    return (
+      <div className="flex flex-col gap-1 sm:col-span-2">
+        <Label htmlFor={fieldId}>Area (optional)</Label>
+        <input type="hidden" name="area_id" value={areaId} />
+        <Select
+          value={known ? areaId : ANY}
+          onValueChange={(v) => onAreaIdChange(v === ANY ? "" : v)}
+        >
+          <SelectTrigger id={fieldId}>
+            <SelectValue placeholder="Any area" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Any area</SelectItem>
+            {areaOptions.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!known && areaId ? (
+          <span className="text-muted-foreground text-xs">
+            Current value {areaId} isn&apos;t in the {sourceModule} area list;
+            saving keeps it unless you pick another option.
+          </span>
+        ) : null}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1 sm:col-span-2">
+      <Label htmlFor={fieldId}>Area ID (optional UUID)</Label>
+      <Input
+        id={fieldId}
+        name="area_id"
+        value={areaId}
+        onChange={(e) => onAreaIdChange(e.target.value)}
+        placeholder="leave blank to match all areas"
+        className="font-mono text-xs"
+      />
+      <span className="text-muted-foreground text-xs">
+        This module has no area list to pick from; events from it currently
+        carry no area, so an area-scoped rule will not match.
+      </span>
+    </div>
   )
 }

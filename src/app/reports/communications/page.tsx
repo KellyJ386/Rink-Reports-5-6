@@ -21,6 +21,8 @@ import { AlertsList } from "./_components/alerts-list"
 import { InboxTabs } from "./_components/inbox-tabs"
 import { MessageDetail } from "./_components/message-detail"
 import { MessagesList } from "./_components/messages-list"
+import { ReceiptsList, type Receipt } from "./_components/receipts-list"
+import { SentList, type SentListItem } from "./_components/sent-list"
 import {
   excerpt,
   formatTimestamp,
@@ -45,6 +47,7 @@ type SearchParams = {
   inbox?: string | string[]
   alert?: string | string[]
   message?: string | string[]
+  sent?: string | string[]
 }
 
 function pickParam(value: string | string[] | undefined): string | null {
@@ -175,15 +178,24 @@ export default async function CommunicationsInboxPage({
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-        <Breadcrumb
-          segments={[
-            { label: "Reports", href: "/reports" },
-            {
-              label: "Communications",
-              href: "/reports/communications?inbox=alerts",
-            },
-            { label: "Alert" },
-          ]}
+        <PageHeader
+          variant="display"
+          module="comms"
+          band
+          eyebrow="Communications"
+          breadcrumb={
+            <Breadcrumb
+              segments={[
+                { label: "Reports", href: "/reports" },
+                {
+                  label: "Communications",
+                  href: "/reports/communications?inbox=alerts",
+                },
+                { label: "Alert" },
+              ]}
+            />
+          }
+          title="Alert"
         />
 
         <Card>
@@ -289,23 +301,13 @@ export default async function CommunicationsInboxPage({
         | null
     }
 
-    // pdf_url was added in migration 48 and isn't in the generated select
-    // overloads yet. Cast the client through unknown so the new column is
-    // selectable without regenerating types.
-    const sbForMessage = supabase as unknown as {
-      from: (t: string) => {
-        select: (cols: string) => {
-          eq: (
-            col: string,
-            val: string,
-          ) => { maybeSingle: () => Promise<{ data: unknown }> }
-        }
-      }
-    }
-    const { data: messageRaw } = await sbForMessage
+    // pdf_url is in the generated types (regenerated with migration 48+);
+    // only the embedded-join shape still needs a cast, matching the
+    // recipients query on the inbox branch below.
+    const { data: messageRaw } = await supabase
       .from("communication_messages")
       .select(
-        "id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
+        "id, facility_id, sender_employee_id, parent_message_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
       )
       .eq("id", messageParam)
       .maybeSingle()
@@ -329,18 +331,28 @@ export default async function CommunicationsInboxPage({
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-        <Breadcrumb
-          segments={[
-            { label: "Reports", href: "/reports" },
-            {
-              label: "Communications",
-              href: "/reports/communications?inbox=messages",
-            },
-            { label: "Message" },
-          ]}
+        <PageHeader
+          variant="display"
+          module="comms"
+          band
+          eyebrow="Communications"
+          breadcrumb={
+            <Breadcrumb
+              segments={[
+                { label: "Reports", href: "/reports" },
+                {
+                  label: "Communications",
+                  href: "/reports/communications?inbox=messages",
+                },
+                { label: "Message" },
+              ]}
+            />
+          }
+          title="Message"
         />
 
         <MessageDetail
+          canReply={message.sender_employee_id !== null}
           message={{
             id: message.id,
             subject: message.subject,
@@ -360,15 +372,128 @@ export default async function CommunicationsInboxPage({
     )
   }
 
+  // ---- DRILLDOWN: SENT MESSAGE (sender receipts) ----
+  const sentParam = pickParam(sp.sent)
+  if (sentParam && UUID_RE.test(sentParam)) {
+    const { data: sentMessage } = await supabase
+      .from("communication_messages")
+      .select(
+        "id, subject, body, sent_at, requires_acknowledgement, sender_employee_id",
+      )
+      .eq("id", sentParam)
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("sender_employee_id", employeeRow.id)
+      .maybeSingle()
+
+    if (!sentMessage) {
+      return (
+        <NotAvailable
+          title="Message not found"
+          description="That message isn't in your sent messages."
+        />
+      )
+    }
+
+    type ReceiptRow = {
+      id: string
+      read_at: string | null
+      acknowledged_at: string | null
+      employee: { first_name: string | null; last_name: string | null } | null
+    }
+    const { data: receiptRowsRaw } = await supabase
+      .from("communication_recipients")
+      .select(
+        "id, read_at, acknowledged_at, employee:employees!communication_recipients_employee_id_fkey(first_name, last_name)",
+      )
+      .eq("message_id", sentMessage.id)
+      .order("created_at", { ascending: true })
+
+    const receipts: Receipt[] = (
+      (receiptRowsRaw ?? []) as unknown as ReceiptRow[]
+    ).map((r) => ({
+      recipientId: r.id,
+      name: fullName(r.employee) ?? "Unknown employee",
+      read_at: r.read_at,
+      acknowledged_at: r.acknowledged_at,
+    }))
+
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
+        <PageHeader
+          variant="display"
+          module="comms"
+          band
+          eyebrow="Communications"
+          breadcrumb={
+            <Breadcrumb
+              segments={[
+                { label: "Reports", href: "/reports" },
+                {
+                  label: "Communications",
+                  href: "/reports/communications?inbox=sent",
+                },
+                { label: "Sent message" },
+              ]}
+            />
+          }
+          title="Sent message"
+        />
+
+        <Card>
+          <CardHeader>
+            <p className="text-sm text-muted-foreground">
+              Sent {formatTimestamp(sentMessage.sent_at, tz)}
+            </p>
+            <CardTitle className="mt-1 text-xl">
+              {sentMessage.subject && sentMessage.subject.trim().length > 0
+                ? sentMessage.subject
+                : "(No subject)"}
+            </CardTitle>
+            {sentMessage.requires_acknowledgement ? (
+              <CardDescription className="mt-1">
+                Acknowledgement required.
+              </CardDescription>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">
+              {sentMessage.body}
+            </p>
+          </CardContent>
+        </Card>
+
+        <ReceiptsList
+          receipts={receipts}
+          requiresAck={sentMessage.requires_acknowledgement}
+          timezone={tz}
+        />
+
+        <div>
+          <Button asChild variant="outline">
+            <Link href="/reports/communications?inbox=sent">
+              Back to sent messages
+            </Link>
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   // ---- INBOX LIST ----
   const inboxParam = pickParam(sp.inbox)
-  const tab: "alerts" | "messages" =
-    inboxParam === "messages" ? "messages" : "alerts"
+  const tab: "alerts" | "messages" | "sent" =
+    inboxParam === "messages"
+      ? "messages"
+      : inboxParam === "sent" && canSubmit
+        ? "sent"
+        : "alerts"
 
-  // NOTE on routing: `communication_routing_rules` is admin-configurable but for v1
-  // we intentionally do NOT filter the staff inbox by routing rules. Every active
-  // staff member with `can_view` on the communications module sees ALL alerts in
-  // their facility. Routing rules are aspirational and surfaced in the admin UI.
+  // NOTE on routing: the staff inbox intentionally shows EVERY facility alert
+  // to every viewer with communications access — alerts are operational safety
+  // signals, not personal mail. `communication_routing_rules` control who gets
+  // NOTIFIED (email / outbox fan-out via dispatch_rules_for_submission), not
+  // who can see the alert here. Deliberate scope decision; revisit only if a
+  // real per-audience-visibility requirement appears.
   const { data: alertsRaw } = await supabase
     .from("communication_alerts")
     .select(
@@ -422,7 +547,7 @@ export default async function CommunicationsInboxPage({
   const { data: recipientsRaw } = await supabase
     .from("communication_recipients")
     .select(
-      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, email_status, email_sent_at, email_error, email_attempts, email_next_attempt_at, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
+      "id, message_id, employee_id, facility_id, delivered_at, read_at, acknowledged_at, created_at, email_status, email_sent_at, email_error, email_attempts, email_next_attempt_at, message:communication_messages!communication_recipients_message_id_fkey(id, facility_id, sender_employee_id, parent_message_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name))"
     )
     .eq("employee_id", employeeRow.id)
     .order("created_at", { ascending: false })
@@ -453,6 +578,7 @@ export default async function CommunicationsInboxPage({
         id: r.message.id,
         facility_id: r.message.facility_id,
         sender_employee_id: r.message.sender_employee_id,
+        parent_message_id: r.message.parent_message_id ?? null,
         subject: r.message.subject,
         body: r.message.body,
         requires_acknowledgement: r.message.requires_acknowledgement,
@@ -474,6 +600,56 @@ export default async function CommunicationsInboxPage({
   const unreadMessages = messageItems.filter(
     (m) => m.recipient.read_at === null
   ).length
+
+  // Sent tab: my authored messages with read/ack rollups (sender receipt
+  // visibility comes from the mig-170 recipients SELECT extension).
+  let sentItems: SentListItem[] = []
+  if (tab === "sent") {
+    const { data: sentRaw } = await supabase
+      .from("communication_messages")
+      .select("id, subject, body, sent_at, requires_acknowledgement")
+      .eq("facility_id", employeeRow.facility_id)
+      .eq("sender_employee_id", employeeRow.id)
+      .order("sent_at", { ascending: false })
+      .limit(100)
+
+    const sentMessages = sentRaw ?? []
+    const sentIds = sentMessages.map((m) => m.id)
+    const rollups = new Map<
+      string,
+      { recipients: number; read: number; acked: number }
+    >()
+    if (sentIds.length > 0) {
+      const { data: recipRows } = await supabase
+        .from("communication_recipients")
+        .select("message_id, read_at, acknowledged_at")
+        .in("message_id", sentIds)
+      for (const r of recipRows ?? []) {
+        const c = rollups.get(r.message_id) ?? {
+          recipients: 0,
+          read: 0,
+          acked: 0,
+        }
+        c.recipients += 1
+        if (r.read_at) c.read += 1
+        if (r.acknowledged_at) c.acked += 1
+        rollups.set(r.message_id, c)
+      }
+    }
+    sentItems = sentMessages.map((m) => {
+      const c = rollups.get(m.id)
+      return {
+        messageId: m.id,
+        subject: m.subject,
+        body: m.body,
+        sent_at: m.sent_at,
+        requires_acknowledgement: m.requires_acknowledgement,
+        recipientCount: c?.recipients ?? 0,
+        readCount: c?.read ?? 0,
+        ackCount: c?.acked ?? 0,
+      }
+    })
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
@@ -503,6 +679,7 @@ export default async function CommunicationsInboxPage({
         active={tab}
         unreadAlerts={unreadAlerts}
         unreadMessages={unreadMessages}
+        showSent={canSubmit}
       />
 
       {tab === "alerts" ? (
@@ -531,6 +708,20 @@ export default async function CommunicationsInboxPage({
             }))}
             timezone={tz}
           />
+        )
+      ) : tab === "sent" ? (
+        sentItems.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>No sent messages</CardTitle>
+              <CardDescription>
+                Messages you send will show up here with read and
+                acknowledgement receipts.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          <SentList items={sentItems} timezone={tz} />
         )
       ) : messageItems.length === 0 ? (
         <Card>
