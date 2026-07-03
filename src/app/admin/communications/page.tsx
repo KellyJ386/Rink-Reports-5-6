@@ -470,7 +470,14 @@ async function GroupsTabLoader({
 
 async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
   const supabase = await createClient()
-  const [rulesRes, groupsRes, employeesRes, deptsRes] = await Promise.all([
+  const [
+    rulesRes,
+    groupsRes,
+    employeesRes,
+    deptsRes,
+    dailyAreasRes,
+    spacesRes,
+  ] = await Promise.all([
     supabase
       .from("communication_routing_rules")
       .select("*")
@@ -494,6 +501,18 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       .select("id, name")
       .eq("facility_id", facilityId)
       .order("name", { ascending: true }),
+    supabase
+      .from("daily_report_areas")
+      .select("id, name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("facility_spaces")
+      .select("id, name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
   ])
   // The migration-45/63 columns are in the generated RoutingRuleRow now; the
   // cast only narrows `timing` from `string` to its CHECK-constrained values.
@@ -515,12 +534,22 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       : null,
   }))
 
+  // Area option lists, keyed by the source modules that stamp an area id on
+  // dispatch (see the reports' _lib/submit.ts): daily reports use
+  // daily_report_areas; air quality uses facility_spaces (its "locations").
+  // Modules without an entry fall back to the raw-UUID input in the form.
+  const areaOptionsByModule: Record<string, Array<{ id: string; name: string }>> = {
+    daily_reports: dailyAreasRes.data ?? [],
+    air_quality: spacesRes.data ?? [],
+  }
+
   return (
     <RoutingTab
       rules={list}
       groups={groups}
       employees={employees}
       departments={departments}
+      areaOptionsByModule={areaOptionsByModule}
     />
   )
 }

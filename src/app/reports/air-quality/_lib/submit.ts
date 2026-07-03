@@ -316,6 +316,7 @@ export async function persistAirQuality(
         facility_id: facilityId,
         source_module: "air_quality",
         source_record_id: reportId,
+        area_id: location.id,
         severity: maxSeverity,
         title: `Air Quality: exceedance at ${location.name} [${overallAlert}]`,
         body: lines.join("\n"),
@@ -343,6 +344,9 @@ export async function persistAirQuality(
     facilityId,
     sourceModule: "air_quality",
     sourceRecordId: reportId,
+    // The report's location (a facility_spaces row) is the routing "area":
+    // rules scoped to an area only match events that carry the same id.
+    areaId: location.id,
     subject: "Air quality report submitted",
   })
 
@@ -409,6 +413,7 @@ async function evaluateAndAlertSustained(
     facility_id: facilityId,
     source_module: "air_quality",
     source_record_id: reportId,
+    area_id: locationId,
     severity: "critical",
     title: `Air Quality: SUSTAINED exceedance — evacuation criteria at ${locationName}`,
     body: [
