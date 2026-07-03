@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { logServerError } from "@/lib/observability/log-server-error"
@@ -108,6 +109,26 @@ async function writeAudit(
   })
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the communications RLS write
+ * policies gate on has_module_admin_access('communications') — a
+ * module-scoped user_permissions grant requireAdmin does NOT imply. Without
+ * this check, an admin lacking the module grant reaches the action and the
+ * mutation dies at the RLS layer with an opaque error. Returns a
+ * human-readable denial message, or null when allowed. (A message, not a
+ * redirect: these actions run inside try/catch blocks that would swallow the
+ * NEXT_REDIRECT control-flow error.)
+ */
+async function ensureCommsAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "communications", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the communications module's admin permission. Ask an administrator to grant it under Admin \u2192 Permissions."
+}
+
 function revalidate(): void {
   revalidatePath("/admin/communications")
 }
@@ -121,7 +142,8 @@ export async function createTemplate(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -188,7 +210,8 @@ export async function updateTemplate(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -261,7 +284,8 @@ export async function setTemplateActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
@@ -296,7 +320,8 @@ export async function setTemplateActive(
 
 export async function deleteTemplate(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
@@ -353,7 +378,8 @@ export async function createGroup(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const name = nonEmpty(formData.get("name"))
@@ -408,7 +434,8 @@ export async function updateGroup(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -475,7 +502,8 @@ export async function setGroupActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing group id." }
@@ -510,7 +538,8 @@ export async function setGroupActive(
 
 export async function deleteGroup(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing group id." }
@@ -559,7 +588,8 @@ export async function addGroupMember(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const group_id = nonEmpty(formData.get("group_id"))
@@ -599,7 +629,8 @@ export async function addGroupMember(
 
 export async function removeGroupMember(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing member id." }
@@ -756,7 +787,8 @@ export async function createRoutingRule(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const parsed = parseRoutingForm(formData)
@@ -796,7 +828,8 @@ export async function updateRoutingRule(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -847,7 +880,8 @@ export async function setRoutingRuleActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rule id." }
@@ -885,7 +919,8 @@ export async function setRoutingRuleActive(
 
 export async function deleteRoutingRule(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rule id." }
@@ -934,7 +969,8 @@ export async function previewRoutingRecipients(ruleId: string): Promise<
   | { ok: false; error: string }
 > {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     if (!ruleId) return { ok: false, error: "Missing rule id." }
     const supabase = await createClient()
     const { data: ids, error } = await supabase.rpc(
@@ -1039,7 +1075,8 @@ export async function createReminder(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const parsed = parseReminderForm(formData)
@@ -1076,7 +1113,8 @@ export async function updateReminder(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -1124,7 +1162,8 @@ export async function setReminderActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reminder id." }
@@ -1159,7 +1198,8 @@ export async function setReminderActive(
 
 export async function deleteReminder(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reminder id." }
@@ -1202,7 +1242,8 @@ export async function deleteReminder(id: string): Promise<SimpleResult> {
 
 export async function resolveAlert(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing alert id." }
@@ -1247,7 +1288,8 @@ export async function resolveAlert(id: string): Promise<SimpleResult> {
 
 export async function reopenAlert(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing alert id." }
@@ -1292,7 +1334,8 @@ export async function reopenAlert(id: string): Promise<SimpleResult> {
 
 export async function deleteAlert(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing alert id." }
@@ -1336,7 +1379,8 @@ export async function deleteAlert(id: string): Promise<SimpleResult> {
 
 export async function deleteMessage(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing message id." }
@@ -1385,7 +1429,8 @@ export async function deleteMessage(id: string): Promise<SimpleResult> {
  */
 export async function retryFailedEmail(recipientId: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!UUID_RE.test(recipientId)) {
@@ -1435,7 +1480,8 @@ export async function retryFailedEmail(recipientId: string): Promise<SimpleResul
  */
 export async function retryFailedOutboxRow(outboxId: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureCommsAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!UUID_RE.test(outboxId)) {

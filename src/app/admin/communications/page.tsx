@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { AuditTab } from "./_components/audit-tab"
@@ -88,6 +88,10 @@ export default async function CommunicationsAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // Console access alone is not enough: the communications RLS write policies
+  // gate on the module-scoped communications/admin grant. Denying here (with a
+  // real /forbidden page) beats rendering a console whose every write fails.
+  await requireModuleAdmin("communications")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
