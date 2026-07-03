@@ -34,6 +34,8 @@ interface AppMobileSidebarProps {
   trigger?: React.ReactNode
   /** Staff variant only: enabled module keys for the facility (null = show all). */
   enabledModules?: string[] | null
+  /** Optional badge counts keyed by moduleKey (e.g. { communications: 3 }). */
+  badgeCounts?: Record<string, number>
 }
 
 export function AppMobileSidebar({
@@ -42,6 +44,7 @@ export function AppMobileSidebar({
   fullName,
   trigger,
   enabledModules,
+  badgeCounts,
 }: AppMobileSidebarProps) {
   const [open, setOpen] = React.useState(false)
   const initials = getInitials(fullName, email)
@@ -75,6 +78,7 @@ export function AppMobileSidebar({
           <AppSidebarNav
             isAdmin={isAdmin}
             enabledModules={enabledModules}
+            badgeCounts={badgeCounts}
             onNavigate={() => setOpen(false)}
           />
         </ScrollArea>

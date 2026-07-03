@@ -14,6 +14,7 @@ interface AppBottomTabBarProps {
   fullName: string | null
   /** Enabled module keys for the facility (null = show all). */
   enabledModules?: string[] | null
+  badgeCounts?: Record<string, number>
 }
 
 // Staff-only mobile bottom navigation (hidden ≥ lg, where the sidebar takes
@@ -24,6 +25,7 @@ export function AppBottomTabBar({
   email,
   fullName,
   enabledModules,
+  badgeCounts,
 }: AppBottomTabBarProps) {
   const pathname = usePathname()
 
@@ -68,6 +70,7 @@ export function AppBottomTabBar({
         email={email}
         fullName={fullName}
         enabledModules={enabledModules}
+        badgeCounts={badgeCounts}
         trigger={
           <button type="button" aria-label="Open menu" className={tabCls(false)}>
             <Menu className="h-5 w-5" aria-hidden />

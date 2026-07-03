@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { getIsAdmin, requireUser } from "@/lib/auth"
 import { getHeaderContext } from "@/lib/header/context"
 import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
+import { getCommunicationsUnreadCount } from "@/lib/communications/unread"
 
 export default async function AccountLayout({
   children,
@@ -19,6 +20,10 @@ export default async function AccountLayout({
   const fullName = profile?.full_name ?? null
   const isAdmin = await getIsAdmin(current)
   const enabledModules = await getEnabledModuleKeys(profile?.facility_id)
+  const communicationsUnread = await getCommunicationsUnreadCount(
+    profile?.facility_id,
+  )
+  const badgeCounts = { communications: communicationsUnread }
   const { facilityName, tempF, tempLocation } = await getHeaderContext(
     profile?.facility_id,
   )
@@ -30,6 +35,7 @@ export default async function AccountLayout({
         email={email}
         fullName={fullName}
         enabledModules={enabledModules}
+        badgeCounts={badgeCounts}
       />
       <div className="flex min-h-screen flex-col lg:pl-64 xl:pl-72">
         <GlobalHeader
@@ -52,6 +58,7 @@ export default async function AccountLayout({
         email={email}
         fullName={fullName}
         enabledModules={enabledModules}
+        badgeCounts={badgeCounts}
       />
       <Toaster />
     </div>
