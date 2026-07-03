@@ -132,6 +132,14 @@ export function AvailabilityForm({
             setLocalId(genLocalId())
             toast.success("Saved offline — will sync when you're back online.")
             if (onClose) onClose()
+          } else {
+            // No service-worker controller yet (e.g. first load): the server
+            // action would just fail offline — stop and say so instead of
+            // silently losing the submission.
+            e.preventDefault()
+            toast.error(
+              "You're offline and the offline queue isn't ready yet. Keep this page open and try again."
+            )
           }
         }
       }}

@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 
 import {
+  acknowledgeSchedule,
   markAllNotificationsRead,
   markNotificationRead,
 } from "../actions"
@@ -39,6 +40,29 @@ export function MarkReadButton({ id }: { id: string }) {
     <form action={formAction}>
       <input type="hidden" name="id" value={id} />
       <MarkSubmit label="Mark read" />
+    </form>
+  )
+}
+
+/**
+ * Explicit "I've seen the posted schedule" — stamps acknowledged_at (and
+ * read_at) on a schedule_published notification. Managers see the roll-up on
+ * the publish history page.
+ */
+export function AcknowledgeButton({ id }: { id: string }) {
+  const [state, formAction] = useActionState(
+    acknowledgeSchedule,
+    INITIAL_ACTION_STATE
+  )
+  useEffect(() => {
+    if (state.status === "error") toast.error(state.error)
+    else if (state.status === "success" && state.message)
+      toast.success(state.message)
+  }, [state])
+  return (
+    <form action={formAction}>
+      <input type="hidden" name="id" value={id} />
+      <MarkSubmit label="Acknowledge schedule" />
     </form>
   )
 }

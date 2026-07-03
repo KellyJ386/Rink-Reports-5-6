@@ -12,6 +12,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { dayKeyInTz, weekWindowInTz } from "@/lib/timezone"
+
 import { resolveOperatingHours } from "../_lib/operating-hours"
 import type {
   EmployeeLite,
@@ -35,7 +37,9 @@ type SearchParams = Promise<{ date?: string }>
 
 // How much shift history/future to preload around the anchor so week-nav has
 // data to show without a round-trip (the board keeps events client-side).
-const WINDOW_DAYS = 28
+// 42 covers the month view's whole-week grid (anchored on the 1st, a 31-day
+// month plus trailing cells reaches ~+37 days).
+const WINDOW_DAYS = 42
 
 function parseAnchorDate(date: string | undefined): Date {
   if (date) {
@@ -102,6 +106,7 @@ export default async function ShiftsPage({
     openShiftsRes,
     pendingSwapsRes,
     pendingTimeOffRes,
+    wagesRes,
   ] = await Promise.all([
     supabase
       .from("employees")
@@ -123,14 +128,17 @@ export default async function ShiftsPage({
       .eq("facility_id", facilityId),
     supabase
       .from("facilities")
-      .select("settings")
+      .select("settings, timezone")
       .eq("id", facilityId)
-      .maybeSingle<{ settings: unknown }>(),
+      .maybeSingle<{ settings: unknown; timezone: string | null }>(),
     supabase
       .from("schedule_settings")
-      .select("week_start_day")
+      .select("week_start_day, default_hourly_rate")
       .eq("facility_id", facilityId)
-      .maybeSingle<{ week_start_day: number }>(),
+      .maybeSingle<{
+        week_start_day: number
+        default_hourly_rate: number | null
+      }>(),
     supabase
       .from("schedule_shifts")
       .select("*")
@@ -138,7 +146,7 @@ export default async function ShiftsPage({
       .gte("starts_at", windowStart.toISOString())
       .lt("starts_at", windowEnd.toISOString())
       .order("starts_at", { ascending: true })
-      .limit(1000),
+      .limit(2000),
     supabase
       .from("schedule_templates")
       .select("*")
@@ -166,6 +174,11 @@ export default async function ShiftsPage({
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(20),
+    // Admin-only table (migration 167): powers real labor-cost estimates.
+    supabase
+      .from("employee_wages")
+      .select("employee_id, hourly_rate")
+      .eq("facility_id", facilityId),
   ])
 
   const employees = (employeesRes.data ?? []) as (EmployeeLite & {
@@ -174,6 +187,14 @@ export default async function ShiftsPage({
   const jobAreas = (jobAreasRes.data ?? []) as JobAreaLite[]
   const operatingHours = resolveOperatingHours(facilityRes.data?.settings)
   const weekStartDay = settingsRes.data?.week_start_day ?? 0
+  const defaultHourlyRate = settingsRes.data?.default_hourly_rate ?? null
+  const wageByEmployee: Record<string, number> = {}
+  for (const w of (wagesRes.data ?? []) as {
+    employee_id: string
+    hourly_rate: number
+  }[]) {
+    wageByEmployee[w.employee_id] = w.hourly_rate
+  }
 
   const shifts: ShiftRow[] = shiftsRes.data ?? []
   const initialShifts: GridShiftDTO[] = shifts.map((s) => ({
@@ -276,23 +297,27 @@ export default async function ShiftsPage({
 
   const swapShiftIds = swapRows.map((sw) => sw.requester_shift_id)
 
-  // Visible week (half-open UTC window) for the publish-request button + label.
-  const anchorDow = anchor.getUTCDay()
-  const weekStart = new Date(anchor)
-  weekStart.setUTCDate(anchor.getUTCDate() - ((anchorDow - weekStartDay + 7) % 7))
-  const weekEnd = new Date(weekStart)
-  weekEnd.setUTCDate(weekStart.getUTCDate() + 7)
-  const weekLabel = `week of ${weekStart.toISOString().slice(0, 10)}`
+  // Visible week for the publish-request button + label, computed on the
+  // facility-local calendar (half-open window in facility-midnight instants)
+  // so the published range matches what the approve RPC re-validates.
+  const tz = facilityRes.data?.timezone ?? null
+  const anchorKey = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
+    ? params.date
+    : dayKeyInTz(new Date(), tz)
+  const week = weekWindowInTz(anchorKey, weekStartDay, tz)
+  const weekLabel = `week of ${week.startKey}`
 
-  const eyebrow = `Week of ${weekStart.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  })} – ${new Date(weekEnd.getTime() - 86_400_000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  })} · ${weekStart.getUTCFullYear()}`
+  const fmtKey = (key: string) => {
+    const [y, m, d] = key.split("-").map(Number)
+    return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    })
+  }
+  const eyebrow = `Week of ${fmtKey(week.startKey)} – ${fmtKey(
+    week.dayKeys[6]
+  )} · ${week.startKey.slice(0, 4)}`
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -312,9 +337,12 @@ export default async function ShiftsPage({
         operatingHours={operatingHours}
         weekStartDay={weekStartDay}
         defaultDateIso={anchor.toISOString()}
-        weekStartsAtIso={weekStart.toISOString()}
-        weekEndsAtIso={weekEnd.toISOString()}
+        weekStartsAtIso={week.startUtc.toISOString()}
+        weekEndsAtIso={week.endUtc.toISOString()}
         weekLabel={weekLabel}
+        weekStartKey={week.startKey}
+        wageByEmployee={wageByEmployee}
+        defaultHourlyRate={defaultHourlyRate}
         openShifts={openShifts}
         employeeOptions={employeeOptions}
         pendingSwaps={pendingSwaps}

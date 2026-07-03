@@ -46,12 +46,15 @@ type Props = {
   facilityId: string
   initialAreas: JobAreaRow[]
   initialRequirements: CertRequirementRow[]
+  /** Catalog names (certification_types) for the requirement input datalist. */
+  certTypeNames: string[]
 }
 
 export function JobAreasClient({
   facilityId,
   initialAreas,
   initialRequirements,
+  certTypeNames,
 }: Props) {
   const router = useRouter()
   const [newName, setNewName] = useState("")
@@ -259,6 +262,14 @@ export function JobAreasClient({
         Required certifications block assigning anyone who lacks a current
         matching certification to a shift in that area.
       </p>
+
+      {/* Shared suggestions for the per-area requirement inputs (typo
+          prevention — picking an existing catalog entry links by id). */}
+      <datalist id="cert-type-suggestions">
+        {certTypeNames.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
     </div>
   )
 }
@@ -327,6 +338,7 @@ function CertRequirements({
           maxLength={200}
           placeholder="e.g. CPR"
           disabled={pending}
+          list="cert-type-suggestions"
           className="h-8 w-44 text-xs"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

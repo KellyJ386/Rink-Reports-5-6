@@ -24,6 +24,7 @@ import {
   formatViolations,
   partitionViolations,
 } from "./enforcement"
+import { formatShiftWindow, queueSchedulingEmails } from "./notify-email"
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>
 
@@ -803,7 +804,7 @@ export async function deleteGridShift(
     // governed cancel via the DEFINER RPC; drafts are deleted outright.
     const { data: cur } = await supabase
       .from("schedule_shifts")
-      .select("status")
+      .select("status, employee_id, starts_at, ends_at")
       .eq("id", parsedId.data)
       .eq("facility_id", ctx.facilityId)
       .maybeSingle()
@@ -820,6 +821,18 @@ export async function deleteGridShift(
       const result = (rpc ?? {}) as { ok?: boolean; error?: string }
       if (result.ok !== true) {
         return { ok: false, error: result.error ?? "Failed to cancel shift." }
+      }
+      // The RPC wrote the in-app notification; add the best-effort email.
+      if (cur.employee_id) {
+        await queueSchedulingEmails([
+          {
+            facilityId: ctx.facilityId,
+            employeeId: cur.employee_id,
+            subject: "Your shift was cancelled",
+            body: `Your shift on ${formatShiftWindow(cur.starts_at, cur.ends_at)} was cancelled by a manager.`,
+            sourceRecordId: parsedId.data,
+          },
+        ])
       }
     } else {
       const { error } = await supabase

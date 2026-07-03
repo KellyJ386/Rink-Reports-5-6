@@ -44,6 +44,7 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
     { data: memberRaw },
     { data: auditRaw },
     { data: certsRaw },
+    { data: certTypesRaw },
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -78,6 +79,13 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       .select("id, name, issuer, issued_at, expires_at, notes")
       .eq("employee_id", emp.id)
       .order("expires_at", { ascending: true, nullsFirst: false }),
+    supabase
+      .from("certification_types")
+      .select("name")
+      .eq("facility_id", emp.facility_id)
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+      .limit(500),
   ])
 
   const role =
@@ -130,6 +138,9 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
       expires_at: c.expires_at,
       notes: c.notes,
     })),
+    certTypeNames: ((certTypesRaw ?? []) as { name: string }[]).map(
+      (t) => t.name
+    ),
   }
 
   return (

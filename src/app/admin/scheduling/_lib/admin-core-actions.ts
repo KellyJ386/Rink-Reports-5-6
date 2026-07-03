@@ -5,9 +5,11 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
-import { addDaysToKey, wallTimeToUtc } from "@/lib/timezone"
+import { addDaysToKey, wallTimeToUtc, weekdayOfKey } from "@/lib/timezone"
 
 import { formatViolations } from "./enforcement"
+import { formatShiftWindow, queueSchedulingEmails } from "./notify-email"
+import { sendDueShiftReminders } from "./shift-reminders"
 import type {
   ActionState,
   CreateTemplateInput,
@@ -205,6 +207,17 @@ export async function cancelShift(id: string): Promise<ActionState> {
     if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing shift id." }
     const supabase = await createClient()
+    // Read the assignment before cancelling so the email can name the window.
+    const { data: cur } = await supabase
+      .from("schedule_shifts")
+      .select("employee_id, starts_at, ends_at")
+      .eq("id", id)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle<{
+        employee_id: string | null
+        starts_at: string
+        ends_at: string
+      }>()
     // Cancelling a PUBLISHED shift is a governed status transition; the
     // publish-lock rejects a direct UPDATE, so go through the SECURITY DEFINER
     // RPC (also works for drafts).
@@ -217,6 +230,18 @@ export async function cancelShift(id: string): Promise<ActionState> {
     const result = (data ?? {}) as { ok?: boolean; error?: string }
     if (result.ok !== true) {
       return { ok: false, error: result.error ?? "Failed to cancel shift." }
+    }
+    // The RPC wrote the in-app notification; add the best-effort email.
+    if (cur?.employee_id) {
+      await queueSchedulingEmails([
+        {
+          facilityId: ctx.facilityId,
+          employeeId: cur.employee_id,
+          subject: "Your shift was cancelled",
+          body: `Your shift on ${formatShiftWindow(cur.starts_at, cur.ends_at)} was cancelled by a manager.`,
+          sourceRecordId: id,
+        },
+      ])
     }
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")
@@ -518,12 +543,12 @@ export async function deleteTemplateShift(id: string): Promise<ActionState> {
 
 function combineDateAndTime(
   weekStartKey: string,
-  dayOfWeek: number,
+  dayOffset: number,
   time: string,
   timezone: string | null
 ): string | null {
   // time is HH:MM or HH:MM:SS — a wall-clock time in the FACILITY's timezone.
-  const dateKey = addDaysToKey(weekStartKey, dayOfWeek)
+  const dateKey = addDaysToKey(weekStartKey, dayOffset)
   const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time)
   const wall = m
     ? `${dateKey}T${m[1]}:${m[2]}:${m[3] ?? "00"}`
@@ -545,19 +570,36 @@ export async function applyTemplateToWeek(
     if (Number.isNaN(ws.getTime())) {
       return { ok: false, error: "Invalid week start." }
     }
-    const weekStartKey = /^\d{4}-\d{2}-\d{2}$/.test(weekStart)
+    const pickedKey = /^\d{4}-\d{2}-\d{2}$/.test(weekStart)
       ? weekStart
       : ws.toISOString().slice(0, 10)
 
     const supabase = await createClient()
 
-    // Template times are wall-clock in the facility's timezone.
-    const { data: facilityRow } = await supabase
-      .from("facilities")
-      .select("timezone")
-      .eq("id", ctx.facilityId)
-      .maybeSingle<{ timezone: string | null }>()
+    // Template times are wall-clock in the facility's timezone; slot days are
+    // laid out from the facility's configured week start.
+    const [{ data: facilityRow }, { data: settingsRow }] = await Promise.all([
+      supabase
+        .from("facilities")
+        .select("timezone")
+        .eq("id", ctx.facilityId)
+        .maybeSingle<{ timezone: string | null }>(),
+      supabase
+        .from("schedule_settings")
+        .select("week_start_day")
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle<{ week_start_day: number }>(),
+    ])
     const timezone = facilityRow?.timezone ?? null
+    const weekStartDay = (((settingsRow?.week_start_day ?? 0) % 7) + 7) % 7
+
+    // Snap any picked date back to the week's configured start day, so the
+    // template lands on the week containing that date regardless of which
+    // day the admin clicked.
+    const weekStartKey = addDaysToKey(
+      pickedKey,
+      -((weekdayOfKey(pickedKey) - weekStartDay + 7) % 7)
+    )
 
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
@@ -601,15 +643,18 @@ export async function applyTemplateToWeek(
       compliance_warnings: string[]
     }> = []
     for (const slot of slots) {
+      // Slot day_of_week is 0=Sunday-based; the offset from the (possibly
+      // non-Sunday) week start places it on the right calendar day.
+      const dayOffset = (slot.day_of_week - weekStartDay + 7) % 7
       const starts_at = combineDateAndTime(
         weekStartKey,
-        slot.day_of_week,
+        dayOffset,
         slot.start_time,
         timezone
       )
       const ends_at = combineDateAndTime(
         weekStartKey,
-        slot.day_of_week,
+        dayOffset,
         slot.end_time,
         timezone
       )
@@ -644,7 +689,7 @@ export async function applyTemplateToWeek(
     revalidatePath("/admin/scheduling")
     return {
       ok: true,
-      message: `Created ${rows.length} draft shift${rows.length === 1 ? "" : "s"}.`,
+      message: `Created ${rows.length} draft shift${rows.length === 1 ? "" : "s"} for the week of ${weekStartKey}.`,
       count: rows.length,
     }
   } catch (e) {
@@ -669,78 +714,24 @@ export async function sendShiftReminders(
     if (!ctx.ok) return { ok: false, error: ctx.error }
 
     const hoursRaw = Number(formData.get("hours") ?? 24)
-    const hours = Number.isFinite(hoursRaw) && hoursRaw >= 1 ? Math.min(hoursRaw, 168) : 24
 
-    const now = new Date()
-    const cutoff = new Date(now.getTime() + hours * 60 * 60 * 1000)
-
+    // Shared sweep (same logic the scheduling cron runs automatically),
+    // scoped to this facility via the RLS client.
     const supabase = await createClient()
-
-    // Find published shifts starting in the window with assigned employees.
-    const { data: shiftsRaw, error: shiftErr } = await supabase
-      .from("schedule_shifts")
-      .select("id, employee_id, starts_at, ends_at")
-      .eq("facility_id", ctx.facilityId)
-      .eq("status", "published")
-      .not("employee_id", "is", null)
-      .gte("starts_at", now.toISOString())
-      .lte("starts_at", cutoff.toISOString())
-
-    if (shiftErr) return { ok: false, error: dbError(shiftErr, "Failed to load shifts.") }
-
-    const shifts = (shiftsRaw ?? []) as Array<{
-      id: string
-      employee_id: string
-      starts_at: string
-      ends_at: string
-    }>
-
-    if (shifts.length === 0) {
-      return { ok: true, message: "No upcoming shifts found in that window.", count: 0 }
-    }
-
-    // Avoid duplicates: load existing shift_reminder notifications for these shifts.
-    const shiftIds = shifts.map((s) => s.id)
-    const { data: existingRaw } = await supabase
-      .from("schedule_notifications")
-      .select("shift_id")
-      .eq("facility_id", ctx.facilityId)
-      .eq("notification_type", "shift_reminder")
-      .in("shift_id", shiftIds)
-    const alreadySent = new Set(
-      ((existingRaw ?? []) as Array<{ shift_id: string | null }>)
-        .map((r) => r.shift_id)
-        .filter((x): x is string => !!x),
-    )
-
-    const toSend = shifts.filter((s) => !alreadySent.has(s.id))
-    if (toSend.length === 0) {
-      return { ok: true, message: "All shifts in this window already have reminders.", count: 0 }
-    }
-
-    const inserts = toSend.map((s) => ({
-      facility_id: ctx.facilityId,
-      employee_id: s.employee_id,
-      notification_type: "shift_reminder" as const,
-      shift_id: s.id,
-      payload: {
-        starts_at: s.starts_at,
-        ends_at: s.ends_at,
-        message: `Reminder: your shift starts soon.`,
-      },
-    }))
-
-    const { error: insErr } = await supabase
-      .from("schedule_notifications")
-      .insert(inserts)
-
-    if (insErr) return { ok: false, error: dbError(insErr, "Failed to send reminders.") }
+    const result = await sendDueShiftReminders(supabase, {
+      facilityId: ctx.facilityId,
+      windowHours: hoursRaw,
+    })
+    if (!result.ok) return { ok: false, error: result.error }
 
     revalidatePath("/admin/scheduling/notifications")
     return {
       ok: true,
-      message: `${toSend.length} reminder${toSend.length === 1 ? "" : "s"} sent.`,
-      count: toSend.length,
+      message:
+        result.sent === 0
+          ? "No shifts in this window need a reminder."
+          : `${result.sent} reminder${result.sent === 1 ? "" : "s"} sent.`,
+      count: result.sent,
     }
   } catch (e) {
     logServerError("admin/scheduling/_lib/admin-core-actions", e)

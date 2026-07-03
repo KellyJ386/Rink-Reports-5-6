@@ -15,6 +15,7 @@ const SCHEDULING_NAV: { label: string; href: string }[] = [
     href: "/admin/scheduling/publish/requests",
   },
   { label: "Time-Off", href: "/admin/scheduling/time-off" },
+  { label: "Availability", href: "/admin/scheduling/availability" },
   { label: "Swaps", href: "/admin/scheduling/swaps" },
   { label: "Compliance", href: "/admin/scheduling/compliance" },
   { label: "Job areas", href: "/admin/scheduling/job-areas" },

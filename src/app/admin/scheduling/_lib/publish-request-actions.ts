@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { formatDateOnly } from "./datetime"
+import { queueSchedulingEmails } from "./notify-email"
 import type { ActionState } from "./types"
 
 // ---------------------------------------------------------------------------
@@ -142,6 +144,55 @@ export async function approveAndPublishRequest(
     body: `${count} shift${count === 1 ? "" : "s"} published.`,
     created_by_employee_id: ctx.employeeId,
   })
+
+  // Best-effort email to every employee with a shift in the published range
+  // (the RPC already wrote their in-app schedule_published notifications,
+  // gated on the same setting). One outbox row per employee sharing the
+  // request id as source_record_id, so the drain groups them into a single
+  // message with N recipients.
+  try {
+    const [{ data: settings }, { data: reqRow }] = await Promise.all([
+      supabase
+        .from("schedule_settings")
+        .select("notify_on_publish")
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle<{ notify_on_publish: boolean }>(),
+      supabase
+        .from("schedule_publish_requests")
+        .select("range_starts_at, range_ends_at")
+        .eq("id", requestId)
+        .maybeSingle<{ range_starts_at: string; range_ends_at: string }>(),
+    ])
+    if ((settings?.notify_on_publish ?? true) && reqRow) {
+      const { data: assigned } = await supabase
+        .from("schedule_shifts")
+        .select("employee_id")
+        .eq("facility_id", ctx.facilityId)
+        .eq("status", "published")
+        .not("employee_id", "is", null)
+        .gte("starts_at", reqRow.range_starts_at)
+        .lt("starts_at", reqRow.range_ends_at)
+      const employeeIds = [
+        ...new Set(
+          ((assigned ?? []) as { employee_id: string | null }[])
+            .map((s) => s.employee_id)
+            .filter((x): x is string => !!x)
+        ),
+      ]
+      const range = `${formatDateOnly(reqRow.range_starts_at)} – ${formatDateOnly(reqRow.range_ends_at)}`
+      await queueSchedulingEmails(
+        employeeIds.map((employeeId) => ({
+          facilityId: ctx.facilityId,
+          employeeId,
+          subject: "New schedule published",
+          body: `The schedule for ${range} has been published. You have shifts in this range — open the scheduling app to see them.`,
+          sourceRecordId: requestId,
+        }))
+      )
+    }
+  } catch {
+    // Email is best-effort; the publish already succeeded.
+  }
 
   revalidatePath("/admin/scheduling")
   revalidatePath("/admin/scheduling/shifts")

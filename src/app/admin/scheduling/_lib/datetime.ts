@@ -48,17 +48,23 @@ export function weekEndExclusive(weekStart: Date): Date {
 }
 
 /**
- * Format a [start, end] timestamptz pair as a short range like "9:00–17:00"
- * using the user's browser timezone via Intl.DateTimeFormat in the renderer.
- * Server-side this is also fine since we just format hours/minutes.
+ * Format a [start, end] timestamptz pair as a short range like "9:00–17:00".
+ * Pass the facility `timeZone` from SERVER components (otherwise they render
+ * in the server's zone); client components may omit it to use the browser's
+ * zone, matching the interactive board.
  */
-export function formatTimeRange(starts_at: string, ends_at: string): string {
+export function formatTimeRange(
+  starts_at: string,
+  ends_at: string,
+  timeZone?: string | null
+): string {
   const s = new Date(starts_at)
   const e = new Date(ends_at)
   const fmt = new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone: timeZone ?? undefined,
   })
   return `${fmt.format(s)}–${fmt.format(e)}`
 }
@@ -72,21 +78,23 @@ export function formatDateLabel(d: Date): string {
   }).format(d)
 }
 
-export function formatDateTime(s: string): string {
+export function formatDateTime(s: string, timeZone?: string | null): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone: timeZone ?? undefined,
   }).format(new Date(s))
 }
 
-export function formatDateOnly(s: string): string {
+export function formatDateOnly(s: string, timeZone?: string | null): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: timeZone ?? undefined,
   }).format(new Date(s))
 }
 

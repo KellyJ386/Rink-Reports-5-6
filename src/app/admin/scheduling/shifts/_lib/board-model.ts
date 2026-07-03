@@ -34,6 +34,36 @@ export function dtoToEvent(dto: GridShiftDTO): GridEvent {
   }
 }
 
+function addLocalDays(d: Date, days: number): Date {
+  const next = new Date(d)
+  next.setDate(d.getDate() + days)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+/**
+ * The month view's visible range (local time): whole weeks from the week
+ * containing the 1st of the anchor's month through the week containing its
+ * last day — including the dimmed leading/trailing days of adjacent months.
+ * `end` is exclusive. Shared by MonthGrid (which renders exactly these days)
+ * and the board's KPI/export window so month-view numbers match the calendar.
+ */
+export function monthGridRange(
+  anchor: Date,
+  weekStartDay: number
+): { start: Date; end: Date; dayCount: number } {
+  const wsd = ((weekStartDay % 7) + 7) % 7
+  const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+  const leading = (firstOfMonth.getDay() - wsd + 7) % 7
+  const start = addLocalDays(firstOfMonth, -leading)
+  const lastOfMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)
+  const trailing = (wsd + 6 - lastOfMonth.getDay() + 7) % 7
+  const lastDay = addLocalDays(lastOfMonth, trailing)
+  const dayCount =
+    Math.round((lastDay.getTime() - start.getTime()) / 86_400_000) + 1
+  return { start, end: addLocalDays(start, dayCount), dayCount }
+}
+
 export function initialsFor(emp: EmployeeLite | undefined | null): string {
   if (!emp) return "—"
   const a = emp.first_name?.[0] ?? ""

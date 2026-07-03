@@ -75,19 +75,17 @@ export function SettingsForm({ settings }: { settings: Settings }) {
   const [notifyOnOvertime, setNotifyOnOvertime] = useState<boolean>(
     settings.notify_on_overtime
   )
-  // New columns (migration 117) aren't in the generated Settings type yet.
+  const [defaultHourlyRate, setDefaultHourlyRate] = useState<string>(
+    settings.default_hourly_rate == null
+      ? ""
+      : String(settings.default_hourly_rate)
+  )
   const [availabilitySubmissionEnabled, setAvailabilitySubmissionEnabled] =
-    useState<boolean>(
-      (settings as { availability_submission_enabled?: boolean })
-        .availability_submission_enabled ?? true
-    )
+    useState<boolean>(settings.availability_submission_enabled)
   const [requireJobAreaQualification, setRequireJobAreaQualification] =
-    useState<boolean>(
-      (settings as { require_job_area_qualification?: boolean })
-        .require_job_area_qualification ?? false
-    )
+    useState<boolean>(settings.require_job_area_qualification)
   const [blockOnViolations, setBlockOnViolations] = useState<boolean>(
-    (settings as { block_on_violations?: boolean }).block_on_violations ?? false
+    settings.block_on_violations
   )
   const [pending, startTransition] = useTransition()
 
@@ -118,6 +116,7 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         availability_submission_enabled: availabilitySubmissionEnabled,
         require_job_area_qualification: requireJobAreaQualification,
         block_on_violations: blockOnViolations,
+        default_hourly_rate: nullableNumber(defaultHourlyRate),
       })
       if (r.ok === true) toast.success(r.message ?? "Saved.")
       else if (r.ok === false) toast.error(r.error)
@@ -200,6 +199,20 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           <p className="text-muted-foreground text-xs">
             Undecided swap requests lapse to “expired” after this window
             (capped at the shift’s start). Default 72.
+          </p>
+        </Field>
+        <Field label="Default hourly rate ($)">
+          <Input
+            type="number"
+            min={0}
+            step={0.01}
+            value={defaultHourlyRate}
+            onChange={(e) => setDefaultHourlyRate(e.target.value)}
+            placeholder="(none)"
+          />
+          <p className="text-muted-foreground text-xs">
+            Fallback for labor-cost estimates when an employee has no
+            individual wage (set wages on the Employees page). Admin-only.
           </p>
         </Field>
       </div>

@@ -7,13 +7,14 @@ import { cn } from "@/lib/utils"
 import type { EmployeeLite } from "../../_lib/types"
 import {
   initialsFor,
+  monthGridRange,
   shiftColor,
   type ColorBy,
   type GridEvent,
 } from "../_lib/board-model"
 
 // Read-only month calendar of draft/published shifts. It reuses the board's
-// in-memory `events` (already preloaded by the page in a ±28-day window around
+// in-memory `events` (already preloaded by the page in a ±42-day window around
 // the anchor, which covers the displayed month grid) — no new data layer, and
 // no editing: the day/week views remain the editing surfaces. Dates are read in
 // the browser's local zone, mirroring the day/week grid exactly.
@@ -83,25 +84,11 @@ export function MonthGrid({
   )
 
   // Whole-week grid from the week containing the 1st to the week containing
-  // the last day of the anchor's month (5–6 rows).
+  // the last day of the anchor's month (4–6 rows). Shared with the board's
+  // KPI/export window so month-view numbers match what this grid displays.
   const gridDays = useMemo(() => {
-    const wsd = ((weekStartDay % 7) + 7) % 7
-    const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
-    const leading = (firstOfMonth.getDay() - wsd + 7) % 7
-    const gridStart = addDays(firstOfMonth, -leading)
-    const lastOfMonth = new Date(
-      anchor.getFullYear(),
-      anchor.getMonth() + 1,
-      0,
-    )
-    // Days from gridStart through the end of the week containing the last day.
-    const trailing = (wsd + 6 - lastOfMonth.getDay() + 7) % 7
-    const totalDays =
-      Math.round(
-        (addDays(lastOfMonth, trailing).getTime() - gridStart.getTime()) /
-          86_400_000,
-      ) + 1
-    return Array.from({ length: totalDays }, (_, i) => addDays(gridStart, i))
+    const { start, dayCount } = monthGridRange(anchor, weekStartDay)
+    return Array.from({ length: dayCount }, (_, i) => addDays(start, i))
   }, [anchor, weekStartDay])
 
   // Bucket events by local day key, sorted by start time within each day.

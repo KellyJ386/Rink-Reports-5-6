@@ -391,15 +391,27 @@ values
    '22222222-2222-2222-2222-222222222222', 'Front Desk B', 'front-desk-b', 0, true)
 on conflict (id) do nothing;
 
+-- Certification catalog (migration 169): requirements now reference a type
+-- row (NOT NULL), so seed the catalog first.
+insert into public.certification_types (id, facility_id, name)
+values
+  ('aaaa1111-ce7c-aaaa-aaaa-aaaa11110001',
+   '11111111-1111-1111-1111-111111111111', 'CPR'),
+  ('bbbb2222-ce7c-bbbb-bbbb-bbbb22220001',
+   '22222222-2222-2222-2222-222222222222', 'CPR')
+on conflict (id) do nothing;
+
 insert into public.job_area_certification_requirements
-  (id, facility_id, job_area_id, cert_name, is_active)
+  (id, facility_id, job_area_id, cert_name, certification_type_id, is_active)
 values
   ('aaaa1111-ce70-aaaa-aaaa-aaaa11110003',
    '11111111-1111-1111-1111-111111111111',
-   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'CPR', true),
+   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'CPR',
+   'aaaa1111-ce7c-aaaa-aaaa-aaaa11110001', true),
   ('bbbb2222-ce70-bbbb-bbbb-bbbb22220003',
    '22222222-2222-2222-2222-222222222222',
-   'bbbb2222-30b0-bbbb-bbbb-bbbb22220002', 'CPR', true)
+   'bbbb2222-30b0-bbbb-bbbb-bbbb22220002', 'CPR',
+   'bbbb2222-ce7c-bbbb-bbbb-bbbb22220001', true)
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -589,6 +601,30 @@ insert into public.schedule_availability (
           'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 3, '09:00', '17:00')
 on conflict (id) do nothing;
 
+-- Wage rows in BOTH facilities (migration 167). employee_wages has NO staff
+-- RLS branch — staff Alice must read zero rows even in her own facility (her
+-- own wage included), while scheduling-admin Carol reads only Facility A.
+insert into public.employee_wages (employee_id, facility_id, hourly_rate)
+values
+  ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111', 21.50),
+  ('bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222', 19.00)
+on conflict (employee_id) do nothing;
+
+-- ICS calendar tokens (migration 168): owner-only credential. Seed one for
+-- Carol (SAME facility as Alice) and one for Bob (facility B) — Alice must
+-- read neither, but can manage her own.
+insert into public.schedule_ics_tokens (employee_id, facility_id, token)
+values
+  ('aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   '11111111-1111-1111-1111-111111111111',
+   'carol-token-0000000000000000000000000000'),
+  ('bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222',
+   'bob-token-000000000000000000000000000000')
+on conflict (employee_id) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 2. Impersonate Alice (Facility A) via JWT claims and run cross-tenant checks.
 -- ---------------------------------------------------------------------------
@@ -690,6 +726,55 @@ select pg_temp.expect_count(
   $$select count(*) from public.employees where id = 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'$$,
   0, 'alice CANNOT SELECT bob (different facility)');
 
+-- Wages (migration 167): employee_wages has NO staff branch — staff Alice
+-- reads ZERO rows even in her own facility, including her own wage, and
+-- cannot write one.
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'wages: staff alice CANNOT SELECT any employee_wages in her own facility');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  0, 'wages: staff alice CANNOT SELECT even her OWN wage row');
+
+select pg_temp.expect_error(
+  $$insert into public.employee_wages (employee_id, facility_id, hourly_rate)
+    values ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            '11111111-1111-1111-1111-111111111111', 99)$$,
+  'wages: staff alice CANNOT INSERT a wage row (admin-only)');
+
+-- ICS tokens (migration 168): owner-only. Alice sees neither Carol's token
+-- (SAME facility — this is the credential-leak case) nor Bob's, can create
+-- her own, and cannot mint one for another employee.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_ics_tokens$$,
+  0, 'ics: alice CANNOT SELECT any other employee''s calendar token (incl. same-facility)');
+
+select pg_temp.expect_ok(
+  $$insert into public.schedule_ics_tokens (employee_id, facility_id, token)
+    values ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            '11111111-1111-1111-1111-111111111111',
+            'alice-token-00000000000000000000000000')$$,
+  'ics: alice CAN create her own calendar token');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_ics_tokens
+    where employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  1, 'ics: alice sees exactly her own token');
+
+-- Policy probe (not a constraint error): updating Carol's token must simply
+-- match 0 rows under the USING clause.
+select pg_temp.expect_count(
+  $$with u as (
+     update public.schedule_ics_tokens
+        set token = 'hijacked-token-00000000000000000000000'
+      where employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
+     returning 1
+   ) select count(*) from u$$,
+  0, 'ics: alice CANNOT UPDATE another employee''s token (0 rows)');
+
 -- Roles: Alice can see her facility's roles, not Bob's.
 select pg_temp.expect_count(
   $$select count(*) from public.roles where facility_id = '11111111-1111-1111-1111-111111111111'$$,
@@ -750,13 +835,32 @@ select pg_temp.expect_count(
   0, 'cert requirements: alice CANNOT SELECT requirements in facility B');
 
 -- Admin-write gate: staff Alice (scheduling view/submit, not admin) cannot add
--- a requirement even in her own facility.
+-- a requirement even in her own facility. (Valid type id so the failure is
+-- the RLS policy, not the NOT NULL constraint.)
 select pg_temp.expect_error(
   $$insert into public.job_area_certification_requirements
-      (facility_id, job_area_id, cert_name)
+      (facility_id, job_area_id, cert_name, certification_type_id)
     values ('11111111-1111-1111-1111-111111111111',
-            'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'Sneaky Cert')$$,
+            'aaaa1111-30b0-aaaa-aaaa-aaaa11110002', 'Sneaky Cert',
+            'aaaa1111-ce7c-aaaa-aaaa-aaaa11110001')$$,
   'cert requirements: staff alice CANNOT INSERT a requirement');
+
+-- Certification catalog (migration 169): readable in-facility (both editors
+-- need name suggestions), write is admin-gated, facility-scoped.
+select pg_temp.expect_count(
+  $$select count(*) from public.certification_types
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'cert types: alice can SELECT her own facility''s catalog');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.certification_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'cert types: alice CANNOT SELECT facility-B catalog');
+
+select pg_temp.expect_error(
+  $$insert into public.certification_types (facility_id, name)
+    values ('11111111-1111-1111-1111-111111111111', 'Sneaky Type')$$,
+  'cert types: staff alice CANNOT INSERT a catalog entry');
 
 -- Employee invites + certifications: empty for now, but RLS must scope.
 select pg_temp.expect_count(
@@ -2132,6 +2236,28 @@ select pg_temp.expect_count(
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
   1, 'ISO-ADMIN: scheduling admin STILL sees own-facility availability (fix is not over-broad)');
 
+-- Wages (migration 167): the scheduling admin reads her OWN facility's wage
+-- rows and zero cross-facility rows.
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'ISO-ADMIN: scheduling admin CAN SELECT own-facility employee_wages');
+select pg_temp.expect_count(
+  $$select count(*) from public.employee_wages
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B employee_wages');
+
+-- Certification catalog (migration 169): the scheduling admin can create a
+-- type in her own facility (positive) and reads zero cross-facility rows.
+select pg_temp.expect_ok(
+  $$insert into public.certification_types (facility_id, name)
+    values ('11111111-1111-1111-1111-111111111111', 'Forklift')$$,
+  'ISO-ADMIN: scheduling admin CAN INSERT a certification type in her facility');
+select pg_temp.expect_count(
+  $$select count(*) from public.certification_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B certification types');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -2625,9 +2751,11 @@ insert into public.employee_job_areas (id, facility_id, name, slug)
 values ('aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
         '11111111-1111-1111-1111-111111111111', 'Zamboni', 'zamboni')
 on conflict (id) do nothing;
-insert into public.job_area_certification_requirements (facility_id, job_area_id, cert_name)
+insert into public.job_area_certification_requirements
+  (facility_id, job_area_id, cert_name, certification_type_id)
 values ('11111111-1111-1111-1111-111111111111',
-        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', 'CPR')
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', 'CPR',
+        'aaaa1111-ce7c-aaaa-aaaa-aaaa11110001')
 on conflict do nothing;
 insert into public.employee_certifications (facility_id, employee_id, name, expires_at)
 values ('11111111-1111-1111-1111-111111111111',

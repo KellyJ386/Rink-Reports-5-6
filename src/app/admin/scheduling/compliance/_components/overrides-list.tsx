@@ -16,15 +16,17 @@ export type OverrideRow = {
   overriddenByName: string
 }
 
-function formatWhen(iso: string): string {
+function formatWhen(iso: string, timeZone: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
+  // Server-rendered: pin to the facility zone, not the server's.
   return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: timeZone ?? undefined,
   })
 }
 
@@ -33,7 +35,13 @@ function formatWhen(iso: string): string {
  * A facility_manager deliberately assigned someone to a job area despite a
  * missing/expired required cert; each override is recorded and surfaced here.
  */
-export function OverridesList({ rows }: { rows: OverrideRow[] }) {
+export function OverridesList({
+  rows,
+  timeZone,
+}: {
+  rows: OverrideRow[]
+  timeZone: string | null
+}) {
   return (
     <Card>
       <CardHeader>
@@ -65,7 +73,7 @@ export function OverridesList({ rows }: { rows: OverrideRow[] }) {
                 {rows.map((r) => (
                   <tr key={r.id} className="border-border/60 border-b last:border-0">
                     <td className="text-muted-foreground py-2 pr-4 whitespace-nowrap">
-                      {formatWhen(r.createdAt)}
+                      {formatWhen(r.createdAt, timeZone)}
                     </td>
                     <td className="py-2 pr-4">{r.employeeName}</td>
                     <td className="py-2 pr-4">{r.jobAreaName}</td>

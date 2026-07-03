@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { resolveCertificationType } from "@/lib/certifications"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 
@@ -363,12 +364,23 @@ export async function addJobAreaCertRequirement(args: {
     }
 
     const supabase = await createClient()
+
+    // Requirements reference the certification catalog (migration 169):
+    // resolve or create the type, then store its id + canonical name.
+    const type = await resolveCertificationType(
+      supabase,
+      facility.facilityId,
+      certName
+    )
+    if (!type.ok) return { ok: false, error: type.error }
+
     const { error } = await supabase
       .from("job_area_certification_requirements")
       .insert({
         facility_id: facility.facilityId,
         job_area_id: jobAreaId,
-        cert_name: certName,
+        cert_name: type.name,
+        certification_type_id: type.id,
         is_active: true,
       })
     if (error) {

@@ -1,3 +1,4 @@
+import { headers } from "next/headers"
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
@@ -12,6 +13,7 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
+import { CalendarSyncCard } from "../_components/calendar-sync-card"
 import { WeekCalendar } from "../_components/week-calendar"
 import { formatDateRange } from "../_components/format-utils"
 import { startOfWeek, type ShiftStatus } from "../types"
@@ -190,6 +192,18 @@ export default async function MySchedulePage({
   }
 
   const { data: shiftsRaw } = await query
+
+  // Calendar-sync state (owner-only RLS) + the absolute feed origin for the
+  // subscription URL shown to the employee.
+  const { data: icsRow } = await supabase
+    .from("schedule_ics_tokens")
+    .select("token")
+    .eq("employee_id", employeeRow.id)
+    .maybeSingle<{ token: string }>()
+  const h = await headers()
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000"
+  const proto = h.get("x-forwarded-proto") ?? "https"
+  const feedBase = `${proto}://${host}/api/schedule-ics`
 
   type ShiftRow = {
     id: string
@@ -393,6 +407,8 @@ export default async function MySchedulePage({
           )}
         </>
       )}
+
+      <CalendarSyncCard initialToken={icsRow?.token ?? null} feedBase={feedBase} />
     </div>
   )
 }

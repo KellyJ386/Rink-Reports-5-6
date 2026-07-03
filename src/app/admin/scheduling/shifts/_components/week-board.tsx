@@ -11,6 +11,7 @@ import {
   ExternalLink,
   LayoutGrid,
   Plus,
+  Printer,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -77,13 +78,13 @@ import { WeekGrid } from "./week-grid"
 import { MonthGrid } from "./month-grid"
 import {
   dtoToEvent,
+  monthGridRange,
   type BoardView,
   type ColorBy,
   type Density,
   type GridEvent,
 } from "../_lib/board-model"
 
-const DEFAULT_HOURLY_RATE = 26
 const ROW_H: Record<Density, number> = {
   compact: 22,
   comfortable: 30,
@@ -130,6 +131,13 @@ export type WeekBoardProps = {
   weekStartsAtIso: string
   weekEndsAtIso: string
   weekLabel: string
+  /** Facility-local "YYYY-MM-DD" of the visible week's start. */
+  weekStartKey: string
+  /** Hourly rates from the admin-only employee_wages table. */
+  wageByEmployee: Record<string, number>
+  /** Facility fallback rate (schedule_settings); null = unrated shifts are
+   * excluded from cost totals. */
+  defaultHourlyRate: number | null
   openShifts: OpenShiftItem[]
   employeeOptions: EmployeeOption[]
   pendingSwaps: PendingSwap[]
@@ -150,8 +158,6 @@ export function WeekBoard(props: WeekBoardProps) {
   const [heatmap, setHeatmap] = useState(false)
   const [showTemplate, setShowTemplate] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  // Delete confirmation gate (UI-only): holds the shift id awaiting confirm.
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   // View-state only: narrows which events the grids render. `null` = all.
   const [positionFilter, setPositionFilter] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -212,27 +218,33 @@ export function WeekBoard(props: WeekBoardProps) {
     [events, positionFilter],
   )
 
-  // Visible-week window (local) for KPI + crew tallies.
-  const weekWindow = useMemo(() => {
+  // Visible-period window (local) for KPI + crew tallies + export. Matches
+  // exactly what the active grid displays: one day, one week, or the month
+  // grid's whole-week range (including leading/trailing days).
+  const visibleWindow = useMemo(() => {
+    if (view === "month") {
+      const { start, end } = monthGridRange(anchor, props.weekStartDay)
+      return { startMs: start.getTime(), endMs: end.getTime() }
+    }
     const start = view === "day" ? anchor : weekStart
     const span = view === "day" ? 1 : 7
     const end = addLocalDays(start, span)
     return { startMs: start.getTime(), endMs: end.getTime() }
-  }, [view, anchor, weekStart])
+  }, [view, anchor, weekStart, props.weekStartDay])
 
-  const weekEvents = useMemo(
+  const visibleEvents = useMemo(
     () =>
       viewEvents.filter(
         (e) =>
-          e.start.getTime() >= weekWindow.startMs &&
-          e.start.getTime() < weekWindow.endMs,
+          e.start.getTime() >= visibleWindow.startMs &&
+          e.start.getTime() < visibleWindow.endMs,
       ),
-    [viewEvents, weekWindow],
+    [viewEvents, visibleWindow],
   )
 
   const scheduledHours = useMemo(
     () =>
-      weekEvents.reduce(
+      visibleEvents.reduce(
         (a, e) =>
           a +
           Math.max(
@@ -242,11 +254,35 @@ export function WeekBoard(props: WeekBoardProps) {
           ),
         0,
       ),
-    [weekEvents],
+    [visibleEvents],
   )
 
+  // Real labor cost: Σ shift hours × the assigned employee's rate (falling
+  // back to the facility default). Shifts with no known rate are excluded and
+  // surfaced as coverage in the KPI sub-label.
+  const labor = useMemo(() => {
+    let cost = 0
+    let ratedCount = 0
+    let assignedCount = 0
+    for (const e of visibleEvents) {
+      if (!e.employeeId) continue
+      assignedCount++
+      const rate =
+        props.wageByEmployee[e.employeeId] ?? props.defaultHourlyRate
+      if (rate == null) continue
+      ratedCount++
+      cost +=
+        Math.max(
+          0,
+          (e.end.getTime() - e.start.getTime()) / 3_600_000 -
+            (e.breakMinutes || 0) / 60,
+        ) * rate
+    }
+    return { cost, ratedCount, assignedCount }
+  }, [visibleEvents, props.wageByEmployee, props.defaultHourlyRate])
+
   const crewRows = useMemo(() => {
-    const items: TallyItem[] = weekEvents.map((e) => ({
+    const items: TallyItem[] = visibleEvents.map((e) => ({
       employeeId: e.employeeId,
       startMs: e.start.getTime(),
       endMs: e.end.getTime(),
@@ -254,8 +290,8 @@ export function WeekBoard(props: WeekBoardProps) {
     }))
     const totals = tallyWeeklyHoursByEmployee(
       items,
-      weekWindow.startMs,
-      weekWindow.endMs,
+      visibleWindow.startMs,
+      visibleWindow.endMs,
     )
     return props.employees
       .map((emp) => ({
@@ -265,7 +301,7 @@ export function WeekBoard(props: WeekBoardProps) {
       }))
       .filter((r) => r.hours > 0)
       .sort((a, b) => b.hours - a.hours)
-  }, [weekEvents, weekWindow, props.employees])
+  }, [visibleEvents, visibleWindow, props.employees])
 
   const selectedEvent = useMemo(
     () => events.find((e) => e.id === selectedId) ?? null,
@@ -486,28 +522,65 @@ export function WeekBoard(props: WeekBoardProps) {
     [openPopover],
   )
 
-  // Actual delete — only reachable after the confirmation dialog resolves.
-  const performDelete = useCallback(
+  // Deletion is destructive (drafts are removed outright; published shifts
+  // are cancelled and staff notified), so every path confirms first. (Both
+  // this branch and main added a confirm gate; this is the merged superset —
+  // confirm dialog + draft undo.)
+  const [deleteTarget, setDeleteTarget] = useState<GridEvent | null>(null)
+
+  const handleDelete = useCallback(
     (id: string) => {
-      startTransition(async () => {
-        const res = await deleteGridShift(id)
-        if (!res.ok) {
-          toast.error(res.error)
-          return
-        }
-        setEvents((evs) => evs.filter((e) => e.id !== id))
-        setSelectedId((cur) => (cur === id ? null : cur))
-        toast.success("Shift deleted.")
-      })
+      const ev = events.find((e) => e.id === id)
+      if (ev) setDeleteTarget(ev)
     },
-    [],
+    [events],
   )
 
-  // Gate the delete behind a confirmation step (published deletes cancel the
-  // shift for staff via the governed RPC — the copy warns about that).
-  const handleDelete = useCallback((id: string) => {
-    setPendingDeleteId(id)
+  const undoDelete = useCallback((ev: GridEvent) => {
+    startTransition(async () => {
+      const res = await createGridShift({
+        starts_at: ev.start.toISOString(),
+        ends_at: ev.end.toISOString(),
+        employee_id: ev.employeeId,
+        job_area_id: ev.jobAreaId,
+        department_id: ev.departmentId,
+        break_minutes: ev.breakMinutes,
+        role_label: ev.roleLabel,
+        notes: ev.notes,
+        // The shift existed moments ago; don't re-raise advisory warnings the
+        // manager already accepted. A cert hard-block still refuses.
+        acknowledge_warnings: true,
+      })
+      if (!res.ok) {
+        toast.error(`Couldn't restore the shift: ${res.error}`)
+        return
+      }
+      setEvents((evs) => [...evs, dtoToEvent(res.data)])
+      toast.success("Shift restored.")
+    })
   }, [])
+
+  const confirmDelete = useCallback(() => {
+    const ev = deleteTarget
+    if (!ev) return
+    setDeleteTarget(null)
+    startTransition(async () => {
+      const res = await deleteGridShift(ev.id)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setEvents((evs) => evs.filter((e) => e.id !== ev.id))
+      setSelectedId((cur) => (cur === ev.id ? null : cur))
+      if (ev.status === "published") {
+        toast.success("Shift cancelled — the employee has been notified.")
+      } else {
+        toast.success("Shift deleted.", {
+          action: { label: "Undo", onClick: () => undoDelete(ev) },
+        })
+      }
+    })
+  }, [deleteTarget, undoDelete])
 
   // ---- Popover save / delete / template ----
   const handlePopoverSave = useCallback(
@@ -660,7 +733,7 @@ export function WeekBoard(props: WeekBoardProps) {
   const exportCsv = useCallback(() => {
     const rows = [["Date", "Day", "Start", "End", "Employee", "Job area", "Status"]]
     const empById = new Map(props.employees.map((e) => [e.id, e]))
-    for (const e of [...weekEvents].sort(
+    for (const e of [...visibleEvents].sort(
       (a, b) => a.start.getTime() - b.start.getTime(),
     )) {
       const emp = e.employeeId ? empById.get(e.employeeId) : null
@@ -682,10 +755,14 @@ export function WeekBoard(props: WeekBoardProps) {
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
     const a = document.createElement("a")
     a.href = url
-    a.download = `schedule-${isoDateKey(days[0])}.csv`
+    // Month view exports the visible month grid; day/week export their range.
+    a.download =
+      view === "month"
+        ? `schedule-${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}.csv`
+        : `schedule-${isoDateKey(days[0])}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [weekEvents, props.employees, jobAreaNameById, days])
+  }, [visibleEvents, props.employees, jobAreaNameById, days, view, anchor])
 
   const weekRangeLabel = useMemo(() => {
     if (view === "month") {
@@ -771,17 +848,24 @@ export function WeekBoard(props: WeekBoardProps) {
       {showTemplate ? (
         <ApplyTemplateForm
           templates={props.templates}
+          weekStartDay={props.weekStartDay}
+          defaultWeekStartKey={props.weekStartKey}
           onClose={() => setShowTemplate(false)}
         />
       ) : null}
 
       <KpiStrip
         scheduledHours={scheduledHours}
-        shiftCount={weekEvents.length}
+        shiftCount={visibleEvents.length}
         employeeCount={props.employees.length}
         openShiftCount={props.openShifts.length}
         swapCount={props.pendingSwaps.length}
-        hourlyRate={DEFAULT_HOURLY_RATE}
+        laborCost={labor.cost}
+        ratedShiftCount={labor.ratedCount}
+        assignedShiftCount={labor.assignedCount}
+        periodLabel={
+          view === "month" ? "This month" : view === "day" ? "This day" : "This week"
+        }
       />
 
       {/* Sub-toolbar */}
@@ -807,6 +891,15 @@ export function WeekBoard(props: WeekBoardProps) {
         <Legend jobAreas={props.jobAreas} jobAreaOrder={jobAreaOrder} colorBy={colorBy} />
         <Button type="button" variant="outline" className="h-9" onClick={exportCsv}>
           <Download className="h-3.5 w-3.5" /> Export
+        </Button>
+        <Button asChild variant="outline" className="h-9">
+          <a
+            href={`/admin/scheduling/shifts/print?date=${isoDateKey(days[0])}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Printer className="h-3.5 w-3.5" /> Print
+          </a>
         </Button>
       </div>
 
@@ -857,7 +950,12 @@ export function WeekBoard(props: WeekBoardProps) {
               event={selectedEvent}
               employees={props.employees}
               jobAreas={props.jobAreas}
-              hourlyRate={DEFAULT_HOURLY_RATE}
+              hourlyRate={
+                selectedEvent.employeeId
+                  ? (props.wageByEmployee[selectedEvent.employeeId] ??
+                    props.defaultHourlyRate)
+                  : null
+              }
               pending={isPending}
               onAssign={(patch) => handleAssign(selectedEvent.id, patch)}
               onDuplicate={() => handleDuplicate(selectedEvent)}
@@ -930,40 +1028,52 @@ export function WeekBoard(props: WeekBoardProps) {
       ) : null}
 
       <AlertDialog
-        open={pendingDeleteId !== null}
+        open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDeleteId(null)
+          if (!open) setDeleteTarget(null)
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this shift?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteTarget?.status === "published"
+                ? "Cancel this published shift?"
+                : "Delete this shift?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDeleteId &&
-              events.find((e) => e.id === pendingDeleteId)?.status ===
-                "published"
-                ? "This shift is published. Deleting it cancels the shift for the assigned staff member."
-                : "This removes the shift from the schedule. This cannot be undone."}
+              {deleteTarget ? describeShift(deleteTarget, props.employees) : ""}
+              {deleteTarget?.status === "published"
+                ? " The shift will be cancelled and the assigned employee notified."
+                : " Draft shifts are removed immediately — you can undo from the toast."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingDeleteId) {
-                  performDelete(pendingDeleteId)
-                }
-                setPendingDeleteId(null)
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
+            <AlertDialogCancel>Keep shift</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>
+              {deleteTarget?.status === "published"
+                ? "Cancel shift"
+                : "Delete shift"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   )
+}
+
+function describeShift(ev: GridEvent, employees: EmployeeLite[]): string {
+  const emp = ev.employeeId
+    ? employees.find((e) => e.id === ev.employeeId)
+    : null
+  const who = emp ? `${emp.first_name} ${emp.last_name}` : "Open / unassigned"
+  const day = ev.start.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })
+  const t = (d: Date) =>
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  return `${who} · ${day}, ${t(ev.start)}–${t(ev.end)}.`
 }
 
 function RailCard({

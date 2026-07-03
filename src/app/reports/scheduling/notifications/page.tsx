@@ -16,6 +16,7 @@ import { currentUserCan } from "@/lib/permissions/check"
 
 import { formatRelativeAge } from "../_components/format-utils"
 import {
+  AcknowledgeButton,
   MarkAllReadButton,
   MarkReadButton,
 } from "../_components/notification-buttons"
@@ -77,6 +78,7 @@ function notificationTypeLabel(row: NotifRow): string {
     const decision = payloadString(row.payload, "decision")
     if (decision === "approved") return "Time off approved"
     if (decision === "denied") return "Time off denied"
+    if (decision === "cancelled") return "Time off cancelled"
   }
   return (
     NOTIFICATION_TYPE_LABELS[row.notification_type] ??
@@ -102,7 +104,9 @@ function bodyFromPayload(row: NotifRow): string | null {
         ? "Your time-off request was approved."
         : decision === "denied"
           ? "Your time-off request was denied."
-          : null
+          : decision === "cancelled"
+            ? "Your time-off request was cancelled by a manager."
+            : null
     if (base) return note ? `${base} Note: ${note}` : base
     return note ? `Note: ${note}` : null
   }
@@ -124,6 +128,7 @@ type NotifRow = {
   notification_type: string
   payload: unknown
   read_at: string | null
+  acknowledged_at: string | null
   created_at: string
   shift_id: string | null
   swap_id: string | null
@@ -164,7 +169,7 @@ export default async function NotificationsPage() {
   const { data: rowsRaw } = await supabase
     .from("schedule_notifications")
     .select(
-      "id, notification_type, payload, read_at, created_at, shift_id, swap_id, time_off_id"
+      "id, notification_type, payload, read_at, acknowledged_at, created_at, shift_id, swap_id, time_off_id"
     )
     .eq("employee_id", employeeRow.id)
     .order("created_at", { ascending: false })
@@ -176,16 +181,30 @@ export default async function NotificationsPage() {
 
   function NotifRowItem({ row }: { row: NotifRow }) {
     const body = bodyFromPayload(row)
+    const needsAck =
+      row.notification_type === "schedule_published" &&
+      row.acknowledged_at === null
     return (
       <li className="flex flex-col gap-2 px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Badge variant="secondary">{notificationTypeLabel(row)}</Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">{notificationTypeLabel(row)}</Badge>
+            {row.notification_type === "schedule_published" &&
+            row.acknowledged_at !== null ? (
+              <Badge variant="success">Acknowledged</Badge>
+            ) : null}
+          </div>
           <span className="text-xs text-muted-foreground">
             {formatRelativeAge(row.created_at)}
           </span>
         </div>
         {body ? <p className="text-sm">{body}</p> : null}
-        {row.read_at === null ? <MarkReadButton id={row.id} /> : null}
+        <div className="flex flex-wrap gap-2">
+          {needsAck ? <AcknowledgeButton id={row.id} /> : null}
+          {row.read_at === null && !needsAck ? (
+            <MarkReadButton id={row.id} />
+          ) : null}
+        </div>
       </li>
     )
   }

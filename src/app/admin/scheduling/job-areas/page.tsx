@@ -48,7 +48,7 @@ export default async function JobAreasPage() {
 
   const supabase = await createClient()
   const sb = supabase
-  const [{ data }, { data: reqData }] = await Promise.all([
+  const [{ data }, { data: reqData }, { data: typeData }] = await Promise.all([
     sb
       .from("employee_job_areas")
       .select("id, name, is_active, sort_order")
@@ -60,10 +60,20 @@ export default async function JobAreasPage() {
       .eq("facility_id", facilityId)
       .eq("is_active", true)
       .order("cert_name", { ascending: true }),
+    sb
+      .from("certification_types")
+      .select("name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+      .limit(500),
   ])
 
   const areas = (data ?? []) as JobAreaRow[]
   const requirements = (reqData ?? []) as CertRequirementRow[]
+  const certTypeNames = ((typeData ?? []) as { name: string }[]).map(
+    (t) => t.name
+  )
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -72,6 +82,7 @@ export default async function JobAreasPage() {
         facilityId={facilityId}
         initialAreas={areas}
         initialRequirements={requirements}
+        certTypeNames={certTypeNames}
       />
     </div>
   )

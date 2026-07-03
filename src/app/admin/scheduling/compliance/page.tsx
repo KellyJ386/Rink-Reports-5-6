@@ -56,13 +56,23 @@ export default async function CompliancePage() {
 
   const rules = (rulesRaw ?? []) as Tables<"schedule_compliance_rules">[]
 
-  const overrideRows = await loadOverrides(supabase, facilityId)
+  const [overrideRows, { data: facilityRow }] = await Promise.all([
+    loadOverrides(supabase, facilityId),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <Header />
       <ComplianceClient rules={rules} />
-      <OverridesList rows={overrideRows} />
+      <OverridesList
+        rows={overrideRows}
+        timeZone={facilityRow?.timezone ?? null}
+      />
     </div>
   )
 }

@@ -16,14 +16,24 @@ import {
 } from "@/components/ui/select"
 
 import { applyTemplateToWeek } from "../../_lib/admin-core-actions"
+import { DAY_NAMES } from "../../_lib/datetime"
 import type { TemplateRow } from "../../_lib/types"
 
 type Props = {
   templates: TemplateRow[]
+  /** Facility week start, 0=Sunday..6=Saturday (schedule_settings). */
+  weekStartDay: number
+  /** Facility-local "YYYY-MM-DD" of the currently visible week's start. */
+  defaultWeekStartKey: string
   onClose: () => void
 }
 
-export function ApplyTemplateForm({ templates, onClose }: Props) {
+export function ApplyTemplateForm({
+  templates,
+  weekStartDay,
+  defaultWeekStartKey,
+  onClose,
+}: Props) {
   const [pending, start] = useTransition()
   const [templateId, setTemplateId] = useState("")
   const router = useRouter()
@@ -77,13 +87,19 @@ export function ApplyTemplateForm({ templates, onClose }: Props) {
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="week_start">Week start (Sun-anchored)</Label>
+          <Label htmlFor="week_start">
+            Week starting ({DAY_NAMES[((weekStartDay % 7) + 7) % 7]})
+          </Label>
           <Input
             id="week_start"
             name="week_start"
             type="date"
+            defaultValue={defaultWeekStartKey}
             required
           />
+          <p className="text-muted-foreground text-xs">
+            Any date snaps back to that week&apos;s {DAY_NAMES[((weekStartDay % 7) + 7) % 7]}.
+          </p>
         </div>
       </div>
       <div className="flex items-center justify-end gap-2">

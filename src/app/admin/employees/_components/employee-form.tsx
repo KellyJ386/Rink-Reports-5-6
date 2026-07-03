@@ -416,23 +416,43 @@ function EmployeeFormBody({
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="max_weekly_hours">Max weekly hours</Label>
-            <Input
-              id="max_weekly_hours"
-              name="max_weekly_hours"
-              type="number"
-              min={1}
-              max={168}
-              step={1}
-              inputMode="numeric"
-              placeholder="No individual cap"
-              defaultValue={editing?.max_weekly_hours ?? ""}
-            />
-            <p className="text-muted-foreground text-xs">
-              Per-employee scheduling cap (1–168). Leave blank to use the
-              facility default. The shift grid warns when a week exceeds it.
-            </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="max_weekly_hours">Max weekly hours</Label>
+              <Input
+                id="max_weekly_hours"
+                name="max_weekly_hours"
+                type="number"
+                min={1}
+                max={168}
+                step={1}
+                inputMode="numeric"
+                placeholder="No individual cap"
+                defaultValue={editing?.max_weekly_hours ?? ""}
+              />
+              <p className="text-muted-foreground text-xs">
+                Per-employee scheduling cap (1–168). Leave blank to use the
+                facility default. The shift grid warns when a week exceeds it.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="hourly_rate">Hourly wage ($)</Label>
+              <Input
+                id="hourly_rate"
+                name="hourly_rate"
+                type="number"
+                min={0}
+                max={10000}
+                step={0.01}
+                inputMode="decimal"
+                placeholder="Facility default"
+                defaultValue={editing?.hourly_rate ?? ""}
+              />
+              <p className="text-muted-foreground text-xs">
+                Powers scheduling labor-cost estimates. Admin-only — never
+                visible to staff. Blank uses the facility default rate.
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -52,4 +52,6 @@ export type SchedulingSettingsInput = {
   availability_submission_enabled: boolean
   require_job_area_qualification: boolean
   block_on_violations: boolean
+  /** Facility-wide fallback rate for labor-cost estimates (null = none). */
+  default_hourly_rate: number | null
 }

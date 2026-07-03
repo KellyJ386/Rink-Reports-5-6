@@ -7,6 +7,9 @@ import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import type { Json } from "@/types/database"
 
+import { createAdminClient } from "@/lib/supabase/admin"
+
+import { formatDateOnly } from "./datetime"
 import { formatViolations } from "./enforcement"
 import {
   isComplianceRuleType,
@@ -14,6 +17,7 @@ import {
   type SchedulingSettingsInput,
   type UpdateComplianceRulePatch,
 } from "./governance-types"
+import { queueSchedulingEmails } from "./notify-email"
 import type { ActionState } from "./types"
 
 
@@ -84,11 +88,27 @@ function revalidateGovernance(): void {
 // Time-off actions
 // ---------------------------------------------------------------------------
 
+/** A shift that overlaps the time-off window being approved. */
+export type TimeOffConflict = {
+  id: string
+  starts_at: string
+  ends_at: string
+  status: string
+  role_label: string | null
+}
+
+export type TimeOffDecisionResult =
+  | { ok: true; message?: string }
+  | { ok: false; error: string; conflicts?: TimeOffConflict[] }
+
+export type TimeOffConflictResolution = "unassign" | "approve_anyway"
+
 export async function decideTimeOffRequest(
   id: string,
   decision: "approved" | "denied",
-  note?: string
-): Promise<ActionState> {
+  note?: string,
+  opts?: { onConflict?: TimeOffConflictResolution }
+): Promise<TimeOffDecisionResult> {
   try {
     const ctx = await resolveAdminContext()
     if (!ctx.ok) return { ok: false, error: ctx.error }
@@ -97,7 +117,7 @@ export async function decideTimeOffRequest(
     const supabase = await createClient()
     const { data: existing, error: selErr } = await supabase
       .from("schedule_time_off_requests")
-      .select("id, employee_id, facility_id, status")
+      .select("id, employee_id, facility_id, status, starts_at, ends_at")
       .eq("id", id)
       .eq("facility_id", ctx.facilityId)
       .maybeSingle<{
@@ -105,6 +125,8 @@ export async function decideTimeOffRequest(
         employee_id: string
         facility_id: string
         status: string
+        starts_at: string
+        ends_at: string
       }>()
     if (selErr) {
       return { ok: false, error: dbError(selErr, "Failed to load request.") }
@@ -116,8 +138,139 @@ export async function decideTimeOffRequest(
       return { ok: false, error: "Only pending requests can be decided." }
     }
 
+    // Approving time-off over shifts the employee is already on would leave a
+    // silent conflict, so surface them and let the admin choose: unassign the
+    // shifts (published ones go back to the open-shift claim queue) or approve
+    // anyway (e.g. the shifts are about to be rearranged by hand).
+    let convertedCount = 0
+    if (decision === "approved") {
+      const { data: conflictRows, error: confErr } = await supabase
+        .from("schedule_shifts")
+        .select("id, starts_at, ends_at, status, role_label, job_area_id, break_minutes, notes")
+        .eq("facility_id", ctx.facilityId)
+        .eq("employee_id", existing.employee_id)
+        .in("status", ["draft", "published"])
+        .lt("starts_at", existing.ends_at)
+        .gt("ends_at", existing.starts_at)
+        .order("starts_at", { ascending: true })
+      if (confErr) {
+        return {
+          ok: false,
+          error: dbError(confErr, "Failed to check for conflicting shifts."),
+        }
+      }
+
+      const conflicts = (conflictRows ?? []) as Array<
+        TimeOffConflict & {
+          job_area_id: string | null
+          break_minutes: number | null
+          notes: string | null
+        }
+      >
+
+      if (conflicts.length > 0 && !opts?.onConflict) {
+        return {
+          ok: false,
+          error: `This employee is scheduled for ${conflicts.length} shift${
+            conflicts.length === 1 ? "" : "s"
+          } during the requested time off.`,
+          conflicts: conflicts.map((c) => ({
+            id: c.id,
+            starts_at: c.starts_at,
+            ends_at: c.ends_at,
+            status: c.status,
+            role_label: c.role_label,
+          })),
+        }
+      }
+
+      if (conflicts.length > 0 && opts?.onConflict === "unassign") {
+        for (const shift of conflicts) {
+          if (shift.status === "published") {
+            // Published rows are locked; the governed RPC clears the
+            // assignment through the lock and notifies the employee.
+            const { data: rpc, error: rpcErr } = await supabase.rpc(
+              "scheduling_admin_edit_published_shift",
+              {
+                p_shift_id: shift.id,
+                // Generated RPC arg types are non-nullable (pg-meta
+                // limitation); the SQL treats NULL as "open slot".
+                p_employee_id: null as unknown as string,
+                p_job_area_id: shift.job_area_id as unknown as string,
+                p_starts_at: shift.starts_at,
+                p_ends_at: shift.ends_at,
+                p_break_minutes: shift.break_minutes ?? 0,
+                p_role_label: shift.role_label as unknown as string,
+                p_notes: shift.notes as unknown as string,
+                p_override_cert: false,
+              }
+            )
+            const result = (rpc ?? {}) as { ok?: boolean; error?: string }
+            if (rpcErr || result.ok !== true) {
+              return {
+                ok: false,
+                error: `Failed to unassign a published shift: ${
+                  rpcErr?.message ?? result.error ?? "unknown error"
+                }. The request is still pending.`,
+              }
+            }
+          } else {
+            const { error: unErr } = await supabase
+              .from("schedule_shifts")
+              .update({ employee_id: null })
+              .eq("id", shift.id)
+              .eq("facility_id", ctx.facilityId)
+              .eq("status", "draft")
+            if (unErr) {
+              return {
+                ok: false,
+                error: dbError(unErr, "Failed to unassign a draft shift."),
+              }
+            }
+          }
+          convertedCount++
+        }
+
+        // Surface the now-unassigned PUBLISHED shifts in the staff claim
+        // queue (draft shifts get their listings at publish time). The
+        // listing insert is service-role because schedule_open_shifts
+        // writes are otherwise owned by the publish RPC.
+        const publishedIds = conflicts
+          .filter((c) => c.status === "published")
+          .map((c) => c.id)
+        if (publishedIds.length > 0) {
+          try {
+            const admin = createAdminClient()
+            const { data: settings } = await admin
+              .from("schedule_settings")
+              .select("open_shift_first_come")
+              .eq("facility_id", ctx.facilityId)
+              .maybeSingle<{ open_shift_first_come: boolean }>()
+            const { error: listErr } = await admin
+              .from("schedule_open_shifts")
+              .upsert(
+                publishedIds.map((shiftId) => ({
+                  facility_id: ctx.facilityId,
+                  shift_id: shiftId,
+                  claim_status: "open",
+                  approval_required: !(settings?.open_shift_first_come ?? true),
+                })),
+                { onConflict: "shift_id", ignoreDuplicates: true }
+              )
+            if (listErr) throw listErr
+          } catch (e) {
+            // Non-fatal: the hub's "unassigned (no listing)" indicator
+            // surfaces these so an admin can list them from the grid.
+            logServerError("admin/scheduling/_lib/governance-actions", e, {
+              step: "open_shift_listing",
+            })
+          }
+        }
+      }
+    }
+
     const nowIso = new Date().toISOString()
-    const { error: updErr } = await supabase
+    const { data: updated, error: updErr } = await supabase
       .from("schedule_time_off_requests")
       .update({
         status: decision,
@@ -127,8 +280,13 @@ export async function decideTimeOffRequest(
       })
       .eq("id", id)
       .eq("facility_id", ctx.facilityId)
+      .eq("status", "pending")
+      .select("id")
     if (updErr) {
       return { ok: false, error: dbError(updErr, "Failed to update request.") }
+    }
+    if (!updated || updated.length === 0) {
+      return { ok: false, error: "Request was already decided." }
     }
 
     await supabase.from("schedule_notifications").insert({
@@ -142,11 +300,35 @@ export async function decideTimeOffRequest(
       },
     })
 
+    const range = `${formatDateOnly(existing.starts_at)} – ${formatDateOnly(
+      existing.ends_at
+    )}`
+    await queueSchedulingEmails([
+      {
+        facilityId: ctx.facilityId,
+        employeeId: existing.employee_id,
+        subject: `Time-off request ${decision}`,
+        body:
+          `Your time-off request for ${range} was ${decision}.` +
+          (note?.trim() ? `\n\nNote from your manager: ${note.trim()}` : ""),
+        sourceRecordId: id,
+      },
+    ])
+
     revalidateGovernance()
+    if (convertedCount > 0) {
+      revalidatePath("/admin/scheduling/shifts")
+    }
     return {
       ok: true,
       message:
-        decision === "approved" ? "Request approved." : "Request denied.",
+        decision === "approved"
+          ? convertedCount > 0
+            ? `Request approved. ${convertedCount} conflicting shift${
+                convertedCount === 1 ? "" : "s"
+              } unassigned.`
+            : "Request approved."
+          : "Request denied.",
     }
   } catch (e) {
     logServerError("admin/scheduling/_lib/governance-actions", e)
@@ -164,14 +346,37 @@ export async function cancelTimeOffRequest(id: string): Promise<ActionState> {
     if (!id) return { ok: false, error: "Missing request id." }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // Only a live request can be cancelled; denied/cancelled are terminal.
+    const { data: cancelled, error } = await supabase
       .from("schedule_time_off_requests")
       .update({ status: "cancelled" })
       .eq("id", id)
       .eq("facility_id", ctx.facilityId)
+      .in("status", ["pending", "approved"])
+      .select("id, employee_id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to cancel request.") }
     }
+    const row = (cancelled ?? [])[0] as
+      | { id: string; employee_id: string }
+      | undefined
+    if (!row) {
+      return {
+        ok: false,
+        error: "Request not found or already denied/cancelled.",
+      }
+    }
+
+    // Tell the employee — an admin cancel of an approved request means they
+    // no longer have that time off.
+    await supabase.from("schedule_notifications").insert({
+      facility_id: ctx.facilityId,
+      employee_id: row.employee_id,
+      notification_type: "time_off_decided",
+      time_off_id: id,
+      payload: { decision: "cancelled" },
+    })
+
     revalidateGovernance()
     return { ok: true, message: "Request cancelled." }
   } catch (e) {
@@ -716,6 +921,17 @@ export async function updateSchedulingSettings(
         error: "Swap expiry hours must be a positive whole number.",
       }
     }
+    let dhr: number | null = null
+    if (values.default_hourly_rate !== null) {
+      const n = Number(values.default_hourly_rate)
+      if (!Number.isFinite(n) || n < 0 || n > 10000) {
+        return {
+          ok: false,
+          error: "Default hourly rate must be between 0 and 10,000.",
+        }
+      }
+      dhr = Math.round(n * 100) / 100
+    }
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -737,6 +953,7 @@ export async function updateSchedulingSettings(
           availability_submission_enabled: values.availability_submission_enabled,
           require_job_area_qualification: values.require_job_area_qualification,
           block_on_violations: values.block_on_violations,
+          default_hourly_rate: dhr,
         },
         { onConflict: "facility_id" }
       )
