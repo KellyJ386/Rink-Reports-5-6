@@ -245,7 +245,7 @@ export async function addEmployeeCertification(
     if (empErr) return { ok: false, error: empErr.message }
     if (!employee) return { ok: false, error: "Employee not found" }
 
-    // Link to the certification catalog (migration 167) so scheduling
+    // Link to the certification catalog (migration 169) so scheduling
     // enforcement matches by id, not by fragile name equality.
     const type = await resolveCertificationType(
       supabase,

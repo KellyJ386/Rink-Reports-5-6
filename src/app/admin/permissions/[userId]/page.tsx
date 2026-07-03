@@ -25,7 +25,7 @@ export default async function UserPermissionsPage({
 }: {
   params: Promise<{ userId: string }>
 }) {
-  await requireAdmin()
+  const current = await requireAdmin()
   const { userId } = await params
   const supabase = await createClient()
 
@@ -36,6 +36,16 @@ export default async function UserPermissionsPage({
     .maybeSingle()
 
   if (!userRow) notFound()
+
+  // Explicit facility scope (D-09): a non-super-admin may only edit permissions
+  // for users in their own facility. RLS already bounds the read, but fail
+  // closed here so a cross-facility userId can't be edited even if RLS regresses.
+  if (
+    !current.profile?.is_super_admin &&
+    userRow.facility_id !== current.profile?.facility_id
+  ) {
+    notFound()
+  }
 
   const label = userRow.full_name || userRow.email || userId
 

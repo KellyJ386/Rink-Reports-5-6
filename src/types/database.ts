@@ -3479,6 +3479,7 @@ export type Database = {
           serial_number: string | null
           slug: string
           sort_order: number
+          tank_capacity_gal: number | null
           updated_at: string | null
         }
         Insert: {
@@ -3494,6 +3495,7 @@ export type Database = {
           serial_number?: string | null
           slug: string
           sort_order?: number
+          tank_capacity_gal?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -3509,6 +3511,7 @@ export type Database = {
           serial_number?: string | null
           slug?: string
           sort_order?: number
+          tank_capacity_gal?: number | null
           updated_at?: string | null
         }
         Relationships: [

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition, type ReactNode } from "react"
+import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -47,6 +48,7 @@ export function PermissionMatrix({
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const router = useRouter()
 
   function toggle(moduleName: ModuleName, action: UserAction, next: boolean) {
     setError(null)
@@ -85,6 +87,9 @@ export function PermissionMatrix({
       }
       setMatrix(presetMatrix(preset))
       setInfo(`Applied preset: ${preset.replace("_", " ")}`)
+      // Re-read the persisted matrix from the server (E-12) so the UI reflects
+      // the actual saved state rather than the optimistically-computed matrix.
+      router.refresh()
     })
   }
 

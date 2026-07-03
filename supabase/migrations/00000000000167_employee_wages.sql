@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000165_employee_wages.sql
+-- 00000000000167_employee_wages.sql
 --
 -- Real labor-cost data for Employee Scheduling (audit item: the board's
 -- "Labor cost" / "Est. pay" figures were computed from a hardcoded $26/hr).

@@ -1,5 +1,5 @@
 // Resolve-or-create against the per-facility certification catalog
-// (certification_types, migration 167). Plain module — callers pass their own
+// (certification_types, migration 169). Plain module — callers pass their own
 // RLS-scoped Supabase client; the catalog's write policy already gates who
 // may create types (scheduling admins + role admins).
 

@@ -523,7 +523,9 @@ export function WeekBoard(props: WeekBoardProps) {
   )
 
   // Deletion is destructive (drafts are removed outright; published shifts
-  // are cancelled and staff notified), so every path confirms first.
+  // are cancelled and staff notified), so every path confirms first. (Both
+  // this branch and main added a confirm gate; this is the merged superset —
+  // confirm dialog + draft undo.)
   const [deleteTarget, setDeleteTarget] = useState<GridEvent | null>(null)
 
   const handleDelete = useCallback(

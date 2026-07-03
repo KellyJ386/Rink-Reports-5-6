@@ -365,7 +365,7 @@ export async function addJobAreaCertRequirement(args: {
 
     const supabase = await createClient()
 
-    // Requirements reference the certification catalog (migration 167):
+    // Requirements reference the certification catalog (migration 169):
     // resolve or create the type, then store its id + canonical name.
     const type = await resolveCertificationType(
       supabase,

@@ -11,7 +11,11 @@ import {
   persistIceOperation,
   validateIceOpsInput,
 } from "./_lib/submit"
-import { isOperationType, type OperationType } from "./types"
+import {
+  isOperationType,
+  resolveEnabledOperationTypes,
+  type OperationType,
+} from "./types"
 
 export type SubmissionFormState = {
   error?: string
@@ -64,6 +68,25 @@ async function performSubmit(
   }
 
   const facilityId = employeeRow.facility_id
+
+  // Reject submissions for operation types the facility has disabled. Mirrors
+  // the page-level redirect ([operationType]/page.tsx) so a directly-invoked
+  // action can't write a disabled type. Fail-open (null/empty = all enabled),
+  // matching the tab list.
+  const { data: opSettings } = await supabase
+    .from("ice_operations_settings")
+    .select("enabled_operation_types")
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  const enabledOps = resolveEnabledOperationTypes(
+    opSettings?.enabled_operation_types,
+  )
+  if (!enabledOps.includes(operationType)) {
+    return {
+      ok: false,
+      error: "This operation type isn't enabled for your facility.",
+    }
+  }
 
   // Reconstruct the structured input from the posted FormData. A null result
   // means malformed circle-check JSON (the previously-opaque "invalid results"

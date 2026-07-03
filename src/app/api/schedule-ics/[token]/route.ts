@@ -11,7 +11,7 @@ export const runtime = "nodejs"
  * Public ICS calendar feed: Google/Apple Calendar subscribe to
  * /api/schedule-ics/<token> and poll it — calendar apps cannot carry an
  * authenticated session, so the unguessable per-employee token (owner-only
- * schedule_ics_tokens, migration 166) IS the credential. Reads with the
+ * schedule_ics_tokens, migration 168) IS the credential. Reads with the
  * service role; scope is strictly the token owner's PUBLISHED shifts in a
  * -7d…+60d window. Rotating the token (staff "Reset link") 404s old URLs.
  */

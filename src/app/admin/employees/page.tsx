@@ -191,7 +191,7 @@ export default async function EmployeesPage({
       .from("employee_job_area_assignments")
       .select("employee_id, job_area_id, is_primary")
       .eq("facility_id", facilityId),
-    // Admin-only table (migration 165): readable here because this page is
+    // Admin-only table (migration 167): readable here because this page is
     // requireAdmin-gated; staff RLS returns nothing.
     supabase
       .from("employee_wages")

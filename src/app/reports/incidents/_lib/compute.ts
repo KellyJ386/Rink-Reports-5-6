@@ -30,6 +30,7 @@ export type IncidentInput = {
   description: string
   occurred_at: string // raw datetime-local string
   severity_level_id: string
+  incident_type_id: string
   activity_id: string
   activity_other: string
   location_other: string
@@ -145,6 +146,7 @@ export function buildInputFromForm(formData: FormData): IncidentInput {
     description: get("description"),
     occurred_at: get("occurred_at"),
     severity_level_id: get("severity_level_id"),
+    incident_type_id: get("incident_type_id"),
     activity_id: get("activity_id"),
     activity_other: get("activity_other"),
     location_other: get("location_other"),
@@ -171,6 +173,7 @@ export function buildInputFromPayload(raw: unknown): IncidentInput | null {
     description: str(obj.description),
     occurred_at: str(obj.occurred_at),
     severity_level_id: str(obj.severity_level_id),
+    incident_type_id: str(obj.incident_type_id),
     activity_id: str(obj.activity_id),
     activity_other: str(obj.activity_other),
     location_other: str(obj.location_other),

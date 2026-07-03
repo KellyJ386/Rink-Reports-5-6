@@ -337,6 +337,9 @@ export async function deleteAvailability(
     .from("schedule_availability")
     .select("id, employee_id")
     .eq("id", id)
+    // Defense-in-depth (D-06): explicit facility scope in addition to RLS +
+    // the ownership predicate below.
+    .eq("facility_id", auth.employee.facility_id)
     .maybeSingle()
   if (!row || row.employee_id !== auth.employee.id) {
     return { status: "error", error: "Entry not found." }
@@ -529,6 +532,9 @@ export async function acceptSwapRequest(
     .from("schedule_swap_requests")
     .select("id, status, target_employee_id")
     .eq("id", id)
+    // Defense-in-depth (D-06): explicit facility scope in addition to RLS +
+    // the target-employee ownership check below.
+    .eq("facility_id", auth.employee.facility_id)
     .maybeSingle()
 
   if (!row) return { status: "error", error: "Swap not found." }
@@ -683,7 +689,7 @@ export async function acknowledgeSchedule(
 }
 
 // ---------------------------------------------------------------------------
-// ICS calendar-feed token (migration 166). The token is the credential for
+// ICS calendar-feed token (migration 168). The token is the credential for
 // the public /api/schedule-ics/<token> route — owner-only RLS; rotating it
 // invalidates any previously shared subscription URL.
 // ---------------------------------------------------------------------------

@@ -406,6 +406,11 @@ function EquipmentRowItem({
           {equipment.hours_count !== null && (
             <Badge variant="secondary">{equipment.hours_count} hrs</Badge>
           )}
+          {equipment.tank_capacity_gal !== null && (
+            <Badge variant="secondary">
+              {equipment.tank_capacity_gal} gal tank
+            </Badge>
+          )}
           {fuelLabel && <Badge variant="outline">{fuelLabel}</Badge>}
           {!equipment.is_active && (
             <Badge variant="secondary" className="uppercase">off</Badge>
@@ -500,6 +505,20 @@ function EquipmentRowItem({
             />
           </div>
           <div className="flex flex-col gap-1">
+            <Label htmlFor={`eq-tank-${equipment.id}`}>
+              Tank capacity (gal)
+            </Label>
+            <Input
+              id={`eq-tank-${equipment.id}`}
+              name="tank_capacity_gal"
+              type="number"
+              step="any"
+              min="0"
+              placeholder="Enables % of tank on ice make"
+              defaultValue={equipment.tank_capacity_gal ?? ""}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
             <Label htmlFor={`eq-fuel-${equipment.id}`}>Fuel type</Label>
             <input type="hidden" name="fuel_type_id" value={fuelTypeId} />
             <Select
@@ -590,6 +609,17 @@ function EquipmentCreateForm({ fuelTypes }: { fuelTypes: FuelTypeRow[] }) {
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-hours">Hours count (optional)</Label>
         <Input id="new-eq-hours" name="hours_count" type="number" step="any" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="new-eq-tank">Tank capacity (gal, optional)</Label>
+        <Input
+          id="new-eq-tank"
+          name="tank_capacity_gal"
+          type="number"
+          step="any"
+          min="0"
+          placeholder="Enables % of tank on ice make"
+        />
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="new-eq-fuel">Fuel type (optional)</Label>

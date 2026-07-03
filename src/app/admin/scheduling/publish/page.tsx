@@ -82,7 +82,7 @@ export default async function PublishHistoryPage() {
   }
   const empById = new Map(employees.map((e) => [e.id, e]))
 
-  // Acknowledgment roll-up (migration 166): schedule_published notifications
+  // Acknowledgment roll-up (migration 168): schedule_published notifications
   // carry publish_event_id, so each event can report "acknowledged N of the
   // M employees notified". Events published before the migration show "—".
   const ackByEvent = new Map<

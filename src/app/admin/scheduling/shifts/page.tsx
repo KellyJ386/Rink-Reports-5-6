@@ -174,7 +174,7 @@ export default async function ShiftsPage({
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(20),
-    // Admin-only table (migration 165): powers real labor-cost estimates.
+    // Admin-only table (migration 167): powers real labor-cost estimates.
     supabase
       .from("employee_wages")
       .select("employee_id, hourly_rate")

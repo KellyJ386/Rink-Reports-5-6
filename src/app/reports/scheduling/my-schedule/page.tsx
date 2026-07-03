@@ -16,7 +16,7 @@ import { currentUserCan } from "@/lib/permissions/check"
 import { CalendarSyncCard } from "../_components/calendar-sync-card"
 import { WeekCalendar } from "../_components/week-calendar"
 import { formatDateRange } from "../_components/format-utils"
-import type { ShiftStatus } from "../types"
+import { startOfWeek, type ShiftStatus } from "../types"
 
 export const dynamic = "force-dynamic"
 
@@ -133,22 +133,27 @@ export default async function MySchedulePage({
 
   const currentView = params.view === "week" ? "week" : "list"
 
-  // For week view, compute the Sunday of the current week
-  function getWeekStart(anchor: Date): Date {
-    const d = new Date(anchor)
-    d.setDate(d.getDate() - d.getDay()) // back to Sunday
-    d.setHours(0, 0, 0, 0)
-    return d
-  }
-
   function toLocalDate(iso: string): Date {
     const [y, m, day] = iso.split("-").map(Number)
     return new Date(y, m - 1, day)
   }
 
-  const weekStart = params.weekOf
-    ? getWeekStart(toLocalDate(params.weekOf))
-    : getWeekStart(new Date())
+  // Facility work-week start (migration 117) — honor it like the availability
+  // page and admin grid instead of hardcoding Sunday.
+  const { data: settingsRow } = await supabase
+    .from("schedule_settings")
+    .select("week_start_day")
+    .eq("facility_id", employeeRow.facility_id)
+    .maybeSingle()
+  const weekStartDay: number =
+    typeof settingsRow?.week_start_day === "number"
+      ? settingsRow.week_start_day
+      : 0
+
+  const weekStart = startOfWeek(
+    params.weekOf ? toLocalDate(params.weekOf) : new Date(),
+    weekStartDay,
+  )
 
   const weekStartIso = (() => {
     const pad = (n: number) => String(n).padStart(2, "0")

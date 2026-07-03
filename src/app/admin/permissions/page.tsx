@@ -19,15 +19,25 @@ export const dynamic = "force-dynamic"
 export const metadata = { title: "Permissions | MFO / Rink Reports" }
 
 export default async function PermissionsPage() {
-  await requireAdmin()
+  const current = await requireAdmin()
   const supabase = await createClient()
 
-  const { data: usersRaw } = await supabase
+  let query = supabase
     .from("users")
     .select("id, email, full_name, is_active, is_super_admin, facility_id")
     .eq("is_active", true)
     .order("full_name", { ascending: true })
     .limit(500)
+
+  // Explicit facility scope (D-09): a non-super-admin only lists users in their
+  // own facility. Super admins list everyone (cross-facility by design). RLS
+  // already bounds this, but the filter makes the intent explicit and fails
+  // safe if the policy regresses.
+  if (!current.profile?.is_super_admin && current.profile?.facility_id) {
+    query = query.eq("facility_id", current.profile.facility_id)
+  }
+
+  const { data: usersRaw } = await query
 
   const users = (usersRaw ?? []) as UserRow[]
 

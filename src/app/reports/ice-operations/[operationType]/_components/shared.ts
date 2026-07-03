@@ -11,6 +11,7 @@ export type EquipmentOption = {
   equipment_type: EquipmentType
   hours_count: number | null
   fuel_type_id?: string | null
+  tank_capacity_gal?: number | null
 }
 
 export type EmployeeOption = {

@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react"
 import { RefreshCw, AlertCircle, CheckCircle2, Clock } from "lucide-react"
 
-import { useSyncQueue, retryFailedSubmissions } from "@/lib/offline/use-sync-queue"
+import {
+  useSyncQueue,
+  retryFailedSubmissions,
+  flushQueue,
+  postToServiceWorker,
+} from "@/lib/offline/use-sync-queue"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -60,15 +65,27 @@ export function OfflineQueueView() {
       }
     }
 
+    function requestQueue() {
+      // Falls back to serviceWorker.ready when the page has no controller yet —
+      // e.g. right after a hard reload — so the item list isn't stuck empty
+      // (E-06).
+      void postToServiceWorker({ type: "GET_QUEUE" })
+    }
+
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.addEventListener("message", handleMessage)
-      // Request current state
-      navigator.serviceWorker.controller?.postMessage({ type: "GET_QUEUE" })
+      // Re-query once a controller takes over after a hard reload (E-06).
+      navigator.serviceWorker.addEventListener("controllerchange", requestQueue)
+      requestQueue()
     }
 
     return () => {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.removeEventListener("message", handleMessage)
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          requestQueue,
+        )
       }
     }
   }, [])
@@ -126,6 +143,15 @@ export function OfflineQueueView() {
           <Button size="sm" variant="outline" onClick={retryFailedSubmissions}>
             <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden />
             Retry failed
+          </Button>
+        )}
+        {pendingCount > 0 && (
+          // Manual drain for browsers without Background Sync (Safari/iOS),
+          // where nothing else reliably flushes pending items after the service
+          // worker is terminated (E-02).
+          <Button size="sm" variant="outline" onClick={flushQueue}>
+            <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden />
+            Sync now
           </Button>
         )}
       </div>
