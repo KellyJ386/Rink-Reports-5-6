@@ -4,13 +4,14 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 
 import {
   formatTimestamp,
   relativeAge,
   severityBadgeVariant,
-  severityClasses,
   severityLabel,
+  severityPillClasses,
   sourceModuleLabel,
 } from "./format"
 
@@ -100,12 +101,12 @@ export function AlertsList({ alerts, timezone }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-xl border bg-card p-3">
-        <input
+        <Input
           type="search"
           placeholder="Search title or body…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
+          className="h-11 text-base"
           aria-label="Search alerts"
         />
 
@@ -147,7 +148,7 @@ export function AlertsList({ alerts, timezone }: Props) {
                 aria-pressed={active}
                 className={`inline-flex h-8 items-center rounded-full px-3 text-xs font-medium transition-colors ${
                   active
-                    ? severityClasses(value)
+                    ? severityPillClasses(value)
                     : "bg-muted text-muted-foreground hover:bg-muted/70"
                 }`}
               >
@@ -207,7 +208,9 @@ export function AlertsList({ alerts, timezone }: Props) {
                     <Badge variant="success">Resolved</Badge>
                   ) : null}
                   {!a.acked ? (
-                    <span className="ml-auto inline-flex h-2 w-2 rounded-full bg-primary" />
+                    <span className="ml-auto inline-flex h-2 w-2 rounded-full bg-primary">
+                      <span className="sr-only">Unread</span>
+                    </span>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 
 import { excerpt, formatTimestamp, relativeAge } from "./format"
 
@@ -43,12 +44,12 @@ export function MessagesList({ items, timezone }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-xl border bg-card p-3">
-        <input
+        <Input
           type="search"
           placeholder="Search messages…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border-input bg-background focus-visible:ring-ring/50 focus-visible:border-ring h-11 w-full rounded-md border px-3 text-base shadow-xs outline-none focus-visible:ring-[3px]"
+          className="h-11 text-base"
           aria-label="Search messages"
         />
         <label className="inline-flex items-center gap-2 text-sm">

@@ -175,15 +175,24 @@ export default async function CommunicationsInboxPage({
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-        <Breadcrumb
-          segments={[
-            { label: "Reports", href: "/reports" },
-            {
-              label: "Communications",
-              href: "/reports/communications?inbox=alerts",
-            },
-            { label: "Alert" },
-          ]}
+        <PageHeader
+          variant="display"
+          module="comms"
+          band
+          eyebrow="Communications"
+          breadcrumb={
+            <Breadcrumb
+              segments={[
+                { label: "Reports", href: "/reports" },
+                {
+                  label: "Communications",
+                  href: "/reports/communications?inbox=alerts",
+                },
+                { label: "Alert" },
+              ]}
+            />
+          }
+          title="Alert"
         />
 
         <Card>
@@ -289,20 +298,10 @@ export default async function CommunicationsInboxPage({
         | null
     }
 
-    // pdf_url was added in migration 48 and isn't in the generated select
-    // overloads yet. Cast the client through unknown so the new column is
-    // selectable without regenerating types.
-    const sbForMessage = supabase as unknown as {
-      from: (t: string) => {
-        select: (cols: string) => {
-          eq: (
-            col: string,
-            val: string,
-          ) => { maybeSingle: () => Promise<{ data: unknown }> }
-        }
-      }
-    }
-    const { data: messageRaw } = await sbForMessage
+    // pdf_url is in the generated types (regenerated with migration 48+);
+    // only the embedded-join shape still needs a cast, matching the
+    // recipients query on the inbox branch below.
+    const { data: messageRaw } = await supabase
       .from("communication_messages")
       .select(
         "id, facility_id, sender_employee_id, subject, body, requires_acknowledgement, sent_at, created_at, updated_at, template_id, pdf_url, sender:employees!communication_messages_sender_employee_id_fkey(first_name, last_name)",
@@ -329,15 +328,24 @@ export default async function CommunicationsInboxPage({
 
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-        <Breadcrumb
-          segments={[
-            { label: "Reports", href: "/reports" },
-            {
-              label: "Communications",
-              href: "/reports/communications?inbox=messages",
-            },
-            { label: "Message" },
-          ]}
+        <PageHeader
+          variant="display"
+          module="comms"
+          band
+          eyebrow="Communications"
+          breadcrumb={
+            <Breadcrumb
+              segments={[
+                { label: "Reports", href: "/reports" },
+                {
+                  label: "Communications",
+                  href: "/reports/communications?inbox=messages",
+                },
+                { label: "Message" },
+              ]}
+            />
+          }
+          title="Message"
         />
 
         <MessageDetail
@@ -365,10 +373,12 @@ export default async function CommunicationsInboxPage({
   const tab: "alerts" | "messages" =
     inboxParam === "messages" ? "messages" : "alerts"
 
-  // NOTE on routing: `communication_routing_rules` is admin-configurable but for v1
-  // we intentionally do NOT filter the staff inbox by routing rules. Every active
-  // staff member with `can_view` on the communications module sees ALL alerts in
-  // their facility. Routing rules are aspirational and surfaced in the admin UI.
+  // NOTE on routing: the staff inbox intentionally shows EVERY facility alert
+  // to every viewer with communications access — alerts are operational safety
+  // signals, not personal mail. `communication_routing_rules` control who gets
+  // NOTIFIED (email / outbox fan-out via dispatch_rules_for_submission), not
+  // who can see the alert here. Deliberate scope decision; revisit only if a
+  // real per-audience-visibility requirement appears.
   const { data: alertsRaw } = await supabase
     .from("communication_alerts")
     .select(

@@ -1,12 +1,8 @@
-// Server-only compose-message pipeline used by the online server action
-// (`actions.ts`). Pure parsing/validation lives in `compose.ts` (unit-tested);
-// this module adds the Supabase I/O so a send lands the same rows, with the
-// same checks, as the online action did before the extraction.
-//
-// Messaging is online-only (the compose form does not enqueue through the
-// service-worker offline queue), so unlike refrigeration there is no offline
-// replay consumer for `persistMessage` today. It is shaped the same way as the
-// reference `persist*` helpers so a future offline path can reuse it.
+// Server-only compose-message pipeline shared by the online server action
+// (`actions.ts`) AND the offline replay consumer (`offline.ts`, dispatched
+// from /api/offline-sync for moduleKey "communications"). Pure parsing/
+// validation lives in `compose.ts` (unit-tested); this module adds the
+// Supabase I/O so both paths land the same rows with the same checks.
 
 import type { createClient } from "@/lib/supabase/server"
 

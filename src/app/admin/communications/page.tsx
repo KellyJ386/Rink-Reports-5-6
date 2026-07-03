@@ -495,17 +495,10 @@ async function RoutingTabLoader({ facilityId }: { facilityId: string }) {
       .eq("facility_id", facilityId)
       .order("name", { ascending: true }),
   ])
-  // rulesRes.data carries columns added in migrations 45 + 63
-  // (target_department_id, timing, attach_pdf, requires_acknowledgement) at
-  // runtime, but the generated RoutingRuleRow type doesn't yet know about
-  // them. Cast through unknown to widen.
-  const rules = (rulesRes.data ?? []) as unknown as Array<
-    RoutingRuleRow & {
-      target_department_id: string | null
-      timing: "immediate" | "end_of_day" | "weekly" | "manual" | null
-      attach_pdf: boolean | null
-      requires_acknowledgement: boolean | null
-    }
+  // The migration-45/63 columns are in the generated RoutingRuleRow now; the
+  // cast only narrows `timing` from `string` to its CHECK-constrained values.
+  const rules = (rulesRes.data ?? []) as Array<
+    RoutingRuleRow & { timing: "immediate" | "end_of_day" | "weekly" | "manual" }
   >
   const groups = (groupsRes.data ?? []) as GroupRow[]
   const employees = (employeesRes.data ?? []) as EmployeeLite[]

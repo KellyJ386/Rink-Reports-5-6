@@ -7,12 +7,11 @@ type Props = {
 }
 
 export function InboxTabs({ active, unreadAlerts, unreadMessages }: Props) {
+  // These are links that trigger full navigations, not an ARIA tabs widget —
+  // faking role="tablist"/"tab" without the tabs keyboard contract reads
+  // worse to assistive tech than honest navigation semantics.
   return (
-    <div
-      role="tablist"
-      aria-label="Inbox"
-      className="flex gap-2 border-b border-border"
-    >
+    <nav aria-label="Inbox" className="flex gap-2 border-b border-border">
       <TabLink
         href="/reports/communications?inbox=alerts"
         active={active === "alerts"}
@@ -25,7 +24,7 @@ export function InboxTabs({ active, unreadAlerts, unreadMessages }: Props) {
         label="Messages"
         count={unreadMessages}
       />
-    </div>
+    </nav>
   )
 }
 
@@ -43,8 +42,7 @@ function TabLink({
   return (
     <Link
       href={href}
-      role="tab"
-      aria-selected={active}
+      aria-current={active ? "page" : undefined}
       className={`relative inline-flex h-11 items-center gap-2 px-4 text-sm font-medium transition-colors ${
         active
           ? "border-b-2 border-primary text-foreground"

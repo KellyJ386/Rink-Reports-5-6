@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
 import { useRouter } from "next/navigation"
@@ -89,7 +89,7 @@ export function MessageDetail({ message, recipient, timezone }: Props) {
       </Card>
 
       {recipient.read_at === null ? (
-        <MarkReadCard messageId={message.id} />
+        <AutoMarkRead messageId={message.id} />
       ) : (
         <p className="text-xs text-muted-foreground">
           Read on {formatTimestamp(recipient.read_at, timezone)}.
@@ -119,40 +119,30 @@ export function MessageDetail({ message, recipient, timezone }: Props) {
   )
 }
 
-function MarkReadCard({ messageId }: { messageId: string }) {
+/**
+ * Opening a message marks it read — no manual button. Fires the existing
+ * markMessageRead action once on mount, then refreshes so the server render
+ * shows the "Read on …" timestamp. Failures stay silent: the message simply
+ * remains unread for the next visit. Acknowledgement stays a deliberate,
+ * manual action below.
+ */
+function AutoMarkRead({ messageId }: { messageId: string }) {
   const router = useRouter()
-  const [state, formAction] = useActionState(markMessageRead, initialState)
+  const fired = useRef(false)
 
   useEffect(() => {
-    if (state.error) {
-      toast.error(state.error)
-    } else if (state.ok) {
-      router.refresh()
-    }
-  }, [state, router])
+    if (fired.current) return
+    fired.current = true
+    const formData = new FormData()
+    formData.set("message_id", messageId)
+    markMessageRead(initialState, formData)
+      .then((result) => {
+        if (result.ok) router.refresh()
+      })
+      .catch(() => {})
+  }, [messageId, router])
 
-  return (
-    <form action={formAction} className="flex flex-col gap-2">
-      <FormError message={state.error} />
-      <input type="hidden" name="message_id" value={messageId} />
-      <MarkReadButton />
-    </form>
-  )
-}
-
-function MarkReadButton() {
-  const { pending } = useFormStatus()
-  return (
-    <Button
-      type="submit"
-      variant="outline"
-      size="lg"
-      disabled={pending}
-      className="h-11 w-full text-sm sm:w-auto"
-    >
-      {pending ? "Marking…" : "Mark as read"}
-    </Button>
-  )
+  return null
 }
 
 function AcknowledgeMessageForm({ messageId }: { messageId: string }) {

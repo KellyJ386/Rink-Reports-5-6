@@ -294,8 +294,9 @@ function RuleCreateCard({
         <CardTitle>Add routing rule</CardTitle>
         <CardDescription>
           Higher priority rules apply first. Severity may be left blank to
-          match any. Area picker is module-specific and isn&apos;t part of this
-          iteration — paste a UUID if you need to scope by area.
+          match any. Routing controls who gets <em>notified</em> (in-app
+          message + email fan-out) — every staff member with communications
+          access still sees all facility alerts in their inbox.
         </CardDescription>
       </CardHeader>
       <CardContent>
