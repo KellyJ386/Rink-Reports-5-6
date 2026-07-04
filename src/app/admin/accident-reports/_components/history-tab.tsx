@@ -16,7 +16,6 @@ import type {
   AccidentReportDetail,
   AccidentReportListItem,
   AccidentReportRow,
-  AccidentReportWithAge,
   AccidentWitnessRow,
   BodyPartSelectionWithDropdown,
   DropdownLite,
@@ -110,19 +109,21 @@ export async function HistoryTabLoader({
 
   // Lookups for filter dropdowns and badge rendering. Location options come
   // from the shared facility_spaces list; everything else from accident_dropdowns.
+  // Fetch ALL rows (active + inactive): historical reports keep referencing
+  // deactivated values — the legacy `arms` / `head_neck` body parts even seed
+  // inactive — so the id→value lookups must not be filtered to active rows.
+  // Only the filter <Select> options are narrowed to active values below.
   const [dropdownsRes, spacesRes, empsRes] = await Promise.all([
     supabase
       .from("accident_dropdowns")
-      .select("id, key, display_name, color, category")
+      .select("id, key, display_name, color, category, is_active")
       .eq("facility_id", facilityId)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("display_name", { ascending: true }),
     supabase
       .from("facility_spaces")
-      .select("id, name, slug")
+      .select("id, name, slug, is_active")
       .eq("facility_id", facilityId)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     supabase
@@ -132,26 +133,42 @@ export async function HistoryTabLoader({
       .order("last_name", { ascending: true }),
   ])
 
-  const dropdowns = (dropdownsRes.data ?? []) as DropdownLite[]
+  const allDropdowns = (dropdownsRes.data ?? []) as Array<
+    DropdownLite & { is_active: boolean }
+  >
   const employees = (empsRes.data ?? []) as EmployeeLite[]
 
   // Map facility_spaces into the DropdownLite shape the views/filters expect.
-  const locations: DropdownLite[] = (
-    (spacesRes.data ?? []) as Array<{ id: string; name: string; slug: string }>
+  const allSpaces = (
+    (spacesRes.data ?? []) as Array<{
+      id: string
+      name: string
+      slug: string
+      is_active: boolean
+    }>
   ).map((s) => ({
     id: s.id,
     key: s.slug,
     display_name: s.name,
     color: null,
     category: "location",
+    is_active: s.is_active,
   }))
-  const spacesById = new Map(locations.map((l) => [l.id, l]))
+  const locations: DropdownLite[] = allSpaces.filter((s) => s.is_active)
+  const spacesById = new Map<string, DropdownLite>(
+    allSpaces.map((l) => [l.id, l]),
+  )
 
-  const dropdownsById = new Map(dropdowns.map((d) => [d.id, d]))
-  const severities = dropdowns.filter((d) => d.category === "severity")
-  const bodyParts = dropdowns.filter((d) => d.category === "body_part")
-  const activities = dropdowns.filter((d) => d.category === "activity")
-  const medicals = dropdowns.filter((d) => d.category === "medical_attention")
+  const dropdownsById = new Map<string, DropdownLite>(
+    allDropdowns.map((d) => [d.id, d]),
+  )
+  const activeDropdowns = allDropdowns.filter((d) => d.is_active)
+  const severities = activeDropdowns.filter((d) => d.category === "severity")
+  const bodyParts = activeDropdowns.filter((d) => d.category === "body_part")
+  const activities = activeDropdowns.filter((d) => d.category === "activity")
+  const medicals = activeDropdowns.filter(
+    (d) => d.category === "medical_attention",
+  )
 
   // If filtering by body_part, narrow the report ids first via the join table.
   let bodyPartReportIds: string[] | null = null
@@ -312,7 +329,7 @@ export async function HistoryTabLoader({
       }))
 
       detail = {
-        report: baseReport as AccidentReportWithAge,
+        report: baseReport,
         injury_type: baseReport.primary_injury_type_dropdown_id
           ? (dropdownsById.get(baseReport.primary_injury_type_dropdown_id) ??
             null)
