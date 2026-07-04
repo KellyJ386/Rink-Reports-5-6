@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { formatWallClock } from "@/lib/wall-clock"
 
 import { updateIncidentReport } from "../actions"
 import {
@@ -40,14 +41,18 @@ function isWindowOpen(endsAt: string): boolean {
   return new Date(endsAt).getTime() > Date.now()
 }
 
-function fmt(iso: string): string {
+/** Format a real instant (submitted_at, edit-window deadline) in the
+ * facility's timezone — this page renders on the server, so falling back to
+ * the server locale would show UTC to everyone. */
+function fmt(iso: string, timezone: string | null): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
+      timeZone: timezone || undefined,
       dateStyle: "medium",
       timeStyle: "short",
     })
   } catch {
-    return iso
+    return new Date(iso).toLocaleString()
   }
 }
 
@@ -92,6 +97,7 @@ export default async function IncidentReportPage({
     { data: activityRows },
     { data: spaceRows },
     { data: incidentTypeRows },
+    { data: facility },
   ] = await Promise.all([
     supabase
       .from("incident_report_spaces")
@@ -129,7 +135,14 @@ export default async function IncidentReportPage({
       .eq("facility_id", report.facility_id)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", report.facility_id)
+      .maybeSingle(),
   ])
+
+  const tz = facility?.timezone ?? null
 
   const allSeverities = (severityLevels ?? []).map((s) => ({
     id: s.id,
@@ -225,8 +238,13 @@ export default async function IncidentReportPage({
                   .join(", ") || "—"
               }
             />
-            <Row label="When it happened" value={fmt(report.occurred_at)} />
-            <Row label="Reported at" value={fmt(report.submitted_at)} />
+            {/* occurred_at is the reporter's wall clock stored as-if-UTC —
+                render it back verbatim rather than shifting it into a zone. */}
+            <Row
+              label="When it happened"
+              value={formatWallClock(report.occurred_at)}
+            />
+            <Row label="Reported at" value={fmt(report.submitted_at, tz)} />
             <Row label="Reporter" value={report.reporter_name} />
             <Row label="Phone" value={report.reporter_phone ?? "—"} />
             <Row
@@ -327,11 +345,11 @@ export default async function IncidentReportPage({
           className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-foreground"
         >
           Changes saved. You can keep editing until the 24-hour window closes (
-          {fmt(report.edit_window_ends_at)}).
+          {fmt(report.edit_window_ends_at, tz)}).
         </div>
       ) : (
         <p className="text-muted-foreground text-sm">
-          Editable until {fmt(report.edit_window_ends_at)}.
+          Editable until {fmt(report.edit_window_ends_at, tz)}.
         </p>
       )}
 

@@ -230,6 +230,27 @@ describe("validateIncidentInput", () => {
     expect(fieldErrors.occurred_at).toBe("Invalid date and time.")
   })
 
+  it("rejects an occurred_at more than 24h in the future", () => {
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const local = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+      `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    const dayMs = 24 * 60 * 60 * 1000
+
+    const farFuture = validateIncidentInput(
+      validInput({ occurred_at: local(new Date(Date.now() + 3 * dayMs)) }),
+    )
+    expect(farFuture.fieldErrors.occurred_at).toBe(
+      "That date is in the future.",
+    )
+
+    // Within the 24h wall-clock allowance (reporters east of UTC) — fine.
+    const nearNow = validateIncidentInput(
+      validInput({ occurred_at: local(new Date(Date.now() + 60 * 60 * 1000)) }),
+    )
+    expect(nearNow.fieldErrors.occurred_at).toBeUndefined()
+  })
+
   it("rejects an over-long description, accepts one at the limit", () => {
     const atLimit = validateIncidentInput(
       validInput({ description: "x".repeat(DESCRIPTION_MAX) }),

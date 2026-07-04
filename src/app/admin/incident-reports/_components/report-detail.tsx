@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
+import { formatWallClock } from "@/lib/wall-clock"
+
 import { addFollowupNote, setReportStatus } from "../actions"
 import type { ActionState, IncidentReportDetail, IncidentStatus } from "../types"
 import { STATUSES, isIncidentStatus } from "../types"
@@ -151,7 +153,11 @@ export function ReportDetail({ detail, backHref }: Props) {
                 "—"
               )}
             </Field>
-            <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
+            {/* occurred_at is the reporter's wall clock stored as-if-UTC —
+                browser-local formatting (fmt) would shift it. */}
+            <Field label="Occurred at">
+              {formatWallClock(report.occurred_at)}
+            </Field>
             <Field label="Reporter name">{report.reporter_name}</Field>
             <Field label="Reporter phone">
               {report.reporter_phone || "—"}

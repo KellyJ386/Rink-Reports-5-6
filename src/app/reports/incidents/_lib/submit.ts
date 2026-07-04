@@ -134,7 +134,7 @@ export async function resolveIncidentRefs(
 }
 
 // ---------------------------------------------------------------------------
-// Persist (insert report + children + change log + notification dispatch)
+// Persist (atomic RPC: report + children + change log in one transaction)
 // ---------------------------------------------------------------------------
 
 type SupabaseError = { code?: string; message?: string } | null
@@ -146,6 +146,16 @@ function dbError(err: SupabaseError, fallback: string): string {
 export type PersistResult =
   | { ok: true; reportId: string }
   | { ok: false; error: string }
+
+/** Witness rows serialized for the persist RPCs' jsonb parameter. */
+export function witnessesJson(witnesses: IncidentInput["witnesses"]) {
+  return witnesses.map((w) => ({
+    name: w.name,
+    phone: w.phone,
+    email: w.email,
+    statement: w.statement,
+  }))
+}
 
 export async function persistIncident(
   supabase: SupabaseClient,
@@ -166,159 +176,116 @@ export async function persistIncident(
     ? null
     : input.activity_other || null
 
-  const { data: inserted, error: insertErr } = await supabase
-    .from("incident_reports")
+  // Single transaction (migration 173): report + spaces + witnesses + change
+  // log land together or not at all — no more orphaned partial reports from a
+  // mid-persist failure. SECURITY INVOKER, so the same RLS insert policies
+  // apply as the previous row-by-row writes.
+  const { data: reportId, error: rpcErr } = await supabase.rpc(
+    "submit_incident_report",
+    {
+      p_facility_id: facilityId,
+      p_employee_id: employeeId,
+      p_severity_level_id: input.severity_level_id,
+      p_incident_type_id: refs.resolvedIncidentTypeId || undefined,
+      p_activity_id: refs.resolvedActivityId ?? undefined,
+      p_activity_other: activityOther ?? undefined,
+      p_location_other: input.location_other || undefined,
+      p_immediate_actions: input.immediate_actions || undefined,
+      p_occurred_at: occurredAtIso,
+      p_reporter_name: input.reporter_name,
+      p_reporter_phone: input.reporter_phone,
+      p_description: input.description,
+      p_ambulance_flag: input.ambulance_flag,
+      p_persons_involved: input.persons_involved ?? undefined,
+      p_follow_up_required: input.follow_up_required,
+      p_space_ids: refs.validSpaceIds,
+      p_witnesses: witnessesJson(input.witnesses),
+    },
+  )
+
+  if (rpcErr || !reportId) {
+    return { ok: false, error: dbError(rpcErr, "Failed to save report.") }
+  }
+
+  if (input.ambulance_flag) {
+    await escalateAmbulance(supabase, {
+      facilityId,
+      employeeId,
+      reportId,
+      reporterName: input.reporter_name,
+      description: input.description,
+      phase: "submitted",
+    })
+  } else {
+    // Best-effort notification fan-out — never blocks the submission.
+    await dispatchRulesForSubmission({
+      facilityId,
+      sourceModule: "incident_reports",
+      sourceRecordId: reportId,
+      subject: `Incident report submitted by ${input.reporter_name}`,
+      body: input.description,
+    })
+  }
+
+  return { ok: true, reportId }
+}
+
+// ---------------------------------------------------------------------------
+// Ambulance escalation (shared by create and by an edit that turns the flag on)
+// ---------------------------------------------------------------------------
+
+/**
+ * Raise the ambulance escalation for a report: a critical,
+ * acknowledgement-requiring communication_alert (mirrors the accident
+ * "medical_attention" alert) plus a "critical"-severity routing-rule dispatch
+ * so facilities can route a higher-priority recipient set. Best-effort by
+ * design — a failed escalation never blocks the report itself, but is logged
+ * so a missed escalation is traceable.
+ */
+export async function escalateAmbulance(
+  supabase: SupabaseClient,
+  args: {
+    facilityId: string
+    employeeId: string
+    reportId: string
+    reporterName: string
+    description: string
+    phase: "submitted" | "updated"
+  },
+): Promise<void> {
+  const { facilityId, employeeId, reportId, reporterName, description, phase } =
+    args
+  const summary = `Ambulance called — reported by ${reporterName}. ${description.slice(0, 200)}${
+    description.length > 200 ? "…" : ""
+  }`
+  const { error: alertErr } = await supabase
+    .from("communication_alerts")
     .insert({
       facility_id: facilityId,
-      employee_id: employeeId,
-      severity_level_id: input.severity_level_id,
-      incident_type_id: refs.resolvedIncidentTypeId || null,
-      activity_id: refs.resolvedActivityId,
-      activity_other: activityOther,
-      location_other: input.location_other || null,
-      immediate_actions: input.immediate_actions || null,
-      occurred_at: occurredAtIso,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
-      description: input.description,
-      ambulance_flag: input.ambulance_flag,
-      persons_involved: input.persons_involved,
-      follow_up_required: input.follow_up_required,
-      status: "submitted",
-      submitted_at: new Date().toISOString(),
+      source_module: "incident_reports",
+      source_record_id: reportId,
+      severity: "critical",
+      title: "Incident report — ambulance called",
+      body: summary,
+      created_by_employee_id: employeeId,
+      requires_acknowledgement: true,
     })
-    .select("id, submitted_at, occurred_at, edit_window_ends_at")
-    .single()
-
-  if (insertErr || !inserted) {
-    return { ok: false, error: dbError(insertErr, "Failed to save report.") }
-  }
-
-  const reportId = inserted.id
-  const cleanupAndFail = async (msg: string): Promise<PersistResult> => {
-    // Best-effort: incident_reports DELETE is RLS-restricted to super admins,
-    // so under a staff session this delete is a no-op and a partial report row
-    // remains. Log it so the orphan is traceable rather than silent.
-    const { error: delErr } = await supabase
-      .from("incident_reports")
-      .delete()
-      .eq("id", reportId)
-    if (delErr) {
-      console.error(
-        `[incidents] could not clean up partial report ${reportId} after "${msg}":`,
-        delErr.message,
-      )
-    }
-    return { ok: false, error: msg }
-  }
-
-  if (refs.validSpaceIds.length > 0) {
-    const { error: spErr } = await supabase
-      .from("incident_report_spaces")
-      .insert(
-        refs.validSpaceIds.map((space_id) => ({
-          incident_id: reportId,
-          facility_id: facilityId,
-          space_id,
-        })),
-      )
-    if (spErr) {
-      return cleanupAndFail(dbError(spErr, "Failed to save facility spaces."))
-    }
-  }
-
-  if (input.witnesses.length > 0) {
-    const { error: wErr } = await supabase.from("incident_witnesses").insert(
-      input.witnesses.map((w, i) => ({
-        incident_id: reportId,
-        facility_id: facilityId,
-        name: w.name,
-        phone: w.phone,
-        email: w.email,
-        statement: w.statement,
-        sort_order: i,
-      })),
+  if (alertErr) {
+    console.error(
+      `[incidents] ambulance alert insert failed for report ${reportId}:`,
+      alertErr.message,
     )
-    if (wErr) {
-      return cleanupAndFail(dbError(wErr, "Failed to save witnesses."))
-    }
   }
 
-  const { error: logErr } = await supabase.from("incident_change_log").insert({
-    incident_id: reportId,
-    facility_id: facilityId,
-    employee_id: employeeId,
-    action: "create",
-    before: null,
-    after: {
-      id: reportId,
-      severity_level_id: input.severity_level_id,
-      incident_type_id: refs.resolvedIncidentTypeId || null,
-      activity_id: refs.resolvedActivityId,
-      activity_other: activityOther,
-      location_other: input.location_other || null,
-      immediate_actions: input.immediate_actions || null,
-      occurred_at: inserted.occurred_at,
-      submitted_at: inserted.submitted_at,
-      edit_window_ends_at: inserted.edit_window_ends_at,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
-      description: input.description,
-      ambulance_flag: input.ambulance_flag,
-      persons_involved: input.persons_involved,
-      follow_up_required: input.follow_up_required,
-      space_ids: refs.validSpaceIds,
-      witnesses: input.witnesses,
-    },
-  })
-  if (logErr) {
-    return cleanupAndFail(dbError(logErr, "Failed to record change log."))
-  }
-
-  // Ambulance escalation — mirrors the accident "medical_attention" alert. When
-  // an ambulance was called we raise a critical, acknowledgement-requiring
-  // communication_alert so it surfaces above the routine fan-out. Best-effort:
-  // a failed alert never blocks the report itself.
-  if (input.ambulance_flag) {
-    const summary = `Ambulance called — reported by ${
-      input.reporter_name
-    }. ${input.description.slice(0, 200)}${
-      input.description.length > 200 ? "…" : ""
-    }`
-    const { error: alertErr } = await supabase
-      .from("communication_alerts")
-      .insert({
-        facility_id: facilityId,
-        source_module: "incident_reports",
-        source_record_id: reportId,
-        severity: "critical",
-        title: "Incident report — ambulance called",
-        body: summary,
-        created_by_employee_id: employeeId,
-        requires_acknowledgement: true,
-      })
-    if (alertErr) {
-      console.error(
-        `[incidents] ambulance alert insert failed for report ${reportId}:`,
-        alertErr.message,
-      )
-    }
-  }
-
-  // Best-effort notification fan-out — never blocks the submission. When an
-  // ambulance was called we tag the dispatch as "critical" so facilities can
-  // route a higher-priority recipient set via communication_routing_rules
-  // (severity-scoped rules) without any new recipient UI.
   await dispatchRulesForSubmission({
     facilityId,
     sourceModule: "incident_reports",
     sourceRecordId: reportId,
-    severity: input.ambulance_flag ? "critical" : undefined,
-    subject: input.ambulance_flag
-      ? `Ambulance called — incident reported by ${input.reporter_name}`
-      : `Incident report submitted by ${input.reporter_name}`,
-    body: input.description,
+    severity: "critical",
+    subject:
+      phase === "updated"
+        ? `Ambulance called — incident report updated by ${reporterName}`
+        : `Ambulance called — incident reported by ${reporterName}`,
+    body: description,
   })
-
-  return { ok: true, reportId }
 }
