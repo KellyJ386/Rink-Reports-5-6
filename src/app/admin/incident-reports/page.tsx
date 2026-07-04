@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { ActivitiesTab } from "./_components/activities-tab"
@@ -70,6 +70,13 @@ export default async function IncidentReportsAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // Console access alone is not enough: the incident RLS policies gate admin
+  // reads (other submitters' reports, the change log) and every write
+  // (severities, activities, types, status transitions, follow-up notes) on
+  // the module-scoped incident_reports/admin grant. Denying here (with a real
+  // /forbidden page) beats rendering a console that lists nothing and whose
+  // writes all fail.
+  await requireModuleAdmin("incident_reports")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
@@ -245,8 +252,36 @@ async function HistoryTabLoader({
   if (params.severity) q = q.eq("severity_level_id", params.severity)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (params.location) {
-    // Use prefix-LIKE so the text_pattern_ops index can be used.
-    q = q.like("location", `${params.location}%`)
+    // Locations moved to incident_report_spaces + location_other in migration
+    // 103; the legacy `location` column only exists on pre-redesign rows.
+    // Match the prefix against linked space names, the "Other" free text, and
+    // the legacy column.
+    const likePattern = `${params.location.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    const { data: spaceMatches } = await supabase
+      .from("facility_spaces")
+      .select("id")
+      .eq("facility_id", facilityId)
+      .ilike("name", likePattern)
+    const matchedSpaceIds = (spaceMatches ?? []).map((s) => s.id)
+    let matchedIncidentIds: string[] = []
+    if (matchedSpaceIds.length > 0) {
+      const { data: links } = await supabase
+        .from("incident_report_spaces")
+        .select("incident_id")
+        .eq("facility_id", facilityId)
+        .in("space_id", matchedSpaceIds)
+      matchedIncidentIds = Array.from(
+        new Set((links ?? []).map((l) => l.incident_id)),
+      )
+    }
+    // PostgREST `or` values are comma/paren-sensitive — double-quote the
+    // pattern and escape embedded backslashes/quotes.
+    const quoted = `"${likePattern.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+    const ors = [`location_other.ilike.${quoted}`, `location.ilike.${quoted}`]
+    if (matchedIncidentIds.length > 0) {
+      ors.push(`id.in.(${matchedIncidentIds.join(",")})`)
+    }
+    q = q.or(ors.join(","))
   }
   if (params.from) q = q.gte("submitted_at", `${params.from}T00:00:00.000Z`)
   if (params.to) q = q.lte("submitted_at", `${params.to}T23:59:59.999Z`)
@@ -273,6 +308,42 @@ async function HistoryTabLoader({
   }
   const empsById = new Map(listedEmployees.map((e) => [e.id, e]))
 
+  // Resolve linked facility-space names for the Location column (new reports
+  // store locations in incident_report_spaces + location_other; the legacy
+  // `location` column only exists on pre-redesign rows).
+  const spaceNamesByReport = new Map<string, string[]>()
+  if (reports.length > 0) {
+    const [{ data: linkRows }, { data: spaceRows }] = await Promise.all([
+      supabase
+        .from("incident_report_spaces")
+        .select("incident_id, space_id")
+        .in(
+          "incident_id",
+          reports.map((r) => r.id),
+        ),
+      supabase
+        .from("facility_spaces")
+        .select("id, name")
+        .eq("facility_id", facilityId),
+    ])
+    const spaceNameById = new Map(
+      (spaceRows ?? []).map((s) => [s.id, s.name]),
+    )
+    for (const link of linkRows ?? []) {
+      const name = spaceNameById.get(link.space_id)
+      if (!name) continue
+      const names = spaceNamesByReport.get(link.incident_id) ?? []
+      names.push(name)
+      spaceNamesByReport.set(link.incident_id, names)
+    }
+  }
+  const locationLabel = (r: IncidentReportRow): string | null =>
+    [...(spaceNamesByReport.get(r.id) ?? []), r.location_other]
+      .filter(Boolean)
+      .join(", ") ||
+    r.location ||
+    null
+
   const list: IncidentReportListItem[] = reports.map((r) => ({
     ...r,
     type: r.incident_type_id
@@ -282,6 +353,7 @@ async function HistoryTabLoader({
       ? (sevById.get(r.severity_level_id) ?? null)
       : null,
     employee: r.employee_id ? (empsById.get(r.employee_id) ?? null) : null,
+    locationLabel: locationLabel(r),
   }))
 
   // Drilldown detail loader

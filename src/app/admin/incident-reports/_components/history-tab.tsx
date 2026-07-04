@@ -200,7 +200,7 @@ function ReportsList({
                 )}
               </td>
               <td className="border-b px-3 py-2 align-middle">
-                {r.location || (
+                {r.locationLabel || (
                   <span className="text-muted-foreground">—</span>
                 )}
               </td>

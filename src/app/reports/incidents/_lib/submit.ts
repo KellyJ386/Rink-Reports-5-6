@@ -196,7 +196,19 @@ export async function persistIncident(
 
   const reportId = inserted.id
   const cleanupAndFail = async (msg: string): Promise<PersistResult> => {
-    await supabase.from("incident_reports").delete().eq("id", reportId)
+    // Best-effort: incident_reports DELETE is RLS-restricted to super admins,
+    // so under a staff session this delete is a no-op and a partial report row
+    // remains. Log it so the orphan is traceable rather than silent.
+    const { error: delErr } = await supabase
+      .from("incident_reports")
+      .delete()
+      .eq("id", reportId)
+    if (delErr) {
+      console.error(
+        `[incidents] could not clean up partial report ${reportId} after "${msg}":`,
+        delErr.message,
+      )
+    }
     return { ok: false, error: msg }
   }
 
@@ -273,16 +285,24 @@ export async function persistIncident(
     }. ${input.description.slice(0, 200)}${
       input.description.length > 200 ? "…" : ""
     }`
-    await supabase.from("communication_alerts").insert({
-      facility_id: facilityId,
-      source_module: "incident_reports",
-      source_record_id: reportId,
-      severity: "critical",
-      title: "Incident report — ambulance called",
-      body: summary,
-      created_by_employee_id: employeeId,
-      requires_acknowledgement: true,
-    })
+    const { error: alertErr } = await supabase
+      .from("communication_alerts")
+      .insert({
+        facility_id: facilityId,
+        source_module: "incident_reports",
+        source_record_id: reportId,
+        severity: "critical",
+        title: "Incident report — ambulance called",
+        body: summary,
+        created_by_employee_id: employeeId,
+        requires_acknowledgement: true,
+      })
+    if (alertErr) {
+      console.error(
+        `[incidents] ambulance alert insert failed for report ${reportId}:`,
+        alertErr.message,
+      )
+    }
   }
 
   // Best-effort notification fan-out — never blocks the submission. When an
