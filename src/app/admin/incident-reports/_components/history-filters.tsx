@@ -33,6 +33,10 @@ type Props = {
   params: HistoryParams
 }
 
+// Radix Select items can't carry an empty value, so each dropdown gets an
+// explicit "All …" sentinel that clears just that filter.
+const ALL = "__all__"
+
 export function HistoryFilters({
   types,
   severities,
@@ -79,16 +83,19 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.status || undefined}
-          onValueChange={(v) => setParam("status", v)}
+          onValueChange={(v) => setParam("status", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-36">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All statuses</SelectItem>
             {STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
+                {s === "in_review"
+                  ? "In review"
+                  : s.charAt(0).toUpperCase() + s.slice(1)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -100,13 +107,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.type || undefined}
-          onValueChange={(v) => setParam("type", v)}
+          onValueChange={(v) => setParam("type", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-44">
             <SelectValue placeholder="All types" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All types</SelectItem>
             {types.map((t) => (
               <SelectItem key={t.id} value={t.id}>
                 {t.name}
@@ -121,13 +129,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.severity || undefined}
-          onValueChange={(v) => setParam("severity", v)}
+          onValueChange={(v) => setParam("severity", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-40">
             <SelectValue placeholder="All severities" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All severities</SelectItem>
             {severities.map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 {s.display_name}
@@ -142,13 +151,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.employee || undefined}
-          onValueChange={(v) => setParam("employee", v)}
+          onValueChange={(v) => setParam("employee", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-48">
             <SelectValue placeholder="All employees" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All employees</SelectItem>
             {employees.map((e) => (
               <SelectItem key={e.id} value={e.id}>
                 {e.last_name}, {e.first_name}

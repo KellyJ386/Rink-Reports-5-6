@@ -102,49 +102,68 @@ export default async function IncidentReportPage({
       .select("name, phone, email, statement")
       .eq("incident_id", id)
       .order("sort_order", { ascending: true }),
+    // Unfiltered on is_active: the read-only view below must still resolve
+    // names for a severity/activity/space that was deactivated after this
+    // report was submitted. The edit form gets the active subsets.
     supabase
       .from("incident_severity_levels")
       .select("id, display_name, sort_order, is_active")
       .eq("facility_id", report.facility_id)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("display_name", { ascending: true }),
     supabase
       .from("incident_activities")
       .select("id, display_name, sort_order, is_active")
       .eq("facility_id", report.facility_id)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("display_name", { ascending: true }),
     supabase
       .from("facility_spaces")
       .select("id, name, sort_order, is_active")
       .eq("facility_id", report.facility_id)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     supabase
       .from("incident_types")
       .select("id, name, sort_order, is_active")
       .eq("facility_id", report.facility_id)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
   ])
 
-  const severities = (severityLevels ?? []).map((s) => ({
+  const allSeverities = (severityLevels ?? []).map((s) => ({
     id: s.id,
     display_name: s.display_name,
+    is_active: s.is_active,
   }))
-  const incidentTypes = (incidentTypeRows ?? []).map((t) => ({
+  const allIncidentTypes = (incidentTypeRows ?? []).map((t) => ({
     id: t.id,
     name: t.name,
+    is_active: t.is_active,
   }))
-  const activities = (activityRows ?? []).map((a) => ({
+  const allActivities = (activityRows ?? []).map((a) => ({
     id: a.id,
     display_name: a.display_name,
+    is_active: a.is_active,
   }))
-  const spaces = (spaceRows ?? []).map((s) => ({ id: s.id, name: s.name }))
+  const allSpaces = (spaceRows ?? []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    is_active: s.is_active,
+  }))
+
+  const severities = allSeverities
+    .filter((s) => s.is_active)
+    .map(({ id, display_name }) => ({ id, display_name }))
+  const incidentTypes = allIncidentTypes
+    .filter((t) => t.is_active)
+    .map(({ id, name }) => ({ id, name }))
+  const activities = allActivities
+    .filter((a) => a.is_active)
+    .map(({ id, display_name }) => ({ id, display_name }))
+  const spaces = allSpaces
+    .filter((s) => s.is_active)
+    .map(({ id, name }) => ({ id, name }))
 
   const selectedSpaceIds = (spaceLinks ?? []).map((l) => l.space_id)
   const witnesses = (witnessRows ?? []).map((w) => ({
@@ -168,16 +187,17 @@ export default async function IncidentReportPage({
   )
 
   if (!canEdit) {
-    // Read-only view (window closed or not the owner).
+    // Read-only view (window closed or not the owner). Resolve names from the
+    // unfiltered lists so deactivated options still display.
     const severityName =
-      severities.find((s) => s.id === report.severity_level_id)?.display_name ??
-      "—"
+      allSeverities.find((s) => s.id === report.severity_level_id)
+        ?.display_name ?? "—"
     const activityName = report.activity_id
-      ? (activities.find((a) => a.id === report.activity_id)?.display_name ??
-        "—")
+      ? (allActivities.find((a) => a.id === report.activity_id)
+          ?.display_name ?? "—")
       : report.activity_other || "—"
     const spaceNames = selectedSpaceIds
-      .map((sid) => spaces.find((s) => s.id === sid)?.name)
+      .map((sid) => allSpaces.find((s) => s.id === sid)?.name)
       .filter((n): n is string => !!n)
 
     return (

@@ -36,6 +36,8 @@ export type IncidentReportListItem = IncidentReportRow & {
   type: Pick<IncidentTypeRow, "id" | "name" | "color"> | null
   severity: Pick<SeverityRow, "id" | "key" | "display_name" | "color"> | null
   employee: EmployeeLite | null
+  /** Linked space names + "Other" text (falls back to the legacy `location`). */
+  locationLabel: string | null
 }
 
 export type IncidentReportDetail = {

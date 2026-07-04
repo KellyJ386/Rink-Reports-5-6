@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { dbError } from "@/lib/db-error"
 
@@ -41,6 +42,27 @@ function asInt(value: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? Math.trunc(n) : null
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the incident RLS policies gate
+ * on has_module_admin_access('incident_reports') — a module-scoped
+ * user_permissions grant requireAdmin does NOT imply. Without this check, an
+ * admin lacking the module grant reaches the action and the mutation either
+ * dies at the RLS layer with an opaque error or — for UPDATEs whose target
+ * row RLS filters out — matches zero rows and reports a false success.
+ * Returns a human-readable denial message, or null when allowed. (A message,
+ * not a redirect: these actions run inside try/catch blocks that would
+ * swallow the NEXT_REDIRECT control-flow error.)
+ */
+async function ensureIncidentAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "incident_reports", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the incident reports module's admin permission. Ask an administrator to grant it under Admin → Permissions."
+}
+
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
@@ -62,7 +84,8 @@ export async function createSeverityLevel(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -107,7 +130,8 @@ export async function updateSeverityLevel(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -159,7 +183,8 @@ export async function setSeverityLevelActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing severity id." }
@@ -182,7 +207,8 @@ export async function setSeverityLevelActive(
 
 export async function deleteSeverityLevel(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing severity id." }
@@ -247,7 +273,8 @@ const DEFAULT_SEVERITIES: ReadonlyArray<{
 
 export async function seedIncidentDefaults(): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -293,7 +320,8 @@ export async function setReportStatus(
   newStatus: IncidentStatus,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!reportId) return { ok: false, error: "Missing report id." }
@@ -342,7 +370,8 @@ export async function addFollowupNote(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -392,7 +421,8 @@ export async function createIncidentActivity(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -434,7 +464,8 @@ export async function updateIncidentActivity(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -483,7 +514,8 @@ export async function setIncidentActivityActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing activity id." }
@@ -506,7 +538,8 @@ export async function setIncidentActivityActive(
 
 export async function deleteIncidentActivity(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing activity id." }
@@ -550,7 +583,8 @@ export async function createIncidentType(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -585,7 +619,8 @@ export async function updateIncidentType(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -627,7 +662,8 @@ export async function setIncidentTypeActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing incident type id." }
@@ -650,7 +686,8 @@ export async function setIncidentTypeActive(
 
 export async function deleteIncidentType(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing incident type id." }
@@ -708,7 +745,8 @@ const DEFAULT_ACTIVITIES: ReadonlyArray<{
 
 export async function seedIncidentActivities(): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const supabase = await createClient()
@@ -762,7 +800,8 @@ export async function bulkImportIncidentActivities(
   csv: string,
 ): Promise<BulkImportResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIncidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 

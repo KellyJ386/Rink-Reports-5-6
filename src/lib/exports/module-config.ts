@@ -190,6 +190,7 @@ const buildIncidentReports: ModuleBuilder = async ({ sb, facilityId, range, sett
     incident_type_id: string | null
     severity_level_id: string | null
     location: string | null
+    location_other: string | null
     description: string | null
     status: string
     submitted_at: string
@@ -199,15 +200,22 @@ const buildIncidentReports: ModuleBuilder = async ({ sb, facilityId, range, sett
     "incident_reports",
     facilityId,
     range,
-    "id, employee_id, incident_type_id, severity_level_id, location, description, status, submitted_at",
+    "id, employee_id, incident_type_id, severity_level_id, location, location_other, description, status, submitted_at",
   )
-  const [emps, typeRes, sevRes] = await Promise.all([
+  const [emps, typeRes, sevRes, spaceRes, linkRes] = await Promise.all([
     loadEmployeeNames(sb, facilityId, subs.map((s) => s.employee_id)),
     sb.from("incident_types").select("id, name").eq("facility_id", facilityId),
     sb
       .from("incident_severity_levels")
       .select("id, display_name")
       .eq("facility_id", facilityId),
+    sb.from("facility_spaces").select("id, name").eq("facility_id", facilityId),
+    subs.length > 0
+      ? sb
+          .from("incident_report_spaces")
+          .select("incident_id, space_id")
+          .in("incident_id", subs.map((s) => s.id))
+      : Promise.resolve({ data: [] }),
   ])
   const typeName = new Map(
     ((typeRes.data ?? []) as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]),
@@ -218,12 +226,34 @@ const buildIncidentReports: ModuleBuilder = async ({ sb, facilityId, range, sett
       s.display_name,
     ]),
   )
+  // New reports store locations in incident_report_spaces + location_other;
+  // the legacy `location` column only exists on pre-redesign rows.
+  const spaceName = new Map(
+    ((spaceRes.data ?? []) as Array<{ id: string; name: string }>).map((s) => [
+      s.id,
+      s.name,
+    ]),
+  )
+  const spacesBySub = new Map<string, string[]>()
+  for (const l of (linkRes.data ?? []) as Array<{
+    incident_id: string
+    space_id: string
+  }>) {
+    const name = spaceName.get(l.space_id)
+    if (!name) continue
+    const arr = spacesBySub.get(l.incident_id) ?? []
+    arr.push(name)
+    spacesBySub.set(l.incident_id, arr)
+  }
   return {
     columns: MODULE_COLUMN_OPTIONS.incident_reports,
     rows: subs.map((s) => ({
       incident_type: s.incident_type_id ? (typeName.get(s.incident_type_id) ?? "") : "",
       severity: s.severity_level_id ? (sevName.get(s.severity_level_id) ?? "") : "",
-      location: s.location ?? "",
+      location:
+        [...(spacesBySub.get(s.id) ?? []), s.location_other]
+          .filter(Boolean)
+          .join("; ") || (s.location ?? ""),
       description: s.description ?? "",
       submitted_by: s.employee_id ? (emps.get(s.employee_id) ?? "") : "",
       submitted_at: fmt(s.submitted_at),

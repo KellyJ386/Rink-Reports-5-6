@@ -153,7 +153,9 @@ export function ReportDetail({ detail, backHref }: Props) {
             </Field>
             <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
             <Field label="Reporter name">{report.reporter_name}</Field>
-            <Field label="Reporter phone">{report.reporter_phone}</Field>
+            <Field label="Reporter phone">
+              {report.reporter_phone || "—"}
+            </Field>
             <Field label="Ambulance called">
               <BoolBadge value={report.ambulance_flag} alertWhenTrue />
             </Field>
