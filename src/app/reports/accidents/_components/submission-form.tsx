@@ -333,6 +333,12 @@ export function SubmissionForm({
       formRef.current?.reportValidity()
       return
     }
+    // The severity pill group is marked required but isn't a native form
+    // control, so checkValidity() can't cover it — enforce it here.
+    if (severities.length > 0 && !severityId) {
+      toast.error("Please select a severity before submitting.")
+      return
+    }
     setConfirmOpen(true)
   }
 

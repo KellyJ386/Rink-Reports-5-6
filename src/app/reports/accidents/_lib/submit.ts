@@ -99,9 +99,7 @@ export async function persistAccident(
     return { ok: false, error: msg }
   }
 
-  // Insert body part rows in batch. `laterality` lives on the table as of
-  // migration 00000000000092 but is not yet in the generated Database types —
-  // cast through any to attach it, matching the pattern in offline-sync.
+  // Insert body part rows in batch.
   if (input.body_parts.length > 0) {
     const rows = input.body_parts.map((bp) => ({
       accident_id: reportId,

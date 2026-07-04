@@ -5,6 +5,7 @@ import { revalidatePath, updateTag } from "next/cache"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { accidentDropdownsTag } from "@/app/reports/accidents/_lib/dropdowns"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import type { Json } from "@/types/database"
@@ -44,6 +45,26 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the accident RLS write policies
+ * gate on has_module_admin_access('accident_reports') — a module-scoped
+ * user_permissions grant requireAdmin does NOT imply. Without this check, an
+ * admin lacking the module grant reaches the action and the mutation dies at
+ * the RLS layer with an opaque error. Returns a human-readable denial
+ * message, or null when allowed. (A message, not a redirect: these actions
+ * run inside try/catch blocks that would swallow the NEXT_REDIRECT
+ * control-flow error.)
+ */
+async function ensureAccidentAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "accident_reports", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the accident reports module's admin permission. Ask an administrator to grant it under Admin → Permissions."
+}
+
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
@@ -75,7 +96,8 @@ export async function importDropdowns(
   rows: ValidatedRow[],
 ): Promise<ImportResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -171,7 +193,8 @@ export async function createDropdown(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -230,7 +253,8 @@ export async function updateDropdown(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -294,7 +318,8 @@ export async function setDropdownActive(
   active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing dropdown id." }
@@ -321,7 +346,8 @@ export async function setDropdownActive(
 
 export async function deleteDropdown(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing dropdown id." }
@@ -384,8 +410,15 @@ type SeedRow = {
   sort_order: number
   color?: string
   metadata?: Json
+  /** Defaults to true. Legacy body-part keys seed inactive. */
+  is_active?: boolean
 }
 
+// Must stay in lockstep with seed_default_accident_dropdowns (migration 142):
+// every ACTIVE body_part key here must have a matching BODY_PART_KEYS entry in
+// the diagram, or staff selections for that region are silently dropped.
+// `arms` / `head_neck` seed INACTIVE — legacy keys kept only so historical
+// reports keep rendering.
 const SEED_BODY_PARTS: ReadonlyArray<SeedRow> = [
   { category: "body_part", key: "feet", display_name: "Feet", sort_order: 1 },
   { category: "body_part", key: "ankles", display_name: "Ankles", sort_order: 2 },
@@ -394,10 +427,15 @@ const SEED_BODY_PARTS: ReadonlyArray<SeedRow> = [
   { category: "body_part", key: "upper_legs", display_name: "Upper Legs", sort_order: 5 },
   { category: "body_part", key: "hips", display_name: "Hips", sort_order: 6 },
   { category: "body_part", key: "torso", display_name: "Torso", sort_order: 7 },
+  { category: "body_part", key: "arms", display_name: "Arms", sort_order: 8, is_active: false },
   { category: "body_part", key: "elbows", display_name: "Elbows", sort_order: 9 },
   { category: "body_part", key: "hands", display_name: "Hands", sort_order: 10 },
   { category: "body_part", key: "fingers", display_name: "Fingers", sort_order: 11 },
-  { category: "body_part", key: "head_neck", display_name: "Head/Neck", sort_order: 12 },
+  { category: "body_part", key: "head_neck", display_name: "Head/Neck", sort_order: 12, is_active: false },
+  { category: "body_part", key: "head", display_name: "Head", sort_order: 13 },
+  { category: "body_part", key: "face_jaw", display_name: "Face / Jaw", sort_order: 14 },
+  { category: "body_part", key: "neck", display_name: "Neck", sort_order: 15 },
+  { category: "body_part", key: "shoulders", display_name: "Shoulders", sort_order: 16 },
   { category: "body_part", key: "wrists", display_name: "Wrists", sort_order: 17 },
   { category: "body_part", key: "upper_arms", display_name: "Upper Arms", sort_order: 18 },
   { category: "body_part", key: "lower_arms", display_name: "Lower Arms", sort_order: 19 },
@@ -483,7 +521,8 @@ void DROPDOWN_CATEGORIES
 
 export async function seedAccidentDefaults(): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -496,7 +535,7 @@ export async function seedAccidentDefaults(): Promise<SimpleResult> {
       display_name: s.display_name,
       color: s.color ?? null,
       sort_order: s.sort_order,
-      is_active: true,
+      is_active: s.is_active ?? true,
       metadata: s.metadata ?? {},
     }))
 
@@ -531,7 +570,8 @@ export async function updateWorkersCompInstructions(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -597,7 +637,8 @@ export async function addAccidentFollowupNote(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAccidentAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 

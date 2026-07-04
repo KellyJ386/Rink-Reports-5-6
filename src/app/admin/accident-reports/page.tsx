@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { DropdownsTab } from "./_components/dropdowns-tab"
@@ -66,6 +66,12 @@ export default async function AccidentReportsAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // Console access alone is not enough: the accident RLS policies gate admin
+  // reads (accident_reports select, change log) and every write (dropdowns,
+  // workers-comp settings, follow-up notes) on the module-scoped
+  // accident_reports/admin grant. Denying here (with a real /forbidden page)
+  // beats rendering a console that lists nothing and whose writes all fail.
+  await requireModuleAdmin("accident_reports")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile

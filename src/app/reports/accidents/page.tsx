@@ -195,6 +195,8 @@ export default async function AccidentsHomePage() {
       .select("instructions, is_active")
       .eq("facility_id", employeeRow.facility_id)
       .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from("facilities")

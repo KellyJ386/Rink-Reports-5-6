@@ -181,13 +181,10 @@ export default async function AccidentReportPage({
     { data: workersCompRow },
     { data: facility },
   ] = await Promise.all([
-    // laterality (added by migration 00000000000092) isn't in the generated
-    // Database types yet — cast to keep the typed builder happy.
     supabase
       .from("accident_body_part_selections")
       .select("id, body_part_dropdown_id, side, laterality")
       .eq("accident_id", report.id),
-    // accident_witnesses isn't in the generated Database types yet.
     supabase
       .from("accident_witnesses")
       .select("id, name, contact, statement, sort_order")
@@ -199,12 +196,14 @@ export default async function AccidentReportPage({
       .eq("facility_id", report.facility_id)
       .order("sort_order", { ascending: true })
       .order("display_name", { ascending: true }),
-    // Location options come from the shared facility_spaces list.
+    // Location options come from the shared facility_spaces list. Fetch ALL
+    // spaces (active + inactive): the stored location_dropdown_id may point at
+    // a since-deactivated space, which must still resolve for display. Only
+    // active spaces are offered as edit options below.
     supabase
       .from("facility_spaces")
       .select("id, name, slug, sort_order, is_active")
       .eq("facility_id", report.facility_id)
-      .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     supabase
@@ -212,6 +211,8 @@ export default async function AccidentReportPage({
       .select("instructions, is_active")
       .eq("facility_id", report.facility_id)
       .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from("facilities")
@@ -235,13 +236,16 @@ export default async function AccidentReportPage({
     id: string
     name: string
     slug: string
+    is_active: boolean
   }>
-  const locations: DropdownOption[] = spaces.map((s) => ({
-    id: s.id,
-    key: s.slug,
-    display_name: s.name,
-    color: null,
-  }))
+  const locations: DropdownOption[] = spaces
+    .filter((s) => s.is_active)
+    .map((s) => ({
+      id: s.id,
+      key: s.slug,
+      display_name: s.name,
+      color: null,
+    }))
   for (const s of spaces) {
     byId.set(s.id, {
       id: s.id,

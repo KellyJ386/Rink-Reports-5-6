@@ -128,7 +128,7 @@ export async function updateAccidentReport(
   const { data: existing, error: fetchErr } = await supabase
     .from("accident_reports")
     .select(
-      "id, facility_id, employee_id, injured_person_name, injured_person_contact, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
+      "id, facility_id, employee_id, injured_person_name, injured_person_contact, injured_person_age, description, occurred_at, submitted_at, edit_window_ends_at, workers_comp, workers_comp_acknowledged_at, location_dropdown_id, activity_dropdown_id, severity_dropdown_id, medical_attention_dropdown_id, primary_injury_type_dropdown_id"
     )
     .eq("id", reportId)
     .maybeSingle()
@@ -143,19 +143,13 @@ export async function updateAccidentReport(
     return { ok: false, error: "The edit window for this report has closed." }
   }
 
-  // Existing body parts (for diff + snapshot.before). `laterality` isn't in
-  // the generated Database types yet — cast.
+  // Existing body parts (for diff + snapshot.before).
   const { data: existingBpRaw } = await supabase
     .from("accident_body_part_selections")
     .select("id, body_part_dropdown_id, side, laterality")
     .eq("accident_id", reportId)
 
-  const existingBp = (existingBpRaw ?? []) as Array<{
-    id: string
-    body_part_dropdown_id: string
-    side: string
-    laterality: string | null
-  }>
+  const existingBp = existingBpRaw ?? []
 
   // Existing witnesses (for snapshot + replace).
   const { data: existingWitnessesRaw } = await supabase
@@ -326,10 +320,7 @@ export async function updateAccidentReport(
     employee_id: existing.employee_id,
     injured_person_name: existing.injured_person_name,
     injured_person_contact: existing.injured_person_contact,
-    // injured_person_age not yet on the select() above; derive from the row
-    // via a separate read would be heavier. The before-snapshot is best-effort
-    // and the after-snapshot carries the new value.
-    injured_person_age: null,
+    injured_person_age: existing.injured_person_age,
     description: existing.description,
     occurred_at: existing.occurred_at,
     submitted_at: existing.submitted_at,

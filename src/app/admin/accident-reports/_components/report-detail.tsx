@@ -68,16 +68,15 @@ function buildBodySelections(
     ankles: { ...EMPTY_BODY_SELECTIONS.ankles },
     feet: { ...EMPTY_BODY_SELECTIONS.feet },
   }
-  // `laterality` was added by migration 00000000000092 and isn't yet in the
-  // generated Database types — read it dynamically off the row.
   for (const b of bps) {
     const key = b.body_part?.key
     if (!key || !isBodyPartKey(key)) continue
     const side: BodySide = isBodySide(b.side) ? (b.side as BodySide) : "none"
     if (side === "none") continue
-    const rawLat = (b as unknown as { laterality?: string | null }).laterality
     const lat: Laterality | null =
-      typeof rawLat === "string" && isLaterality(rawLat) ? rawLat : null
+      typeof b.laterality === "string" && isLaterality(b.laterality)
+        ? b.laterality
+        : null
     if (isPairedBodyPartKey(key)) {
       const paired = out[key]
       if (lat) {
@@ -220,12 +219,10 @@ export function ReportDetail({ detail, backHref }: Props) {
               {body_parts
                 .filter((b) => b.notes)
                 .map((b) => {
-                  const rawLat = (b as unknown as { laterality?: string | null })
-                    .laterality
                   const latPrefix =
-                    rawLat === "left"
+                    b.laterality === "left"
                       ? "Left "
-                      : rawLat === "right"
+                      : b.laterality === "right"
                         ? "Right "
                         : ""
                   return (
