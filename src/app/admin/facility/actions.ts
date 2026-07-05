@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { zipToTimezone } from "@/lib/zip-timezone"
 
 import { isValidTimezone } from "@/app/admin/lists/types"
 
@@ -80,13 +81,18 @@ function normalizeSlug(input: string): string {
   return input.trim().toLowerCase()
 }
 
-function normalizeTimezone(input: string): string {
+function resolveTimezone(
+  input: string,
+  zipCode: string | null | undefined,
+): string {
   const tz = input.trim()
-  if (!tz) return DEFAULT_TIMEZONE
-  // The picker is now a per-facility, admin-editable convenience list
+  // The picker is a per-facility, admin-editable convenience list
   // (/admin/lists). Accept any valid IANA zone the runtime recognizes rather
-  // than restricting to a hardcoded set; fall back to the default otherwise.
-  return isValidTimezone(tz) ? tz : DEFAULT_TIMEZONE
+  // than restricting to a hardcoded set. When no valid zone was submitted,
+  // derive one from the zip code (the zip drives the facility's timezone —
+  // see src/lib/zip-timezone.ts) before falling back to the default.
+  if (tz && isValidTimezone(tz)) return tz
+  return zipToTimezone(zipCode) ?? DEFAULT_TIMEZONE
 }
 
 async function requireSuperAdmin(): Promise<
@@ -131,7 +137,7 @@ export async function createFacility(
 
   const name = normalizeName(rawInput.name)
   const slug = normalizeSlug(rawInput.slug)
-  const timezone = normalizeTimezone(rawInput.timezone)
+  const timezone = resolveTimezone(rawInput.timezone, rawInput.zip_code)
   const email = normalizeEmail(rawInput.email)
 
   const supabase = await createClient()
@@ -235,7 +241,10 @@ export async function updateFacility(
   if (Object.keys(fieldErrors).length > 0) return validationFail(fieldErrors)
 
   if (typeof input.timezone === "string") {
-    patch.timezone = normalizeTimezone(input.timezone)
+    patch.timezone = resolveTimezone(
+      input.timezone,
+      "zip_code" in input ? input.zip_code : null,
+    )
   }
   if (typeof input.is_active === "boolean") {
     patch.is_active = input.is_active
