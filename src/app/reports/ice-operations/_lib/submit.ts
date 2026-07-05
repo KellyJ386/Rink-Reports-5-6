@@ -6,7 +6,8 @@
 //
 // All FOUR operation types (ice_make, blade_change, edging, circle_check) route
 // through `persistIceOperation`; the circle-check path additionally writes the
-// per-item results, the failed-count rollup, and a best-effort alert.
+// per-item results and a best-effort alert (the failed-count rollup lands with
+// the shell insert itself — submissions are immutable under RLS).
 
 import "server-only"
 
@@ -14,6 +15,7 @@ import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
 import type { Json } from "@/types/database"
 
+import { OPERATION_EQUIPMENT_TYPE } from "../types"
 import type { IceOpsInput } from "./compute"
 
 // Re-export the parsers/validators the callers import from here.
@@ -68,10 +70,11 @@ function buildPayload(input: IceOpsInput): Json {
  * Persist a validated ice-operations submission. The caller is responsible for
  * authentication, resolving the active employee, the `submit` permission check,
  * and the pure `validateIceOpsInput` guard; this function does the
- * facility-scoped reference validation (rink/equipment), the inserts, the
- * circle-check results + rollup + alert, and the notification fan-out. On any
- * insert failure after the submission shell lands, the shell is deleted so the
- * submission can be retried cleanly.
+ * facility-scoped reference validation (rink/equipment), the inserts (the
+ * circle-check failed rollup is computed up front and lands with the shell
+ * insert — submissions are immutable under RLS, so a post-insert update would
+ * be silently dropped for staff), the circle-check results + alert, and the
+ * notification fan-out.
  */
 export async function persistIceOperation(
   supabase: SupabaseClient,
@@ -87,7 +90,8 @@ export async function persistIceOperation(
   if (!equipmentId) {
     return { ok: false, error: "Please pick the equipment used." }
   }
-  if (!input.occurred_at) {
+  const occurredAt = input.occurred_at
+  if (!occurredAt) {
     return { ok: false, error: "Please choose when the operation happened." }
   }
 
@@ -115,7 +119,47 @@ export async function persistIceOperation(
     return { ok: false, error: "Selected equipment is not available." }
   }
 
-  // 1) Insert the submission shell.
+  // The equipment must be usable for this operation: the canonical type the
+  // form filters by, or hand_edger/other (documented in the DB as "any").
+  // The UI already enforces this; the check guards direct POSTs and replays.
+  const expectedType = OPERATION_EQUIPMENT_TYPE[operationType]
+  if (
+    equipmentRow.equipment_type !== expectedType &&
+    equipmentRow.equipment_type !== "hand_edger" &&
+    equipmentRow.equipment_type !== "other"
+  ) {
+    return { ok: false, error: "Selected equipment is not available." }
+  }
+
+  // The submitter is the blade changer — never trust a client-posted id.
+  if (input.fields.type === "blade_change") {
+    input = {
+      ...input,
+      fields: { ...input.fields, replaced_by_employee_id: employeeId },
+    }
+  }
+
+  // Circle-check rollup is computed BEFORE the shell insert: the submissions
+  // UPDATE policy is super_admin-only (originals are immutable), so a
+  // post-insert rollup update would be silently filtered by RLS for staff
+  // submitters, leaving has_failed_check/failed_count permanently wrong.
+  const circleResults =
+    input.fields.type === "circle_check" ? input.fields.results : []
+  const failedCount = circleResults.filter((r) => !r.passed).length
+
+  // Required: every failed item must have notes text. (Also enforced by the
+  // pure validator before we get here; kept as defense-in-depth, and checked
+  // before any write so nothing needs rolling back.)
+  for (const r of circleResults) {
+    if (!r.passed && !r.failed_notes) {
+      return {
+        ok: false,
+        error: "Add a note explaining each failed checklist item.",
+      }
+    }
+  }
+
+  // 1) Insert the submission shell (with the final rollup values).
   const { data: insertedSubmission, error: subErr } = await supabase
     .from("ice_operations_submissions")
     .insert({
@@ -124,12 +168,12 @@ export async function persistIceOperation(
       operation_type: operationType,
       rink_id: rinkId,
       equipment_id: equipmentId,
-      occurred_at: input.occurred_at,
+      occurred_at: occurredAt,
       submitted_at: new Date().toISOString(),
       notes: input.notes,
       payload: buildPayload(input),
-      has_failed_check: false,
-      failed_count: 0,
+      has_failed_check: failedCount > 0,
+      failed_count: failedCount,
     })
     .select("id")
     .single()
@@ -143,6 +187,10 @@ export async function persistIceOperation(
 
   const submissionId = insertedSubmission.id
 
+  // Best-effort compensation if the results insert fails. The DELETE policy is
+  // super_admin-only, so for staff submitters this may silently leave the shell
+  // behind; the only failure left on this path is an unexpected DB error (all
+  // validation runs before the shell insert).
   const cleanupAndFail = async (msg: string): Promise<PersistResult> => {
     await supabase
       .from("ice_operations_submissions")
@@ -151,19 +199,9 @@ export async function persistIceOperation(
     return { ok: false, error: msg }
   }
 
-  // 2) Circle-check results (+ rollup + alert). Other op types are done.
+  // 2) Circle-check results (+ alert). Other op types are done.
   if (input.fields.type === "circle_check") {
     const parsed = input.fields.results
-
-    // Required: every failed item must have notes text. (Also enforced by the
-    // pure validator before we get here; kept as defense-in-depth.)
-    for (const r of parsed) {
-      if (!r.passed && !r.failed_notes) {
-        return cleanupAndFail(
-          "Add a note explaining each failed checklist item.",
-        )
-      }
-    }
 
     if (parsed.length > 0) {
       const rows = parsed.map((r) => ({
@@ -184,21 +222,8 @@ export async function persistIceOperation(
       }
     }
 
-    const failedCount = parsed.filter((r) => !r.passed).length
-    const hasFailed = failedCount > 0
-
-    if (hasFailed || parsed.length > 0) {
-      await supabase
-        .from("ice_operations_submissions")
-        .update({
-          has_failed_check: hasFailed,
-          failed_count: failedCount,
-        })
-        .eq("id", submissionId)
-    }
-
     // 3) Best-effort alert on any failure.
-    if (hasFailed) {
+    if (failedCount > 0) {
       const { data: settings } = await supabase
         .from("ice_operations_settings")
         .select("alerts_enabled, default_alert_severity")

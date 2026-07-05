@@ -15,7 +15,10 @@ import { genLocalId } from "@/lib/offline/local-id"
  * through to its normal server action (the online path is untouched).
  *
  * `buildPayload` should return the per-op payload object. The hook stamps
- * `operation_type` on it so callers don't have to remember.
+ * `operation_type` and `occurred_at` (submit-time ISO — an unambiguous UTC
+ * instant, unlike a local `datetime-local` string, and for offline queues the
+ * time the operation was logged rather than when it later syncs) so callers
+ * don't have to remember either.
  */
 export function useOfflineSubmit(
   operationType: string,
@@ -33,7 +36,11 @@ export function useOfflineSubmit(
         localId,
         moduleKey: "ice_operations",
         action: "submit",
-        payload: { ...buildPayload(), operation_type: operationType },
+        payload: {
+          ...buildPayload(),
+          operation_type: operationType,
+          occurred_at: new Date().toISOString(),
+        },
       })
       if (ok) {
         e.preventDefault()

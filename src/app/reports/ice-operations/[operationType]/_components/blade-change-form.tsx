@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect, useMemo, useState } from "react"
+import { useActionState, useEffect, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
@@ -23,37 +23,31 @@ import {
   type SubmissionFormState,
 } from "../../actions"
 import { OfflineQueuedCard } from "./offline-queued-card"
-import {
-  equipmentLabel,
-  nowForDateTimeLocal,
-  type EquipmentOption,
-} from "./shared"
+import { equipmentLabel, type EquipmentOption } from "./shared"
 import { useOfflineSubmit } from "./use-offline-submit"
 
 type Props = {
   equipment: EquipmentOption[]
-  currentEmployeeId: string
 }
 
 const initialState: SubmissionFormState = {}
 
-export function BladeChangeForm({ equipment, currentEmployeeId }: Props) {
+export function BladeChangeForm({ equipment }: Props) {
   const action = submitIceOperationsReport.bind(null, "blade_change")
   const [state, formAction] = useActionState(action, initialState)
 
-  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [equipmentId, setEquipmentId] = useState("")
   const [oldBladeHours, setOldBladeHours] = useState("")
   const [newBladeId, setNewBladeId] = useState("")
   const [notes, setNotes] = useState("")
 
+  // occurred_at is stamped at submit time (hook for offline, server for
+  // online); replaced_by is resolved server-side from the session.
   const { queued, handleSubmit } = useOfflineSubmit("blade_change", () => ({
     equipment_id: equipmentId || null,
-    occurred_at: occurredAt,
     notes: notes.trim() || null,
     blade_serial: newBladeId.trim() || null,
     hours_at_change: oldBladeHours,
-    replaced_by_employee_id: currentEmployeeId,
   }))
 
   useEffect(() => {
@@ -70,13 +64,7 @@ export function BladeChangeForm({ equipment, currentEmployeeId }: Props) {
     >
       <FormError message={state.error} />
 
-      <input type="hidden" name="occurred_at" value={occurredAt} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
-      <input
-        type="hidden"
-        name="replaced_by_employee_id"
-        value={currentEmployeeId}
-      />
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
