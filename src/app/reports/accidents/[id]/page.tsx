@@ -323,6 +323,7 @@ export default async function AccidentReportPage({
           <EditForm
             reportId={report.id}
             initialReport={report}
+            facilityTimezone={tz}
             initialBodyParts={bodyPartRows.map((r) => ({
               body_part_dropdown_id: r.body_part_dropdown_id,
               side: r.side,

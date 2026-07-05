@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-import { formatWallClock } from "@/lib/wall-clock"
 
 import type { IncidentStatus } from "../types"
 
@@ -125,11 +124,9 @@ export default async function IncidentDonePage({
             value={statusLabel(submission.status)}
           />
           <DetailRow label="Severity" value={severityName} />
-          {/* occurred_at is the reporter's wall clock stored as-if-UTC —
-              formatting it with the facility timezone would shift it. */}
           <DetailRow
             label="When it happened"
-            value={formatWallClock(submission.occurred_at)}
+            value={formatTimestamp(submission.occurred_at, tz)}
           />
           <DetailRow
             label="Submitted"

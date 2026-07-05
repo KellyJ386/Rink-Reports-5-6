@@ -97,11 +97,14 @@ function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+// Keep the reporter's raw wall-clock string (datetime-local format) — the
+// facility-timezone conversion to a real UTC instant happens in submit.ts
+// (wallTimeToUtc, migration 174), which this pure module must not import.
 function parseOccurredAt(v: unknown): string | null {
   const s = str(v)
   if (s === "") return null
   const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+  return Number.isNaN(d.getTime()) ? null : s
 }
 
 // ---------------------------------------------------------------------------

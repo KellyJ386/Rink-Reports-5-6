@@ -4,8 +4,10 @@
 // the Supabase + notification I/O so an offline submission lands the same rows,
 // with the same checks, as an online one.
 
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
+import { wallTimeToUtc } from "@/lib/timezone"
 import type { Database } from "@/types/database"
 
 import type { AccidentReportSnapshot } from "../types"
@@ -53,7 +55,13 @@ export async function persistAccident(
 ): Promise<PersistResult> {
   const { employeeId, facilityId, input } = args
 
-  const occurredIso = new Date(input.occurred_at).toISOString()
+  // occurred_at arrives as the reporter's wall clock (datetime-local string);
+  // interpret it in the FACILITY's timezone so the stored value is a real UTC
+  // instant (migration 174). Null timezone falls back to the runtime zone.
+  const tz = await getFacilityTimezone(supabase, facilityId)
+  const occurredAt = wallTimeToUtc(input.occurred_at, tz)
+  if (!occurredAt) return { ok: false, error: "Invalid date and time." }
+  const occurredIso = occurredAt.toISOString()
   const workersCompAckAt =
     input.workers_comp && input.workers_comp_ack
       ? new Date().toISOString()

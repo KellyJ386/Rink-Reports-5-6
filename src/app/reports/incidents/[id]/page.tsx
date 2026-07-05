@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
-import { formatWallClock } from "@/lib/wall-clock"
+import { utcToWallTime } from "@/lib/timezone"
 
 import { updateIncidentReport } from "../actions"
 import {
@@ -20,20 +20,6 @@ export const dynamic = "force-dynamic"
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/**
- * Reconstruct a datetime-local string (no timezone) from a stored ISO. The
- * submit path stores `new Date(localString).toISOString()`, so the wall-clock
- * the reporter entered lives in the ISO's UTC components — read them back.
- */
-function isoToDateTimeLocal(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
-    `T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
-  )
-}
 
 /** Whether the 24h edit window is still open. Kept out of the component body
  * so the `Date.now()` read isn't flagged by the render-purity lint rule. */
@@ -238,11 +224,9 @@ export default async function IncidentReportPage({
                   .join(", ") || "—"
               }
             />
-            {/* occurred_at is the reporter's wall clock stored as-if-UTC —
-                render it back verbatim rather than shifting it into a zone. */}
             <Row
               label="When it happened"
-              value={formatWallClock(report.occurred_at)}
+              value={fmt(report.occurred_at, tz)}
             />
             <Row label="Reported at" value={fmt(report.submitted_at, tz)} />
             <Row label="Reporter" value={report.reporter_name} />
@@ -307,7 +291,9 @@ export default async function IncidentReportPage({
   }
 
   const initial: IncidentFormInitial = {
-    occurredAtLocal: isoToDateTimeLocal(report.occurred_at),
+    // occurred_at is a real UTC instant (migration 174); render it back as
+    // the facility-local wall clock the datetime-local input expects.
+    occurredAtLocal: utcToWallTime(report.occurred_at, tz) ?? "",
     severityLevelId: report.severity_level_id ?? "",
     incidentTypeId: report.incident_type_id ?? "",
     activityValue: report.activity_id

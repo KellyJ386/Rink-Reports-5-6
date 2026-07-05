@@ -4,8 +4,10 @@ import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 
 import { requireUser } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { wallTimeToUtc } from "@/lib/timezone"
 
 import {
   buildInputFromForm,
@@ -129,7 +131,14 @@ export async function updateIncidentReport(
   const refs = await resolveIncidentRefs(supabase, facilityId, input)
   if (!refs.ok) return { error: refs.error }
 
-  const occurredAtIso = new Date(input.occurred_at).toISOString()
+  // Interpret the reporter's wall clock in the facility timezone → real UTC
+  // instant (mirrors persistIncident; migration 174).
+  const tz = await getFacilityTimezone(supabase, facilityId)
+  const occurredAt = wallTimeToUtc(input.occurred_at, tz)
+  if (!occurredAt) {
+    return { fieldErrors: { occurred_at: "Invalid date and time." } }
+  }
+  const occurredAtIso = occurredAt.toISOString()
   const activityOther = refs.resolvedActivityId
     ? null
     : input.activity_other || null
