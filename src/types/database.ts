@@ -6473,10 +6473,6 @@ export type Database = {
         Args: { p_facility_id: string; p_role_id: string; p_user_id: string }
         Returns: undefined
       }
-      armor: {
-        Args: { "": string }
-        Returns: string
-      }
       can_edit_user_profile: {
         Args: { p_target_user_id: string }
         Returns: boolean
@@ -6617,10 +6613,6 @@ export type Database = {
           ok: boolean
         }[]
       }
-      dearmor: {
-        Args: { "": string }
-        Returns: string
-      }
       dispatch_rules_for_submission: {
         Args: {
           p_area_id?: string
@@ -6648,18 +6640,6 @@ export type Database = {
       effective_module_permission_with_source: {
         Args: { p_employee_id: string; p_module_key: string }
         Returns: Record<string, unknown>
-      }
-      gen_random_bytes: {
-        Args: { "": number }
-        Returns: string
-      }
-      gen_random_uuid: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      gen_salt: {
-        Args: { "": string }
-        Returns: string
       }
       get_employee_counts_by_facility: {
         Args: Record<PropertyKey, never>
@@ -6715,14 +6695,6 @@ export type Database = {
       is_super_admin: {
         Args: Record<PropertyKey, never>
         Returns: boolean
-      }
-      pgp_armor_headers: {
-        Args: { "": string }
-        Returns: Record<string, unknown>[]
-      }
-      pgp_key_id: {
-        Args: { "": string }
-        Returns: string
       }
       purge_module_data: {
         Args: { p_facility_id: string; p_module_key: string }
