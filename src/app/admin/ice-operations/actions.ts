@@ -412,10 +412,6 @@ export async function createCircleCheckItem(
       }
       applies_to_equipment_type = appliesRaw
     }
-    const response_type =
-      nonEmpty(formData.get("response_type")) === "text" ? "text" : "pass_fail"
-    const is_response_required =
-      response_type === "text" && formData.get("is_response_required") === "on"
 
     const supabase = await createClient()
     const { data: maxRow } = await supabase
@@ -434,8 +430,10 @@ export async function createCircleCheckItem(
         label,
         description,
         applies_to_equipment_type,
-        response_type,
-        is_response_required,
+        // The staff form only answers pass/fail; the "text" response type is
+        // no longer configurable (it was never rendered).
+        response_type: "pass_fail",
+        is_response_required: false,
         sort_order: nextSort,
       })
     if (error) {
@@ -471,10 +469,6 @@ export async function updateCircleCheckItem(
       }
       applies_to_equipment_type = appliesRaw
     }
-    const response_type =
-      nonEmpty(formData.get("response_type")) === "text" ? "text" : "pass_fail"
-    const is_response_required =
-      response_type === "text" && formData.get("is_response_required") === "on"
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -483,8 +477,10 @@ export async function updateCircleCheckItem(
         label,
         description,
         applies_to_equipment_type,
-        response_type,
-        is_response_required,
+        // Editing normalizes any legacy "text" item to pass/fail — that is
+        // how the staff form has always answered it anyway.
+        response_type: "pass_fail",
+        is_response_required: false,
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
@@ -633,8 +629,6 @@ type CircleCheckImportRow = {
   label: string
   description?: string
   applies_to_equipment_type?: string
-  response_type: "pass_fail" | "text"
-  is_response_required: boolean
 }
 
 export async function importCircleCheckItems(
@@ -693,8 +687,8 @@ export async function importCircleCheckItems(
       label: row.label,
       description: row.description ?? null,
       applies_to_equipment_type: row.applies_to_equipment_type ?? null,
-      response_type: row.response_type,
-      is_response_required: row.is_response_required,
+      response_type: "pass_fail",
+      is_response_required: false,
       sort_order: baseSort + idx + 1,
     }))
 
