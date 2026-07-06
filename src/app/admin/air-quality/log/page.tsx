@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import type { AirQualityFormData } from "@/app/reports/air-quality/types"
@@ -19,6 +19,8 @@ type ReportRow = {
   employee_id: string | null
   equipment_id: string | null
   submitted_at: string
+  has_exceedance: boolean
+  max_severity: string | null
   form_data: AirQualityFormData | null
 }
 
@@ -68,6 +70,10 @@ export default async function AirQualityLogPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // Report reads gate on module access, which requireAdmin does not imply;
+  // without this an admin lacking the grant sees an empty-but-official
+  // looking monitoring log instead of being turned away.
+  await requireModuleAdmin("air_quality")
   const facilityId = current.profile?.facility_id ?? null
   const params = await searchParams
 
@@ -108,7 +114,9 @@ export default async function AirQualityLogPage({
         .maybeSingle(),
       supabase
         .from("air_quality_reports")
-        .select("id, employee_id, equipment_id, submitted_at, form_data")
+        .select(
+          "id, employee_id, equipment_id, submitted_at, has_exceedance, max_severity, form_data",
+        )
         .eq("facility_id", facilityId)
         .gte("submitted_at", `${from}T00:00:00Z`)
         .lt("submitted_at", toBound.toISOString())
@@ -203,8 +211,13 @@ export default async function AirQualityLogPage({
     return parts.length > 0 ? parts.join("; ") : "—"
   }
 
-  function alertLevel(fd: AirQualityFormData | null): string {
-    return fd?.compliance?.overall_alert_level ?? "—"
+  // Same fallback chain as the PDF (log-pdf.tsx) so the on-screen log and the
+  // emailed/downloaded PDF agree on legacy reports without a compliance block.
+  function alertLevel(r: ReportRow): string {
+    return (
+      r.form_data?.compliance?.overall_alert_level ??
+      (r.has_exceedance ? (r.max_severity ?? "exceedance") : "within")
+    )
   }
 
   function readingCell(r: ReadingRow | undefined): { text: string; exceeded: boolean } {
@@ -315,13 +328,13 @@ export default async function AirQualityLogPage({
                     </td>
                     <td
                       className={`border-b px-3 py-2 ${
-                        alertLevel(r.form_data) !== "within" &&
-                        alertLevel(r.form_data) !== "—"
+                        alertLevel(r) !== "within" &&
+                        alertLevel(r) !== "—"
                           ? "font-semibold text-destructive"
                           : ""
                       }`}
                     >
-                      {alertLevel(r.form_data)}
+                      {alertLevel(r)}
                     </td>
                     <td className="border-b px-3 py-2">{deviceMaint(r.form_data)}</td>
                     <td className="border-b px-3 py-2 whitespace-nowrap">
@@ -336,8 +349,9 @@ export default async function AirQualityLogPage({
       )}
 
       <p className="text-muted-foreground text-xs">
-        Bold red values exceeded the configured evacuation threshold at submit
-        time. This log reflects the readings as recorded; reports are immutable.
+        Bold red values exceeded a configured compliance threshold at submit
+        time (any tier above &ldquo;within&rdquo;, not only evacuation). This
+        log reflects the readings as recorded; reports are immutable.
       </p>
     </div>
   )

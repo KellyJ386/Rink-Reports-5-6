@@ -19,6 +19,11 @@ import type {
   ReadingTypeRow,
 } from "../types"
 
+// Sentinel for the "All …" items: a Radix Select can't be returned to its
+// empty placeholder state by the user, so each dropdown needs an explicit
+// clear item (mirrors incident-reports history filters).
+const ALL = "__all__"
+
 type HistoryParams = {
   employee?: string
   location?: string
@@ -85,13 +90,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.location || undefined}
-          onValueChange={(v) => setParam("location", v)}
+          onValueChange={(v) => setParam("location", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-40">
             <SelectValue placeholder="All locations" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All locations</SelectItem>
             {locations.map((l) => (
               <SelectItem key={l.id} value={l.id}>
                 {l.name}
@@ -106,13 +112,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.equipment || undefined}
-          onValueChange={(v) => setParam("equipment", v)}
+          onValueChange={(v) => setParam("equipment", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-40">
             <SelectValue placeholder="Any equipment" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>Any equipment</SelectItem>
             {equipment.map((eq) => (
               <SelectItem key={eq.id} value={eq.id}>
                 {eq.name}
@@ -127,13 +134,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.reading_type || undefined}
-          onValueChange={(v) => setParam("reading_type", v)}
+          onValueChange={(v) => setParam("reading_type", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-40">
             <SelectValue placeholder="Any" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>Any</SelectItem>
             {readingTypes.map((rt) => (
               <SelectItem key={rt.id} value={rt.id}>
                 {rt.label}
@@ -148,13 +156,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.employee || undefined}
-          onValueChange={(v) => setParam("employee", v)}
+          onValueChange={(v) => setParam("employee", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-40">
             <SelectValue placeholder="All employees" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All employees</SelectItem>
             {employees.map((e) => (
               <SelectItem key={e.id} value={e.id}>
                 {e.last_name}, {e.first_name}
@@ -169,13 +178,14 @@ export function HistoryFilters({
         </label>
         <Select
           value={params.exceedance || undefined}
-          onValueChange={(v) => setParam("exceedance", v)}
+          onValueChange={(v) => setParam("exceedance", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-32">
             <SelectValue placeholder="Any" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>Any</SelectItem>
             <SelectItem value="yes">Yes</SelectItem>
             <SelectItem value="no">No</SelectItem>
           </SelectContent>

@@ -53,7 +53,13 @@ export function ComplianceTab({ data, activeJurisdiction }: Props) {
   const groupKeys = Array.from(grouped.keys()).sort()
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[16rem_1fr]">
+    <div className="flex flex-col gap-4">
+      <p className="text-muted-foreground text-sm">
+        Compliance rules are reference text shown to admins for documentation;
+        automated evaluation and alerting come from the compliance profile
+        selected on the Setup tab, not from these rules.
+      </p>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[16rem_1fr]">
       <div className="flex flex-col gap-3">
         <Card>
           <CardHeader>
@@ -146,6 +152,7 @@ export function ComplianceTab({ data, activeJurisdiction }: Props) {
             </Card>
           ))
         )}
+      </div>
       </div>
     </div>
   )

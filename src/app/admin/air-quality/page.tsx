@@ -11,7 +11,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { ComplianceTab } from "./_components/compliance-tab"
@@ -84,6 +84,10 @@ export default async function AirQualityAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // The air-quality RLS write policies gate on the module-scoped admin grant,
+  // which requireAdmin does not imply. Without this, a global admin lacking
+  // the grant gets a console whose every write dies at the RLS layer.
+  await requireModuleAdmin("air_quality")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
