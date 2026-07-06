@@ -4,15 +4,19 @@ import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 
 import { requireUser } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { wallTimeToUtc } from "@/lib/timezone"
 
 import {
   buildInputFromForm,
+  escalateAmbulance,
   persistIncident,
   resolveIncidentRefs,
   resolveReporterIdentity,
   validateIncidentInput,
+  witnessesJson,
   type SubmissionFormState,
 } from "./_lib/submit"
 
@@ -110,7 +114,7 @@ export async function updateIncidentReport(
   const { data: existing, error: fetchErr } = await supabase
     .from("incident_reports")
     .select(
-      "id, facility_id, employee_id, edit_window_ends_at, severity_level_id, incident_type_id, activity_id, activity_other, location_other, immediate_actions, occurred_at, submitted_at, reporter_name, reporter_phone, description, ambulance_flag, persons_involved, follow_up_required",
+      "id, facility_id, employee_id, edit_window_ends_at, reporter_name, ambulance_flag",
     )
     .eq("id", reportId)
     .maybeSingle()
@@ -123,143 +127,59 @@ export async function updateIncidentReport(
     return { error: "The edit window for this report has closed." }
   }
 
-  // Reporter identity is fixed at submission (from login) and not editable;
-  // carry the original values through so the update doesn't blank them.
-  input.reporter_name = existing.reporter_name
-  input.reporter_phone = existing.reporter_phone ?? ""
-
   const facilityId = existing.facility_id
   const refs = await resolveIncidentRefs(supabase, facilityId, input)
   if (!refs.ok) return { error: refs.error }
 
-  const [{ data: existingSpaceRows }, { data: existingWitnessRows }] =
-    await Promise.all([
-      supabase
-        .from("incident_report_spaces")
-        .select("space_id")
-        .eq("incident_id", reportId),
-      supabase
-        .from("incident_witnesses")
-        .select("name, phone, email, statement")
-        .eq("incident_id", reportId)
-        .order("sort_order", { ascending: true }),
-    ])
-
-  const occurredAtIso = new Date(input.occurred_at).toISOString()
+  // Interpret the reporter's wall clock in the facility timezone → real UTC
+  // instant (mirrors persistIncident; migration 174).
+  const tz = await getFacilityTimezone(supabase, facilityId)
+  const occurredAt = wallTimeToUtc(input.occurred_at, tz)
+  if (!occurredAt) {
+    return { fieldErrors: { occurred_at: "Invalid date and time." } }
+  }
+  const occurredAtIso = occurredAt.toISOString()
   const activityOther = refs.resolvedActivityId
     ? null
     : input.activity_other || null
 
-  const { error: updErr } = await supabase
-    .from("incident_reports")
-    .update({
-      severity_level_id: input.severity_level_id,
-      incident_type_id: refs.resolvedIncidentTypeId || null,
-      activity_id: refs.resolvedActivityId,
-      activity_other: activityOther,
-      location_other: input.location_other || null,
-      immediate_actions: input.immediate_actions || null,
-      occurred_at: occurredAtIso,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
-      description: input.description,
-      ambulance_flag: input.ambulance_flag,
-      persons_involved: input.persons_involved,
-      follow_up_required: input.follow_up_required,
-    })
-    .eq("id", reportId)
-  if (updErr) return { error: dbError(updErr, "Failed to update report.") }
-
-  // Reconcile spaces by full replace (small row count, simplest correct path).
-  const { error: delSpacesErr } = await supabase
-    .from("incident_report_spaces")
-    .delete()
-    .eq("incident_id", reportId)
-  if (delSpacesErr) {
-    return { error: dbError(delSpacesErr, "Failed to update facility spaces.") }
-  }
-  if (refs.validSpaceIds.length > 0) {
-    const { error: insSpacesErr } = await supabase
-      .from("incident_report_spaces")
-      .insert(
-        refs.validSpaceIds.map((space_id) => ({
-          incident_id: reportId,
-          facility_id: facilityId,
-          space_id,
-        })),
-      )
-    if (insSpacesErr) {
-      return {
-        error: dbError(insSpacesErr, "Failed to update facility spaces."),
-      }
-    }
-  }
-
-  // Reconcile witnesses by full replace.
-  const { error: delWitErr } = await supabase
-    .from("incident_witnesses")
-    .delete()
-    .eq("incident_id", reportId)
-  if (delWitErr) {
-    return { error: dbError(delWitErr, "Failed to update witnesses.") }
-  }
-  if (input.witnesses.length > 0) {
-    const { error: insWitErr } = await supabase.from("incident_witnesses").insert(
-      input.witnesses.map((w, i) => ({
-        incident_id: reportId,
-        facility_id: facilityId,
-        name: w.name,
-        phone: w.phone,
-        email: w.email,
-        statement: w.statement,
-        sort_order: i,
-      })),
-    )
-    if (insWitErr) {
-      return { error: dbError(insWitErr, "Failed to update witnesses.") }
-    }
-  }
-
-  await supabase.from("incident_change_log").insert({
-    incident_id: reportId,
-    facility_id: facilityId,
-    employee_id: employeeRow.id,
-    action: "update",
-    before: {
-      severity_level_id: existing.severity_level_id,
-      incident_type_id: existing.incident_type_id,
-      activity_id: existing.activity_id,
-      activity_other: existing.activity_other,
-      location_other: existing.location_other,
-      immediate_actions: existing.immediate_actions,
-      occurred_at: existing.occurred_at,
-      reporter_name: existing.reporter_name,
-      reporter_phone: existing.reporter_phone,
-      description: existing.description,
-      ambulance_flag: existing.ambulance_flag,
-      persons_involved: existing.persons_involved,
-      follow_up_required: existing.follow_up_required,
-      space_ids: (existingSpaceRows ?? []).map((s) => s.space_id),
-      witnesses: existingWitnessRows ?? [],
-    },
-    after: {
-      severity_level_id: input.severity_level_id,
-      incident_type_id: refs.resolvedIncidentTypeId || null,
-      activity_id: refs.resolvedActivityId,
-      activity_other: activityOther,
-      location_other: input.location_other || null,
-      immediate_actions: input.immediate_actions || null,
-      occurred_at: occurredAtIso,
-      reporter_name: input.reporter_name,
-      reporter_phone: input.reporter_phone,
-      description: input.description,
-      ambulance_flag: input.ambulance_flag,
-      persons_involved: input.persons_involved,
-      follow_up_required: input.follow_up_required,
-      space_ids: refs.validSpaceIds,
-      witnesses: input.witnesses,
-    },
+  // Single transaction (migration 173): the report update, the spaces/witness
+  // full-replace, and the before/after change-log snapshot land together or
+  // not at all. The RLS update policy (owner within the 24h window, or module
+  // admin) is the backstop for the friendly pre-checks above; reporter
+  // identity is fixed at submission and not part of the update surface.
+  const { error: rpcErr } = await supabase.rpc("update_incident_report", {
+    p_report_id: reportId,
+    p_severity_level_id: input.severity_level_id,
+    p_incident_type_id: refs.resolvedIncidentTypeId || undefined,
+    p_activity_id: refs.resolvedActivityId ?? undefined,
+    p_activity_other: activityOther ?? undefined,
+    p_location_other: input.location_other || undefined,
+    p_immediate_actions: input.immediate_actions || undefined,
+    p_occurred_at: occurredAtIso,
+    p_description: input.description,
+    p_ambulance_flag: input.ambulance_flag,
+    p_persons_involved: input.persons_involved ?? undefined,
+    p_follow_up_required: input.follow_up_required,
+    p_space_ids: refs.validSpaceIds,
+    p_witnesses: witnessesJson(input.witnesses),
   })
+  if (rpcErr) return { error: dbError(rpcErr, "Failed to update report.") }
+
+  // An edit that turns the ambulance flag ON is materially new information —
+  // raise the same critical escalation the create path would have. (Only on
+  // the false → true transition; re-saving an already-flagged report must not
+  // re-alert.) Best-effort: never blocks the saved edit.
+  if (input.ambulance_flag && !existing.ambulance_flag) {
+    await escalateAmbulance(supabase, {
+      facilityId,
+      employeeId: employeeRow.id,
+      reportId,
+      reporterName: existing.reporter_name,
+      description: input.description,
+      phase: "updated",
+    })
+  }
 
   revalidatePath(`/reports/incidents/${reportId}`)
   redirect(`/reports/incidents/${reportId}?saved=1`)

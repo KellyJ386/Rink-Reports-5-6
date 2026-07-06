@@ -11,8 +11,10 @@
 
 import "server-only"
 
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
+import { wallTimeToUtc } from "@/lib/timezone"
 import type { Json } from "@/types/database"
 
 import { OPERATION_EQUIPMENT_TYPE } from "../types"
@@ -94,6 +96,12 @@ export async function persistIceOperation(
   if (!occurredAt) {
     return { ok: false, error: "Please choose when the operation happened." }
   }
+  // occurred_at arrives as the operator's wall clock (datetime-local string);
+  // interpret it in the FACILITY's timezone so the stored value is a real UTC
+  // instant (migration 174). Null timezone falls back to the runtime zone.
+  const tz = await getFacilityTimezone(supabase, facilityId)
+  const occurredAt = wallTimeToUtc(input.occurred_at, tz)
+  if (!occurredAt) return { ok: false, error: "Invalid date and time." }
 
   // Verify rink + equipment belong to this facility (rink only if provided).
   if (rinkId) {
@@ -169,6 +177,7 @@ export async function persistIceOperation(
       rink_id: rinkId,
       equipment_id: equipmentId,
       occurred_at: occurredAt,
+      occurred_at: occurredAt.toISOString(),
       submitted_at: new Date().toISOString(),
       notes: input.notes,
       payload: buildPayload(input),

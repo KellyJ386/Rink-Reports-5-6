@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { zipToTimezone } from "@/lib/zip-timezone"
 
 import { createFacility, updateFacility } from "../actions"
 import {
@@ -58,31 +59,31 @@ export function FacilityForm({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  // Prefer the per-facility DB list; fall back to the hardcoded constant. The
-  // current value is always unioned in so an existing (or custom) zone still
-  // renders even if it isn't in the active list.
-  const baseTimezones: TimezoneOption[] =
-    timezoneOptions && timezoneOptions.length > 0
-      ? timezoneOptions
-      : TIMEZONE_OPTIONS.map((tz) => ({ value: tz, label: tz }))
-  const currentTz = initial?.timezone ?? DEFAULT_TIMEZONE
-  const timezoneChoices: TimezoneOption[] = baseTimezones.some(
-    (t) => t.value === currentTz,
-  )
-    ? baseTimezones
-    : [{ value: currentTz, label: currentTz }, ...baseTimezones]
-
   const [name, setName] = useState(initial?.name ?? "")
   const [slug, setSlug] = useState(initial?.slug ?? "")
   const [slugDirty, setSlugDirty] = useState(mode === "edit")
   const [timezone, setTimezone] = useState(
     initial?.timezone ?? DEFAULT_TIMEZONE
   )
+  const [tzFromZip, setTzFromZip] = useState<string | null>(null)
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
   const [address, setAddress] = useState(initial?.address ?? "")
   const [city, setCity] = useState(initial?.city ?? "")
   const [state, setState] = useState(initial?.state ?? "")
   const [zipCode, setZipCode] = useState(initial?.zip_code ?? "")
+
+  // Prefer the per-facility DB list; fall back to the hardcoded constant. The
+  // selected value is always unioned in so an existing, custom, or
+  // zip-derived zone still renders even if it isn't in the active list.
+  const baseTimezones: TimezoneOption[] =
+    timezoneOptions && timezoneOptions.length > 0
+      ? timezoneOptions
+      : TIMEZONE_OPTIONS.map((tz) => ({ value: tz, label: tz }))
+  const timezoneChoices: TimezoneOption[] = baseTimezones.some(
+    (t) => t.value === timezone,
+  )
+    ? baseTimezones
+    : [{ value: timezone, label: timezone }, ...baseTimezones]
   const [phone, setPhone] = useState(initial?.phone ?? "")
   const [email, setEmail] = useState(initial?.email ?? "")
   const [error, setError] = useState<string | null>(null)
@@ -102,6 +103,18 @@ export function FacilityForm({
   function handleSlugChange(value: string) {
     setSlug(value)
     setSlugDirty(true)
+  }
+
+  // The zip code drives the timezone: whenever it resolves to a zone, select
+  // that zone. The dropdown stays editable as an override for the rare rink
+  // sitting right on a timezone boundary.
+  function handleZipChange(value: string) {
+    setZipCode(value)
+    const derived = zipToTimezone(value)
+    if (derived) {
+      setTimezone(derived)
+      setTzFromZip(derived)
+    }
   }
 
   function clientValidate(): {
@@ -239,7 +252,10 @@ export function FacilityForm({
         <Label htmlFor="facility-timezone">Timezone</Label>
         <Select
           value={timezone}
-          onValueChange={(v) => setTimezone(v)}
+          onValueChange={(v) => {
+            setTimezone(v)
+            setTzFromZip(null)
+          }}
           disabled={isPending}
         >
           <SelectTrigger id="facility-timezone">
@@ -253,6 +269,15 @@ export function FacilityForm({
             ))}
           </SelectContent>
         </Select>
+        <p
+          id="facility-timezone-help"
+          className="text-muted-foreground text-xs"
+          role={tzFromZip ? "status" : undefined}
+        >
+          {tzFromZip
+            ? `Set to ${tzFromZip} from the zip code — change it here if that's not right.`
+            : "Fills in automatically from the zip code; override here only if your rink sits on a timezone boundary."}
+        </p>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -299,10 +324,14 @@ export function FacilityForm({
           id="facility-zip"
           name="zip_code"
           value={zipCode}
-          onChange={(e) => setZipCode(e.target.value)}
+          onChange={(e) => handleZipChange(e.target.value)}
           placeholder="12345"
+          inputMode="numeric"
           disabled={isPending}
         />
+        <p className="text-muted-foreground text-xs">
+          Sets the facility timezone automatically.
+        </p>
       </div>
 
       <div className="flex flex-col gap-2">

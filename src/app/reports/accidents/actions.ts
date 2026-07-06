@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { requireUser } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
+import { wallTimeToUtc } from "@/lib/timezone"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { Database } from "@/types/database"
 
@@ -160,7 +162,14 @@ export async function updateAccidentReport(
 
   const existingWitnesses = existingWitnessesRaw ?? []
 
-  const occurredIso = new Date(fields.occurred_at).toISOString()
+  // Interpret the reporter's wall clock in the facility timezone -> real UTC
+  // instant (mirrors persistAccident; migration 174).
+  const tz = await getFacilityTimezone(supabase, existing.facility_id)
+  const occurredAt = wallTimeToUtc(fields.occurred_at, tz)
+  if (!occurredAt) {
+    return { ok: false, fieldErrors: { occurred_at: "Invalid date and time." } }
+  }
+  const occurredIso = occurredAt.toISOString()
 
   // Stamp workers_comp_acknowledged_at if newly acknowledged.
   const nextWcAck = fields.workers_comp

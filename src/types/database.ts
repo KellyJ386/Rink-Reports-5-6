@@ -6912,6 +6912,47 @@ export type Database = {
         Args: { "": string }
         Returns: string[]
       }
+      submit_incident_report: {
+        Args: {
+          p_activity_id?: string
+          p_activity_other?: string
+          p_ambulance_flag?: boolean
+          p_description?: string
+          p_employee_id?: string
+          p_facility_id?: string
+          p_follow_up_required?: boolean
+          p_immediate_actions?: string
+          p_incident_type_id?: string
+          p_location_other?: string
+          p_occurred_at?: string
+          p_persons_involved?: number
+          p_reporter_name?: string
+          p_reporter_phone?: string
+          p_severity_level_id?: string
+          p_space_ids?: string[]
+          p_witnesses?: Json
+        }
+        Returns: string
+      }
+      update_incident_report: {
+        Args: {
+          p_activity_id?: string
+          p_activity_other?: string
+          p_ambulance_flag?: boolean
+          p_description?: string
+          p_follow_up_required?: boolean
+          p_immediate_actions?: string
+          p_incident_type_id?: string
+          p_location_other?: string
+          p_occurred_at?: string
+          p_persons_involved?: number
+          p_report_id?: string
+          p_severity_level_id?: string
+          p_space_ids?: string[]
+          p_witnesses?: Json
+        }
+        Returns: undefined
+      }
       user_has_permission: {
         Args: {
           p_action: Database["public"]["Enums"]["user_action"]
