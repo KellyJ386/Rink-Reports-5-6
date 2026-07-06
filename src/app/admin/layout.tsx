@@ -42,6 +42,7 @@ export default async function AdminLayout({
           id="main-content"
           tabIndex={-1}
           className="flex-1 outline-none 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl"
+          className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl"
         >
           {children}
         </main>

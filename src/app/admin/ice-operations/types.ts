@@ -80,11 +80,9 @@ export function isSeverity(v: string): v is Severity {
   return (SEVERITIES as readonly string[]).includes(v)
 }
 
+// Only used to render legacy temperature payloads (the ice-make form no
+// longer collects temperatures); the settings UI no longer edits the unit.
 export type TemperatureUnit = "F" | "C"
-export const TEMPERATURE_UNITS: readonly TemperatureUnit[] = ["F", "C"]
-export function isTemperatureUnit(v: string): v is TemperatureUnit {
-  return (TEMPERATURE_UNITS as readonly string[]).includes(v)
-}
 
 export type Tab = "setup" | "history" | "settings"
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [

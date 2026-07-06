@@ -156,7 +156,7 @@ This appendix collects every ⚠ VERIFY flag from the discovery manifest and all
 
 ### Ice Operations
 
-11. **Temperature unit setting may be unused on live forms.** A Fahrenheit/Celsius display setting exists, but current staff forms don't collect a temperature; it mainly affects how legacy History readings display. Confirm whether any live staff field uses it. *(Ice Operations §4.)*
+11. **Temperature unit setting removed.** Confirmed unused on live forms (no staff field collects a temperature), so the Fahrenheit/Celsius selector was removed from Ice Operations Settings; legacy History readings still display in the previously saved unit. *(Ice Operations §4.)*
 12. **Supervisor config rights** default — confirm whether a facility grants supervisors Ice Operations config by default (covered by items 1–2). *(Ice Operations §2.)*
 
 ### Air Quality

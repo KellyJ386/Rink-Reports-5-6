@@ -52,13 +52,13 @@ The Setup tab is a stack of cards. Each card lists existing items with **Edit / 
 - **Rinks** — the surfaces ice operations are performed on (name and an optional slug, with a sort order). Rinks are required for Ice Make.
 - **Fuel types** — power sources for resurfacers (e.g. Electric, Gas, Propane). Each fuel type can anchor one circle-check template.
 - **Equipment** — your machines, grouped by **equipment type**. The built-in types are **Ice Resurfacer, Edger, Blade Set, Hand Edger, and Other**. For each machine you can set a name, type, slug, model, serial number, an **hours count** (admin-maintained — it does **not** auto-update from submissions), an optional fuel type, and sort order. The equipment type is what decides which operation tab a machine shows up under (resurfacers → Ice Make / Circle Check, edgers → Edging, blade sets → Blade Change).
-- **Circle-check items** — the individual inspection items staff see during a circle check. Each item has a label, optional description, an "applies to" scope (All equipment, or one equipment type), and a response type of **Pass / Fail** or **Text response** (optionally required). Items can be reordered with up/down arrows, toggled active, deleted, and **bulk-imported** (up to 50 per facility).
+- **Circle-check items** — the individual inspection items staff see during a circle check. Each item has a label, optional description, and an "applies to" scope (All equipment, or one equipment type); staff answer every item as **Pass / Fail**. Items can be reordered with up/down arrows, toggled active, deleted, and **bulk-imported** (up to 50 per facility).
 - **Circle-check templates** — an optional, more structured alternative to the flat item list. You create **one template per fuel type** (up to **4 templates** per facility), give it a name/description, and add its own list of checklist **fields** (also bulk-importable). When an operator picks a resurfacer whose fuel type matches a template, that template's fields replace the generic item list for that check.
 
 ### Settings tab
 
 - **Visible operations** — checkboxes for Ice Make, Circle Check, Edging, Blade Change. Check the ones your facility uses; **leaving all unchecked shows every operation** (the default). This is what controls which tabs staff see.
-- **Temperature unit** — Fahrenheit or Celsius, display only. (Values are stored in Celsius internally.) Note: the current staff forms don't collect a temperature, so this setting mainly affects how older/legacy readings display in History. ⚠ VERIFY whether any live staff field uses this unit today.
+- *(Removed)* **Temperature unit** — the staff forms no longer collect a temperature, so the °F/°C selector was removed from Settings. Legacy temperature readings on older submissions still display in the facility's previously saved unit (default °F).
 - **Enable ice operations alerts** — when on, a failed circle check raises a facility alert.
 - **Default alert severity** — warn / high / critical, used when a circle-check failure alert is raised without its own severity.
 
@@ -97,7 +97,7 @@ Fields: **Machine** (required — only blade sets appear), **Old Blade Hours**, 
    - Otherwise, the generic **circle-check items** that apply to that machine's type are shown.
 3. For each item, tap **Pass** (green) or **Fail** (red). When you mark an item **Fail**, a required **"What's wrong?"** note box appears beneath it.
 4. Add optional **General Notes**.
-5. **Submit circle check.** The button stays disabled (with a red reminder) until every failed item has a note.
+5. **Submit circle check.** The button stays disabled until every item has been answered (a counter shows how many remain) and every failed item has a note — items are never recorded as passed by default.
 
 A failed circle check is flagged on the confirmation screen, recorded with a failed-item count, and — if alerts are enabled — raises a manager alert listing the failed items.
 
@@ -116,7 +116,7 @@ After any submit you land on a **Submitted!** screen with a green checkmark, the
 **Run a Circle Check**
 1. Open **Ice Operations** → **Circle Check** tab.
 2. Select the **Machine** (and a **Fuel type** if prompted).
-3. Tap **Pass** or **Fail** for each checklist item; write a note for every **Fail**.
+3. Tap **Pass** or **Fail** on every checklist item (all must be answered); write a note for every **Fail**.
 4. Add general notes if needed → **Submit circle check**. Failures notify your managers.
 
 **Log a Blade Change**

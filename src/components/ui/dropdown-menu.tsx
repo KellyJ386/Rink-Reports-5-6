@@ -150,6 +150,7 @@ function DropdownMenuTrigger({
 }: DropdownMenuTriggerProps) {
   const { open, closeMenu, openMenu, triggerRef, contentRef, contentId } =
     useDropdown()
+  const { open, closeMenu, openMenu, triggerRef, contentId } = useDropdown()
   const Comp = (asChild ? Slot : "button") as React.ElementType
 
   return (
@@ -196,6 +197,7 @@ function DropdownMenuTrigger({
           } else {
             openMenu(focusTarget)
           }
+          openMenu(e.key === "ArrowDown" ? "first" : "last")
         }
       }}
       {...props}

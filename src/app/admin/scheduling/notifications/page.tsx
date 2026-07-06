@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Card,
   CardContent,
@@ -178,6 +179,9 @@ export default async function NotificationsPage({
           <label htmlFor="filter-type" className="text-xs font-medium">
             Type
           </label>
+          <Label htmlFor="filter-type" className="text-sm">
+            Type
+          </Label>
           <NativeSelect
             id="filter-type"
             name="type"
@@ -195,6 +199,9 @@ export default async function NotificationsPage({
           <label htmlFor="filter-recipient" className="text-xs font-medium">
             Recipient
           </label>
+          <Label htmlFor="filter-recipient" className="text-sm">
+            Recipient
+          </Label>
           <NativeSelect
             id="filter-recipient"
             name="recipient"
@@ -213,6 +220,9 @@ export default async function NotificationsPage({
           <label htmlFor="filter-unread" className="text-xs font-medium">
             Unread
           </label>
+          <Label htmlFor="filter-unread" className="text-sm">
+            Unread
+          </Label>
           <NativeSelect
             id="filter-unread"
             name="unread"
@@ -244,6 +254,16 @@ export default async function NotificationsPage({
             name="to"
             defaultValue={sp.to ?? ""}
           />
+          <Label htmlFor="filter-from" className="text-sm">
+            From
+          </Label>
+          <Input id="filter-from" type="date" name="from" defaultValue={sp.from ?? ""} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-to" className="text-sm">
+            To
+          </Label>
+          <Input id="filter-to" type="date" name="to" defaultValue={sp.to ?? ""} />
         </div>
         <div className="md:col-span-5 flex justify-end gap-2">
           <Button type="submit" size="sm">
@@ -341,6 +361,7 @@ function NativeSelect({
     <div className="relative">
       <select
         className={cn(NATIVE_SELECT_CLASS, className)}
+        className={`${NATIVE_SELECT_CLASS}${className ? ` ${className}` : ""}`}
         {...props}
       >
         {children}

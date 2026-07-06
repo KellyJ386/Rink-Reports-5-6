@@ -29,6 +29,7 @@ function SelectTrigger({
           aria-hidden="true"
           className="size-4 shrink-0 text-muted-foreground"
         />
+        <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -41,7 +42,7 @@ function SelectScrollUpButton({
   return (
     <SelectPrimitive.ScrollUpButton
       className={cn(
-        "flex cursor-default items-center justify-center py-1",
+        "flex cursor-default items-center justify-center border-b border-border/60 bg-popover py-1 text-muted-foreground shadow-sm",
         className
       )}
       {...props}
@@ -58,7 +59,7 @@ function SelectScrollDownButton({
   return (
     <SelectPrimitive.ScrollDownButton
       className={cn(
-        "flex cursor-default items-center justify-center py-1",
+        "flex cursor-default items-center justify-center border-t border-border/60 bg-popover py-1 text-muted-foreground shadow-sm",
         className
       )}
       {...props}
