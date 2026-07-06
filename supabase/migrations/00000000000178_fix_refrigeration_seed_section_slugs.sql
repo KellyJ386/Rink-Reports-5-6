@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000175_fix_refrigeration_seed_section_slugs.sql
+-- 00000000000178_fix_refrigeration_seed_section_slugs.sql
 --
 -- The SQL seed function from migration 11 used underscore slugs
 -- ('supply_return', 'machine_hours') while everything since — the admin
