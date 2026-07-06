@@ -97,7 +97,7 @@ Fields: **Machine** (required — only blade sets appear), **Old Blade Hours**, 
    - Otherwise, the generic **circle-check items** that apply to that machine's type are shown.
 3. For each item, tap **Pass** (green) or **Fail** (red). When you mark an item **Fail**, a required **"What's wrong?"** note box appears beneath it.
 4. Add optional **General Notes**.
-5. **Submit circle check.** The button stays disabled (with a red reminder) until every failed item has a note.
+5. **Submit circle check.** The button stays disabled until every item has been answered (a counter shows how many remain) and every failed item has a note — items are never recorded as passed by default.
 
 A failed circle check is flagged on the confirmation screen, recorded with a failed-item count, and — if alerts are enabled — raises a manager alert listing the failed items.
 
@@ -116,7 +116,7 @@ After any submit you land on a **Submitted!** screen with a green checkmark, the
 **Run a Circle Check**
 1. Open **Ice Operations** → **Circle Check** tab.
 2. Select the **Machine** (and a **Fuel type** if prompted).
-3. Tap **Pass** or **Fail** for each checklist item; write a note for every **Fail**.
+3. Tap **Pass** or **Fail** on every checklist item (all must be answered); write a note for every **Fail**.
 4. Add general notes if needed → **Submit circle check**. Failures notify your managers.
 
 **Log a Blade Change**

@@ -82,6 +82,14 @@ test.describe("4. Ice Operations", () => {
       await expect(submit).toBeDisabled()
     }
 
+    // Items start unanswered and every one must be tapped before submit
+    // enables — mark the rest Pass (skipping the first, which stays Failed).
+    const passButtons = page.getByRole("button", { name: /^pass$/i })
+    const passCount = await passButtons.count()
+    for (let i = 1; i < passCount; i++) {
+      await passButtons.nth(i).click()
+    }
+
     // Adding the note unblocks submission.
     await noteField.fill("Blade nick found; flagged for replacement.")
     await expect(submit).toBeEnabled()
@@ -104,6 +112,13 @@ test.describe("4. Ice Operations", () => {
       .getByPlaceholder(/describe the issue/i)
       .first()
       .fill("Hydraulic leak — manager notified.")
+
+    // Every item must be answered before submit enables; mark the rest Pass.
+    const passButtons = page.getByRole("button", { name: /^pass$/i })
+    const passCount = await passButtons.count()
+    for (let i = 1; i < passCount; i++) {
+      await passButtons.nth(i).click()
+    }
 
     await page.getByRole("button", { name: /submit circle check/i }).click()
     await expect(page).toHaveURL(/\/done/)
