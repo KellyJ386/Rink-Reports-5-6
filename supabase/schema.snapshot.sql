@@ -382,7 +382,17 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('manager','communications','admin'::public.user_action),
       ('supervisor','communications','edit'::public.user_action),
       ('staff','communications','submit'::public.user_action),
-      ('driver','communications','submit'::public.user_action)
+      ('driver','communications','submit'::public.user_action),
+      -- facility_paperwork (document library: manage for admin-tier roles,
+      -- read for everyone else; facility_documents RLS writes stay gated on
+      -- is_facility_admin regardless)
+      ('super_admin','facility_paperwork','admin'::public.user_action),
+      ('admin','facility_paperwork','admin'::public.user_action),
+      ('gm','facility_paperwork','admin'::public.user_action),
+      ('manager','facility_paperwork','admin'::public.user_action),
+      ('supervisor','facility_paperwork','view'::public.user_action),
+      ('staff','facility_paperwork','view'::public.user_action),
+      ('driver','facility_paperwork','view'::public.user_action)
   ),
   action_levels(action, lvl) as (
     values
@@ -467,6 +477,29 @@ $$;
 --
 
 COMMENT ON FUNCTION public.check_rate_limit(p_bucket text, p_identifier text, p_max integer, p_window_seconds integer) IS 'Atomically counts one hit for (bucket, identifier) in the current fixed window of p_window_seconds. Returns true if the running count is <= p_max (allowed) or false if over the limit. Backs the public lead-form rate limit. Reads/writes public.rate_limit_counters as table owner (RLS-enabled, no policies).';
+
+
+--
+-- Name: cleanup_daily_report_area_permissions(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.cleanup_daily_report_area_permissions() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  delete from public.module_area_permissions
+  where module_key = 'daily_reports' and area_id = old.id;
+  return old;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION cleanup_daily_report_area_permissions(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.cleanup_daily_report_area_permissions() IS 'AFTER DELETE on daily_report_areas: removes per-area permission grants for the deleted area — the ON DELETE CASCADE a polymorphic soft reference cannot express. SECURITY DEFINER so an area delete by a module admin also clears grants regardless of the caller''s module_area_permissions write scope.';
 
 
 --
@@ -1602,10 +1635,19 @@ CREATE FUNCTION public.get_employee_counts_by_facility() RETURNS TABLE(facility_
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
-  select facility_id, count(*)::bigint as employee_count
-  from employees
-  group by facility_id;
+  select e.facility_id, count(*)::bigint as employee_count
+  from public.employees e
+  where public.is_super_admin()
+     or e.facility_id = public.current_facility_id()
+  group by e.facility_id;
 $$;
+
+
+--
+-- Name: FUNCTION get_employee_counts_by_facility(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_employee_counts_by_facility() IS 'One row per facility with the total employee count. Super-admins see every facility; everyone else sees only their own (SECURITY DEFINER would otherwise leak cross-tenant counts). Used by admin/facility and admin/super-admin pages.';
 
 
 --
@@ -2429,6 +2471,43 @@ begin
   return v_total;
 end;
 $$;
+
+
+--
+-- Name: rate_limit_information_requests(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rate_limit_information_requests() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  -- Per-email bucket: 5 submissions/hour, mirroring the route's per-IP cap.
+  if not public.check_rate_limit(
+    'information_requests_email', lower(new.email), 5, 3600
+  ) then
+    raise exception 'Too many requests. Please try again later.'
+      using errcode = 'P0001';
+  end if;
+  -- Coarse global bucket so rotating emails cannot bypass the per-email cap:
+  -- 100 submissions/hour across the whole table (a legitimate marketing page
+  -- for a pre-launch product is nowhere near this; raise it when it is).
+  if not public.check_rate_limit(
+    'information_requests_global', 'all', 100, 3600
+  ) then
+    raise exception 'Too many requests. Please try again later.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rate_limit_information_requests(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rate_limit_information_requests() IS 'BEFORE INSERT on information_requests: fixed-window rate limits (5/hour per email, 100/hour global) via check_rate_limit(). Closes the direct-PostgREST bypass of the API route''s per-IP limit — the anon key is public, so the table itself must meter writes.';
 
 
 --
@@ -3660,7 +3739,7 @@ COMMENT ON FUNCTION public.scheduling_decide_open_claim(p_open_shift_id uuid, p_
 
 CREATE FUNCTION public.scheduling_expire_open_claims(p_limit integer DEFAULT 500) RETURNS integer
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 declare v_count int := 0; r record;
 begin
@@ -3688,7 +3767,7 @@ COMMENT ON FUNCTION public.scheduling_expire_open_claims(p_limit integer) IS 'Sw
 
 CREATE FUNCTION public.scheduling_expire_stale_swaps(p_limit integer DEFAULT 500) RETURNS integer
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 declare v_count int := 0; r record;
 begin
@@ -5166,6 +5245,86 @@ COMMENT ON FUNCTION public.show_dashboard_module(p_module_key text) IS 'Removes 
 
 
 --
+-- Name: submit_incident_report(uuid, uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, text, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.submit_incident_report(p_facility_id uuid DEFAULT NULL::uuid, p_employee_id uuid DEFAULT NULL::uuid, p_severity_level_id uuid DEFAULT NULL::uuid, p_incident_type_id uuid DEFAULT NULL::uuid, p_activity_id uuid DEFAULT NULL::uuid, p_activity_other text DEFAULT NULL::text, p_location_other text DEFAULT NULL::text, p_immediate_actions text DEFAULT NULL::text, p_occurred_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_reporter_name text DEFAULT NULL::text, p_reporter_phone text DEFAULT NULL::text, p_description text DEFAULT NULL::text, p_ambulance_flag boolean DEFAULT NULL::boolean, p_persons_involved integer DEFAULT NULL::integer, p_follow_up_required boolean DEFAULT NULL::boolean, p_space_ids uuid[] DEFAULT NULL::uuid[], p_witnesses jsonb DEFAULT NULL::jsonb) RETURNS uuid
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_report public.incident_reports%rowtype;
+begin
+  insert into public.incident_reports (
+    facility_id, employee_id, severity_level_id, incident_type_id,
+    activity_id, activity_other, location_other, immediate_actions,
+    occurred_at, reporter_name, reporter_phone, description,
+    ambulance_flag, persons_involved, follow_up_required,
+    status, submitted_at
+  ) values (
+    p_facility_id, p_employee_id, p_severity_level_id, p_incident_type_id,
+    p_activity_id, p_activity_other, p_location_other, p_immediate_actions,
+    p_occurred_at, p_reporter_name, p_reporter_phone, p_description,
+    coalesce(p_ambulance_flag, false), p_persons_involved,
+    coalesce(p_follow_up_required, false),
+    'submitted', now()
+  )
+  returning * into v_report;
+
+  insert into public.incident_report_spaces (incident_id, facility_id, space_id)
+  select v_report.id, p_facility_id, sid
+  from unnest(coalesce(p_space_ids, '{}'::uuid[])) as sid;
+
+  insert into public.incident_witnesses
+    (incident_id, facility_id, name, phone, email, statement, sort_order)
+  select v_report.id, p_facility_id,
+         w ->> 'name',
+         nullif(w ->> 'phone', ''),
+         nullif(w ->> 'email', ''),
+         nullif(w ->> 'statement', ''),
+         (ord - 1)::int
+  from jsonb_array_elements(coalesce(p_witnesses, '[]'::jsonb))
+         with ordinality as t(w, ord);
+
+  insert into public.incident_change_log
+    (incident_id, facility_id, employee_id, action, before, after)
+  values (
+    v_report.id, p_facility_id, p_employee_id, 'create', null,
+    jsonb_build_object(
+      'id', v_report.id,
+      'severity_level_id', v_report.severity_level_id,
+      'incident_type_id', v_report.incident_type_id,
+      'activity_id', v_report.activity_id,
+      'activity_other', v_report.activity_other,
+      'location_other', v_report.location_other,
+      'immediate_actions', v_report.immediate_actions,
+      'occurred_at', v_report.occurred_at,
+      'submitted_at', v_report.submitted_at,
+      'edit_window_ends_at', v_report.edit_window_ends_at,
+      'reporter_name', v_report.reporter_name,
+      'reporter_phone', v_report.reporter_phone,
+      'description', v_report.description,
+      'ambulance_flag', v_report.ambulance_flag,
+      'persons_involved', v_report.persons_involved,
+      'follow_up_required', v_report.follow_up_required,
+      'space_ids', to_jsonb(coalesce(p_space_ids, '{}'::uuid[])),
+      'witnesses', coalesce(p_witnesses, '[]'::jsonb)
+    )
+  );
+
+  return v_report.id;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION submit_incident_report(p_facility_id uuid, p_employee_id uuid, p_severity_level_id uuid, p_incident_type_id uuid, p_activity_id uuid, p_activity_other text, p_location_other text, p_immediate_actions text, p_occurred_at timestamp with time zone, p_reporter_name text, p_reporter_phone text, p_description text, p_ambulance_flag boolean, p_persons_involved integer, p_follow_up_required boolean, p_space_ids uuid[], p_witnesses jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.submit_incident_report(p_facility_id uuid, p_employee_id uuid, p_severity_level_id uuid, p_incident_type_id uuid, p_activity_id uuid, p_activity_other text, p_location_other text, p_immediate_actions text, p_occurred_at timestamp with time zone, p_reporter_name text, p_reporter_phone text, p_description text, p_ambulance_flag boolean, p_persons_involved integer, p_follow_up_required boolean, p_space_ids uuid[], p_witnesses jsonb) IS 'Atomic incident submission: report + spaces + witnesses + change log in one transaction. SECURITY INVOKER — RLS (008/103/104) still gates every write, so this grants no authority beyond the equivalent row-by-row inserts.';
+
+
+--
 -- Name: tg_seed_facility_air_quality_config(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5245,6 +5404,134 @@ $$;
 
 
 --
+-- Name: update_incident_report(uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_incident_report(p_report_id uuid DEFAULT NULL::uuid, p_severity_level_id uuid DEFAULT NULL::uuid, p_incident_type_id uuid DEFAULT NULL::uuid, p_activity_id uuid DEFAULT NULL::uuid, p_activity_other text DEFAULT NULL::text, p_location_other text DEFAULT NULL::text, p_immediate_actions text DEFAULT NULL::text, p_occurred_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_description text DEFAULT NULL::text, p_ambulance_flag boolean DEFAULT NULL::boolean, p_persons_involved integer DEFAULT NULL::integer, p_follow_up_required boolean DEFAULT NULL::boolean, p_space_ids uuid[] DEFAULT NULL::uuid[], p_witnesses jsonb DEFAULT NULL::jsonb) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_row    public.incident_reports%rowtype;
+  v_before jsonb;
+begin
+  -- RLS select policy scopes visibility; the lock serializes concurrent edits.
+  select * into v_row
+  from public.incident_reports
+  where id = p_report_id
+  for update;
+  if not found then
+    raise exception 'Report not found.';
+  end if;
+
+  v_before := jsonb_build_object(
+    'severity_level_id', v_row.severity_level_id,
+    'incident_type_id', v_row.incident_type_id,
+    'activity_id', v_row.activity_id,
+    'activity_other', v_row.activity_other,
+    'location_other', v_row.location_other,
+    'immediate_actions', v_row.immediate_actions,
+    'occurred_at', v_row.occurred_at,
+    'reporter_name', v_row.reporter_name,
+    'reporter_phone', v_row.reporter_phone,
+    'description', v_row.description,
+    'ambulance_flag', v_row.ambulance_flag,
+    'persons_involved', v_row.persons_involved,
+    'follow_up_required', v_row.follow_up_required,
+    'space_ids', (
+      select coalesce(jsonb_agg(s.space_id order by s.space_id), '[]'::jsonb)
+      from public.incident_report_spaces s
+      where s.incident_id = p_report_id
+    ),
+    'witnesses', (
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'name', w.name, 'phone', w.phone,
+            'email', w.email, 'statement', w.statement
+          ) order by w.sort_order
+        ),
+        '[]'::jsonb
+      )
+      from public.incident_witnesses w
+      where w.incident_id = p_report_id
+    )
+  );
+
+  -- RLS update policy (103) enforces "owner within the edit window, or module
+  -- admin". A row filtered out by the policy updates nothing → raise → the
+  -- whole transaction (including nothing-yet) rolls back.
+  update public.incident_reports set
+    severity_level_id  = p_severity_level_id,
+    incident_type_id   = p_incident_type_id,
+    activity_id        = p_activity_id,
+    activity_other     = p_activity_other,
+    location_other     = p_location_other,
+    immediate_actions  = p_immediate_actions,
+    occurred_at        = p_occurred_at,
+    description        = p_description,
+    ambulance_flag     = coalesce(p_ambulance_flag, false),
+    persons_involved   = p_persons_involved,
+    follow_up_required = coalesce(p_follow_up_required, false)
+  where id = p_report_id;
+  if not found then
+    raise exception 'You can no longer edit this report.';
+  end if;
+
+  -- Full replace of children (small row counts). Atomic here — a failed
+  -- re-insert rolls the deletes back too, unlike the previous app-side path.
+  delete from public.incident_report_spaces where incident_id = p_report_id;
+  insert into public.incident_report_spaces (incident_id, facility_id, space_id)
+  select p_report_id, v_row.facility_id, sid
+  from unnest(coalesce(p_space_ids, '{}'::uuid[])) as sid;
+
+  delete from public.incident_witnesses where incident_id = p_report_id;
+  insert into public.incident_witnesses
+    (incident_id, facility_id, name, phone, email, statement, sort_order)
+  select p_report_id, v_row.facility_id,
+         w ->> 'name',
+         nullif(w ->> 'phone', ''),
+         nullif(w ->> 'email', ''),
+         nullif(w ->> 'statement', ''),
+         (ord - 1)::int
+  from jsonb_array_elements(coalesce(p_witnesses, '[]'::jsonb))
+         with ordinality as t(w, ord);
+
+  insert into public.incident_change_log
+    (incident_id, facility_id, employee_id, action, before, after)
+  values (
+    p_report_id, v_row.facility_id, public.current_employee_id(), 'update',
+    v_before,
+    jsonb_build_object(
+      'severity_level_id', p_severity_level_id,
+      'incident_type_id', p_incident_type_id,
+      'activity_id', p_activity_id,
+      'activity_other', p_activity_other,
+      'location_other', p_location_other,
+      'immediate_actions', p_immediate_actions,
+      'occurred_at', p_occurred_at,
+      'reporter_name', v_row.reporter_name,
+      'reporter_phone', v_row.reporter_phone,
+      'description', p_description,
+      'ambulance_flag', coalesce(p_ambulance_flag, false),
+      'persons_involved', p_persons_involved,
+      'follow_up_required', coalesce(p_follow_up_required, false),
+      'space_ids', to_jsonb(coalesce(p_space_ids, '{}'::uuid[])),
+      'witnesses', coalesce(p_witnesses, '[]'::jsonb)
+    )
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION update_incident_report(p_report_id uuid, p_severity_level_id uuid, p_incident_type_id uuid, p_activity_id uuid, p_activity_other text, p_location_other text, p_immediate_actions text, p_occurred_at timestamp with time zone, p_description text, p_ambulance_flag boolean, p_persons_involved integer, p_follow_up_required boolean, p_space_ids uuid[], p_witnesses jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.update_incident_report(p_report_id uuid, p_severity_level_id uuid, p_incident_type_id uuid, p_activity_id uuid, p_activity_other text, p_location_other text, p_immediate_actions text, p_occurred_at timestamp with time zone, p_description text, p_ambulance_flag boolean, p_persons_involved integer, p_follow_up_required boolean, p_space_ids uuid[], p_witnesses jsonb) IS 'Atomic submitter/admin incident edit: snapshots before/after into incident_change_log and full-replaces spaces/witnesses in one transaction. SECURITY INVOKER — the 24h-window/admin RLS update policy (migration 103) still decides who may edit.';
+
+
+--
 -- Name: user_has_permission(uuid, uuid, text, public.user_action); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5272,6 +5559,37 @@ $$;
 --
 
 COMMENT ON FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) IS 'True iff (user, facility, module, action) is enabled, or the user is a global super_admin.';
+
+
+--
+-- Name: validate_module_area_permission(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_module_area_permission() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.module_key = 'daily_reports' then
+    if not exists (
+      select 1 from public.daily_report_areas a
+      where a.id = new.area_id and a.facility_id = new.facility_id
+    ) then
+      raise exception
+        'module_area_permissions: area % does not exist in facility % for module daily_reports',
+        new.area_id, new.facility_id;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION validate_module_area_permission(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.validate_module_area_permission() IS 'BEFORE INSERT/UPDATE guard on module_area_permissions: the polymorphic area_id must reference an existing area in the same facility for the given module_key (daily_reports today). Added after 15 orphaned grants were found in production (2026-07-06 admin-area review).';
 
 
 --
@@ -5411,6 +5729,13 @@ CREATE TABLE public.accident_reports (
 --
 
 COMMENT ON TABLE public.accident_reports IS 'Accident Reports: per-facility accident submissions. Editable by submitter while now() <= edit_window_ends_at (24h default). Outside the window only admins may update; all changes should be logged in accident_change_log by the app.';
+
+
+--
+-- Name: COLUMN accident_reports.occurred_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.accident_reports.occurred_at IS 'When the accident happened — a real UTC instant. Converted from the reporter''s wall clock using facilities.timezone at persist time (migration 174; earlier rows were reinterpreted from the legacy wall-clock-as-UTC encoding).';
 
 
 --
@@ -7444,6 +7769,13 @@ COMMENT ON COLUMN public.ice_operations_submissions.equipment_id IS 'Relevance v
 
 
 --
+-- Name: COLUMN ice_operations_submissions.occurred_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_operations_submissions.occurred_at IS 'When the operation happened — a real UTC instant. Converted from the operator''s wall clock using facilities.timezone at persist time (migration 174; earlier rows were reinterpreted from the legacy wall-clock-as-UTC encoding).';
+
+
+--
 -- Name: COLUMN ice_operations_submissions.has_failed_check; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -7585,6 +7917,13 @@ CREATE TABLE public.incident_reports (
 --
 
 COMMENT ON TABLE public.incident_reports IS 'Incident Reports: per-facility incident submissions. Original content not overwritten in normal flow; admins transition status. Reporter contact (name + phone) is required by spec.';
+
+
+--
+-- Name: COLUMN incident_reports.occurred_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.incident_reports.occurred_at IS 'When the incident happened — a real UTC instant. Converted from the reporter''s wall clock using facilities.timezone at persist time (migration 174; earlier rows were reinterpreted from the legacy wall-clock-as-UTC encoding).';
 
 
 --
@@ -7744,6 +8083,7 @@ CREATE TABLE public.information_requests (
     note text DEFAULT ''::text NOT NULL,
     status text DEFAULT 'new'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT information_requests_email_format_check CHECK ((email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'::text)),
     CONSTRAINT information_requests_lengths_check CHECK (((char_length(name) <= 200) AND (char_length(email) <= 320) AND (char_length(company) <= 200) AND (char_length(address_line1) <= 200) AND (char_length(address_line2) <= 200) AND (char_length(address_city) <= 120) AND (char_length(address_region) <= 120) AND (char_length(address_postal) <= 40) AND (char_length(address_country) <= 120) AND (char_length(note) <= 5000)))
 );
 
@@ -8944,7 +9284,7 @@ CREATE TABLE public.user_permissions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     source text DEFAULT 'role_default'::text NOT NULL,
-    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'admin'::text]))),
+    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'admin'::text]))),
     CONSTRAINT user_permissions_source_check CHECK ((source = ANY (ARRAY['role_default'::text, 'manual_override'::text])))
 );
 
@@ -12399,6 +12739,13 @@ CREATE TRIGGER trg_certification_types_updated_at BEFORE UPDATE ON public.certif
 
 
 --
+-- Name: daily_report_areas trg_cleanup_daily_report_area_permissions; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cleanup_daily_report_area_permissions AFTER DELETE ON public.daily_report_areas FOR EACH ROW EXECUTE FUNCTION public.cleanup_daily_report_area_permissions();
+
+
+--
 -- Name: communication_alerts trg_communication_alerts_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -12756,6 +13103,13 @@ CREATE TRIGGER trg_notification_outbox_updated_at BEFORE UPDATE ON public.notifi
 
 
 --
+-- Name: information_requests trg_rate_limit_information_requests; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rate_limit_information_requests BEFORE INSERT ON public.information_requests FOR EACH ROW EXECUTE FUNCTION public.rate_limit_information_requests();
+
+
+--
 -- Name: communication_recipients trg_recipient_delivery_column_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -12942,6 +13296,13 @@ CREATE TRIGGER trg_user_permissions_set_updated_at BEFORE UPDATE ON public.user_
 --
 
 CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: module_area_permissions trg_validate_module_area_permission; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_validate_module_area_permission BEFORE INSERT OR UPDATE OF area_id, module_key, facility_id ON public.module_area_permissions FOR EACH ROW EXECUTE FUNCTION public.validate_module_area_permission();
 
 
 --
