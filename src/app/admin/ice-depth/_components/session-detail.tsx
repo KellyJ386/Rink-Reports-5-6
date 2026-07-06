@@ -57,9 +57,10 @@ function severityColor(
   severity: string,
   settings: SettingsRow | null,
 ): string {
-  const low = settings?.low_color ?? "#1d4ed8"
-  const ok = settings?.ok_color ?? "#16a34a"
-  const high = settings?.high_color ?? "#dc2626"
+  // Fallbacks mirror the DB column defaults (migration 14).
+  const low = settings?.low_color ?? "#ef4444"
+  const ok = settings?.ok_color ?? "#22c55e"
+  const high = settings?.high_color ?? "#eab308"
   if (severity === "low") return low
   if (severity === "high") return high
   return ok
