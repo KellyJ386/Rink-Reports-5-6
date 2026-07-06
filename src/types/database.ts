@@ -3213,61 +3213,6 @@ export type Database = {
           },
         ]
       }
-      ice_operation_change_log: {
-        Row: {
-          after: Json
-          before: Json
-          changed_by: string
-          created_at: string
-          facility_id: string
-          id: string
-          reason: string
-          report_id: string
-        }
-        Insert: {
-          after?: Json
-          before?: Json
-          changed_by: string
-          created_at?: string
-          facility_id: string
-          id?: string
-          reason: string
-          report_id: string
-        }
-        Update: {
-          after?: Json
-          before?: Json
-          changed_by?: string
-          created_at?: string
-          facility_id?: string
-          id?: string
-          reason?: string
-          report_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ice_operation_change_log_changed_by_fkey"
-            columns: ["changed_by"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ice_operation_change_log_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facilities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ice_operation_change_log_report_id_fkey"
-            columns: ["report_id"]
-            isOneToOne: false
-            referencedRelation: "ice_operations_submissions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       ice_operations_circle_check_items: {
         Row: {
           applies_to_equipment_type: string | null
