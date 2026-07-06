@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { LoadMoreLink } from "@/components/admin/load-more-link"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
@@ -73,6 +73,10 @@ export default async function RefrigerationAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // The refrigeration RLS write policies gate on the module-scoped admin
+  // grant, which requireAdmin does not imply. Without this, a global admin
+  // lacking the grant gets a console whose every write dies at the RLS layer.
+  await requireModuleAdmin("refrigeration")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
@@ -268,22 +272,61 @@ async function HistoryTabLoader({
     .order("last_name", { ascending: true })
   const employees = (empsRes.data ?? []) as EmployeeLite[]
 
-  let q = supabase
-    .from("refrigeration_reports")
-    .select("*")
-    .eq("facility_id", facilityId)
-    .order("submitted_at", { ascending: false })
-    // One extra row to learn whether a "Load more" link is needed.
-    .range(0, show)
-  if (params.employee) q = q.eq("employee_id", params.employee)
-  if (from) q = q.gte("submitted_at", `${from}T00:00:00.000Z`)
-  if (to) q = q.lte("submitted_at", `${to}T23:59:59.999Z`)
-  if (params.q) q = q.ilike("notes", `%${params.q}%`)
+  // The out-of-range flag lives on report *values*, so it can't be a column
+  // filter on the reports query. Filtering in memory after `.range()` would
+  // only ever inspect the first window (older matches silently missing and
+  // "Load more" counts corrupted), so instead fetch windows of reports and
+  // keep the ones passing the OOR filter until the page is full — bounded by
+  // a scan cap so a pathological filter can't walk unlimited history.
+  const oorFilter =
+    params.oor === "yes" || params.oor === "no" ? params.oor : null
+  const windowSize = show + 1
+  const scanCap = windowSize * 5
+  const collected: ReportRow[] = []
+  let offset = 0
+  let rawExhausted = false
+  while (collected.length <= show && offset < scanCap) {
+    let q = supabase
+      .from("refrigeration_reports")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .order("submitted_at", { ascending: false })
+      .range(offset, offset + windowSize - 1)
+    if (params.employee) q = q.eq("employee_id", params.employee)
+    if (from) q = q.gte("submitted_at", `${from}T00:00:00.000Z`)
+    if (to) q = q.lte("submitted_at", `${to}T23:59:59.999Z`)
+    if (params.q) q = q.ilike("notes", `%${params.q}%`)
 
-  const { data: reportsRaw } = await q
-  const overfetched = (reportsRaw ?? []) as ReportRow[]
-  const hasMore = overfetched.length > show
-  const reports = hasMore ? overfetched.slice(0, show) : overfetched
+    const { data: batchRaw } = await q
+    const batch = (batchRaw ?? []) as ReportRow[]
+    if (batch.length === 0) {
+      rawExhausted = true
+      break
+    }
+
+    let passing = batch
+    if (oorFilter) {
+      const ids = batch.map((r) => r.id)
+      const { data: oorRows } = await supabase
+        .from("refrigeration_report_values")
+        .select("report_id")
+        .eq("is_out_of_range", true)
+        .in("report_id", ids)
+      const oorSet = new Set((oorRows ?? []).map((v) => v.report_id))
+      passing = batch.filter((r) =>
+        oorFilter === "yes" ? oorSet.has(r.id) : !oorSet.has(r.id),
+      )
+    }
+    collected.push(...passing)
+
+    if (batch.length < windowSize) {
+      rawExhausted = true
+      break
+    }
+    offset += windowSize
+  }
+  const hasMore = collected.length > show || !rawExhausted
+  const reports = collected.slice(0, show)
 
   // Aggregate value counts + OOR counts per report.
   let valueAgg: Array<{ report_id: string; is_out_of_range: boolean }> = []
@@ -320,7 +363,7 @@ async function HistoryTabLoader({
   }
   const empById = new Map(listedEmps.map((e) => [e.id, e]))
 
-  let list: ReportListItem[] = reports.map((r) => {
+  const list: ReportListItem[] = reports.map((r) => {
     const totals = totalsByReport.get(r.id) ?? { total: 0, oor: 0 }
     return {
       ...r,
@@ -335,9 +378,6 @@ async function HistoryTabLoader({
           : null,
     }
   })
-
-  if (params.oor === "yes") list = list.filter((r) => r.out_of_range_count > 0)
-  if (params.oor === "no") list = list.filter((r) => r.out_of_range_count === 0)
 
   // Drilldown
   let detail: ReportDetailData | null = null
