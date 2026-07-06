@@ -131,7 +131,7 @@ export function SettingsTab({ settings }: Props) {
             <p className="text-muted-foreground text-xs">
               Choose which operations staff can log at this facility. The
               operation types themselves are built in; this only controls
-              visibility. Leaving all unchecked shows every operation.
+              visibility. At least one must stay selected.
             </p>
             <div className="mt-1 grid gap-2 sm:grid-cols-2">
               {OPERATION_TYPES.map((op) => (

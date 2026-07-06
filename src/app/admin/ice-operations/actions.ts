@@ -739,13 +739,21 @@ export async function updateIceOperationsSettings(
     }
     const default_alert_severity: Severity = sevRaw
 
-    // Operation-type visibility (checkboxes). Stored as the checked subset; an
-    // empty selection is treated as "all enabled" downstream (fail-open) so an
-    // admin can't accidentally lock staff out of every operation.
+    // Operation-type visibility (checkboxes), stored as the checked subset.
+    // An empty selection is rejected rather than saved: downstream treats
+    // null/empty as "all enabled" (fail-open, for facilities that never saved
+    // settings), so persisting an empty set would silently mean the opposite
+    // of what the admin just did.
     const enabled_operation_types = formData
       .getAll("enabled_operation_types")
       .map(String)
       .filter(isOperationType)
+    if (enabled_operation_types.length === 0) {
+      return {
+        ok: false,
+        error: "Select at least one visible operation.",
+      }
+    }
 
     const supabase = await createClient()
     const { error } = await supabase.from("ice_operations_settings").upsert(
