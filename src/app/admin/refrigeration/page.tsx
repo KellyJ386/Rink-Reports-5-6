@@ -265,12 +265,23 @@ async function HistoryTabLoader({
   const to = params.to ?? null
   const show = clampShow(params.show, { initial: 200 })
 
-  const empsRes = await supabase
-    .from("employees")
-    .select("id, first_name, last_name")
-    .eq("facility_id", facilityId)
-    .order("last_name", { ascending: true })
+  // Employees for the filter dropdown, plus the facility timezone so
+  // timestamps render as facility wall-clock (the server runs in UTC; the
+  // viewer's browser may be anywhere).
+  const [empsRes, facilityRes] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .eq("facility_id", facilityId)
+      .order("last_name", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle(),
+  ])
   const employees = (empsRes.data ?? []) as EmployeeLite[]
+  const timezone = facilityRes.data?.timezone ?? null
 
   // The out-of-range flag lives on report *values*, so it can't be a column
   // filter on the reports query. Filtering in memory after `.range()` would
@@ -464,6 +475,7 @@ async function HistoryTabLoader({
         backHref={backHref}
         employees={employees}
         params={{ ...params, from }}
+        timezone={timezone}
       />
       {!detail && hasMore && more ? (
         <LoadMoreLink

@@ -15,6 +15,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+import { formatInTz } from "@/lib/timezone"
+
 import { addRefrigerationFollowupNote } from "../actions"
 import type { ActionState, ReportDetailData, ReportValueRow } from "../types"
 
@@ -23,15 +25,8 @@ const NOTE_INITIAL: ActionState = { ok: null }
 type Props = {
   detail: ReportDetailData
   backHref: string
-}
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+  /** Facility IANA timezone; timestamps render as facility wall-clock. */
+  timezone: string | null
 }
 
 function formatValue(v: ReportValueRow): string {
@@ -53,7 +48,8 @@ function formatValue(v: ReportValueRow): string {
   }
 }
 
-export function ReportDetail({ detail, backHref }: Props) {
+export function ReportDetail({ detail, backHref, timezone }: Props) {
+  const fmt = (ts: string | null) => (ts ? formatInTz(ts, timezone) : "—")
   const { report, employee, values, notes } = detail
   const [noteState, noteAction, notePending] = useActionState(
     addRefrigerationFollowupNote,

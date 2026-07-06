@@ -311,7 +311,9 @@ async function HistoryTabLoader({
   const to = params.to ?? null
   const show = clampShow(params.show, HISTORY_SHOW)
 
-  const [layoutsRes, empsRes] = await Promise.all([
+  // Facility timezone rides along so timestamps render as facility
+  // wall-clock (the server runs in UTC; the viewer's browser may be anywhere).
+  const [layoutsRes, empsRes, facilityRes] = await Promise.all([
     supabase
       .from("ice_depth_layouts")
       .select("*")
@@ -323,9 +325,15 @@ async function HistoryTabLoader({
       .select("id, first_name, last_name")
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle(),
   ])
   const layouts = (layoutsRes.data ?? []) as LayoutRow[]
   const employees = (empsRes.data ?? []) as EmployeeLite[]
+  const timezone = facilityRes.data?.timezone ?? null
 
   // Fetch one extra row (range is inclusive: 0..show => show+1 rows) so we can
   // tell whether a "Load more" link is warranted without a separate count.
@@ -486,6 +494,7 @@ async function HistoryTabLoader({
       params={{ ...params, from }}
       moreHref={moreHref}
       canDelete={canDelete}
+      timezone={timezone}
     />
   )
 }

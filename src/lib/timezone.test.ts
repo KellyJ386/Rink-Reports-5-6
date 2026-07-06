@@ -4,6 +4,7 @@ import {
   addDaysToKey,
   dayKeyInTz,
   dayPartsInTz,
+  formatInTz,
   minutesOfDayInTz,
   utcToWallTime,
   wallTimeToUtc,
@@ -222,5 +223,42 @@ describe("utcToWallTime", () => {
 
   it("returns null for unparseable input", () => {
     expect(utcToWallTime("not-a-date", "UTC")).toBeNull()
+  })
+})
+
+describe("formatInTz", () => {
+  it("renders the facility wall-clock, not UTC", () => {
+    expect(formatInTz("2026-01-15T20:00:00.000Z", "America/Chicago")).toBe(
+      "Jan 15, 2026, 2:00 PM"
+    )
+    expect(formatInTz("2026-07-04T17:30:00.000Z", "America/Los_Angeles")).toBe(
+      "Jul 4, 2026, 10:30 AM"
+    )
+  })
+
+  it("honors custom Intl options", () => {
+    expect(
+      formatInTz("2026-01-15T20:00:00.000Z", "UTC", {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    ).toBe("8:00 PM")
+  })
+
+  it("falls back to the runtime zone for a null or invalid timezone", () => {
+    const instant = new Date(Date.UTC(2026, 0, 15, 20, 0))
+    const local = new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(instant)
+    expect(formatInTz(instant, null)).toBe(local)
+    expect(formatInTz(instant, "Not/AZone")).toBe(local)
+  })
+
+  it("returns unparseable string input unchanged", () => {
+    expect(formatInTz("not-a-date", "UTC")).toBe("not-a-date")
   })
 })

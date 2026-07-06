@@ -16,6 +16,7 @@ import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
+import { formatInTz } from "@/lib/timezone"
 
 import { AreaAccessTab } from "./_components/area-access-tab"
 import { AreasTab } from "./_components/areas-tab"
@@ -349,13 +350,23 @@ async function SubmissionsTabLoader({
   const toDate = params.to ?? null
   const show = clampShow(params.show, { initial: 200 })
 
-  // Pull employees scoped to facility for the filter dropdown.
-  const { data: empsRaw } = await supabase
-    .from("employees")
-    .select("id, first_name, last_name")
-    .eq("facility_id", facilityId)
-    .order("last_name", { ascending: true })
+  // Pull employees scoped to facility for the filter dropdown, plus the
+  // facility timezone so timestamps render as facility wall-clock (the server
+  // runs in UTC; the viewer's browser may be anywhere).
+  const [{ data: empsRaw }, { data: facilityRow }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .eq("facility_id", facilityId)
+      .order("last_name", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle(),
+  ])
   const employees = (empsRaw ?? []) as EmployeeLite[]
+  const timezone = facilityRow?.timezone ?? null
 
   // Submissions list query.
   let q = supabase
@@ -555,7 +566,11 @@ async function SubmissionsTabLoader({
       />
 
       {detail ? (
-        <SubmissionDetailPanel detail={detail} backHref={backHref} />
+        <SubmissionDetailPanel
+          detail={detail}
+          backHref={backHref}
+          timezone={timezone}
+        />
       ) : list.length === 0 ? (
         <Card>
           <CardHeader>
@@ -568,7 +583,7 @@ async function SubmissionsTabLoader({
         </Card>
       ) : (
         <>
-          <SubmissionsList list={list} params={params} />
+          <SubmissionsList list={list} params={params} timezone={timezone} />
           {!detail && hasMore && nextShow(show, { initial: 200 }) ? (
             <LoadMoreLink
               href={loadMoreHref(params, nextShow(show, { initial: 200 }))}
@@ -603,9 +618,11 @@ function loadMoreHref(
 function SubmissionsList({
   list,
   params,
+  timezone,
 }: {
   list: SubmissionListItem[]
   params: { area?: string; employee?: string; from?: string; to?: string }
+  timezone: string | null
 }) {
   function detailHref(id: string): string {
     const sp = new URLSearchParams()
@@ -648,7 +665,7 @@ function SubmissionsList({
           {list.map((s) => (
             <tr key={s.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle">
-                {new Date(s.submitted_at).toLocaleString()}
+                {formatInTz(s.submitted_at, timezone)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 <span className="inline-flex items-center gap-1.5">

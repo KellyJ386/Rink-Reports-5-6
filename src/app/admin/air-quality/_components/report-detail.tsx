@@ -24,6 +24,8 @@ import {
   type AirQualityMeasurement,
 } from "@/app/reports/air-quality/types"
 
+import { formatInTz } from "@/lib/timezone"
+
 import { addAirQualityFollowupNote } from "../actions"
 import type {
   ActionState,
@@ -37,15 +39,8 @@ const NOTE_INITIAL: ActionState = { ok: null }
 type Props = {
   detail: ReportDetailData
   backHref: string
-}
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+  /** Facility IANA timezone; timestamps render as facility wall-clock. */
+  timezone: string | null
 }
 
 function severityBadgeVariant(sev: Severity | null): "destructive" | "warning" {
@@ -363,7 +358,8 @@ function ReadingValue({ reading }: { reading: ReadingRow }) {
   )
 }
 
-export function ReportDetail({ detail, backHref }: Props) {
+export function ReportDetail({ detail, backHref, timezone }: Props) {
+  const fmt = (ts: string | null) => (ts ? formatInTz(ts, timezone) : "—")
   const { report, location, equipment, employee, readings, notes } = detail
   const [noteState, noteAction, notePending] = useActionState(
     addAirQualityFollowupNote,
