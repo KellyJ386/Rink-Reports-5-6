@@ -100,13 +100,10 @@ function ModuleTile({
   const iconPath = MODULE_ICONS[moduleKey]
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-
-  // The tile is a fixed width, so a single long word (e.g. "Refrigeration",
-  // "Communications") can run past the card edge since it has no space to
-  // wrap on. Scale the font down by the longest word rather than the full
-  // title so short multi-word titles ("Ice Operations") keep their size.
-  const longestWord = Math.max(...title.split(" ").map((w) => w.length))
-  const titleFontSize = longestWord <= 9 ? 28 : longestWord <= 11 ? 22 : 18
+  // Fixed rather than scaled per-title: sized to fit the longest title
+  // ("Communications") within the tightest tile width so every card reads
+  // at the same size.
+  const TITLE_FONT_SIZE = 20
 
   const tileStyle: React.CSSProperties = {
     ["--module-accent" as string]: `var(${accentVar})`,
@@ -162,7 +159,7 @@ function ModuleTile({
             className="relative mt-auto pt-8 text-white"
             style={{
               fontFamily: DISPLAY_FONT,
-              fontSize: titleFontSize,
+              fontSize: TITLE_FONT_SIZE,
               lineHeight: 1.05,
               letterSpacing: "0.015em",
               textTransform: "uppercase",
