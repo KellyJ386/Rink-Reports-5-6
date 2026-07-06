@@ -1,8 +1,11 @@
 import Link from "next/link"
+import type { ComponentProps } from "react"
+import { ChevronDown } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Card,
   CardContent,
@@ -74,6 +77,9 @@ const TYPE_BADGE: Record<string, string> = {
   overtime_warning:
     "bg-orange-100 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100",
 }
+
+const NATIVE_SELECT_CLASS =
+  "border border-input bg-input-bg flex h-10 w-full min-w-0 appearance-none rounded-md px-3 py-1 pr-9 text-base shadow-[var(--shadow-elev-1)] outline-none transition-[color,box-shadow,border-color] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-[var(--ring)] focus-visible:ring-[var(--ring)]/25 focus-visible:ring-[3px]"
 
 export const metadata = { title: "Scheduling Notifications | MFO / Rink Reports" }
 
@@ -169,12 +175,13 @@ export default async function NotificationsPage({
         className="bg-card grid gap-3 rounded-md border p-4 shadow-sm md:grid-cols-5"
       >
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-type" className="text-xs font-medium">Type</label>
-          <select
+          <Label htmlFor="filter-type" className="text-sm">
+            Type
+          </Label>
+          <NativeSelect
             id="filter-type"
             name="type"
             defaultValue={sp.type ?? "all"}
-            className="border-border bg-background h-9 rounded-md border px-2 text-sm"
           >
             <option value="all">All</option>
             {NOTIFICATION_TYPES.map((t) => (
@@ -182,15 +189,16 @@ export default async function NotificationsPage({
                 {t.replace(/_/g, " ")}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-recipient" className="text-xs font-medium">Recipient</label>
-          <select
+          <Label htmlFor="filter-recipient" className="text-sm">
+            Recipient
+          </Label>
+          <NativeSelect
             id="filter-recipient"
             name="recipient"
             defaultValue={recipientFilter}
-            className="border-border bg-background h-9 rounded-md border px-2 text-sm"
           >
             <option value="">All employees</option>
             {emps.map((e) => (
@@ -199,27 +207,32 @@ export default async function NotificationsPage({
                 {e.employee_code ? ` (${e.employee_code})` : ""}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-unread" className="text-xs font-medium">Unread</label>
-          <select
+          <Label htmlFor="filter-unread" className="text-sm">
+            Unread
+          </Label>
+          <NativeSelect
             id="filter-unread"
             name="unread"
             defaultValue={sp.unread ?? ""}
-            className="border-border bg-background h-9 rounded-md border px-2 text-sm"
           >
             <option value="">Any</option>
             <option value="yes">Unread</option>
             <option value="no">Read</option>
-          </select>
+          </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-from" className="text-xs font-medium">From</label>
+          <Label htmlFor="filter-from" className="text-sm">
+            From
+          </Label>
           <Input id="filter-from" type="date" name="from" defaultValue={sp.from ?? ""} />
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-to" className="text-xs font-medium">To</label>
+          <Label htmlFor="filter-to" className="text-sm">
+            To
+          </Label>
           <Input id="filter-to" type="date" name="to" defaultValue={sp.to ?? ""} />
         </div>
         <div className="md:col-span-5 flex justify-end gap-2">
@@ -307,6 +320,27 @@ export default async function NotificationsPage({
 
 function shorten(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
+}
+
+function NativeSelect({
+  children,
+  className,
+  ...props
+}: ComponentProps<"select">) {
+  return (
+    <div className="relative">
+      <select
+        className={`${NATIVE_SELECT_CLASS}${className ? ` ${className}` : ""}`}
+        {...props}
+      >
+        {children}
+      </select>
+      <ChevronDown
+        aria-hidden="true"
+        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+      />
+    </div>
+  )
 }
 
 function Header() {
