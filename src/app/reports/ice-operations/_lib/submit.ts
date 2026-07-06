@@ -92,13 +92,15 @@ export async function persistIceOperation(
   if (!equipmentId) {
     return { ok: false, error: "Please pick the equipment used." }
   }
-  const occurredAt = input.occurred_at
-  if (!occurredAt) {
+  if (!input.occurred_at) {
     return { ok: false, error: "Please choose when the operation happened." }
   }
-  // occurred_at arrives as the operator's wall clock (datetime-local string);
-  // interpret it in the FACILITY's timezone so the stored value is a real UTC
-  // instant (migration 174). Null timezone falls back to the runtime zone.
+  // occurred_at is normally a full ISO instant (stamped server-side at submit
+  // time online, at queue time offline) which wallTimeToUtc passes through
+  // as-is. A naked wall-clock string — a pre-fix offline queue entry that
+  // replays after deploy — is interpreted in the FACILITY's timezone so the
+  // stored value is a real UTC instant (migration 174). Null timezone falls
+  // back to the runtime zone.
   const tz = await getFacilityTimezone(supabase, facilityId)
   const occurredAt = wallTimeToUtc(input.occurred_at, tz)
   if (!occurredAt) return { ok: false, error: "Invalid date and time." }
@@ -176,7 +178,6 @@ export async function persistIceOperation(
       operation_type: operationType,
       rink_id: rinkId,
       equipment_id: equipmentId,
-      occurred_at: occurredAt,
       occurred_at: occurredAt.toISOString(),
       submitted_at: new Date().toISOString(),
       notes: input.notes,
