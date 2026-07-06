@@ -107,6 +107,37 @@ export function wallTimeToUtc(wall: string, timeZone: string | null): Date | nul
 }
 
 /**
+ * Wall-clock string ("YYYY-MM-DDTHH:MM", the datetime-local format) of a UTC
+ * instant as seen in `timeZone` — the inverse of wallTimeToUtc, for
+ * round-tripping stored instants back into datetime-local inputs. A
+ * null/unresolvable timezone falls back to the runtime's local zone (matching
+ * wallTimeToUtc's fallback). Returns null for unparseable input.
+ */
+export function utcToWallTime(
+  iso: string | Date,
+  timeZone: string | null
+): string | null {
+  const date = typeof iso === "string" ? new Date(iso) : iso
+  if (Number.isNaN(date.getTime())) return null
+  const pad = (n: number) => String(n).padStart(2, "0")
+  if (timeZone) {
+    try {
+      const p = partsInZone(date, timeZone)
+      return (
+        `${p.year}-${pad(p.month)}-${pad(p.day)}` +
+        `T${pad(p.hour)}:${pad(p.minute)}`
+      )
+    } catch {
+      // fall through to local
+    }
+  }
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  )
+}
+
+/**
  * Calendar day key ("YYYY-MM-DD") of a UTC instant as seen in `timeZone`.
  * Null/invalid timezone falls back to the runtime's local zone. Used to
  * bucket shifts onto the correct facility-local day.

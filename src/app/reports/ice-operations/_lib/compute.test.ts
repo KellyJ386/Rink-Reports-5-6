@@ -67,11 +67,11 @@ describe("buildInputFromObject (operation type discriminator)", () => {
     expect(out?.fields.type).toBe("edging")
   })
 
-  it("normalizes occurred_at to ISO and trims string fields", () => {
+  it("keeps the raw occurred_at wall clock and trims string fields", () => {
     const out = buildInputFromObject(
       base({ operation_type: "edging", hours_run: "1", notes: "  hi  " }),
     )!
-    expect(out.occurred_at).toBe(new Date(OCCURRED).toISOString())
+    expect(out.occurred_at).toBe(OCCURRED)
     expect(out.notes).toBe("hi")
     expect(out.rink_id).toBe(RINK)
   })

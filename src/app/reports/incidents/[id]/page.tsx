@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { utcToWallTime } from "@/lib/timezone"
 
 import { updateIncidentReport } from "../actions"
 import {
@@ -20,34 +21,24 @@ export const dynamic = "force-dynamic"
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/**
- * Reconstruct a datetime-local string (no timezone) from a stored ISO. The
- * submit path stores `new Date(localString).toISOString()`, so the wall-clock
- * the reporter entered lives in the ISO's UTC components — read them back.
- */
-function isoToDateTimeLocal(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
-    `T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
-  )
-}
-
 /** Whether the 24h edit window is still open. Kept out of the component body
  * so the `Date.now()` read isn't flagged by the render-purity lint rule. */
 function isWindowOpen(endsAt: string): boolean {
   return new Date(endsAt).getTime() > Date.now()
 }
 
-function fmt(iso: string): string {
+/** Format a real instant (submitted_at, edit-window deadline) in the
+ * facility's timezone — this page renders on the server, so falling back to
+ * the server locale would show UTC to everyone. */
+function fmt(iso: string, timezone: string | null): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
+      timeZone: timezone || undefined,
       dateStyle: "medium",
       timeStyle: "short",
     })
   } catch {
-    return iso
+    return new Date(iso).toLocaleString()
   }
 }
 
@@ -92,6 +83,7 @@ export default async function IncidentReportPage({
     { data: activityRows },
     { data: spaceRows },
     { data: incidentTypeRows },
+    { data: facility },
   ] = await Promise.all([
     supabase
       .from("incident_report_spaces")
@@ -129,7 +121,14 @@ export default async function IncidentReportPage({
       .eq("facility_id", report.facility_id)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", report.facility_id)
+      .maybeSingle(),
   ])
+
+  const tz = facility?.timezone ?? null
 
   const allSeverities = (severityLevels ?? []).map((s) => ({
     id: s.id,
@@ -225,8 +224,11 @@ export default async function IncidentReportPage({
                   .join(", ") || "—"
               }
             />
-            <Row label="When it happened" value={fmt(report.occurred_at)} />
-            <Row label="Reported at" value={fmt(report.submitted_at)} />
+            <Row
+              label="When it happened"
+              value={fmt(report.occurred_at, tz)}
+            />
+            <Row label="Reported at" value={fmt(report.submitted_at, tz)} />
             <Row label="Reporter" value={report.reporter_name} />
             <Row label="Phone" value={report.reporter_phone ?? "—"} />
             <Row
@@ -289,7 +291,9 @@ export default async function IncidentReportPage({
   }
 
   const initial: IncidentFormInitial = {
-    occurredAtLocal: isoToDateTimeLocal(report.occurred_at),
+    // occurred_at is a real UTC instant (migration 174); render it back as
+    // the facility-local wall clock the datetime-local input expects.
+    occurredAtLocal: utcToWallTime(report.occurred_at, tz) ?? "",
     severityLevelId: report.severity_level_id ?? "",
     incidentTypeId: report.incident_type_id ?? "",
     activityValue: report.activity_id
@@ -327,11 +331,11 @@ export default async function IncidentReportPage({
           className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-foreground"
         >
           Changes saved. You can keep editing until the 24-hour window closes (
-          {fmt(report.edit_window_ends_at)}).
+          {fmt(report.edit_window_ends_at, tz)}).
         </div>
       ) : (
         <p className="text-muted-foreground text-sm">
-          Editable until {fmt(report.edit_window_ends_at)}.
+          Editable until {fmt(report.edit_window_ends_at, tz)}.
         </p>
       )}
 

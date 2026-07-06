@@ -7,6 +7,15 @@
 export const DESCRIPTION_MAX = 500
 export const MAX_WITNESSES = 3
 
+// occurred_at reaches validation as the reporter's raw wall-clock string —
+// the facility-timezone conversion to a real instant (wallTimeToUtc, see
+// submit.ts) happens after this pure check, which parses server-local. A
+// wall clock can sit up to ~14h ahead of the server's UTC "now" for
+// reporters east of UTC, so a 24h allowance never false-positives for a real
+// timezone while still catching fat-fingered future dates (wrong
+// day/month/year).
+export const OCCURRED_AT_FUTURE_SLACK_MS = 24 * 60 * 60 * 1000
+
 export type IncidentFieldName =
   | "occurred_at"
   | "severity_level_id"
@@ -197,6 +206,11 @@ export function validateIncidentInput(input: IncidentInput): IncidentValidation 
     fieldErrors.occurred_at = "Please choose when the incident happened."
   } else if (Number.isNaN(new Date(input.occurred_at).getTime())) {
     fieldErrors.occurred_at = "Invalid date and time."
+  } else if (
+    new Date(input.occurred_at).getTime() >
+    Date.now() + OCCURRED_AT_FUTURE_SLACK_MS
+  ) {
+    fieldErrors.occurred_at = "That date is in the future."
   }
   if (!input.severity_level_id)
     fieldErrors.severity_level_id = "Please pick a severity level."

@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { utcToWallTime } from "@/lib/timezone"
 
 import {
   updateAccidentReport,
@@ -79,6 +80,9 @@ const EMPTY_WITNESS: WitnessRow = { name: "", contact: "", statement: "" }
 type Props = {
   reportId: string
   initialReport: InitialReport
+  /** facilities.timezone — occurred_at is a real UTC instant (migration 174)
+   * and must round-trip through the facility-local wall clock. */
+  facilityTimezone: string | null
   initialBodyParts: InitialBodyPart[]
   initialWitnesses: InitialWitness[]
   locations: DropdownOption[]
@@ -91,15 +95,6 @@ type Props = {
 }
 
 const initialState: AccidentFormState = {}
-
-function isoToDateTimeLocal(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  )
-}
 
 function buildInitialSelections(
   initial: InitialBodyPart[],
@@ -163,6 +158,7 @@ function buildBodyPartIdMap(
 export function EditForm({
   reportId,
   initialReport,
+  facilityTimezone,
   initialBodyParts,
   initialWitnesses,
   locations,
@@ -176,8 +172,11 @@ export function EditForm({
   const action = updateAccidentReport.bind(null, reportId)
   const [state, formAction] = useActionState(action, initialState)
 
+  // Facility-local wall clock, NOT the browser's: the previous local-getter
+  // conversion shifted occurred_at by the viewer's UTC offset on every
+  // open-edit-save round-trip in a non-UTC browser.
   const [occurredAt, setOccurredAt] = useState(
-    isoToDateTimeLocal(initialReport.occurred_at)
+    () => utcToWallTime(initialReport.occurred_at, facilityTimezone) ?? ""
   )
   const [injuredName, setInjuredName] = useState(
     initialReport.injured_person_name

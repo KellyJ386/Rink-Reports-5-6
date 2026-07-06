@@ -1933,6 +1933,137 @@ select pg_temp.expect_error(
   'SPACES: a non-consuming-module admin (refrigeration only) CANNOT manage facility_spaces (migration 141 bound)');
 
 -- ---------------------------------------------------------------------------
+-- INC-RPC: atomic incident persist functions (migration 173).
+--
+-- submit_incident_report / update_incident_report are SECURITY INVOKER, so
+-- they must confer NO authority beyond the equivalent row-by-row writes:
+-- same-facility submitters can persist atomically, cross-facility calls die
+-- at the RLS layer, and a mid-persist constraint failure rolls back the
+-- whole call (no partial children, no lost witnesses).
+--
+-- Ivy is a fresh facility-A staffer holding only incident_reports view+submit
+-- (no admin anywhere), so these assertions are independent of the grants the
+-- earlier sections stacked onto Alice.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into auth.users (id, email)
+values ('dddd0000-dddd-dddd-dddd-dddddddddddd', 'ivy@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('dddd0000-dddd-dddd-dddd-dddddddddddd',
+        '11111111-1111-1111-1111-111111111111', 'ivy@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'dddd4444-dddd-dddd-dddd-dddddddddddd'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'dddd0000-dddd-dddd-dddd-dddddddddddd'::uuid,
+       r.id, 'Ivy', 'Iverson', 'ivy@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values
+  ('dddd0000-dddd-dddd-dddd-dddddddddddd',
+   '11111111-1111-1111-1111-111111111111',
+   'incident_reports', 'view'::public.user_action, true),
+  ('dddd0000-dddd-dddd-dddd-dddddddddddd',
+   '11111111-1111-1111-1111-111111111111',
+   'incident_reports', 'submit'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dddd0000-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dddd0000-dddd-dddd-dddd-dddddddddddd', true);
+
+-- Atomic create in own facility: report + linked space + witness + change log.
+select pg_temp.expect_ok(
+  $$select public.submit_incident_report(
+      '11111111-1111-1111-1111-111111111111',
+      'dddd4444-dddd-dddd-dddd-dddddddddddd',
+      null, null,
+      'aaaa1111-0ac1-aaaa-aaaa-aaaa11110031', null,
+      null, 'Cleared the area', now(),
+      'Ivy Iverson', '555-0009', 'INC-RPC atomic create',
+      false, 1, false,
+      array['aaaa1111-0a01-aaaa-aaaa-aaaa11110021']::uuid[],
+      '[{"name":"Wes Witness","phone":"555-3333","email":null,"statement":null}]'::jsonb
+    )$$,
+  'INC-RPC: submitter CAN create atomically in own facility');
+select pg_temp.expect_count(
+  $$select count(*)::int from public.incident_report_spaces s
+    join public.incident_reports r on r.id = s.incident_id
+    where r.description = 'INC-RPC atomic create'$$,
+  1, 'INC-RPC: linked space landed with the report');
+select pg_temp.expect_count(
+  $$select count(*)::int from public.incident_witnesses w
+    join public.incident_reports r on r.id = w.incident_id
+    where r.description = 'INC-RPC atomic create'$$,
+  1, 'INC-RPC: witness landed with the report');
+
+-- Cross-facility create dies at the incident_reports INSERT policy.
+select pg_temp.expect_error(
+  $$select public.submit_incident_report(
+      '22222222-2222-2222-2222-222222222222',
+      'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      null, null, null, null,
+      null, null, now(),
+      'Ivy Iverson', '555-0009', 'INC-RPC forged cross-facility',
+      false, null, false, '{}'::uuid[], '[]'::jsonb
+    )$$,
+  'INC-RPC: submitter CANNOT create for facility B through the function');
+
+-- In-window edit of her own report: full witness/space replace + change log.
+select pg_temp.expect_ok(
+  $$select public.update_incident_report(
+      (select id from public.incident_reports
+        where description = 'INC-RPC atomic create'),
+      null, null, null, null,
+      'Lobby', null, now(), 'INC-RPC atomic create (edited)',
+      false, 2, true,
+      array['aaaa1111-0a02-aaaa-aaaa-aaaa11110022']::uuid[],
+      '[{"name":"Nora New","phone":null,"email":"nora@x.test","statement":"saw it"}]'::jsonb
+    )$$,
+  'INC-RPC: submitter CAN edit own report within the window');
+select pg_temp.expect_count(
+  $$select count(*)::int from public.incident_witnesses w
+    join public.incident_reports r on r.id = w.incident_id
+    where r.description = 'INC-RPC atomic create (edited)'
+      and w.name = 'Nora New'$$,
+  1, 'INC-RPC: edit replaced the witness list');
+
+-- Editing another facility's report dies at the RLS select (row invisible).
+select pg_temp.expect_error(
+  $$select public.update_incident_report(
+      'bbbb2222-1c01-bbbb-bbbb-bbbb22220041',
+      null, null, null, null,
+      null, null, now(), 'forged edit',
+      false, null, false, '{}'::uuid[], '[]'::jsonb
+    )$$,
+  'INC-RPC: submitter CANNOT edit facility B''s report through the function');
+
+-- Atomicity: a witness violating the contact-present constraint aborts the
+-- WHOLE edit — the previously saved witness must survive untouched (the old
+-- app-side delete-then-insert path would have lost it here).
+select pg_temp.expect_error(
+  $$select public.update_incident_report(
+      (select id from public.incident_reports
+        where description = 'INC-RPC atomic create (edited)'),
+      null, null, null, null,
+      'Lobby', null, now(), 'INC-RPC should not persist',
+      false, 2, true, '{}'::uuid[],
+      '[{"name":"No Contact","phone":null,"email":null,"statement":null}]'::jsonb
+    )$$,
+  'INC-RPC: constraint-violating edit fails as a unit');
+select pg_temp.expect_count(
+  $$select count(*)::int from public.incident_witnesses w
+    join public.incident_reports r on r.id = w.incident_id
+    where r.description = 'INC-RPC atomic create (edited)'
+      and w.name = 'Nora New'$$,
+  1, 'INC-RPC: failed edit rolled back — prior witness intact');
+
+-- ---------------------------------------------------------------------------
 -- SPACES: schema guards for the facility_spaces FK retargets / table drop
 -- (migrations 142 + 143). These read catalogs only, so run as postgres.
 -- ---------------------------------------------------------------------------

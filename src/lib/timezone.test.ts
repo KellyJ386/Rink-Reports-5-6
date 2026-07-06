@@ -5,6 +5,7 @@ import {
   dayKeyInTz,
   dayPartsInTz,
   minutesOfDayInTz,
+  utcToWallTime,
   wallTimeToUtc,
   weekdayOfKey,
   weekWindowInTz,
@@ -192,5 +193,34 @@ describe("weekWindowInTz", () => {
   it("normalizes an out-of-range weekStartDay", () => {
     const w = weekWindowInTz("2026-07-02", 8, "UTC") // 8 → 1 (Monday)
     expect(w.startKey).toBe("2026-06-29")
+  })
+})
+
+describe("utcToWallTime", () => {
+  it("renders the facility-local wall clock of a UTC instant", () => {
+    expect(utcToWallTime("2026-01-15T18:00:00.000Z", "America/New_York")).toBe(
+      "2026-01-15T13:00"
+    )
+    expect(utcToWallTime("2026-07-04T17:30:00.000Z", "America/Los_Angeles")).toBe(
+      "2026-07-04T10:30"
+    )
+  })
+
+  it("round-trips with wallTimeToUtc across DST regimes", () => {
+    for (const wall of ["2026-01-10T09:15", "2026-07-10T21:45"]) {
+      for (const tz of ["America/Denver", "Europe/Berlin", "UTC"]) {
+        const instant = wallTimeToUtc(wall, tz)!
+        expect(utcToWallTime(instant, tz)).toBe(wall)
+      }
+    }
+  })
+
+  it("falls back to the runtime-local zone when timezone is null", () => {
+    const local = new Date(2026, 5, 8, 14, 30) // runtime-local Jun 8 14:30
+    expect(utcToWallTime(local, null)).toBe("2026-06-08T14:30")
+  })
+
+  it("returns null for unparseable input", () => {
+    expect(utcToWallTime("not-a-date", "UTC")).toBeNull()
   })
 })
