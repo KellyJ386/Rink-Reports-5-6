@@ -24,11 +24,7 @@ import {
   type SubmissionFormState,
 } from "../../actions"
 import { OfflineQueuedCard } from "./offline-queued-card"
-import {
-  equipmentLabel,
-  nowForDateTimeLocal,
-  type EquipmentOption,
-} from "./shared"
+import { equipmentLabel, type EquipmentOption } from "./shared"
 import { useOfflineSubmit } from "./use-offline-submit"
 
 type ChecklistItem = {
@@ -79,7 +75,6 @@ export function CircleCheckForm({
   const action = submitIceOperationsReport.bind(null, "circle_check")
   const [state, formAction] = useActionState(action, initialState)
 
-  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [equipmentId, setEquipmentId] = useState("")
   const [notes, setNotes] = useState("")
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>({})
@@ -192,9 +187,9 @@ export function CircleCheckForm({
     [resultsArray]
   )
 
+  // occurred_at is stamped at submit time (hook for offline, server for online).
   const { queued, handleSubmit } = useOfflineSubmit("circle_check", () => ({
     equipment_id: equipmentId || null,
-    occurred_at: occurredAt,
     notes: notes.trim() || null,
     // The offline payload carries the parsed array; `buildInputFromPayload`
     // accepts either an array or a JSON string here.
@@ -211,7 +206,6 @@ export function CircleCheckForm({
     >
       <FormError message={state.error} />
 
-      <input type="hidden" name="occurred_at" value={occurredAt} />
       <input type="hidden" name="circle_check_results" value={resultsJson} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
 
@@ -374,7 +368,14 @@ export function CircleCheckForm({
         />
       </div>
 
-      <SubmitBar disabled={blockedByEmptyFailNotes} />
+      {/* An empty checklist would be recorded as a clean pass; the server
+          rejects it, so don't offer the submit. */}
+      <SubmitBar
+        disabled={
+          blockedByEmptyFailNotes ||
+          (!!selectedEquipment && visibleItems.length === 0)
+        }
+      />
       {blockedByEmptyFailNotes ? (
         <p className="text-xs text-red-600">
           Add a note for each failed item before submitting.

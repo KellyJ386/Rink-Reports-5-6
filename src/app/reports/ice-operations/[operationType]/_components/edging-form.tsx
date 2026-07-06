@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect, useMemo, useState } from "react"
+import { useActionState, useEffect, useState } from "react"
 import { useFormStatus } from "react-dom"
 import { toast } from "sonner"
 
@@ -23,11 +23,7 @@ import {
   type SubmissionFormState,
 } from "../../actions"
 import { OfflineQueuedCard } from "./offline-queued-card"
-import {
-  equipmentLabel,
-  nowForDateTimeLocal,
-  type EquipmentOption,
-} from "./shared"
+import { equipmentLabel, type EquipmentOption } from "./shared"
 import { useOfflineSubmit } from "./use-offline-submit"
 
 type Props = {
@@ -40,14 +36,13 @@ export function EdgingForm({ equipment }: Props) {
   const action = submitIceOperationsReport.bind(null, "edging")
   const [state, formAction] = useActionState(action, initialState)
 
-  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [equipmentId, setEquipmentId] = useState("")
   const [hoursRun, setHoursRun] = useState("")
   const [notes, setNotes] = useState("")
 
+  // occurred_at is stamped at submit time (hook for offline, server for online).
   const { queued, handleSubmit } = useOfflineSubmit("edging", () => ({
     equipment_id: equipmentId || null,
-    occurred_at: occurredAt,
     notes: notes.trim() || null,
     hours_run: hoursRun,
   }))
@@ -66,7 +61,6 @@ export function EdgingForm({ equipment }: Props) {
     >
       <FormError message={state.error} />
 
-      <input type="hidden" name="occurred_at" value={occurredAt} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
 
       <div className="grid gap-5 sm:grid-cols-2">

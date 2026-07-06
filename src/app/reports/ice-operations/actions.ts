@@ -96,6 +96,13 @@ async function performSubmit(
     return { ok: false, error: "Invalid checklist data." }
   }
 
+  // Online submits don't post occurred_at — the operation is logged as it
+  // happens, so the server stamps submit time. (Offline submissions carry the
+  // ISO instant they were queued at, which survives a late replay.)
+  if (!input.occurred_at) {
+    input.occurred_at = new Date().toISOString()
+  }
+
   // Pure per-op validation (rink required, equipment required, occurred_at,
   // failed-item notes). Runs before any write, identical to the offline path.
   const validationError = validateIceOpsInput(input)

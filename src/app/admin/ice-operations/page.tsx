@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { HistoryTab } from "./_components/history-tab"
@@ -80,6 +80,13 @@ export default async function IceOperationsAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // Console access alone is not enough: every config write (rinks, equipment,
+  // checklist items, fuel types, templates, settings) and follow-up-note
+  // insert is RLS-gated on the module-scoped ice_operations/admin grant, and
+  // updates/deletes filtered by RLS fail *silently* (zero rows, no error).
+  // Denying here with a real /forbidden page beats a console whose saves all
+  // no-op. Same pattern as incident-reports / accident-reports.
+  await requireModuleAdmin("ice_operations")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile

@@ -381,10 +381,7 @@ export default async function OperationTypePage({
           <EdgingForm equipment={equipment} />
         ) : null}
         {operationType === "blade_change" ? (
-          <BladeChangeForm
-            equipment={equipment}
-            currentEmployeeId={employeeRow.id}
-          />
+          <BladeChangeForm equipment={equipment} />
         ) : null}
         {operationType === "circle_check" ? (
           <CircleCheckForm

@@ -737,7 +737,9 @@ export async function updateIceOperationsSettings(
 
     const alerts_enabled = formData.get("alerts_enabled") === "on"
 
-    const sevRaw = nonEmpty(formData.get("default_alert_severity")) ?? "warn"
+    // "high" matches the DB column default and the submit-path fallback used
+    // when no settings row exists — keep all three in sync.
+    const sevRaw = nonEmpty(formData.get("default_alert_severity")) ?? "high"
     if (!isSeverity(sevRaw)) {
       return { ok: false, error: "Invalid default severity." }
     }
@@ -819,34 +821,6 @@ export async function addIceOperationsFollowupNote(
     }
     revalidatePath("/admin/ice-operations")
     return { ok: true, message: "Note added." }
-  } catch (e) {
-    logServerError("admin/ice-operations/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-export async function deleteIceOperationsSubmission(
-  id: string,
-): Promise<SimpleResult> {
-  try {
-    const current = await requireAdmin()
-    if (!id) return { ok: false, error: "Missing submission id." }
-    const supabase = await createClient()
-    const facilityId = current.profile?.facility_id ?? null
-    let query = supabase
-      .from("ice_operations_submissions")
-      .delete()
-      .eq("id", id)
-    if (facilityId) {
-      query = query.eq("facility_id", facilityId)
-    }
-    const { error } = await query
-    if (error) {
-      // RLS will block non-super-admin (42501) — surface friendly message.
-      return { ok: false, error: dbError(error, "Failed to delete submission.") }
-    }
-    revalidatePath("/admin/ice-operations")
-    return { ok: true }
   } catch (e) {
     logServerError("admin/ice-operations/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }

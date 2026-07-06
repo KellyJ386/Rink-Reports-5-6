@@ -266,6 +266,11 @@ export function buildInputFromPayload(
 // Validation (pure; runs identically online and offline)
 // ---------------------------------------------------------------------------
 
+/** Null (not provided) or a non-negative number. */
+function isNullOrNonNegative(n: number | null): boolean {
+  return n === null || n >= 0
+}
+
 /**
  * Per-op-type validation that needs no DB access. Returns an error message or
  * null. Facility-scoped reference checks (rink/equipment belong to facility)
@@ -286,12 +291,47 @@ export function validateIceOpsInput(input: IceOpsInput): string | null {
     return "Please choose when the operation happened."
   }
 
-  if (input.fields.type === "circle_check") {
-    // Every failed item must carry an explanatory note.
-    for (const r of input.fields.results) {
-      if (!r.passed && !r.failed_notes) {
-        return "Add a note explaining each failed checklist item."
+  // Numeric sanity (the form inputs carry min/max, but direct POSTs and
+  // offline payloads don't go through them).
+  switch (input.fields.type) {
+    case "ice_make": {
+      const f = input.fields
+      if (
+        !isNullOrNonNegative(f.water_used_gal) ||
+        !isNullOrNonNegative(f.machine_hours)
+      ) {
+        return "Water used and machine hours can't be negative."
       }
+      if (
+        f.snow_taken_pct !== null &&
+        (f.snow_taken_pct < 0 || f.snow_taken_pct > 100)
+      ) {
+        return "Snow taken must be between 0 and 100%."
+      }
+      break
+    }
+    case "edging":
+      if (!isNullOrNonNegative(input.fields.hours_run)) {
+        return "Hours run can't be negative."
+      }
+      break
+    case "blade_change":
+      if (!isNullOrNonNegative(input.fields.hours_at_change)) {
+        return "Blade hours can't be negative."
+      }
+      break
+    case "circle_check": {
+      // An empty checklist would be recorded as a clean pass — reject it.
+      if (input.fields.results.length === 0) {
+        return "Complete at least one checklist item."
+      }
+      // Every failed item must carry an explanatory note.
+      for (const r of input.fields.results) {
+        if (!r.passed && !r.failed_notes) {
+          return "Add a note explaining each failed checklist item."
+        }
+      }
+      break
     }
   }
 

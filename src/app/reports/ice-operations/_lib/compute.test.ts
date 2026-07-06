@@ -351,6 +351,77 @@ describe("validateIceOpsInput", () => {
     ).toBe("Please choose when the operation happened.")
   })
 
+  it("rejects negative water/machine-hour values on ice_make", () => {
+    const fields = {
+      type: "ice_make",
+      water_used_gal: -1,
+      machine_hours: null,
+      snow_taken_pct: null,
+      time_in: null,
+      time_out: null,
+    } as const
+    expect(validateIceOpsInput(input({ fields }))).toBe(
+      "Water used and machine hours can't be negative.",
+    )
+    expect(
+      validateIceOpsInput(
+        input({ fields: { ...fields, water_used_gal: null, machine_hours: -0.5 } }),
+      ),
+    ).toBe("Water used and machine hours can't be negative.")
+  })
+
+  it("bounds snow_taken_pct to 0–100 (inclusive)", () => {
+    const fields = {
+      type: "ice_make",
+      water_used_gal: null,
+      machine_hours: null,
+      snow_taken_pct: 101,
+      time_in: null,
+      time_out: null,
+    } as const
+    expect(validateIceOpsInput(input({ fields }))).toBe(
+      "Snow taken must be between 0 and 100%.",
+    )
+    expect(
+      validateIceOpsInput(input({ fields: { ...fields, snow_taken_pct: -1 } })),
+    ).toBe("Snow taken must be between 0 and 100%.")
+    expect(
+      validateIceOpsInput(input({ fields: { ...fields, snow_taken_pct: 0 } })),
+    ).toBeNull()
+    expect(
+      validateIceOpsInput(input({ fields: { ...fields, snow_taken_pct: 100 } })),
+    ).toBeNull()
+  })
+
+  it("rejects negative hours_run on edging", () => {
+    expect(
+      validateIceOpsInput(input({ fields: { type: "edging", hours_run: -2 } })),
+    ).toBe("Hours run can't be negative.")
+  })
+
+  it("rejects negative hours_at_change on blade_change", () => {
+    expect(
+      validateIceOpsInput(
+        input({
+          fields: {
+            type: "blade_change",
+            blade_serial: null,
+            hours_at_change: -1,
+            replaced_by_employee_id: null,
+          },
+        }),
+      ),
+    ).toBe("Blade hours can't be negative.")
+  })
+
+  it("rejects a circle check with no results (would read as a clean pass)", () => {
+    expect(
+      validateIceOpsInput(
+        input({ rink_id: null, fields: { type: "circle_check", results: [] } }),
+      ),
+    ).toBe("Complete at least one checklist item.")
+  })
+
   it("requires a note on each failed circle-check item", () => {
     expect(
       validateIceOpsInput(

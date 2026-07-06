@@ -34,7 +34,6 @@ import {
 import { OfflineQueuedCard } from "./offline-queued-card"
 import {
   equipmentLabel,
-  nowForDateTimeLocal,
   type EquipmentOption,
   type RinkOption,
 } from "./shared"
@@ -72,7 +71,6 @@ export function IceMakeForm({ rinks, equipment }: Props) {
   const action = submitIceOperationsReport.bind(null, "ice_make")
   const [state, formAction] = useActionState(action, initialState)
 
-  const occurredAt = useMemo(() => nowForDateTimeLocal(), [])
   const [rinkId, setRinkId] = useState("")
   const [equipmentId, setEquipmentId] = useState("")
   const [waterUsed, setWaterUsed] = useState("")
@@ -121,10 +119,10 @@ export function IceMakeForm({ rinks, equipment }: Props) {
     return gal === null ? "" : String(roundVolume(gal))
   }, [waterUsed, waterUnit, tankCapacityGal])
 
+  // occurred_at is stamped at submit time (hook for offline, server for online).
   const { queued, handleSubmit } = useOfflineSubmit("ice_make", () => ({
     rink_id: rinkId || null,
     equipment_id: equipmentId || null,
-    occurred_at: occurredAt,
     notes: notes.trim() || null,
     water_used_gal: canonicalWaterGal,
     machine_hours: machineHours,
@@ -147,7 +145,6 @@ export function IceMakeForm({ rinks, equipment }: Props) {
     >
       <FormError message={state.error} />
 
-      <input type="hidden" name="occurred_at" value={occurredAt} />
       <input type="hidden" name="rink_id" value={rinkId} />
       <input type="hidden" name="equipment_id" value={equipmentId} />
       <input type="hidden" name="time_in" value={timeOn} />

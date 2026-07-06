@@ -50,8 +50,10 @@ export function SettingsTab({ settings }: Props) {
     (settings?.temperature_unit as TemperatureUnit) ?? "F",
   )
   const enabled = settings?.alerts_enabled ?? true
+  // "high" mirrors the DB default + submit-path fallback, so the first save
+  // of a fresh settings row doesn't silently change the effective severity.
   const [sev, setSev] = useState<Severity>(
-    (settings?.default_alert_severity as Severity) ?? "warn",
+    (settings?.default_alert_severity as Severity) ?? "high",
   )
 
   // Operation visibility — empty/null means all enabled (fail-open).
