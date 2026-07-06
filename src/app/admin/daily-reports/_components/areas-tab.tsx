@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
-import { deleteArea, importAreas, reorderArea, setAreaActive } from "../actions"
+import { deleteArea, importAreas, moveArea, setAreaActive } from "../actions"
 import { MAX_ACTIVE_DAILY_AREAS, type AreaRow } from "../types"
 
 import { areasImportSpec } from "./areas-import"
@@ -65,9 +65,7 @@ export function AreasTab({ areas }: Props) {
   }
 
   function move(area: AreaRow, direction: -1 | 1) {
-    runRowAction(area.id, () =>
-      reorderArea(area.id, area.sort_order + direction),
-    )
+    runRowAction(area.id, () => moveArea(area.id, direction))
   }
 
   if (areas.length === 0) {
@@ -144,7 +142,7 @@ export function AreasTab({ areas }: Props) {
             </tr>
           </thead>
           <tbody>
-            {areas.map((a) => {
+            {areas.map((a, index) => {
               const isPending = pendingId === a.id
               return (
                 <tr key={a.id} className="hover:bg-muted/30">
@@ -170,7 +168,7 @@ export function AreasTab({ areas }: Props) {
                         variant="ghost"
                         size="sm"
                         onClick={() => move(a, -1)}
-                        disabled={isPending}
+                        disabled={isPending || index === 0}
                         aria-label="Move up"
                       >
                         ↑
@@ -183,7 +181,7 @@ export function AreasTab({ areas }: Props) {
                         variant="ghost"
                         size="sm"
                         onClick={() => move(a, 1)}
-                        disabled={isPending}
+                        disabled={isPending || index === areas.length - 1}
                         aria-label="Move down"
                       >
                         ↓

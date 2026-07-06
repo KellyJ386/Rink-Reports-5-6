@@ -11,7 +11,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { ComplianceTab } from "./_components/compliance-tab"
@@ -84,6 +84,10 @@ export default async function AirQualityAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // The air-quality RLS write policies gate on the module-scoped admin grant,
+  // which requireAdmin does not imply. Without this, a global admin lacking
+  // the grant gets a console whose every write dies at the RLS layer.
+  await requireModuleAdmin("air_quality")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
@@ -330,7 +334,9 @@ async function HistoryTabLoader({
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
 
-  const [empsRes, locsRes, equipRes, rtRes] = await Promise.all([
+  // Facility timezone rides along so timestamps render as facility
+  // wall-clock (the server runs in UTC; the viewer's browser may be anywhere).
+  const [empsRes, locsRes, equipRes, rtRes, facilityRes] = await Promise.all([
     supabase
       .from("employees")
       .select("id, first_name, last_name")
@@ -351,8 +357,14 @@ async function HistoryTabLoader({
       .select("*")
       .eq("facility_id", facilityId)
       .order("sort_order", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle(),
   ])
   const employees = (empsRes.data ?? []) as EmployeeLite[]
+  const timezone = facilityRes.data?.timezone ?? null
   const locations = (locsRes.data ?? []) as LocationRow[]
   const equipmentList = (equipRes.data ?? []) as EquipmentRow[]
   const readingTypes = (rtRes.data ?? []) as ReadingTypeRow[]
@@ -524,6 +536,7 @@ async function HistoryTabLoader({
       equipment={equipmentList}
       readingTypes={readingTypes}
       params={{ ...params, from }}
+      timezone={timezone}
     />
   )
 }

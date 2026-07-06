@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { clampShow, nextShow } from "@/lib/pagination"
 
@@ -85,6 +85,10 @@ export default async function IceDepthAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // The ice-depth RLS write policies gate on the module-scoped admin grant,
+  // which requireAdmin does not imply. Without this, a global admin lacking
+  // the grant gets a console whose every write dies at the RLS layer.
+  await requireModuleAdmin("ice_depth")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
@@ -307,7 +311,9 @@ async function HistoryTabLoader({
   const to = params.to ?? null
   const show = clampShow(params.show, HISTORY_SHOW)
 
-  const [layoutsRes, empsRes] = await Promise.all([
+  // Facility timezone rides along so timestamps render as facility
+  // wall-clock (the server runs in UTC; the viewer's browser may be anywhere).
+  const [layoutsRes, empsRes, facilityRes] = await Promise.all([
     supabase
       .from("ice_depth_layouts")
       .select("*")
@@ -319,9 +325,15 @@ async function HistoryTabLoader({
       .select("id, first_name, last_name")
       .eq("facility_id", facilityId)
       .order("last_name", { ascending: true }),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle(),
   ])
   const layouts = (layoutsRes.data ?? []) as LayoutRow[]
   const employees = (empsRes.data ?? []) as EmployeeLite[]
+  const timezone = facilityRes.data?.timezone ?? null
 
   // Fetch one extra row (range is inclusive: 0..show => show+1 rows) so we can
   // tell whether a "Load more" link is warranted without a separate count.
@@ -482,6 +494,7 @@ async function HistoryTabLoader({
       params={{ ...params, from }}
       moreHref={moreHref}
       canDelete={canDelete}
+      timezone={timezone}
     />
   )
 }

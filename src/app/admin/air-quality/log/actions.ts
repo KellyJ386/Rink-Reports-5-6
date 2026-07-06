@@ -1,6 +1,7 @@
 "use server"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
@@ -27,6 +28,22 @@ export async function sendAirQualityLog(
 ): Promise<SendLogState> {
   try {
     const current = await requireAdmin()
+    // Same module-scoped gate as the console page and PDF route: the report
+    // reads this PDF is built from require module access, which requireAdmin
+    // does not imply — without it the emailed log is silently empty.
+    const supabaseForCheck = await createClient()
+    const allowed = await currentUserCan(
+      supabaseForCheck,
+      "air_quality",
+      "admin",
+    )
+    if (!allowed) {
+      return {
+        ok: false,
+        error:
+          "Your account has admin console access but not the air quality module's admin permission. Ask an administrator to grant it under Admin → Permissions.",
+      }
+    }
     const facilityId = current.profile?.facility_id ?? null
     if (!facilityId) return { ok: false, error: "No facility assigned." }
 

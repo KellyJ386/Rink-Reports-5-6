@@ -193,6 +193,40 @@ export function minutesOfDayInTz(
   return date.getHours() * 60 + date.getMinutes()
 }
 
+/**
+ * Human-readable date-time of a UTC instant as seen in `timeZone` (default
+ * shape: "Jul 6, 2026, 2:41 PM"). A null/unresolvable timezone falls back to
+ * the runtime's local zone, matching the other helpers here. Display only —
+ * for round-tripping into inputs use utcToWallTime. Returns the input string
+ * unchanged when it does not parse (so callers can render raw values instead
+ * of "Invalid Date").
+ */
+export function formatInTz(
+  iso: string | Date,
+  timeZone: string | null,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  const date = typeof iso === "string" ? new Date(iso) : iso
+  if (Number.isNaN(date.getTime())) {
+    return typeof iso === "string" ? iso : "—"
+  }
+  const opts: Intl.DateTimeFormatOptions = options ?? {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      ...opts,
+      timeZone: timeZone ?? undefined,
+    }).format(date)
+  } catch {
+    return new Intl.DateTimeFormat("en-US", opts).format(date)
+  }
+}
+
 /** Add `n` calendar days to a "YYYY-MM-DD" key (pure calendar math). */
 export function addDaysToKey(key: string, n: number): string {
   const [y, m, d] = key.split("-").map(Number)

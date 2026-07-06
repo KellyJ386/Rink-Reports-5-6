@@ -300,22 +300,6 @@ function CreateLayoutCard({
                 placeholder="optional"
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="nl-aspect">Aspect ratio</Label>
-              <Input
-                id="nl-aspect"
-                name="diagram_aspect_ratio"
-                type="number"
-                step="0.001"
-                min="0.05"
-                max="10"
-                defaultValue={0.425}
-                className="w-32"
-              />
-              <p className="text-muted-foreground text-xs">
-                Width / height. Default 0.425 ≈ vertical NHL rink.
-              </p>
-            </div>
             {capReached && (
               <p className="text-destructive text-xs">
                 Maximum {LAYOUT_CAP} active diagrams reached. Deactivate one to

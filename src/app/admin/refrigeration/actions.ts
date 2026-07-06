@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { dbError } from "@/lib/db-error"
 
@@ -59,6 +60,26 @@ function asNumber(value: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the refrigeration RLS write
+ * policies gate on has_module_admin_access('refrigeration') — a module-scoped
+ * user_permissions grant requireAdmin does NOT imply. Without this check, an
+ * admin lacking the module grant reaches the action and the mutation dies at
+ * the RLS layer with an opaque error (or is silently filtered to zero rows).
+ * Returns a human-readable denial message, or null when allowed. (A message,
+ * not a redirect: these actions run inside try/catch blocks that would
+ * swallow the NEXT_REDIRECT control-flow error.)
+ */
+async function ensureRefrigerationAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "refrigeration", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the refrigeration module's admin permission. Ask an administrator to grant it under Admin → Permissions."
+}
+
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
@@ -108,7 +129,8 @@ export async function createSection(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -149,7 +171,8 @@ export async function updateSection(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -169,7 +192,9 @@ export async function updateSection(
     const sort_order = asInt(formData.get("sort_order"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // `.select()` makes a zero-row update detectable (RLS/permission denial or
+    // a stale id returns no rows rather than silently succeeding).
+    const { data, error } = await supabase
       .from("refrigeration_sections")
       .update({
         name,
@@ -178,8 +203,12 @@ export async function updateSection(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update section.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Section not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Section updated." }
@@ -194,18 +223,23 @@ export async function setSectionActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing section id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_sections")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update section.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Section not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -217,16 +251,18 @@ export async function setSectionActive(
 
 export async function deleteSection(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing section id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_sections")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -235,6 +271,9 @@ export async function deleteSection(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete section.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Section not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -253,7 +292,8 @@ export async function createEquipment(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -296,7 +336,8 @@ export async function updateEquipment(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -314,7 +355,7 @@ export async function updateEquipment(
     const sort_order = asInt(formData.get("sort_order"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_equipment")
       .update({
         name,
@@ -323,8 +364,12 @@ export async function updateEquipment(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Equipment not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Equipment updated." }
@@ -339,18 +384,23 @@ export async function setEquipmentActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_equipment")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Equipment not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -362,16 +412,18 @@ export async function setEquipmentActive(
 
 export async function deleteEquipment(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_equipment")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -380,6 +432,9 @@ export async function deleteEquipment(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete equipment.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Equipment not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -398,7 +453,8 @@ export async function createField(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -469,7 +525,8 @@ export async function updateField(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -512,7 +569,7 @@ export async function updateField(
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_fields")
       .update({
         label,
@@ -524,8 +581,12 @@ export async function updateField(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update field.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Field not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Field updated." }
@@ -540,18 +601,23 @@ export async function setFieldActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_fields")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update field.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Field not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -563,16 +629,18 @@ export async function setFieldActive(
 
 export async function deleteField(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_fields")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -581,6 +649,9 @@ export async function deleteField(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete field.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Field not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -600,7 +671,8 @@ export async function moveField(
   direction: -1 | 1,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing field id." }
@@ -643,12 +715,14 @@ export async function moveField(
     if (!neighbor) return { ok: true }
 
     const tmp = -1 - Math.abs(cur.sort_order) - Math.abs(neighbor.sort_order)
-    const { error: e1 } = await supabase
+    const { data: d1, error: e1 } = await supabase
       .from("refrigeration_fields")
       .update({ sort_order: tmp })
       .eq("id", cur.id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
+    if (!d1 || d1.length === 0) return { ok: false, error: "Field not found." }
     const { error: e2 } = await supabase
       .from("refrigeration_fields")
       .update({ sort_order: cur.sort_order })
@@ -679,7 +753,8 @@ export async function createThreshold(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -733,7 +808,8 @@ export async function updateThreshold(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -762,7 +838,7 @@ export async function updateThreshold(
     const severity: Severity = sevRaw
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_thresholds")
       .update({
         min_value,
@@ -771,8 +847,12 @@ export async function updateThreshold(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update threshold.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Threshold not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true, message: "Threshold updated." }
@@ -787,18 +867,23 @@ export async function setThresholdActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing threshold id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_thresholds")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update threshold.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Threshold not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -810,18 +895,23 @@ export async function setThresholdActive(
 
 export async function deleteThreshold(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing threshold id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("refrigeration_thresholds")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete threshold.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Threshold not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -840,7 +930,8 @@ export async function addRefrigerationFollowupNote(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -887,8 +978,19 @@ export async function deleteRefrigerationReport(
   reportId: string,
 ): Promise<SimpleResult> {
   try {
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const current = await requireAdmin()
     if (!reportId) return { ok: false, error: "Missing report id." }
+    // The reports DELETE policy is super-admin-only. RLS does not error for
+    // other callers — it silently filters the delete to zero rows — so check
+    // up front rather than reporting a success that didn't happen.
+    if (!current.profile?.is_super_admin) {
+      return {
+        ok: false,
+        error: "Only a super admin can delete refrigeration reports.",
+      }
+    }
     const supabase = await createClient()
     const facilityId = current.profile?.facility_id ?? null
     let query = supabase
@@ -898,10 +1000,12 @@ export async function deleteRefrigerationReport(
     if (facilityId) {
       query = query.eq("facility_id", facilityId)
     }
-    const { error } = await query
+    const { data, error } = await query.select("id")
     if (error) {
-      // RLS will block non-super-admin with a 42501 / permission denied.
       return { ok: false, error: dbError(error, "Failed to delete report.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Report not found." }
     }
     revalidatePath("/admin/refrigeration")
     return { ok: true }
@@ -920,7 +1024,8 @@ export async function updateRefrigerationSettings(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -991,7 +1096,8 @@ const DEFAULT_SECTIONS: ReadonlyArray<{
 
 export async function seedDefaultRefrigerationSections(): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 

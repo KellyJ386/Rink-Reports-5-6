@@ -51,18 +51,18 @@ export function SettingsTab({ settings }: Props) {
   const [unit, setUnit] = useState<MeasurementUnit>(
     (settings?.measurement_unit as MeasurementUnit) ?? "inches",
   )
-  // Defaults mirror the DB column defaults (migration 14: 0.99 / 1.75).
+  // Defaults mirror the DB column defaults (migration 14).
   const lowThr = settings?.low_threshold ?? 0.99
   const highThr = settings?.high_threshold ?? 1.75
-  const lowColor = settings?.low_color ?? "#1d4ed8"
-  const okColor = settings?.ok_color ?? "#16a34a"
-  const highColor = settings?.high_color ?? "#dc2626"
+  const lowColor = settings?.low_color ?? "#ef4444"
+  const okColor = settings?.ok_color ?? "#22c55e"
+  const highColor = settings?.high_color ?? "#eab308"
   const alerts = settings?.alerts_enabled ?? false
   const [alertOn, setAlertOn] = useState<AlertOn>(
-    (settings?.alert_on as AlertOn) ?? "any",
+    (settings?.alert_on as AlertOn) ?? "low",
   )
   const [sev, setSev] = useState<Severity>(
-    (settings?.default_alert_severity as Severity) ?? "warn",
+    (settings?.default_alert_severity as Severity) ?? "high",
   )
 
   return (

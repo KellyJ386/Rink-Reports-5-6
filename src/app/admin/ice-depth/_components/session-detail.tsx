@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 
+import { formatInTz } from "@/lib/timezone"
+
 import { addIceDepthFollowupNote, deleteIceDepthSession } from "../actions"
 import type {
   ActionState,
@@ -42,30 +44,25 @@ type Props = {
   backHref: string
   /** Sessions are immutable; only super admins can hard-delete one (RLS). */
   canDelete?: boolean
-}
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+  /** Facility IANA timezone; timestamps render as facility wall-clock. */
+  timezone: string | null
 }
 
 function severityColor(
   severity: string,
   settings: SettingsRow | null,
 ): string {
-  const low = settings?.low_color ?? "#1d4ed8"
-  const ok = settings?.ok_color ?? "#16a34a"
-  const high = settings?.high_color ?? "#dc2626"
+  // Fallbacks mirror the DB column defaults (migration 14).
+  const low = settings?.low_color ?? "#ef4444"
+  const ok = settings?.ok_color ?? "#22c55e"
+  const high = settings?.high_color ?? "#eab308"
   if (severity === "low") return low
   if (severity === "high") return high
   return ok
 }
 
-export function SessionDetail({ detail, backHref, canDelete }: Props) {
+export function SessionDetail({ detail, backHref, canDelete, timezone }: Props) {
+  const fmt = (ts: string | null) => (ts ? formatInTz(ts, timezone) : "—")
   const { session, layout, points, employee, measurements, notes, settings } =
     detail
 

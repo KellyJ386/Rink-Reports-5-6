@@ -8,6 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+import { formatInTz } from "@/lib/timezone"
+
 import type {
   EmployeeLite,
   ReportDetailData,
@@ -31,14 +33,8 @@ type Props = {
   backHref: string
   employees: EmployeeLite[]
   params: HistoryParams
-}
-
-function fmt(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+  /** Facility IANA timezone; timestamps render as facility wall-clock. */
+  timezone: string | null
 }
 
 function buildDetailHref(reportId: string, params: HistoryParams): string {
@@ -62,9 +58,10 @@ export function HistoryTab({
   backHref,
   employees,
   params,
+  timezone,
 }: Props) {
   if (detail) {
-    return <ReportDetail detail={detail} backHref={backHref} />
+    return <ReportDetail detail={detail} backHref={backHref} timezone={timezone} />
   }
 
   return (
@@ -89,7 +86,7 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <ReportsList list={list} params={params} />
+        <ReportsList list={list} params={params} timezone={timezone} />
       )}
     </div>
   )
@@ -98,9 +95,11 @@ export function HistoryTab({
 function ReportsList({
   list,
   params,
+  timezone,
 }: {
   list: ReportListItem[]
   params: HistoryParams
+  timezone: string | null
 }) {
   return (
     <div className="overflow-auto rounded-md border">
@@ -125,7 +124,7 @@ function ReportsList({
           {list.map((r) => (
             <tr key={r.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle">
-                {fmt(r.submitted_at)}
+                {formatInTz(r.submitted_at, timezone)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {r.employee

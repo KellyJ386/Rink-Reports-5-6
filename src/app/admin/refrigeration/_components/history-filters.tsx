@@ -15,6 +15,11 @@ import {
 
 import type { EmployeeLite } from "../types"
 
+// Sentinel for the "All …" items: a Radix Select can't be returned to its
+// empty placeholder state by the user, so each dropdown needs an explicit
+// clear item (mirrors incident-reports history filters).
+const ALL = "__all__"
+
 type HistoryParams = {
   employee?: string
   from?: string
@@ -62,13 +67,14 @@ export function HistoryFilters({ employees, params }: Props) {
         </label>
         <Select
           value={params.employee || undefined}
-          onValueChange={(v) => setParam("employee", v)}
+          onValueChange={(v) => setParam("employee", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-48">
             <SelectValue placeholder="All employees" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>All employees</SelectItem>
             {employees.map((e) => (
               <SelectItem key={e.id} value={e.id}>
                 {e.last_name}, {e.first_name}
@@ -83,13 +89,14 @@ export function HistoryFilters({ employees, params }: Props) {
         </label>
         <Select
           value={params.oor || undefined}
-          onValueChange={(v) => setParam("oor", v)}
+          onValueChange={(v) => setParam("oor", v === ALL ? "" : v)}
           disabled={pending}
         >
           <SelectTrigger className="min-w-32">
             <SelectValue placeholder="Any" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={ALL}>Any</SelectItem>
             <SelectItem value="yes">Yes</SelectItem>
             <SelectItem value="no">No</SelectItem>
           </SelectContent>
