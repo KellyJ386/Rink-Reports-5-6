@@ -17,7 +17,6 @@ import type {
   EquipmentType,
   Severity,
   SimpleResult,
-  TemperatureUnit,
 } from "./types"
 import {
   CIRCLE_CHECK_BULK_CAP,
@@ -25,7 +24,6 @@ import {
   isEquipmentType,
   isOperationType,
   isSeverity,
-  isTemperatureUnit,
 } from "./types"
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -723,12 +721,6 @@ export async function updateIceOperationsSettings(
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
-    const tempRaw = nonEmpty(formData.get("temperature_unit")) ?? "F"
-    if (!isTemperatureUnit(tempRaw)) {
-      return { ok: false, error: "Invalid temperature unit." }
-    }
-    const temperature_unit: TemperatureUnit = tempRaw
-
     const alerts_enabled = formData.get("alerts_enabled") === "on"
 
     // "high" matches the DB column default and the submit-path fallback used
@@ -755,11 +747,13 @@ export async function updateIceOperationsSettings(
       }
     }
 
+    // temperature_unit is intentionally not written: the ice-make form no
+    // longer collects temperatures, so the column only drives the display of
+    // legacy payloads (stored value or the 'F' default — no UI edits it).
     const supabase = await createClient()
     const { error } = await supabase.from("ice_operations_settings").upsert(
       {
         facility_id: facility.facilityId,
-        temperature_unit,
         alerts_enabled,
         default_alert_severity,
         enabled_operation_types,

@@ -21,13 +21,8 @@ import {
 } from "@/components/ui/select"
 
 import { updateIceOperationsSettings } from "../actions"
-import type {
-  ActionState,
-  Severity,
-  SettingsRow,
-  TemperatureUnit,
-} from "../types"
-import { OPERATION_TYPES, SEVERITIES, TEMPERATURE_UNITS } from "../types"
+import type { ActionState, Severity, SettingsRow } from "../types"
+import { OPERATION_TYPES, SEVERITIES } from "../types"
 
 const INITIAL: ActionState = { ok: null }
 
@@ -46,9 +41,6 @@ export function SettingsTab({ settings }: Props) {
     if (state.ok === false) toast.error(state.error)
   }, [state])
 
-  const [tempUnit, setTempUnit] = useState<TemperatureUnit>(
-    (settings?.temperature_unit as TemperatureUnit) ?? "F",
-  )
   const enabled = settings?.alerts_enabled ?? true
   // "high" mirrors the DB default + submit-path fallback, so the first save
   // of a fresh settings row doesn't silently change the effective severity.
@@ -67,32 +59,12 @@ export function SettingsTab({ settings }: Props) {
       <CardHeader>
         <CardTitle>Ice operations settings</CardTitle>
         <CardDescription>
-          One row per facility. Temperatures are stored in Celsius and displayed
-          in the unit you choose here.
+          One row per facility: alerting behavior and which operations staff
+          can log.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form action={action} className="flex flex-col gap-4">
-          <div className="flex max-w-xs flex-col gap-1">
-            <Label htmlFor="temperature-unit">Temperature unit</Label>
-            <input type="hidden" name="temperature_unit" value={tempUnit} />
-            <Select value={tempUnit} onValueChange={(v) => setTempUnit(v as TemperatureUnit)}>
-              <SelectTrigger id="temperature-unit">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TEMPERATURE_UNITS.map((u) => (
-                  <SelectItem key={u} value={u}>
-                    {u === "F" ? "Fahrenheit (°F)" : "Celsius (°C)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-muted-foreground text-xs">
-              Display only. Submissions are stored in Celsius.
-            </p>
-          </div>
-
           <div className="flex items-center gap-3">
             <input
               id="alerts-enabled"

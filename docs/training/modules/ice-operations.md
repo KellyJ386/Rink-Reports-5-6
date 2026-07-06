@@ -58,7 +58,7 @@ The Setup tab is a stack of cards. Each card lists existing items with **Edit / 
 ### Settings tab
 
 - **Visible operations** — checkboxes for Ice Make, Circle Check, Edging, Blade Change. Check the ones your facility uses; **leaving all unchecked shows every operation** (the default). This is what controls which tabs staff see.
-- **Temperature unit** — Fahrenheit or Celsius, display only. (Values are stored in Celsius internally.) Note: the current staff forms don't collect a temperature, so this setting mainly affects how older/legacy readings display in History. ⚠ VERIFY whether any live staff field uses this unit today.
+- *(Removed)* **Temperature unit** — the staff forms no longer collect a temperature, so the °F/°C selector was removed from Settings. Legacy temperature readings on older submissions still display in the facility's previously saved unit (default °F).
 - **Enable ice operations alerts** — when on, a failed circle check raises a facility alert.
 - **Default alert severity** — warn / high / critical, used when a circle-check failure alert is raised without its own severity.
 
