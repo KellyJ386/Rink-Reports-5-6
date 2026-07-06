@@ -250,7 +250,7 @@ What an admin (facility_manager tier) can change that alters how a module behave
 
 ### Ice Operations
 - **Rinks**, **equipment** (categorized by equipment type, e.g. resurfacer/edger/sharpener), **fuel types**, **circle-check items**, and **circle-check templates** (grouping items) — all add/edit/delete.
-- **Settings:** which **operation types are enabled** (Ice Make / Edging / Blade Change / Circle Check), temperature unit display, alerts on/off, default alert severity. *Confirmed: operation types and equipment types are admin-configurable.*
+- **Settings:** which **operation types are enabled** (Ice Make / Edging / Blade Change / Circle Check), alerts on/off, default alert severity. *Confirmed: operation types and equipment types are admin-configurable.*
 
 ### Air Quality
 - **Equipment** per location and **reading types** (label, unit, decimals, required) — add/edit/delete.
