@@ -736,9 +736,6 @@ function CircleCheckItemRowItem({
   const [delPending, startDel] = useTransition()
   const [movePending, startMove] = useTransition()
   const [appliesToType, setAppliesToType] = useState(item.applies_to_equipment_type ?? "")
-  const [responseType, setResponseType] = useState(
-    item.response_type ?? "pass_fail",
-  )
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Item updated.")
@@ -781,11 +778,6 @@ function CircleCheckItemRowItem({
           >
             {scopeLabel}
           </Badge>
-          {item.response_type === "text" && (
-            <Badge variant="outline" className="uppercase">
-              Text{item.is_response_required ? " · required" : ""}
-            </Badge>
-          )}
           {!item.is_active && (
             <Badge variant="secondary" className="uppercase">off</Badge>
           )}
@@ -877,30 +869,6 @@ function CircleCheckItemRowItem({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor={`cci-response-${item.id}`}>Response type</Label>
-            <input type="hidden" name="response_type" value={responseType} />
-            <Select value={responseType} onValueChange={(v) => setResponseType(v)}>
-              <SelectTrigger id={`cci-response-${item.id}`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pass_fail">Pass / Fail</SelectItem>
-                <SelectItem value="text">Text response</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {responseType === "text" && (
-            <label className="flex items-center gap-2 text-sm font-medium sm:col-span-2">
-              <input
-                type="checkbox"
-                name="is_response_required"
-                defaultChecked={item.is_response_required}
-                className="border-input size-4 rounded border"
-              />
-              Require a response
-            </label>
-          )}
           <div className="sm:col-span-2 flex justify-end">
             <Button type="submit" size="sm" disabled={pending}>
               {pending ? "Saving…" : "Save"}
@@ -918,7 +886,6 @@ function CircleCheckCreateForm() {
     NULL_STATE,
   )
   const [newCciType, setNewCciType] = useState("")
-  const [newCciResponseType, setNewCciResponseType] = useState("pass_fail")
 
   useEffect(() => {
     if (state.ok === true) toast.success(state.message ?? "Item created.")
@@ -962,32 +929,6 @@ function CircleCheckCreateForm() {
           </SelectContent>
         </Select>
       </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="new-cci-response">Response type</Label>
-        <input type="hidden" name="response_type" value={newCciResponseType} />
-        <Select
-          value={newCciResponseType}
-          onValueChange={(v) => setNewCciResponseType(v)}
-        >
-          <SelectTrigger id="new-cci-response">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="pass_fail">Pass / Fail</SelectItem>
-            <SelectItem value="text">Text response</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      {newCciResponseType === "text" && (
-        <label className="flex items-center gap-2 text-sm font-medium sm:col-span-2">
-          <input
-            type="checkbox"
-            name="is_response_required"
-            className="border-input size-4 rounded border"
-          />
-          Require a response
-        </label>
-      )}
       <div className="sm:col-span-2 flex justify-end">
         <Button type="submit" size="sm" disabled={pending}>
           {pending ? "Adding…" : "Add item"}

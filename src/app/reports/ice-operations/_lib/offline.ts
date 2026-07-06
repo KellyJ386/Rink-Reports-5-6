@@ -63,6 +63,12 @@ export async function handleIceOperationsReplay({
   // Pure per-op validation (rink/equipment/occurred_at required, failed-item
   // notes). Runs before claiming so a violating submit is a permanent 400 that
   // the service worker marks failed — identical to the online server action.
+  //
+  // DELIBERATELY NOT checked here: enabled_operation_types. The online action
+  // rejects submissions for operation types the facility has disabled, but a
+  // queued offline submission was created while the type was enabled —
+  // rejecting it at replay would discard real field data over a config change
+  // that happened after the fact.
   const validationError = validateIceOpsInput(input)
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 })

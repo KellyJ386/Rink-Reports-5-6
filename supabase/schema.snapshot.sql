@@ -7444,29 +7444,6 @@ COMMENT ON CONSTRAINT ice_depth_settings_low_below_high ON public.ice_depth_sett
 
 
 --
--- Name: ice_operation_change_log; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.ice_operation_change_log (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    facility_id uuid NOT NULL,
-    report_id uuid NOT NULL,
-    changed_by uuid NOT NULL,
-    reason text NOT NULL,
-    before jsonb DEFAULT '{}'::jsonb NOT NULL,
-    after jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: TABLE ice_operation_change_log; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.ice_operation_change_log IS 'Append-only correction log for ice operation reports. Original report rows are immutable; all changes are recorded here.';
-
-
---
 -- Name: ice_operations_circle_check_items; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -9961,14 +9938,6 @@ ALTER TABLE ONLY public.ice_depth_settings
 
 
 --
--- Name: ice_operation_change_log ice_operation_change_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ice_operation_change_log
-    ADD CONSTRAINT ice_operation_change_log_pkey PRIMARY KEY (id);
-
-
---
 -- Name: ice_operations_circle_check_items ice_operations_circle_check_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11504,34 +11473,6 @@ CREATE INDEX idx_ice_depth_sessions_has_low ON public.ice_depth_sessions USING b
 --
 
 CREATE INDEX idx_ice_depth_sessions_layout_submitted ON public.ice_depth_sessions USING btree (layout_id, submitted_at DESC);
-
-
---
--- Name: idx_ice_operation_change_log_changed_by; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_ice_operation_change_log_changed_by ON public.ice_operation_change_log USING btree (changed_by);
-
-
---
--- Name: idx_ice_operation_change_log_created_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_ice_operation_change_log_created_at ON public.ice_operation_change_log USING btree (created_at DESC);
-
-
---
--- Name: idx_ice_operation_change_log_facility_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_ice_operation_change_log_facility_id ON public.ice_operation_change_log USING btree (facility_id);
-
-
---
--- Name: idx_ice_operation_change_log_report_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_ice_operation_change_log_report_id ON public.ice_operation_change_log USING btree (report_id);
 
 
 --
@@ -14334,30 +14275,6 @@ ALTER TABLE ONLY public.ice_depth_sessions
 
 ALTER TABLE ONLY public.ice_depth_settings
     ADD CONSTRAINT ice_depth_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
-
-
---
--- Name: ice_operation_change_log ice_operation_change_log_changed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ice_operation_change_log
-    ADD CONSTRAINT ice_operation_change_log_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES public.employees(id) ON DELETE RESTRICT;
-
-
---
--- Name: ice_operation_change_log ice_operation_change_log_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ice_operation_change_log
-    ADD CONSTRAINT ice_operation_change_log_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
-
-
---
--- Name: ice_operation_change_log ice_operation_change_log_report_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ice_operation_change_log
-    ADD CONSTRAINT ice_operation_change_log_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.ice_operations_submissions(id) ON DELETE CASCADE;
 
 
 --
@@ -17268,26 +17185,6 @@ CREATE POLICY ice_depth_settings_select ON public.ice_depth_settings FOR SELECT 
 --
 
 CREATE POLICY ice_depth_settings_update ON public.ice_depth_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
-
-
---
--- Name: ice_operation_change_log; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.ice_operation_change_log ENABLE ROW LEVEL SECURITY;
-
---
--- Name: ice_operation_change_log ice_operation_change_log_insert; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY ice_operation_change_log_insert ON public.ice_operation_change_log FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('ice_operations'::text) >= 'submit'::public.module_permission_level))));
-
-
---
--- Name: ice_operation_change_log ice_operation_change_log_select; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY ice_operation_change_log_select ON public.ice_operation_change_log FOR SELECT TO authenticated USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --

@@ -60,6 +60,9 @@ type Props = {
 
 const initialState: SubmissionFormState = {}
 
+// Absent from `itemStates` = unanswered. Items start unanswered and every
+// visible item must be explicitly tapped Pass or Fail before submit enables —
+// a recorded "passed" always means someone answered it, never a default.
 type ItemState = {
   passed: boolean
   notes: string
@@ -149,7 +152,7 @@ export function CircleCheckForm({
   const setNotesFor = (id: string, notes: string) => {
     setItemStates((prev) => ({
       ...prev,
-      [id]: { passed: prev[id]?.passed ?? true, notes },
+      [id]: { passed: prev[id]?.passed ?? false, notes },
     }))
   }
 
@@ -165,20 +168,29 @@ export function CircleCheckForm({
     return false
   }, [visibleItems, itemStates])
 
+  // Visible items the operator hasn't tapped yet; any remaining block submit.
+  const unansweredCount = useMemo(
+    () => visibleItems.filter((item) => !itemStates[item.id]).length,
+    [visibleItems, itemStates],
+  )
+
   const resultsArray = useMemo(() => {
-    return visibleItems.map((item) => {
+    return visibleItems.flatMap((item) => {
       const s = itemStates[item.id]
-      const passed = s ? s.passed : true
-      const failed_notes = s && !passed ? s.notes.trim() : null
-      return {
-        // Template items use a separate table than ice_operations_circle_check_items,
-        // so we can't satisfy the results-table FK with their id. Persist null
-        // and rely on label_snapshot for historical context.
-        checklist_item_id: item.isTemplateItem ? null : item.id,
-        label_snapshot: item.label,
-        passed,
-        failed_notes,
-      }
+      // Unanswered items are never serialized — a default "passed" must not
+      // exist in the record. Submit stays disabled while any remain.
+      if (!s) return []
+      return [
+        {
+          // Template items use a separate table than ice_operations_circle_check_items,
+          // so we can't satisfy the results-table FK with their id. Persist null
+          // and rely on label_snapshot for historical context.
+          checklist_item_id: item.isTemplateItem ? null : item.id,
+          label_snapshot: item.label,
+          passed: s.passed,
+          failed_notes: !s.passed ? s.notes.trim() || null : null,
+        },
+      ]
     })
   }, [visibleItems, itemStates])
 
@@ -276,7 +288,8 @@ export function CircleCheckForm({
             <ul className="flex flex-col gap-3">
               {visibleItems.map((item) => {
                 const s = itemStates[item.id]
-                const passed = s ? s.passed : true
+                // null = unanswered: neither button lights up until tapped.
+                const passed = s ? s.passed : null
                 const failedNotes = s?.notes ?? ""
                 const showNotesError =
                   s && s.passed === false && s.notes.trim().length === 0
@@ -369,16 +382,27 @@ export function CircleCheckForm({
       </div>
 
       {/* An empty checklist would be recorded as a clean pass; the server
-          rejects it, so don't offer the submit. */}
+          rejects it, so don't offer the submit. Unanswered items also block:
+          every item must be explicitly tapped Pass or Fail. */}
       <SubmitBar
         disabled={
           blockedByEmptyFailNotes ||
+          unansweredCount > 0 ||
           (!!selectedEquipment && visibleItems.length === 0)
         }
       />
       {blockedByEmptyFailNotes ? (
         <p className="text-xs text-red-600">
           Add a note for each failed item before submitting.
+        </p>
+      ) : null}
+      {!blockedByEmptyFailNotes &&
+      unansweredCount > 0 &&
+      selectedEquipment &&
+      visibleItems.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Tap Pass or Fail on every item to submit — {unansweredCount}{" "}
+          remaining.
         </p>
       ) : null}
     </form>

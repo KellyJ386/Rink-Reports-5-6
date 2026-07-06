@@ -17,7 +17,6 @@ import type {
   EquipmentType,
   Severity,
   SimpleResult,
-  TemperatureUnit,
 } from "./types"
 import {
   CIRCLE_CHECK_BULK_CAP,
@@ -25,7 +24,6 @@ import {
   isEquipmentType,
   isOperationType,
   isSeverity,
-  isTemperatureUnit,
 } from "./types"
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -412,10 +410,6 @@ export async function createCircleCheckItem(
       }
       applies_to_equipment_type = appliesRaw
     }
-    const response_type =
-      nonEmpty(formData.get("response_type")) === "text" ? "text" : "pass_fail"
-    const is_response_required =
-      response_type === "text" && formData.get("is_response_required") === "on"
 
     const supabase = await createClient()
     const { data: maxRow } = await supabase
@@ -434,8 +428,10 @@ export async function createCircleCheckItem(
         label,
         description,
         applies_to_equipment_type,
-        response_type,
-        is_response_required,
+        // The staff form only answers pass/fail; the "text" response type is
+        // no longer configurable (it was never rendered).
+        response_type: "pass_fail",
+        is_response_required: false,
         sort_order: nextSort,
       })
     if (error) {
@@ -471,10 +467,6 @@ export async function updateCircleCheckItem(
       }
       applies_to_equipment_type = appliesRaw
     }
-    const response_type =
-      nonEmpty(formData.get("response_type")) === "text" ? "text" : "pass_fail"
-    const is_response_required =
-      response_type === "text" && formData.get("is_response_required") === "on"
 
     const supabase = await createClient()
     const { error } = await supabase
@@ -483,8 +475,10 @@ export async function updateCircleCheckItem(
         label,
         description,
         applies_to_equipment_type,
-        response_type,
-        is_response_required,
+        // Editing normalizes any legacy "text" item to pass/fail — that is
+        // how the staff form has always answered it anyway.
+        response_type: "pass_fail",
+        is_response_required: false,
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
@@ -633,8 +627,6 @@ type CircleCheckImportRow = {
   label: string
   description?: string
   applies_to_equipment_type?: string
-  response_type: "pass_fail" | "text"
-  is_response_required: boolean
 }
 
 export async function importCircleCheckItems(
@@ -693,8 +685,8 @@ export async function importCircleCheckItems(
       label: row.label,
       description: row.description ?? null,
       applies_to_equipment_type: row.applies_to_equipment_type ?? null,
-      response_type: row.response_type,
-      is_response_required: row.is_response_required,
+      response_type: "pass_fail",
+      is_response_required: false,
       sort_order: baseSort + idx + 1,
     }))
 
@@ -729,12 +721,6 @@ export async function updateIceOperationsSettings(
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
-    const tempRaw = nonEmpty(formData.get("temperature_unit")) ?? "F"
-    if (!isTemperatureUnit(tempRaw)) {
-      return { ok: false, error: "Invalid temperature unit." }
-    }
-    const temperature_unit: TemperatureUnit = tempRaw
-
     const alerts_enabled = formData.get("alerts_enabled") === "on"
 
     // "high" matches the DB column default and the submit-path fallback used
@@ -745,19 +731,29 @@ export async function updateIceOperationsSettings(
     }
     const default_alert_severity: Severity = sevRaw
 
-    // Operation-type visibility (checkboxes). Stored as the checked subset; an
-    // empty selection is treated as "all enabled" downstream (fail-open) so an
-    // admin can't accidentally lock staff out of every operation.
+    // Operation-type visibility (checkboxes), stored as the checked subset.
+    // An empty selection is rejected rather than saved: downstream treats
+    // null/empty as "all enabled" (fail-open, for facilities that never saved
+    // settings), so persisting an empty set would silently mean the opposite
+    // of what the admin just did.
     const enabled_operation_types = formData
       .getAll("enabled_operation_types")
       .map(String)
       .filter(isOperationType)
+    if (enabled_operation_types.length === 0) {
+      return {
+        ok: false,
+        error: "Select at least one visible operation.",
+      }
+    }
 
+    // temperature_unit is intentionally not written: the ice-make form no
+    // longer collects temperatures, so the column only drives the display of
+    // legacy payloads (stored value or the 'F' default — no UI edits it).
     const supabase = await createClient()
     const { error } = await supabase.from("ice_operations_settings").upsert(
       {
         facility_id: facility.facilityId,
-        temperature_unit,
         alerts_enabled,
         default_alert_severity,
         enabled_operation_types,
