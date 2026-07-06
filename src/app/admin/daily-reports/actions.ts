@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 
@@ -63,6 +64,26 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the daily-reports RLS write
+ * policies gate on has_module_admin_access('daily_reports') — a module-scoped
+ * user_permissions grant requireAdmin does NOT imply. Without this check, an
+ * admin lacking the module grant reaches the action and the mutation dies at
+ * the RLS layer with an opaque error (or is silently filtered to zero rows).
+ * Returns a human-readable denial message, or null when allowed. (A message,
+ * not a redirect: these actions run inside try/catch blocks that would
+ * swallow the NEXT_REDIRECT control-flow error.)
+ */
+async function ensureDailyAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "daily_reports", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the daily reports module's admin permission. Ask an administrator to grant it under Admin → Permissions."
+}
+
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
@@ -84,7 +105,8 @@ export async function createArea(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -126,7 +148,8 @@ export async function importAreas(
   rows: ValidatedRow[],
 ): Promise<ImportResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -209,7 +232,8 @@ export async function updateArea(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -233,7 +257,9 @@ export async function updateArea(
     const is_active = formData.get("is_active") === "on"
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // `.select()` makes a zero-row update detectable (RLS/permission denial or
+    // a stale id returns no rows rather than silently succeeding).
+    const { data, error } = await supabase
       .from("daily_report_areas")
       .update({
         name,
@@ -244,8 +270,10 @@ export async function updateArea(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
 
     if (error) return { ok: false, error: dbError(error, "Failed to update area.") }
+    if (!data || data.length === 0) return { ok: false, error: "Area not found." }
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Area updated." }
   } catch (e) {
@@ -259,41 +287,20 @@ export async function setAreaActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing area id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_areas")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) return { ok: false, error: dbError(error, "Failed to update area.") }
-    revalidatePath("/admin/daily-reports")
-    return { ok: true }
-  } catch (e) {
-    logServerError("admin/daily-reports/actions", e)
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
-  }
-}
-
-export async function reorderArea(
-  id: string,
-  sort_order: number,
-): Promise<SimpleResult> {
-  try {
-    await requireAdmin()
-    const facility = await resolveFacility()
-    if (!facility.ok) return { ok: false, error: facility.error }
-    if (!id) return { ok: false, error: "Missing area id." }
-    const supabase = await createClient()
-    const { error } = await supabase
-      .from("daily_report_areas")
-      .update({ sort_order })
-      .eq("id", id)
-      .eq("facility_id", facility.facilityId)
-    if (error) return { ok: false, error: dbError(error, "Failed to reorder area.") }
+    if (!data || data.length === 0) return { ok: false, error: "Area not found." }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
@@ -304,16 +311,18 @@ export async function reorderArea(
 
 export async function deleteArea(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing area id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_areas")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       // FK restrict from submissions: friendly error per spec.
       if (error.code === "23503") {
@@ -325,6 +334,91 @@ export async function deleteArea(id: string): Promise<SimpleResult> {
       }
       return { ok: false, error: dbError(error, "Failed to delete area.") }
     }
+    if (!data || data.length === 0) return { ok: false, error: "Area not found." }
+    revalidatePath("/admin/daily-reports")
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Swap sort_order with the previous/next area in the facility. Direction:
+ * -1 moves up, +1 moves down. (Same approach as moveChecklistItem — a naive
+ * sort_order ± 1 write can collide with a neighbor's value and leave the
+ * visible order unchanged.)
+ */
+export async function moveArea(
+  id: string,
+  direction: -1 | 1,
+): Promise<SimpleResult> {
+  try {
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+    if (!id) return { ok: false, error: "Missing area id." }
+    const supabase = await createClient()
+
+    const { data: cur, error: curErr } = await supabase
+      .from("daily_report_areas")
+      .select("id, sort_order")
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (curErr || !cur) {
+      return { ok: false, error: dbError(curErr, "Area not found.") }
+    }
+
+    const neighborQuery = supabase
+      .from("daily_report_areas")
+      .select("id, sort_order")
+      .eq("facility_id", facility.facilityId)
+      .neq("id", cur.id)
+    const { data: neighbor, error: nErr } =
+      direction < 0
+        ? await neighborQuery
+            .lt("sort_order", cur.sort_order)
+            .order("sort_order", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : await neighborQuery
+            .gt("sort_order", cur.sort_order)
+            .order("sort_order", { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+    if (nErr) return { ok: false, error: dbError(nErr, "Failed to reorder.") }
+    if (!neighbor) {
+      // Already at the edge; nothing to do.
+      return { ok: true }
+    }
+
+    const tmp = -1 - Math.abs(cur.sort_order) - Math.abs(neighbor.sort_order)
+    const { data: d1, error: e1 } = await supabase
+      .from("daily_report_areas")
+      .update({ sort_order: tmp })
+      .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
+      .select("id")
+    if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
+    if (!d1 || d1.length === 0) return { ok: false, error: "Area not found." }
+
+    const { error: e2 } = await supabase
+      .from("daily_report_areas")
+      .update({ sort_order: cur.sort_order })
+      .eq("id", neighbor.id)
+      .eq("facility_id", facility.facilityId)
+    if (e2) return { ok: false, error: dbError(e2, "Failed to reorder.") }
+
+    const { error: e3 } = await supabase
+      .from("daily_report_areas")
+      .update({ sort_order: neighbor.sort_order })
+      .eq("id", cur.id)
+      .eq("facility_id", facility.facilityId)
+    if (e3) return { ok: false, error: dbError(e3, "Failed to reorder.") }
+
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
@@ -342,7 +436,8 @@ export async function createTemplate(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -377,7 +472,8 @@ export async function updateTemplate(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -389,7 +485,7 @@ export async function updateTemplate(
     const is_active = formData.get("is_active") === "on"
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_templates")
       .update({
         name,
@@ -399,8 +495,12 @@ export async function updateTemplate(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update template.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Template not found." }
     }
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Template updated." }
@@ -415,18 +515,23 @@ export async function setTemplateActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_templates")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update template.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Template not found." }
     }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
@@ -438,16 +543,18 @@ export async function setTemplateActive(
 
 export async function deleteTemplate(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing template id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_templates")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -457,6 +564,9 @@ export async function deleteTemplate(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete template.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Template not found." }
     }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
@@ -475,7 +585,8 @@ export async function createChecklistItem(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -525,7 +636,8 @@ export async function importDailyChecklistItems(
   rows: ValidatedRow[],
 ): Promise<ImportResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!templateId) return { ok: false, error: "Template is required." }
@@ -597,7 +709,8 @@ export async function updateChecklistItem(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -609,7 +722,7 @@ export async function updateChecklistItem(
     const is_active = formData.get("is_active") === "on"
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_checklist_items")
       .update({
         label,
@@ -619,9 +732,11 @@ export async function updateChecklistItem(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update item.") }
     }
+    if (!data || data.length === 0) return { ok: false, error: "Item not found." }
     revalidatePath("/admin/daily-reports")
     return { ok: true, message: "Item updated." }
   } catch (e) {
@@ -632,19 +747,22 @@ export async function updateChecklistItem(
 
 export async function deleteChecklistItem(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_checklist_items")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete item.") }
     }
+    if (!data || data.length === 0) return { ok: false, error: "Item not found." }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
@@ -658,19 +776,22 @@ export async function reorderChecklistItem(
   sort_order: number,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_checklist_items")
       .update({ sort_order })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to reorder item.") }
     }
+    if (!data || data.length === 0) return { ok: false, error: "Item not found." }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
@@ -688,7 +809,8 @@ export async function moveChecklistItem(
   direction: -1 | 1,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing item id." }
@@ -732,12 +854,14 @@ export async function moveChecklistItem(
     // constraint collisions on (template_id, sort_order). There isn't one
     // today, but this is cheap insurance.
     const tmp = -1 - Math.abs(cur.sort_order) - Math.abs(neighbor.sort_order)
-    const { error: e1 } = await supabase
+    const { data: d1, error: e1 } = await supabase
       .from("daily_report_checklist_items")
       .update({ sort_order: tmp })
       .eq("id", cur.id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
+    if (!d1 || d1.length === 0) return { ok: false, error: "Item not found." }
 
     const { error: e2 } = await supabase
       .from("daily_report_checklist_items")
@@ -770,6 +894,8 @@ export async function toggleSubmissionItem(
   is_checked: boolean,
 ): Promise<SimpleResult> {
   try {
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const current = await requireAdmin()
     if (!submission_item_id) {
       return { ok: false, error: "Missing item id." }
@@ -814,7 +940,8 @@ export async function addAdminNote(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -863,6 +990,8 @@ export async function updateNote(
   body: string,
 ): Promise<SimpleResult> {
   try {
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const current = await requireAdmin()
     if (!note_id) return { ok: false, error: "Missing note id." }
     const trimmed = body.trim()
@@ -906,6 +1035,8 @@ export async function updateNote(
 
 export async function deleteNote(note_id: string): Promise<SimpleResult> {
   try {
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const current = await requireAdmin()
     if (!note_id) return { ok: false, error: "Missing note id." }
     const supabase = await createClient()
@@ -921,14 +1052,16 @@ export async function deleteNote(note_id: string): Promise<SimpleResult> {
         return data?.facility_id ?? null
       })())
     if (!facilityId) return { ok: false, error: "Could not resolve facility." }
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("daily_report_notes")
       .delete()
       .eq("id", note_id)
       .eq("facility_id", facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete note.") }
     }
+    if (!data || data.length === 0) return { ok: false, error: "Note not found." }
     revalidatePath("/admin/daily-reports")
     return { ok: true }
   } catch (e) {
@@ -939,6 +1072,8 @@ export async function deleteNote(note_id: string): Promise<SimpleResult> {
 
 export async function deleteSubmission(id: string): Promise<SimpleResult> {
   try {
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const current = await requireAdmin()
     if (!id) return { ok: false, error: "Missing submission id." }
     const supabase = await createClient()
@@ -955,9 +1090,12 @@ export async function deleteSubmission(id: string): Promise<SimpleResult> {
       }
       query = query.eq("facility_id", current.profile.facility_id)
     }
-    const { error } = await query
+    const { data, error } = await query.select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to delete submission.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Submission not found." }
     }
     revalidatePath("/admin/daily-reports")
     return { ok: true }

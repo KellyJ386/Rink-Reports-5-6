@@ -42,6 +42,7 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
   )
   const [pendingItem, setPendingItem] = useState<string | null>(null)
   const [pendingNote, setPendingNote] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingNoteBody, setEditingNoteBody] = useState("")
   const [, startTransition] = useTransition()
@@ -69,9 +70,11 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
     ) {
       return
     }
+    setDeleting(true)
     startTransition(async () => {
       const r = await deleteSubmission(submission.id)
       if (!r.ok) toast.error(r.error)
+      setDeleting(false)
     })
   }
 
@@ -127,8 +130,9 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
               variant="destructive"
               size="sm"
               onClick={onDeleteSubmission}
+              disabled={deleting}
             >
-              Delete submission
+              {deleting ? "Deleting…" : "Delete submission"}
             </Button>
           </div>
         </div>

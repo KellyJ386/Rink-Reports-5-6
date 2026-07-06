@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { LoadMoreLink } from "@/components/admin/load-more-link"
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
@@ -87,6 +87,11 @@ export default async function DailyReportsAdminPage({
   searchParams: SearchParams
 }) {
   const current = await requireAdmin()
+  // The daily-reports RLS policies (writes + admin-scope reads) gate on the
+  // module-scoped admin grant, which requireAdmin does not imply. Without
+  // this, a global admin lacking the grant gets a console whose every write
+  // dies at the RLS layer.
+  await requireModuleAdmin("daily_reports")
   const params = await searchParams
   const tab = asTab(params.tab)
   const profile = current.profile
