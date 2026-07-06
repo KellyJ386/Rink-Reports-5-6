@@ -21,6 +21,12 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
+      >
+        Skip to main content
+      </a>
       <Sidebar email={email} fullName={fullName} />
       <div className="flex min-h-screen flex-col lg:pl-64 xl:pl-72">
         <PreviewBanner />
@@ -32,7 +38,12 @@ export default async function AdminLayout({
           tempF={tempF}
           tempLocation={tempLocation}
         />
-        <main id="main-content" className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl">{children}</main>
+        <main
+          id="main-content"
+          className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl"
+        >
+          {children}
+        </main>
       </div>
       <Toaster />
     </div>

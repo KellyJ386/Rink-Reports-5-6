@@ -33,6 +33,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
         href="/admin"
         prefetch={false}
         onClick={onNavigate}
+        aria-current={isActive("/admin") ? "page" : undefined}
         className={linkCls("/admin")}
       >
         <LayoutDashboard className="h-4 w-4 shrink-0" />
