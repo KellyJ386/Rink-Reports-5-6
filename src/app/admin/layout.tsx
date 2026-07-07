@@ -23,7 +23,7 @@ export default async function AdminLayout({
     <div className="min-h-screen bg-background">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary[...]
       >
         Skip to main content
       </a>
@@ -40,7 +40,8 @@ export default async function AdminLayout({
         />
         <main
           id="main-content"
-          className="flex-1 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl"
+          tabIndex={-1}
+          className="flex-1 outline-none 2xl:mx-auto 2xl:w-full 2xl:max-w-screen-2xl"
         >
           {children}
         </main>
