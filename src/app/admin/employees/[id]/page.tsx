@@ -31,7 +31,7 @@ export default async function EmployeeDetailPage({ params }: { params: Params })
 
   if (empErr) {
     return (
-      <div className="p-6 text-sm text-red-600">
+      <div className="p-6 text-sm text-destructive">
         Could not load employee: {empErr.message}
       </div>
     )

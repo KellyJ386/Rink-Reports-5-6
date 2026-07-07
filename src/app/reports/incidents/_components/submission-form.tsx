@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Callout } from "@/components/ui/callout"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
 
@@ -860,10 +861,10 @@ export function SubmissionForm({
         </p>
 
         {!isEdit && !isOnline && (
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+          <Callout tone="warning">
             You&apos;re offline. This report will be saved on your device and
             submitted automatically when you reconnect.
-          </p>
+          </Callout>
         )}
 
         <Button

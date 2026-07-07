@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Callout } from "@/components/ui/callout"
 import { utcToWallTime } from "@/lib/timezone"
 
 import {
@@ -435,12 +436,9 @@ export function EditForm({
           placeholder="Select medical attention"
         />
         {showMedicalAlertNotice ? (
-          <p
-            role="status"
-            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-200"
-          >
+          <Callout tone="warning" className="text-xs">
             Selecting this option will alert managers.
-          </p>
+          </Callout>
         ) : null}
       </div>
 

@@ -314,7 +314,7 @@ export function CircleCheckForm({
                           className={cn(
                             "h-11 min-w-20 rounded-full px-4 text-sm font-medium transition-colors",
                             passed === true
-                              ? "bg-emerald-600 text-white"
+                              ? "bg-success text-success-foreground"
                               : "bg-muted text-muted-foreground hover:bg-muted/80"
                           )}
                         >
@@ -327,7 +327,7 @@ export function CircleCheckForm({
                           className={cn(
                             "h-11 min-w-20 rounded-full px-4 text-sm font-medium transition-colors",
                             passed === false
-                              ? "bg-red-600 text-white"
+                              ? "bg-destructive text-destructive-foreground"
                               : "bg-muted text-muted-foreground hover:bg-muted/80"
                           )}
                         >
@@ -354,7 +354,7 @@ export function CircleCheckForm({
                           className={cn(
                             "h-12 text-base",
                             showNotesError &&
-                              "border-red-500 focus-visible:ring-red-500/40"
+                              "border-destructive focus-visible:ring-destructive/40"
                           )}
                           placeholder="Describe the issue"
                         />
@@ -392,7 +392,7 @@ export function CircleCheckForm({
         }
       />
       {blockedByEmptyFailNotes ? (
-        <p className="text-xs text-red-600">
+        <p className="text-xs text-destructive">
           Add a note for each failed item before submitting.
         </p>
       ) : null}

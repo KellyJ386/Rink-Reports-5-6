@@ -262,7 +262,7 @@ function PanelBody({
       {results && results.length > 0 && (
         <>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-emerald-600 inline-flex items-center gap-1">
+            <span className="text-success-soft-foreground inline-flex items-center gap-1">
               <CheckCircle2 className="h-4 w-4" />
               {validCount} valid
             </span>
@@ -305,7 +305,7 @@ function PanelBody({
                     </td>
                     <td className="border-b px-2 py-1.5 align-top">
                       {r.ok ? (
-                        <span className="text-emerald-600 inline-flex items-center gap-1">
+                        <span className="text-success-soft-foreground inline-flex items-center gap-1">
                           <CheckCircle2 className="h-3.5 w-3.5" /> ok
                         </span>
                       ) : (

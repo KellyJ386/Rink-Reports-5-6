@@ -2,7 +2,7 @@ import Link from "next/link"
 import type { ComponentProps } from "react"
 import { ChevronDown } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -61,22 +61,15 @@ type NotificationRow = {
   read_at: string | null
 }
 
-const TYPE_BADGE: Record<string, string> = {
-  schedule_published:
-    "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100",
-  shift_changed:
-    "bg-purple-100 text-purple-900 dark:bg-purple-900/40 dark:text-purple-100",
-  open_shift_available:
-    "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/40 dark:text-cyan-100",
-  swap_request_received:
-    "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100",
-  swap_approved:
-    "bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-100",
-  swap_denied: "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-100",
-  time_off_decided:
-    "bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-100",
-  overtime_warning:
-    "bg-orange-100 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100",
+const TYPE_BADGE: Record<string, BadgeProps["variant"]> = {
+  schedule_published: "info",
+  shift_changed: "special",
+  open_shift_available: "info",
+  swap_request_received: "warning",
+  swap_approved: "success",
+  swap_denied: "error",
+  time_off_decided: "special",
+  overtime_warning: "warning",
 }
 
 const NATIVE_SELECT_CLASS =
@@ -274,9 +267,8 @@ export default async function NotificationsPage({
                     : n.time_off_id
                       ? `time-off:${shorten(n.time_off_id)}`
                       : "—"
-                const typeCls =
-                  TYPE_BADGE[n.notification_type] ??
-                  "bg-muted text-muted-foreground"
+                const typeVariant =
+                  TYPE_BADGE[n.notification_type] ?? "neutral"
                 return (
                   <tr key={n.id} className="border-t">
                     <td className="px-3 py-2 whitespace-nowrap">
@@ -290,11 +282,9 @@ export default async function NotificationsPage({
                         : n.employee_id}
                     </td>
                     <td className="px-3 py-2">
-                      <span
-                        className={`${typeCls} inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium`}
-                      >
+                      <Badge variant={typeVariant}>
                         {n.notification_type.replace(/_/g, " ")}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {related ? relatedLabel : "—"}

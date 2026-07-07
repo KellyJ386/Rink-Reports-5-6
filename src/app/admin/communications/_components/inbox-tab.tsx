@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useTransition } from "react"
+import type * as React from "react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { MODULE_ACCENT_VAR, moduleKeyFromDashboard } from "@/components/ui/module-theme"
 import { cn } from "@/lib/utils"
 
 import {
@@ -92,20 +94,20 @@ function severityBadgeVariant(sev: string): BadgeProps["variant"] {
   return "info"
 }
 
-function moduleClass(mod: string): string {
-  // Stable per-module hash to a small palette for visual distinction.
-  let h = 0
-  for (let i = 0; i < mod.length; i += 1) h = (h * 31 + mod.charCodeAt(i)) | 0
-  const palette = [
-    "bg-sky-500/15 text-sky-700 border-sky-500/30 dark:text-sky-300",
-    "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300",
-    "bg-violet-500/15 text-violet-700 border-violet-500/30 dark:text-violet-300",
-    "bg-rose-500/15 text-rose-700 border-rose-500/30 dark:text-rose-300",
-    "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300",
-    "bg-teal-500/15 text-teal-700 border-teal-500/30 dark:text-teal-300",
-    "bg-indigo-500/15 text-indigo-700 border-indigo-500/30 dark:text-indigo-300",
-  ]
-  return palette[Math.abs(h) % palette.length] ?? palette[0]!
+/**
+ * Tint the source-module chip with the app-wide module accent token
+ * (light/dark aware) instead of an ad-hoc palette.
+ */
+function moduleChipStyle(mod: string): React.CSSProperties {
+  const key = moduleKeyFromDashboard(mod)
+  const accent = key
+    ? `var(${MODULE_ACCENT_VAR[key]})`
+    : "var(--muted-foreground)"
+  return {
+    background: `color-mix(in oklab, ${accent} 12%, transparent)`,
+    borderColor: `color-mix(in oklab, ${accent} 35%, transparent)`,
+    color: accent,
+  }
 }
 
 function moduleLabel(key: string): string {
@@ -377,10 +379,8 @@ function AlertsList({
           >
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className={cn(
-                  "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-                  moduleClass(a.source_module),
-                )}
+                className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase"
+                style={moduleChipStyle(a.source_module)}
               >
                 {moduleLabel(a.source_module)}
               </span>
@@ -583,10 +583,8 @@ function AlertDrilldown({
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className={cn(
-                "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase",
-                moduleClass(a.source_module),
-              )}
+              className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase"
+              style={moduleChipStyle(a.source_module)}
             >
               {moduleLabel(a.source_module)}
             </span>

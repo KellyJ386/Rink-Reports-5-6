@@ -692,7 +692,7 @@ export function BodyDiagram({
                                   className={cn(
                                     "min-h-[36px] rounded-md border px-2 py-1 text-xs",
                                     side === s
-                                      ? "border-red-600 bg-red-600/10 text-red-700"
+                                      ? "border-destructive bg-destructive/10 text-destructive"
                                       : "border-input bg-background hover:bg-accent"
                                   )}
                                 >
@@ -731,7 +731,7 @@ export function BodyDiagram({
                           className={cn(
                             "min-h-[36px] rounded-md border px-2 py-1 text-xs",
                             side === s
-                              ? "border-red-600 bg-red-600/10 text-red-700"
+                              ? "border-destructive bg-destructive/10 text-destructive"
                               : "border-input bg-background hover:bg-accent",
                             disabled && "cursor-not-allowed opacity-40 hover:bg-background"
                           )}
@@ -759,9 +759,9 @@ function SideBadge({ side }: { side: BodySide }) {
     none: "None",
   }
   const classes: Record<BodySide, string> = {
-    front: "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200",
-    back: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200",
-    both: "bg-rose-100 text-rose-900 dark:bg-rose-900/30 dark:text-rose-200",
+    front: "bg-destructive-soft text-destructive-soft-foreground",
+    back: "bg-warning-soft text-warning-soft-foreground",
+    both: "bg-accent-warm/15 text-accent-warm",
     none: "bg-muted text-muted-foreground",
   }
   return (
