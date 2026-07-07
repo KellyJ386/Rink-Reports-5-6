@@ -12,7 +12,6 @@ import { DataList, DataListRow } from "@/components/ui/data-table"
 import { requireUser } from "@/lib/auth"
 import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
-import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 
 import { SubmissionForm } from "./_components/submission-form"
 import type {
@@ -309,14 +308,6 @@ export default async function RefrigerationHomePage() {
   )
   const readingsPerShift = settingsRow?.readings_per_shift ?? null
 
-  const temp = facility
-    ? await getCurrentTempForFacility({
-        city: facility.city,
-        state: facility.state,
-        zip_code: facility.zip_code,
-      })
-    : null
-
   const userName =
     current.profile?.full_name ??
     current.profile?.email ??
@@ -331,8 +322,6 @@ export default async function RefrigerationHomePage() {
         readingsPerShift={readingsPerShift}
         userName={userName}
         facilityName={facility?.name ?? "Facility"}
-        tempF={temp?.tempF ?? null}
-        tempLocation={temp?.location ?? null}
       />
 
       {recentReports.length > 0 ? (

@@ -81,6 +81,7 @@ const TYPE_BADGE: Record<string, string> = {
 
 const NATIVE_SELECT_CLASS =
   "border border-input bg-input-bg flex h-10 w-full min-w-0 appearance-none rounded-md px-3 py-1 pr-9 text-base shadow-[var(--shadow-elev-1)] outline-none transition-[color,box-shadow,border-color[...]
+  "border border-input bg-input-bg flex h-10 w-full min-w-0 appearance-none rounded-md px-3 py-1 pr-9 text-base shadow-[var(--shadow-elev-1)] outline-none transition-colors duration-150"
 
 export const metadata = { title: "Scheduling Notifications | MFO / Rink Reports" }
 
