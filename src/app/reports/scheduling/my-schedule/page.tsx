@@ -242,7 +242,7 @@ export default async function MySchedulePage({
           {/* Date filter */}
           <form
             method="get"
-            className="flex flex-wrap items-end gap-2.5 rounded-[14px] border border-border bg-card px-4 py-3.5"
+            className="flex flex-wrap items-end gap-2.5 rounded-[14px] border border-l-4 border-border border-l-module-scheduling bg-card px-4 py-3.5"
           >
             {[
               { id: "from", label: "From", defaultValue: toDateInput(fromDate), type: "date" },

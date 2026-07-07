@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { CalendarDays, Repeat2, TriangleAlert, Users } from "lucide-react"
 
 import {
   Card,
@@ -344,11 +345,15 @@ export default async function SchedulingOverviewPage() {
           label="Scheduled hours"
           value={`${totalScheduledHours}h`}
           delta={`${publishedShifts} published · ${draftShifts} draft`}
+          icon={<CalendarDays className="h-4 w-4" />}
+          accent="--module-scheduling"
         />
         <StatCard
           label="Shifts this week"
           value={totalShifts}
           delta={`${employees.length} active employees`}
+          icon={<Users className="h-4 w-4" />}
+          accent="--module-scheduling"
         />
         <StatCard
           label="Open shifts"
@@ -359,6 +364,8 @@ export default async function SchedulingOverviewPage() {
               : "—"
           }
           deltaTone={unassignedNoListingCount > 0 ? "negative" : "neutral"}
+          icon={<TriangleAlert className="h-4 w-4" />}
+          accent="--module-scheduling"
         />
         <StatCard
           label="Pending requests"
@@ -369,6 +376,8 @@ export default async function SchedulingOverviewPage() {
               ? "negative"
               : "neutral"
           }
+          icon={<Repeat2 className="h-4 w-4" />}
+          accent="--module-scheduling"
         />
       </section>
 
