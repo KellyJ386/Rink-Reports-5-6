@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -140,14 +141,9 @@ export default async function PublishRequestsPage() {
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Publish requests
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Review pending schedule publish requests. Approving immediately moves
-        the draft shifts in the window to published.
-      </p>
-    </div>
+    <PageHeader
+      title="Publish requests"
+      description="Review pending schedule publish requests. Approving immediately moves the draft shifts in the window to published."
+    />
   )
 }

@@ -1,19 +1,15 @@
 import Link from "next/link"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 
-import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge } from "@/components/ui/badge"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+
+import { NotAvailable } from "../_components/not-available"
 
 import {
   SHORT_DAY_NAMES,
@@ -28,39 +24,6 @@ export const dynamic = "force-dynamic"
 
 type SearchParams = { week?: string }
 
-function NotAvailable({
-  title,
-  description,
-  showSignOut = false,
-}: {
-  title: string
-  description: string
-  showSignOut?: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Availability
-        </p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        {showSignOut ? (
-          <CardContent>
-            <SignOutButton />
-          </CardContent>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
 
 function monthRange(dates: Date[]): string {
   const first = dates[0]!
@@ -73,6 +36,11 @@ function monthRange(dates: Date[]): string {
     })
   return `${fmt(first, first.getFullYear() !== last.getFullYear())} – ${fmt(last, true)}`
 }
+
+const NOT_AVAILABLE_SEGMENTS = [
+  { label: "Scheduling", href: "/reports/scheduling" },
+  { label: "Availability" },
+]
 
 export default async function AvailabilityPage({
   searchParams,
@@ -96,6 +64,7 @@ export default async function AvailabilityPage({
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
+        segments={NOT_AVAILABLE_SEGMENTS}
         showSignOut
       />
     )
@@ -106,6 +75,7 @@ export default async function AvailabilityPage({
       <NotAvailable
         title="No permission"
         description="You don't have access to scheduling yet."
+        segments={NOT_AVAILABLE_SEGMENTS}
       />
     )
   }
@@ -145,20 +115,21 @@ export default async function AvailabilityPage({
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Availability
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Availability
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pick a day to set when you can work and the area you want to work.
-        </p>
-      </div>
+      <PageHeader
+        variant="display"
+        module="scheduling"
+        band
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Scheduling", href: "/reports/scheduling" },
+              { label: "Availability" },
+            ]}
+          />
+        }
+        title="Availability"
+        description="Pick a day to set when you can work and the area you want to work."
+      />
 
       <div className="flex items-center justify-between gap-2">
         <Button asChild variant="outline" size="sm">

@@ -14,6 +14,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { StatCard } from "@/components/ui/stat-card"
 import {
   Select,
   SelectContent,
@@ -38,48 +39,6 @@ import { NONE_VALUE, OPEN_VALUE } from "./assign-popover"
 // ---------------------------------------------------------------------------
 // KPI strip
 // ---------------------------------------------------------------------------
-
-function Kpi({
-  label,
-  value,
-  sub,
-  icon,
-  tone = "navy",
-}: {
-  label: string
-  value: string | number
-  sub: string
-  icon: React.ReactNode
-  tone?: "navy" | "green" | "amber" | "red"
-}) {
-  const valueColor =
-    tone === "green"
-      ? "text-success-soft-foreground"
-      : tone === "amber"
-        ? "text-warning-soft-foreground"
-        : tone === "red"
-          ? "text-destructive-soft-foreground"
-          : "text-foreground"
-  return (
-    <Card className="relative gap-1 overflow-hidden px-4 py-4">
-      <div className="absolute right-3 top-3 text-muted-foreground/70" aria-hidden>
-        {icon}
-      </div>
-      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
-      <div
-        className={cn(
-          "font-display text-[32px] leading-none tracking-tight",
-          valueColor,
-        )}
-      >
-        {value}
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
-    </Card>
-  )
-}
 
 /** "$1,234" — whole dollars are enough for schedule-level estimates. */
 function fmtUsd(n: number): string {
@@ -119,38 +78,52 @@ export function KpiStrip({
         : "All shifts rated"
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      <Kpi
+      <StatCard
         label="Scheduled hrs"
         value={roundHours(scheduledHours)}
-        sub={periodLabel}
-        icon={<CalendarDays className="h-[18px] w-[18px]" />}
+        delta={periodLabel}
+        icon={<CalendarDays className="h-4 w-4" />}
+        accent="--module-scheduling"
       />
-      <Kpi
+      <StatCard
         label="Shifts"
         value={shiftCount}
-        sub={`${employeeCount} employees`}
-        icon={<Users className="h-[18px] w-[18px]" />}
+        delta={`${employeeCount} employees`}
+        icon={<Users className="h-4 w-4" />}
+        accent="--module-scheduling"
       />
-      <Kpi
+      <StatCard
         label="Labor cost"
         value={ratedShiftCount === 0 ? "—" : fmtUsd(laborCost)}
-        sub={laborSub}
-        icon={<DollarSign className="h-[18px] w-[18px]" />}
-        tone="green"
+        delta={laborSub}
+        deltaTone={
+          ratedShiftCount > 0 && ratedShiftCount === assignedShiftCount
+            ? "positive"
+            : "neutral"
+        }
+        icon={<DollarSign className="h-4 w-4" />}
+        accent="--module-scheduling"
       />
-      <Kpi
+      <StatCard
         label="Open shifts"
         value={openShiftCount}
-        sub="Need coverage"
-        icon={<TriangleAlert className="h-[18px] w-[18px]" />}
-        tone="amber"
+        delta={
+          openShiftCount > 0 ? (
+            <span className="text-warning-soft-foreground">Need coverage</span>
+          ) : (
+            "Need coverage"
+          )
+        }
+        icon={<TriangleAlert className="h-4 w-4" />}
+        accent="--module-scheduling"
       />
-      <Kpi
+      <StatCard
         label="Swap requests"
         value={swapCount}
-        sub="Awaiting approval"
-        icon={<Repeat2 className="h-[18px] w-[18px]" />}
-        tone={swapCount > 0 ? "red" : "navy"}
+        delta="Awaiting approval"
+        deltaTone={swapCount > 0 ? "negative" : "neutral"}
+        icon={<Repeat2 className="h-4 w-4" />}
+        accent="--module-scheduling"
       />
     </div>
   )
@@ -170,7 +143,7 @@ function SegGroup<T extends string>({
   options: { value: T; label: string }[]
 }) {
   return (
-    <div className="flex gap-0.5 rounded-lg border border-border bg-card p-0.5">
+    <div className="flex gap-1 rounded-md border border-border bg-card p-1">
       {options.map((o) => (
         <button
           key={o.value}
@@ -178,10 +151,10 @@ function SegGroup<T extends string>({
           onClick={() => onChange(o.value)}
           aria-pressed={value === o.value}
           className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors",
+            "rounded px-3 py-1.5 text-xs font-semibold capitalize transition-colors",
             value === o.value
-              ? "bg-secondary text-secondary-foreground"
-              : "text-muted-foreground hover:text-foreground",
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
           )}
         >
           {o.label}

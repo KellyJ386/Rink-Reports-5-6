@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card"
 import { FormField } from "@/components/ui/form-field"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { Callout } from "@/components/ui/callout"
 import { PhoneInput } from "@/components/account/phone-input"
 import { updateAccountProfile } from "../_lib/actions"
 import { INITIAL_ACCOUNT_STATE } from "../_lib/types"
@@ -122,17 +123,15 @@ export function AccountForm({
             </p>
           )}
           {isSelf && pendingEmail && (
-            <div
-              role="status"
-              className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 sm:col-span-2"
+            <Callout
+              tone="warning"
+              icon={<MailWarning />}
+              className="sm:col-span-2"
             >
-              <MailWarning className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <span>
-                A change to <strong>{pendingEmail}</strong> is pending. Check
-                that inbox and click the confirmation link — your current email
-                stays active until then.
-              </span>
-            </div>
+              A change to <strong>{pendingEmail}</strong> is pending. Check
+              that inbox and click the confirmation link — your current email
+              stays active until then.
+            </Callout>
           )}
 
           <FormField label="Phone number" htmlFor="phone" required error={errors.phone}>

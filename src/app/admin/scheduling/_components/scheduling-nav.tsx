@@ -1,9 +1,8 @@
 "use client"
 
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-import { cn } from "@/lib/utils"
+import { TabNav } from "@/components/ui/tab-nav"
 
 const SCHEDULING_NAV: { label: string; href: string }[] = [
   { label: "Overview", href: "/admin/scheduling" },
@@ -27,7 +26,8 @@ export function SchedulingNav() {
   const pathname = usePathname()
 
   // Longest-prefix match so a more specific entry wins over its parent
-  // (e.g. /publish/requests beats /publish).
+  // (e.g. /publish/requests beats /publish). TabNav then highlights the
+  // resolved href via exact matching.
   const activeHref = (() => {
     let best: string | null = null
     for (const item of SCHEDULING_NAV) {
@@ -44,27 +44,14 @@ export function SchedulingNav() {
     return best
   })()
 
-  const isActive = (href: string) => href === activeHref
-
   return (
-    <nav className="border-border bg-background sticky top-0 z-10 border-b">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 overflow-x-auto px-4 py-3 md:px-6">
-        {SCHEDULING_NAV.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              "rounded-md px-2 py-1 text-sm font-medium transition-colors",
-              isActive(item.href)
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            aria-current={isActive(item.href) ? "page" : undefined}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </div>
-    </nav>
+    <div className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3 md:px-6">
+      <TabNav
+        ariaLabel="Scheduling sections"
+        items={SCHEDULING_NAV}
+        activeHref={activeHref ?? undefined}
+        matchMode="exact"
+      />
+    </div>
   )
 }

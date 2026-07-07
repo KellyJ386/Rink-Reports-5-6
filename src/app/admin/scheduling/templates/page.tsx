@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -115,11 +116,9 @@ export default async function TemplatesPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Templates</h1>
-      <p className="text-muted-foreground text-sm">
-        Define recurring schedule templates and apply them to a week.
-      </p>
-    </div>
+    <PageHeader
+      title="Templates"
+      description="Define recurring schedule templates and apply them to a week."
+    />
   )
 }

@@ -181,7 +181,7 @@ export function OfflineQueueView() {
             "border-l-4",
             item.status === "failed"
               ? "border-l-destructive"
-              : "border-l-amber-500"
+              : "border-l-warning"
           )}
         >
           <CardHeader className="pb-2">

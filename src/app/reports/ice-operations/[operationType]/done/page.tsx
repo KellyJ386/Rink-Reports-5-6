@@ -133,7 +133,7 @@ export default async function IceOperationsDonePage({
             {OPERATION_LABELS[operationType]}
           </p>
           {operationType === "circle_check" && submission.failed_count > 0 ? (
-            <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-900 dark:bg-red-900/30 dark:text-red-200">
+            <span className="rounded-full bg-destructive-soft px-3 py-1 text-xs font-medium text-destructive-soft-foreground">
               {submission.failed_count} failed item
               {submission.failed_count === 1 ? "" : "s"}
             </span>

@@ -322,8 +322,6 @@ export default async function ShiftsPage({
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <PageHeader
-        variant="display"
-        module="scheduling"
         eyebrow={eyebrow}
         title="Employee Scheduling"
         description="Drag in a day column to create a shift; drag a block to move it, or its edges to resize. Click a shift to assign, duplicate, or delete."

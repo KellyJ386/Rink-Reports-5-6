@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -186,11 +187,9 @@ export default async function PublishHistoryPage() {
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Publish history</h1>
-      <p className="text-muted-foreground text-sm">
-        Append-only log of scheduling publish events for this facility.
-      </p>
-    </div>
+    <PageHeader
+      title="Publish history"
+      description="Append-only log of scheduling publish events for this facility."
+    />
   )
 }

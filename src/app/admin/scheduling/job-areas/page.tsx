@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -90,13 +91,9 @@ export default async function JobAreasPage() {
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Job areas</h1>
-      <p className="text-muted-foreground text-sm">
-        The areas employees can be assigned to (e.g. Front Desk, Concessions).
-        Used when assigning staff in the employee forms. Each employee can hold
-        up to four.
-      </p>
-    </div>
+    <PageHeader
+      title="Job areas"
+      description="The areas employees can be assigned to (e.g. Front Desk, Concessions). Used when assigning staff in the employee forms. Each employee can hold up to four."
+    />
   )
 }

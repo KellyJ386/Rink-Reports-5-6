@@ -98,13 +98,13 @@ export function AssignPopover({
   const [overrideReason, setOverrideReason] = useState("")
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-lg"
+        className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-elev-3)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex flex-col gap-0.5">

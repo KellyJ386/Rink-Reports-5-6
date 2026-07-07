@@ -1,13 +1,11 @@
-import Link from "next/link"
 
-import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge } from "@/components/ui/badge"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { PageHeader } from "@/components/ui/page-header"
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
@@ -20,42 +18,10 @@ import {
   MarkAllReadButton,
   MarkReadButton,
 } from "../_components/notification-buttons"
+import { NotAvailable } from "../_components/not-available"
 
 export const dynamic = "force-dynamic"
 
-function NotAvailable({
-  title,
-  description,
-  showSignOut = false,
-}: {
-  title: string
-  description: string
-  showSignOut?: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Notifications
-        </p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        {showSignOut ? (
-          <CardContent>
-            <SignOutButton />
-          </CardContent>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
 
 // The 9 types the DB CHECK constraint allows (migration 20) — anything else
 // falls through to the underscore-replace fallback.
@@ -135,6 +101,11 @@ type NotifRow = {
   time_off_id: string | null
 }
 
+const NOT_AVAILABLE_SEGMENTS = [
+  { label: "Scheduling", href: "/reports/scheduling" },
+  { label: "Notifications" },
+]
+
 export default async function NotificationsPage() {
   const current = await requireUser()
   const supabase = await createClient()
@@ -152,6 +123,7 @@ export default async function NotificationsPage() {
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
+        segments={NOT_AVAILABLE_SEGMENTS}
         showSignOut
       />
     )
@@ -162,6 +134,7 @@ export default async function NotificationsPage() {
       <NotAvailable
         title="No permission"
         description="You don't have access to scheduling yet."
+        segments={NOT_AVAILABLE_SEGMENTS}
       />
     )
   }
@@ -211,20 +184,21 @@ export default async function NotificationsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link href="/reports/scheduling" className="hover:underline">
-              Scheduling
-            </Link>{" "}
-            / Notifications
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            Notifications
-          </h1>
-        </div>
-        <MarkAllReadButton disabled={unread.length === 0} />
-      </div>
+      <PageHeader
+        variant="display"
+        module="scheduling"
+        band
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Scheduling", href: "/reports/scheduling" },
+              { label: "Notifications" },
+            ]}
+          />
+        }
+        title="Notifications"
+        actions={<MarkAllReadButton disabled={unread.length === 0} />}
+      />
 
       {rows.length === 0 ? (
         <Card>

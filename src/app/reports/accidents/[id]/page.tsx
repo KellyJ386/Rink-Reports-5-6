@@ -4,6 +4,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { Card, CardContent } from "@/components/ui/card"
+import { Callout } from "@/components/ui/callout"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -289,7 +290,7 @@ export default async function AccidentReportPage({
           <CardContent className="flex items-center gap-3 py-4 text-sm">
             <span
               aria-hidden
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-success-soft text-success-soft-foreground"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -316,10 +317,10 @@ export default async function AccidentReportPage({
 
       {canEdit ? (
         <>
-          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-200">
+          <Callout tone="warning">
             Editable for {editWindowHours} more{" "}
             {editWindowHours === 1 ? "hour" : "hours"}.
-          </div>
+          </Callout>
           <EditForm
             reportId={report.id}
             initialReport={report}

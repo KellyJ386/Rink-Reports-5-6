@@ -85,9 +85,9 @@ const SOURCE_BADGE_LABEL: Record<PermissionSource, string> = {
 }
 
 const SOURCE_BADGE_CLASS: Record<PermissionSource, string> = {
-  super_admin: "bg-rose-800/60 text-rose-100",
-  override: "bg-violet-800/60 text-violet-100",
-  role: "bg-sky-800/60 text-sky-100",
+  super_admin: "bg-destructive-soft text-destructive-soft-foreground",
+  override: "bg-[var(--violet-100)] text-[var(--violet-600)] dark:bg-[rgba(154,130,255,0.18)] dark:text-[var(--violet-200)]",
+  role: "bg-info-soft text-info-soft-foreground",
   none: "bg-muted text-muted-foreground",
 }
 

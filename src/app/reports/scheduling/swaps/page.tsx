@@ -1,13 +1,11 @@
-import Link from "next/link"
 
-import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge, type BadgeProps } from "@/components/ui/badge"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { PageHeader } from "@/components/ui/page-header"
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
@@ -19,43 +17,11 @@ import {
   SwapCancelButton,
 } from "../_components/swap-action-button"
 import { SwapForm } from "../_components/swap-form"
+import { NotAvailable } from "../_components/not-available"
 import type { SwapStatus } from "../types"
 
 export const dynamic = "force-dynamic"
 
-function NotAvailable({
-  title,
-  description,
-  showSignOut = false,
-}: {
-  title: string
-  description: string
-  showSignOut?: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Swaps
-        </p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        {showSignOut ? (
-          <CardContent>
-            <SignOutButton />
-          </CardContent>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
 
 // Only the statuses the app actually produces: pending -> accepted ->
 // manager_approved (terminal "applied" state), or denied/cancelled.
@@ -114,6 +80,11 @@ function fullName(
   return [emp.first_name, emp.last_name].filter(Boolean).join(" ").trim() || "Coworker"
 }
 
+const NOT_AVAILABLE_SEGMENTS = [
+  { label: "Scheduling", href: "/reports/scheduling" },
+  { label: "Swaps" },
+]
+
 export default async function SwapsPage() {
   const current = await requireUser()
   const supabase = await createClient()
@@ -131,6 +102,7 @@ export default async function SwapsPage() {
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
+        segments={NOT_AVAILABLE_SEGMENTS}
         showSignOut
       />
     )
@@ -141,6 +113,7 @@ export default async function SwapsPage() {
       <NotAvailable
         title="No permission"
         description="You don't have access to scheduling yet."
+        segments={NOT_AVAILABLE_SEGMENTS}
       />
     )
   }
@@ -318,17 +291,20 @@ export default async function SwapsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Swaps
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Shift swaps
-        </h1>
-      </div>
+      <PageHeader
+        variant="display"
+        module="scheduling"
+        band
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Scheduling", href: "/reports/scheduling" },
+              { label: "Swaps" },
+            ]}
+          />
+        }
+        title="Shift swaps"
+      />
 
       <SwapForm
         myShifts={myShifts}

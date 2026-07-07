@@ -1,58 +1,27 @@
 import { headers } from "next/headers"
 import Link from "next/link"
 
-import { SignOutButton } from "@/components/staff/sign-out-button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { cn } from "@/lib/utils"
 
 import { CalendarSyncCard } from "../_components/calendar-sync-card"
 import { WeekCalendar } from "../_components/week-calendar"
 import { formatDateRange } from "../_components/format-utils"
+import { NotAvailable } from "../_components/not-available"
+import { shiftStatusTone } from "../_components/status-tones"
 import { startOfWeek, type ShiftStatus } from "../types"
 
 export const dynamic = "force-dynamic"
 
-function NotAvailable({
-  title,
-  description,
-  showSignOut = false,
-}: {
-  title: string
-  description: string
-  showSignOut?: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / My schedule
-        </p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        {showSignOut ? (
-          <CardContent>
-            <SignOutButton />
-          </CardContent>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
+const NOT_AVAILABLE_SEGMENTS = [
+  { label: "Scheduling", href: "/reports/scheduling" },
+  { label: "My schedule" },
+]
 
 function statusLabel(status: string): string {
   const map: Record<ShiftStatus, string> = {
@@ -107,6 +76,7 @@ export default async function MySchedulePage({
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
+        segments={NOT_AVAILABLE_SEGMENTS}
         showSignOut
       />
     )
@@ -117,6 +87,7 @@ export default async function MySchedulePage({
       <NotAvailable
         title="No permission"
         description="You don't have access to scheduling yet."
+        segments={NOT_AVAILABLE_SEGMENTS}
       />
     )
   }
@@ -216,70 +187,44 @@ export default async function MySchedulePage({
   }
   const shifts = (shiftsRaw ?? []) as unknown as ShiftRow[]
 
-  const DISPLAY_FONT =
-    "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-  const NAVY = "#003B6F"
-  const GREEN = "#4DFF00"
-  const GREEN_INK = "#1F6B00"
-
-  const statusColors: Record<string, string> = {
-    published: "#1F6B00",
-    cancelled: "#9DB2C8",
-    draft: "#0EA5E9",
-  }
-
   return (
-    <div className="mx-auto flex w-full max-w-[600px] flex-col gap-5 px-4 pt-6 pb-12">
-      {/* Header */}
-      <div>
-        <p className="mb-3 text-xs text-muted-foreground">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
+      <PageHeader
+        variant="display"
+        module="scheduling"
+        band
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Scheduling", href: "/reports/scheduling" },
+              { label: "My schedule" },
+            ]}
+          />
+        }
+        title="My Schedule"
+        description={
           <Link
-            href="/reports/scheduling"
-            className="text-muted-foreground no-underline"
+            href="/offline-schedule"
+            className="font-semibold text-primary hover:underline"
           >
-            Scheduling
+            Available offline →
           </Link>
-          {" / My schedule"}
-        </p>
-        <h1
-          style={{
-            fontFamily: DISPLAY_FONT,
-            fontSize: "clamp(30px, 6vw, 44px)",
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-            textTransform: "uppercase",
-            margin: 0,
-          }}
-          className="text-foreground"
-        >
-          My Schedule
-        </h1>
-        <Link
-          href="/offline-schedule"
-          className="mt-2 inline-block text-xs font-semibold text-primary hover:underline"
-        >
-          Available offline →
-        </Link>
-      </div>
+        }
+      />
 
-      {/* View toggle — active tab uses computed GREEN color, left inline */}
-      <div className="flex w-fit gap-[3px] rounded-[9px] border border-border bg-card p-[3px]">
+      {/* View toggle */}
+      <div className="flex w-fit gap-1 rounded-md border border-border bg-card p-1">
         {(["list", "week"] as const).map((v) => (
           <Link
             key={v}
             href={`/reports/scheduling/my-schedule?view=${v}`}
-            style={{
-              padding: "7px 16px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              borderRadius: 6,
-              background: currentView === v ? GREEN : "transparent",
-              color: currentView === v ? GREEN_INK : "var(--muted-foreground)",
-              cursor: "pointer",
-              textTransform: "uppercase",
-              letterSpacing: ".04em",
-              textDecoration: "none",
-            }}
+            className={cn(
+              "rounded-sm px-4 py-1.5 text-xs font-bold uppercase tracking-[0.04em] no-underline",
+              currentView === v
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
           >
             {v}
           </Link>
@@ -297,17 +242,13 @@ export default async function MySchedulePage({
           {/* Date filter */}
           <form
             method="get"
-            className="flex flex-wrap items-end gap-[10px] rounded-[14px] border border-border bg-card px-4 py-[14px]"
+            className="flex flex-wrap items-end gap-2.5 rounded-[14px] border border-border bg-card px-4 py-3.5"
           >
             {[
               { id: "from", label: "From", defaultValue: toDateInput(fromDate), type: "date" },
               { id: "to", label: "To", defaultValue: toDateInput(toDate), type: "date" },
             ].map((f) => (
-              <div
-                key={f.id}
-                className="flex flex-col gap-1"
-                style={{ flex: "1 1 130px" }}
-              >
+              <div key={f.id} className="flex flex-[1_1_130px] flex-col gap-1">
                 <label
                   htmlFor={f.id}
                   className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground"
@@ -319,14 +260,11 @@ export default async function MySchedulePage({
                   name={f.id}
                   type={f.type}
                   defaultValue={f.defaultValue}
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-[13px] text-foreground outline-none"
+                  className="h-10 rounded-lg border border-border bg-card px-3 text-[13px] text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--ring)]/40"
                 />
               </div>
             ))}
-            <div
-              className="flex flex-col gap-1"
-              style={{ flex: "1 1 130px" }}
-            >
+            <div className="flex flex-[1_1_130px] flex-col gap-1">
               <label
                 htmlFor="status"
                 className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground"
@@ -337,19 +275,15 @@ export default async function MySchedulePage({
                 id="status"
                 name="status"
                 defaultValue={statusFilter}
-                className="h-10 rounded-lg border border-border bg-card px-3 text-[13px] text-foreground outline-none"
+                className="h-10 rounded-lg border border-border bg-card px-3 text-[13px] text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--ring)]/40"
               >
                 <option value="published">Published</option>
                 <option value="all">All</option>
               </select>
             </div>
-            <button
-              type="submit"
-              className="h-10 shrink-0 cursor-pointer rounded-lg border-0 px-5 text-[13px] font-bold text-white"
-              style={{ background: NAVY }}
-            >
+            <Button type="submit" size="sm" className="h-10 shrink-0 px-5">
               Apply
-            </button>
+            </Button>
           </form>
 
           {shifts.length === 0 ? (
@@ -357,18 +291,16 @@ export default async function MySchedulePage({
               No shifts in this range
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_2px_rgba(0,0,0,.04)]">
-              {shifts.map((s, i) => {
-                const color = statusColors[s.status] ?? "#9DB2C8"
+            <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[var(--shadow-elev-1)]">
+              {shifts.map((s) => {
+                const tone = shiftStatusTone(s.status)
                 return (
                   <div
                     key={s.id}
-                    className="flex items-center gap-3 px-[14px] py-3"
-                    style={{
-                      borderBottom:
-                        i < shifts.length - 1 ? "1px solid var(--border)" : "none",
-                      borderLeft: `3px solid ${color}`,
-                    }}
+                    className={cn(
+                      "flex items-center gap-3 border-b border-border border-l-[3px] px-3.5 py-3 last:border-b-0",
+                      tone.borderL
+                    )}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-bold text-foreground">
@@ -386,17 +318,10 @@ export default async function MySchedulePage({
                       </div>
                     </div>
                     <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: "2px 8px",
-                        borderRadius: 9999,
-                        background: `${color}18`,
-                        color,
-                        letterSpacing: ".06em",
-                        textTransform: "uppercase",
-                        flexShrink: 0,
-                      }}
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em]",
+                        tone.pill
+                      )}
                     >
                       {statusLabel(s.status)}
                     </span>
