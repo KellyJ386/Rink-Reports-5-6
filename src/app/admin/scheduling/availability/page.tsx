@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { addDaysToKey, dayKeyInTz, weekdayOfKey, weekWindowInTz } from "@/lib/timezone"
@@ -332,14 +333,9 @@ export default async function SchedulingAvailabilityPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Staff availability
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Weekly availability submitted by staff, laid onto the facility-local
-        calendar week.
-      </p>
-    </div>
+    <PageHeader
+      title="Staff availability"
+      description="Weekly availability submitted by staff, laid onto the facility-local calendar week."
+    />
   )
 }

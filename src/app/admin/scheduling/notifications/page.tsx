@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -345,11 +346,9 @@ function NativeSelect({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
-      <p className="text-muted-foreground text-sm">
-        Read-only feed of scheduling notifications for this facility.
-      </p>
-    </div>
+    <PageHeader
+      title="Notifications"
+      description="Read-only feed of scheduling notifications for this facility."
+    />
   )
 }

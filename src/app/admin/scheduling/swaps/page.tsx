@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -227,11 +228,9 @@ export default async function SwapsPage({
 
 function Header() {
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Swap requests</h1>
-      <p className="text-muted-foreground text-sm">
-        Approve, deny, or assign targets for shift swaps.
-      </p>
-    </div>
+    <PageHeader
+      title="Swap requests"
+      description="Approve, deny, or assign targets for shift swaps."
+    />
   )
 }

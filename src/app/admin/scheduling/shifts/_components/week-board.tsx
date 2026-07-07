@@ -789,32 +789,36 @@ export function WeekBoard(props: WeekBoardProps) {
       {/* Week nav + view + CTAs */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
+            className="size-9"
             onClick={() => navigate(-1)}
-            className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-foreground hover:bg-accent"
             aria-label="Previous"
           >
             <ChevronLeft className="h-4 w-4" />
-          </button>
+          </Button>
           <div className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground">
             <CalendarDays className="h-3.5 w-3.5" />
             {weekRangeLabel}
           </div>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
+            className="size-9"
             onClick={() => navigate(1)}
-            className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-foreground hover:bg-accent"
             aria-label="Next"
           >
             <ChevronRight className="h-4 w-4" />
-          </button>
+          </Button>
           <Button type="button" variant="outline" className="h-9" onClick={goToday}>
             Today
           </Button>
         </div>
 
-        <div className="flex gap-0.5 rounded-lg border border-border bg-card p-0.5">
+        <div className="flex gap-1 rounded-md border border-border bg-card p-1">
           {(["day", "week", "month"] as BoardView[]).map((v) => (
             <button
               key={v}
@@ -822,10 +826,10 @@ export function WeekBoard(props: WeekBoardProps) {
               onClick={() => onViewChange(v)}
               aria-pressed={view === v}
               className={cn(
-                "rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors",
+                "rounded px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors",
                 view === v
-                  ? "bg-sidebar text-sidebar-foreground"
-                  : "text-foreground/80 hover:text-foreground",
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )}
             >
               {v}
@@ -1088,7 +1092,7 @@ function RailCard({
   return (
     <Card className="gap-0 overflow-hidden p-0">
       <header className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
-        <h3 className="font-display text-[15px] uppercase tracking-[0.02em] text-foreground">
+        <h3 className="text-base font-semibold tracking-tight text-foreground">
           {title}
         </h3>
         {subtitle ? (
