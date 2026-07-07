@@ -419,7 +419,7 @@ export function SubmissionForm({
       ) : null}
 
       {/* Log Information card */}
-      <Card className="gap-4 py-5">
+      <Card className="gap-4 border-l-4 border-l-module-refrig py-5">
         <div className="flex items-center justify-between gap-4 px-6">
           <h2 className="text-lg font-semibold tracking-tight">
             Log Information
@@ -560,7 +560,7 @@ export function SubmissionForm({
       })}
 
       {/* Notes */}
-      <Card className="gap-3 py-5">
+      <Card className="gap-3 border-l-4 border-l-module-refrig py-5">
         <div className="flex flex-col gap-2 px-6">
           <Label htmlFor="notes">Notes (optional)</Label>
           <Textarea

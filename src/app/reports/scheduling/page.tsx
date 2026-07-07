@@ -482,7 +482,7 @@ export default async function SchedulingDashboardPage() {
               href={link.href}
               className="no-underline"
             >
-              <div className="relative rounded-[14px] border border-border bg-card p-3.5">
+              <div className="relative rounded-[14px] border border-l-4 border-border border-l-module-scheduling bg-card p-3.5">
                 {link.badge ? (
                   <div className="absolute right-2.5 top-2.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-[5px] text-[10px] font-bold text-destructive-foreground">
                     {link.badge}
