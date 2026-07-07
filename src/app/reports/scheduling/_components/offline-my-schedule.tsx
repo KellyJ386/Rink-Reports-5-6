@@ -12,7 +12,10 @@ import {
   type CachedShift,
 } from "@/lib/offline/schedule-cache"
 
+import { cn } from "@/lib/utils"
+
 import { formatDateRange, formatRelativeAge } from "./format-utils"
+import { shiftStatusTone } from "./status-tones"
 
 type View =
   | { kind: "loading" }
@@ -28,12 +31,6 @@ type View =
 
 const WINDOW_BACK_MS = 1 * 24 * 60 * 60 * 1000
 const WINDOW_FWD_MS = 30 * 24 * 60 * 60 * 1000
-
-const statusColors: Record<string, string> = {
-  published: "#1F6B00",
-  cancelled: "#9DB2C8",
-  draft: "#0EA5E9",
-}
 
 function windowBounds() {
   const now = Date.now()
@@ -194,17 +191,15 @@ export function OfflineMySchedule() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-[14px] border border-border bg-card">
-          {view.shifts.map((s, i) => {
-            const color = statusColors[s.status] ?? "#9DB2C8"
+          {view.shifts.map((s) => {
+            const tone = shiftStatusTone(s.status)
             return (
               <div
                 key={s.id}
-                className="flex items-center gap-3 px-[14px] py-3"
-                style={{
-                  borderBottom:
-                    i < view.shifts.length - 1 ? "1px solid var(--border)" : "none",
-                  borderLeft: `3px solid ${color}`,
-                }}
+                className={cn(
+                  "flex items-center gap-3 border-b border-border border-l-[3px] px-3.5 py-3 last:border-b-0",
+                  tone.borderL
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-bold text-foreground">

@@ -1,63 +1,25 @@
 import Link from "next/link"
+import { ChevronRight } from "lucide-react"
 
-import { SignOutButton } from "@/components/staff/sign-out-button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { cn } from "@/lib/utils"
 import { addDaysToKey, dayKeyInTz, dayPartsInTz } from "@/lib/timezone"
 
 import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
 import { formatDateRange, formatDateTime } from "./_components/format-utils"
+import { NotAvailable } from "./_components/not-available"
 
 export const dynamic = "force-dynamic"
 
-const DISPLAY_FONT =
-  "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-const NAVY = "#003B6F"
-const NAVY_DARK = "#001A3A"
-const GREEN = "#4DFF00"
-const GREEN_DARK = "#3DB800"
-
-function NotAvailable({
-  title,
-  description,
-  showSignOut = false,
-}: {
-  title: string
-  description: string
-  showSignOut?: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports" className="hover:underline">
-            Reports
-          </Link>{" "}
-          / Scheduling
-        </p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        {showSignOut ? (
-          <CardContent>
-            <SignOutButton />
-          </CardContent>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
+const NOT_AVAILABLE_SEGMENTS = [
+  { label: "Reports", href: "/reports" },
+  { label: "Scheduling" },
+]
 
 type ShiftRow = {
   id: string
@@ -103,6 +65,7 @@ export default async function SchedulingDashboardPage() {
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
+        segments={NOT_AVAILABLE_SEGMENTS}
         showSignOut
       />
     )
@@ -113,6 +76,7 @@ export default async function SchedulingDashboardPage() {
       <NotAvailable
         title="No permission"
         description="You don't have access to scheduling yet. Talk to your supervisor."
+        segments={NOT_AVAILABLE_SEGMENTS}
       />
     )
   }
@@ -251,239 +215,124 @@ export default async function SchedulingDashboardPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[520px] flex-col px-4 pt-6 pb-12">
-      {/* Breadcrumb */}
-      <p className="mb-4 text-xs text-muted-foreground">
-        <Link href="/reports" className="text-muted-foreground no-underline">
-          Reports
-        </Link>
-        {" / Scheduling"}
-      </p>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
+      <PageHeader
+        variant="display"
+        module="scheduling"
+        band
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Reports", href: "/reports" },
+              { label: "Scheduling" },
+            ]}
+          />
+        }
+        title="Scheduling"
+      />
 
-      {/* Page header */}
-      <div className="mb-6">
-        <h1
-          style={{
-            fontFamily: DISPLAY_FONT,
-            fontSize: "clamp(32px, 8vw, 48px)",
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-            textTransform: "uppercase",
-            margin: "6px 0 0",
-          }}
-          className="text-foreground"
-        >
-          Scheduling
-        </h1>
-      </div>
-
-      {/* Next shift hero */}
+      {/* Next shift hero — brand-constant navy in both themes, like the sidebar */}
       {nextShift ? (
         <div
+          className="relative overflow-hidden rounded-2xl p-5 pb-[18px] text-sidebar-foreground"
           style={{
-            background: `linear-gradient(135deg, ${NAVY} 0%, ${NAVY_DARK} 100%)`,
-            borderRadius: 20,
-            padding: "20px 20px 18px",
-            color: "#fff",
-            position: "relative",
-            overflow: "hidden",
-            marginBottom: 16,
+            backgroundImage:
+              "linear-gradient(135deg, var(--navy-500) 0%, var(--rr-navy-dark) 100%)",
           }}
         >
-          {/* Green radial glow — dynamic gradient, left inline */}
           <div
+            className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full"
             style={{
-              position: "absolute",
-              top: -40,
-              right: -40,
-              width: 160,
-              height: 160,
-              borderRadius: 9999,
               background:
-                "radial-gradient(circle, rgba(77,255,0,.22), transparent 70%)",
-              pointerEvents: "none",
+                "radial-gradient(circle, color-mix(in oklab, var(--primary) 22%, transparent), transparent 70%)",
             }}
           />
-          <div
-            style={{
-              fontSize: 9.5,
-              fontWeight: 800,
-              letterSpacing: ".16em",
-              color: GREEN,
-              textTransform: "uppercase",
-            }}
-          >
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-primary">
             {`NEXT SHIFT · ${formatNextShiftLabel(nextShift)}`}
-          </div>
-          <div
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: "clamp(38px, 10vw, 52px)",
-              lineHeight: 0.95,
-              letterSpacing: "-.01em",
-              color: "#fff",
-              marginTop: 8,
-            }}
-          >
+          </p>
+          <p className="mt-2 font-display text-[clamp(38px,10vw,52px)] leading-[0.95] tracking-[-0.01em] uppercase">
             {formatNextShiftHero(nextShift)}
-          </div>
-          <div
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: 26,
-              color: GREEN,
-              lineHeight: 1,
-              marginTop: 8,
-              letterSpacing: ".01em",
-            }}
-          >
+          </p>
+          <p className="mt-2 font-display text-[26px] leading-none tracking-[0.01em] text-primary">
             {formatShiftTime(nextShift).toUpperCase()}
-          </div>
-          <div
-            style={{
-              fontSize: 12,
-              color: "rgba(255,255,255,.72)",
-              marginTop: 6,
-            }}
-          >
+          </p>
+          <p className="mt-1.5 text-xs text-sidebar-foreground-muted">
             {nextShift.departments?.name ?? "—"}
             {nextShift.role_label ? ` · ${nextShift.role_label}` : ""}
-          </div>
+          </p>
           <div className="mt-4 flex gap-2">
-            <Link
-              href="/reports/scheduling/swaps"
-              style={{
-                flex: 1,
-                height: 40,
-                borderRadius: 9,
-                border: "1px solid rgba(255,255,255,.18)",
-                background: "rgba(255,255,255,.08)",
-                color: "#fff",
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: ".06em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                textDecoration: "none",
-              }}
+            <Button
+              asChild
+              variant="outline"
+              className="h-10 flex-1 border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground shadow-none hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
-              Request swap
-            </Link>
-            <Link
-              href="/reports/scheduling/my-schedule"
-              style={{
-                flex: 1,
-                height: 40,
-                borderRadius: 9,
-                border: 0,
-                background: `linear-gradient(180deg,${GREEN_DARK},${GREEN_DARK})`,
-                color: NAVY_DARK,
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: ".06em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                textDecoration: "none",
-                boxShadow: "0 2px 0 0 #2E9900",
-              }}
-            >
-              Full schedule
-            </Link>
+              <Link href="/reports/scheduling/swaps">Request swap</Link>
+            </Button>
+            <Button asChild className="h-10 flex-1">
+              <Link href="/reports/scheduling/my-schedule">Full schedule</Link>
+            </Button>
           </div>
         </div>
       ) : (
         <div
+          className="rounded-2xl p-5 pb-[18px] text-sidebar-foreground"
           style={{
-            background: `linear-gradient(135deg, ${NAVY} 0%, ${NAVY_DARK} 100%)`,
-            borderRadius: 20,
-            padding: "20px 20px 18px",
-            color: "#fff",
-            marginBottom: 16,
+            backgroundImage:
+              "linear-gradient(135deg, var(--navy-500) 0%, var(--rr-navy-dark) 100%)",
           }}
         >
-          <div
-            style={{
-              fontSize: 9.5,
-              fontWeight: 800,
-              letterSpacing: ".16em",
-              color: GREEN,
-            }}
-          >
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-primary">
             NEXT SHIFT
-          </div>
-          <div
-            style={{
-              fontSize: 16,
-              color: "rgba(255,255,255,.6)",
-              marginTop: 10,
-            }}
-          >
+          </p>
+          <p className="mt-2.5 text-base text-sidebar-foreground-muted">
             No upcoming shifts scheduled
-          </div>
+          </p>
         </div>
       )}
 
       {/* Week strip */}
-      <div className="mb-6 grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1">
         {weekDays.map((d) => (
           <div
             key={d.iso}
-            style={{
-              padding: "8px 2px 6px",
-              textAlign: "center",
-              borderRadius: 10,
-              background: d.isNext ? GREEN : d.hasShift ? "var(--secondary)" : "transparent",
-              border: `1px solid ${d.isNext ? GREEN : "var(--border)"}`,
-              color: d.isNext ? NAVY_DARK : "var(--foreground)",
-            }}
+            className={cn(
+              "rounded-[10px] border px-0.5 pb-1.5 pt-2 text-center",
+              d.isNext
+                ? "border-primary bg-primary text-primary-foreground"
+                : d.hasShift
+                  ? "border-border bg-secondary text-foreground"
+                  : "border-border bg-transparent text-foreground"
+            )}
           >
-            <div
-              style={{
-                fontSize: 8.5,
-                fontWeight: 800,
-                letterSpacing: ".08em",
-                textTransform: "uppercase",
-              }}
-            >
+            <div className="text-[9px] font-extrabold uppercase tracking-[0.08em]">
               {d.label}
             </div>
-            <div
-              style={{
-                fontFamily: DISPLAY_FONT,
-                fontSize: 18,
-                lineHeight: 1.15,
-              }}
-            >
+            <div className="font-display text-lg leading-[1.15]">
               {d.dayOfMonth}
             </div>
             <div
-              style={{
-                width: 4,
-                height: 4,
-                borderRadius: 9999,
-                margin: "3px auto 0",
-                background: d.isNext ? NAVY_DARK : d.hasShift ? GREEN : "var(--border)",
-              }}
+              className={cn(
+                "mx-auto mt-[3px] h-1 w-1 rounded-full",
+                d.isNext
+                  ? "bg-primary-foreground"
+                  : d.hasShift
+                    ? "bg-primary"
+                    : "bg-border"
+              )}
             />
           </div>
         ))}
       </div>
 
       {/* Upcoming shifts */}
-      <div className="mb-6">
-        <div className="mb-[10px] flex items-baseline justify-between">
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
+      <section>
+        <div className="mb-2.5 flex items-baseline justify-between">
+          <h2 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
             Upcoming
-          </div>
+          </h2>
           <Link
             href="/reports/scheduling/my-schedule"
-            className="text-xs text-primary no-underline"
+            className="text-xs text-primary no-underline hover:underline"
           >
             View all →
           </Link>
@@ -500,39 +349,13 @@ export default async function SchedulingDashboardPage() {
               return (
                 <div
                   key={s.id}
-                  className="flex items-center gap-3 rounded-[14px] border border-border bg-card px-[14px] py-3"
+                  className="flex items-center gap-3 rounded-[14px] border border-border bg-card px-3.5 py-3"
                 >
-                  <div
-                    style={{
-                      width: 44,
-                      height: 48,
-                      borderRadius: 9,
-                      background: NAVY,
-                      color: "#fff",
-                      display: "grid",
-                      placeItems: "center",
-                      flexShrink: 0,
-                      textAlign: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 8.5,
-                        fontWeight: 800,
-                        color: GREEN,
-                        letterSpacing: ".1em",
-                        textTransform: "uppercase",
-                      }}
-                    >
+                  <div className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] bg-sidebar text-center text-sidebar-foreground">
+                    <div className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-primary">
                       {day}
                     </div>
-                    <div
-                      style={{
-                        fontFamily: DISPLAY_FONT,
-                        fontSize: 20,
-                        lineHeight: 1,
-                      }}
-                    >
+                    <div className="font-display text-xl leading-none">
                       {date}
                     </div>
                   </div>
@@ -545,32 +368,23 @@ export default async function SchedulingDashboardPage() {
                       {s.role_label ? ` · ${s.role_label}` : ""}
                     </div>
                   </div>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="shrink-0 text-muted-foreground"
-                  >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
+                  <ChevronRight
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
                 </div>
               )
             })}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Open shifts */}
       {openShifts.length > 0 && (
-        <div className="mb-6">
-          <div className="mb-[10px] text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
+        <section>
+          <h2 className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
             Open · Pick up
-          </div>
+          </h2>
           <div className="flex flex-col gap-2">
             {openShifts.map((row) => {
               const shift = row.schedule_shifts
@@ -579,46 +393,13 @@ export default async function SchedulingDashboardPage() {
               return (
                 <div
                   key={row.id}
-                  style={{
-                    background: "rgba(77,255,0,.06)",
-                    border: `1px solid rgba(77,255,0,.30)`,
-                    borderRadius: 14,
-                    padding: "12px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
+                  className="flex items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3.5 py-3"
                 >
-                  <div
-                    className="grid shrink-0 place-items-center text-center"
-                    style={{
-                      width: 44,
-                      height: 48,
-                      borderRadius: 9,
-                      background: "var(--secondary)",
-                      border: "1px solid var(--border)",
-                      color: "var(--foreground)",
-                    }}
-                  >
-                    <div
-                      className="text-muted-foreground"
-                      style={{
-                        fontSize: 8.5,
-                        fontWeight: 800,
-                        letterSpacing: ".1em",
-                        textTransform: "uppercase",
-                      }}
-                    >
+                  <div className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] border border-border bg-secondary text-center text-foreground">
+                    <div className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-muted-foreground">
                       {DAY_LABELS[dayParts.dayOfWeek]}
                     </div>
-                    <div
-                      style={{
-                        fontFamily: DISPLAY_FONT,
-                        fontSize: 20,
-                        lineHeight: 1,
-                        color: "var(--foreground)",
-                      }}
-                    >
+                    <div className="font-display text-xl leading-none">
                       {dayParts.dayOfMonth}
                     </div>
                   </div>
@@ -637,15 +418,15 @@ export default async function SchedulingDashboardPage() {
               )
             })}
           </div>
-        </div>
+        </section>
       )}
 
       {/* My pending claims (awaiting admin approval) */}
       {myPendingClaims.length > 0 && (
-        <div className="mb-6">
-          <div className="mb-[10px] text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
+        <section>
+          <h2 className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
             Your claims · Awaiting approval
-          </div>
+          </h2>
           <div className="flex flex-col gap-2">
             {myPendingClaims.map((row) => {
               const shift = row.schedule_shifts
@@ -653,7 +434,7 @@ export default async function SchedulingDashboardPage() {
               return (
                 <div
                   key={row.id}
-                  className="flex items-center gap-3 rounded-[14px] border border-dashed border-border bg-card px-[14px] py-3"
+                  className="flex items-center gap-3 rounded-[14px] border border-dashed border-border bg-card px-3.5 py-3"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-bold text-foreground">
@@ -669,14 +450,14 @@ export default async function SchedulingDashboardPage() {
               )
             })}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Quick links */}
-      <div>
-        <div className="mb-[10px] text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
+      <section>
+        <h2 className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
           Quick links
-        </div>
+        </h2>
         <div className="grid grid-cols-2 gap-2">
           {[
             { href: "/reports/scheduling/my-schedule", label: "My schedule", desc: "All upcoming shifts" },
@@ -701,19 +482,13 @@ export default async function SchedulingDashboardPage() {
               href={link.href}
               className="no-underline"
             >
-              <div className="relative rounded-[14px] border border-border bg-card px-[14px] py-[14px]">
+              <div className="relative rounded-[14px] border border-border bg-card p-3.5">
                 {link.badge ? (
-                  <div
-                    className="absolute right-[10px] top-[10px] grid min-w-[18px] place-items-center rounded-full bg-destructive px-[5px] text-[10px] font-bold text-destructive-foreground"
-                    style={{ height: 18 }}
-                  >
+                  <div className="absolute right-2.5 top-2.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-[5px] text-[10px] font-bold text-destructive-foreground">
                     {link.badge}
                   </div>
                 ) : null}
-                <div
-                  style={{ fontFamily: DISPLAY_FONT, fontSize: 15 }}
-                  className="mb-0.5 uppercase tracking-[0.02em] text-foreground"
-                >
+                <div className="mb-0.5 font-display text-[15px] uppercase tracking-[0.02em] text-foreground">
                   {link.label}
                 </div>
                 <div className="text-[11.5px] text-muted-foreground">{link.desc}</div>
@@ -721,7 +496,7 @@ export default async function SchedulingDashboardPage() {
             </Link>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   )
 }

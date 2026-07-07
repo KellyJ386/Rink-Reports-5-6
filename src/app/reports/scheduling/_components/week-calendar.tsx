@@ -1,8 +1,11 @@
 "use client"
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
+import { Calendar, ChevronLeft, ChevronRight } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { dayKeyInTz } from "@/lib/timezone"
+import { cn } from "@/lib/utils"
 
 import { SHORT_DAY_NAMES } from "../types"
 import { formatTime } from "./format-utils"
@@ -21,10 +24,6 @@ interface Props {
   weekStartIso: string   // YYYY-MM-DD of the week's Sunday
   timezone: string | null
 }
-
-const NAVY = "#003B6F"
-const GREEN = "#4DFF00"
-const DISPLAY_FONT = "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
 
 function toISODate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -92,69 +91,60 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
     <div className="flex flex-col gap-3">
       {/* Week nav */}
       <div className="flex items-center justify-between gap-3">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="icon"
+          className="size-9"
           onClick={prevWeek}
-          className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg border border-border bg-card text-foreground"
+          aria-label="Previous week"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button>
-        <div className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-[14px] text-[13px] font-semibold text-foreground">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
+          <ChevronLeft aria-hidden />
+        </Button>
+        <div className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground">
+          <Calendar className="h-3.5 w-3.5" aria-hidden />
           {weekLabel}
         </div>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="icon"
+          className="size-9"
           onClick={nextWeek}
-          className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg border border-border bg-card text-foreground"
+          aria-label="Next week"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-        </button>
+          <ChevronRight aria-hidden />
+        </Button>
       </div>
 
       {/* Grid */}
-      <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_3px_rgba(0,0,0,.05)]">
+      <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[var(--shadow-elev-1)]">
         {/* Day headers */}
-        <div
-          className="grid border-b border-border"
-          style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
-        >
+        <div className="grid grid-cols-7 border-b border-border">
           {days.map((d) => {
             const key = toISODate(d)
             const isToday = key === today
             return (
               <div
                 key={key}
-                className="border-r border-border px-2 py-[10px] text-center"
-                style={{
-                  background: isToday ? "rgba(77,255,0,.08)" : "var(--card)",
-                }}
+                className={cn(
+                  "border-r border-border px-2 py-2.5 text-center",
+                  isToday ? "bg-primary/10" : "bg-card"
+                )}
               >
                 <div
-                  className="text-[9.5px] font-bold uppercase tracking-[0.1em]"
-                  style={{
-                    color: isToday ? "var(--primary)" : "var(--muted-foreground)",
-                  }}
+                  className={cn(
+                    "text-[9.5px] font-bold uppercase tracking-[0.1em]",
+                    isToday ? "text-primary" : "text-muted-foreground"
+                  )}
                 >
                   {SHORT_DAY_NAMES[d.getDay()]}
                 </div>
-                <div
-                  className="text-[22px] leading-[1.1] text-foreground"
-                  style={{ fontFamily: DISPLAY_FONT }}
-                >
+                <div className="font-display text-[22px] leading-[1.1] text-foreground">
                   {d.getDate()}
                 </div>
                 {isToday && (
-                  <div
-                    className="mx-auto mt-[3px]"
-                    style={{ width: 6, height: 6, borderRadius: 9999, background: GREEN }}
-                  />
+                  <div className="mx-auto mt-[3px] h-1.5 w-1.5 rounded-full bg-primary" />
                 )}
               </div>
             )
@@ -162,10 +152,7 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
         </div>
 
         {/* Shift cells */}
-        <div
-          className="grid min-h-[120px]"
-          style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
-        >
+        <div className="grid min-h-[120px] grid-cols-7">
           {days.map((d) => {
             const key = toISODate(d)
             const dayShifts = shiftsByDay.get(key) ?? []
@@ -173,10 +160,10 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
             return (
               <div
                 key={key}
-                className="flex min-h-[120px] flex-col gap-1 border-r border-border p-1.5"
-                style={{
-                  background: isToday ? "rgba(77,255,0,.04)" : "var(--card)",
-                }}
+                className={cn(
+                  "flex min-h-[120px] flex-col gap-1 border-r border-border p-1.5",
+                  isToday ? "bg-primary/5" : "bg-card"
+                )}
               >
                 {dayShifts.length === 0 && (
                   <span className="mt-2 block text-center text-[11px] text-border">—</span>
@@ -187,25 +174,22 @@ export function WeekCalendar({ shifts, weekStartIso, timezone }: Props) {
                   return (
                     <div
                       key={s.id}
-                      style={{
-                        borderRadius: 7,
-                        padding: "5px 7px",
-                        background: isCancelled
-                          ? "var(--secondary)"
+                      className={cn(
+                        "rounded-md border-l-[3px] px-[7px] py-[5px]",
+                        isCancelled
+                          ? "border-l-[var(--muted-foreground)] bg-secondary opacity-55"
                           : isPublished
-                          ? "rgba(0,59,111,.15)"
-                          : "rgba(14,165,233,.15)",
-                        borderLeft: `3px solid ${isCancelled ? "#9DB2C8" : isPublished ? NAVY : "#0EA5E9"}`,
-                        opacity: isCancelled ? 0.55 : 1,
-                      }}
+                            ? "border-l-[var(--navy-500)] bg-[var(--navy-500)]/15"
+                            : "border-l-[var(--info)] bg-info/15"
+                      )}
                     >
                       <div
-                        className="text-[10.5px] font-bold"
-                        style={{
-                          color: isCancelled ? "var(--muted-foreground)" : "var(--foreground)",
-                          textDecoration: isCancelled ? "line-through" : "none",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                        className={cn(
+                          "text-[10.5px] font-bold tabular-nums",
+                          isCancelled
+                            ? "text-muted-foreground line-through"
+                            : "text-foreground"
+                        )}
                       >
                         {formatTime(s.starts_at, timezone)}–{formatTime(s.ends_at, timezone)}
                       </div>

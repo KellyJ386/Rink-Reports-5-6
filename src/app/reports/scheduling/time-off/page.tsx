@@ -1,13 +1,11 @@
-import Link from "next/link"
 
-import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Badge, type BadgeProps } from "@/components/ui/badge"
+import { Breadcrumb } from "@/components/ui/breadcrumb"
+import { PageHeader } from "@/components/ui/page-header"
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
@@ -16,43 +14,11 @@ import { currentUserCan } from "@/lib/permissions/check"
 import { CancelTimeOffButton } from "../_components/cancel-time-off-button"
 import { formatDateTime } from "../_components/format-utils"
 import { TimeOffForm } from "../_components/time-off-form"
+import { NotAvailable } from "../_components/not-available"
 import type { TimeOffStatus } from "../types"
 
 export const dynamic = "force-dynamic"
 
-function NotAvailable({
-  title,
-  description,
-  showSignOut = false,
-}: {
-  title: string
-  description: string
-  showSignOut?: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-4 py-10">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Time off
-        </p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        {showSignOut ? (
-          <CardContent>
-            <SignOutButton />
-          </CardContent>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
 
 function statusBadgeVariant(status: string): BadgeProps["variant"] {
   switch (status) {
@@ -77,6 +43,11 @@ function statusLabel(status: string): string {
   return map[status as TimeOffStatus] ?? status
 }
 
+const NOT_AVAILABLE_SEGMENTS = [
+  { label: "Scheduling", href: "/reports/scheduling" },
+  { label: "Time off" },
+]
+
 export default async function TimeOffPage() {
   const current = await requireUser()
   const supabase = await createClient()
@@ -94,6 +65,7 @@ export default async function TimeOffPage() {
       <NotAvailable
         title="Account not set up"
         description="Your account isn't fully set up yet. Contact your administrator."
+        segments={NOT_AVAILABLE_SEGMENTS}
         showSignOut
       />
     )
@@ -104,6 +76,7 @@ export default async function TimeOffPage() {
       <NotAvailable
         title="No permission"
         description="You don't have access to scheduling yet."
+        segments={NOT_AVAILABLE_SEGMENTS}
       />
     )
   }
@@ -127,18 +100,21 @@ export default async function TimeOffPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/reports/scheduling" className="hover:underline">
-            Scheduling
-          </Link>{" "}
-          / Time off
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Time off</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Request time off and track your past requests.
-        </p>
-      </div>
+      <PageHeader
+        variant="display"
+        module="scheduling"
+        band
+        breadcrumb={
+          <Breadcrumb
+            segments={[
+              { label: "Scheduling", href: "/reports/scheduling" },
+              { label: "Time off" },
+            ]}
+          />
+        }
+        title="Time off"
+        description="Request time off and track your past requests."
+      />
 
       <TimeOffForm />
 
