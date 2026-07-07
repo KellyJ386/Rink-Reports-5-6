@@ -52,7 +52,11 @@ import type { BodyPartOption, DropdownOption } from "../types"
 
 function ReportHeaderCard({ draftId }: { draftId: string }) {
   return (
-    <SectionCard className="flex-row items-center gap-3.5 p-4">
+    <SectionCard
+      module="accidents"
+      accentBorder
+      className="flex-row items-center gap-3.5 p-4"
+    >
       <div
         aria-hidden="true"
         className="grid size-11 shrink-0 place-items-center rounded-[10px] bg-[var(--module-accidents)] text-white shadow-[var(--shadow-elev-1)]"
