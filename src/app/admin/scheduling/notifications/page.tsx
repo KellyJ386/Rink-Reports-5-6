@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { cn } from "@/lib/utils"
 
 import { formatDateTime } from "../_lib/datetime"
 import { SendRemindersForm } from "./_components/send-reminders-form"
@@ -79,7 +80,7 @@ const TYPE_BADGE: Record<string, string> = {
 }
 
 const NATIVE_SELECT_CLASS =
-  "border border-input bg-input-bg flex h-10 w-full min-w-0 appearance-none rounded-md px-3 py-1 pr-9 text-base shadow-[var(--shadow-elev-1)] outline-none transition-[color,box-shadow,border-color] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-[var(--ring)] focus-visible:ring-[var(--ring)]/25 focus-visible:ring-[3px]"
+  "border border-input bg-input-bg flex h-10 w-full min-w-0 appearance-none rounded-md px-3 py-1 pr-9 text-base shadow-[var(--shadow-elev-1)] outline-none transition-colors duration-150"
 
 export const metadata = { title: "Scheduling Notifications | MFO / Rink Reports" }
 
@@ -175,6 +176,9 @@ export default async function NotificationsPage({
         className="bg-card grid gap-3 rounded-md border p-4 shadow-sm md:grid-cols-5"
       >
         <div className="flex flex-col gap-1">
+          <label htmlFor="filter-type" className="text-xs font-medium">
+            Type
+          </label>
           <Label htmlFor="filter-type" className="text-sm">
             Type
           </Label>
@@ -192,6 +196,9 @@ export default async function NotificationsPage({
           </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
+          <label htmlFor="filter-recipient" className="text-xs font-medium">
+            Recipient
+          </label>
           <Label htmlFor="filter-recipient" className="text-sm">
             Recipient
           </Label>
@@ -210,6 +217,9 @@ export default async function NotificationsPage({
           </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
+          <label htmlFor="filter-unread" className="text-xs font-medium">
+            Unread
+          </label>
           <Label htmlFor="filter-unread" className="text-sm">
             Unread
           </Label>
@@ -224,12 +234,23 @@ export default async function NotificationsPage({
           </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
+          <label htmlFor="filter-from" className="text-xs font-medium">
+            From
+          </label>
           <Label htmlFor="filter-from" className="text-sm">
             From
           </Label>
-          <Input id="filter-from" type="date" name="from" defaultValue={sp.from ?? ""} />
+          <Input
+            id="filter-from"
+            type="date"
+            name="from"
+            defaultValue={sp.from ?? ""}
+          />
         </div>
         <div className="flex flex-col gap-1">
+          <label htmlFor="filter-to" className="text-xs font-medium">
+            To
+          </label>
           <Label htmlFor="filter-to" className="text-sm">
             To
           </Label>
@@ -330,7 +351,7 @@ function NativeSelect({
   return (
     <div className="relative">
       <select
-        className={`${NATIVE_SELECT_CLASS}${className ? ` ${className}` : ""}`}
+        className={cn(NATIVE_SELECT_CLASS, className)}
         {...props}
       >
         {children}
