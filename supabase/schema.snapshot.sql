@@ -5041,8 +5041,8 @@ begin
     (p_facility_id, 'compressors',    'Compressors',     1, true),
     (p_facility_id, 'pumps',          'Pumps',           2, true),
     (p_facility_id, 'condensers',     'Condensers',      3, true),
-    (p_facility_id, 'supply_return',  'Supply / Return', 4, true),
-    (p_facility_id, 'machine_hours',  'Machine Hours',   5, true),
+    (p_facility_id, 'supply-return',  'Supply / Return', 4, true),
+    (p_facility_id, 'machine-hours',  'Machine Hours',   5, true),
     (p_facility_id, 'alarms',         'Alarms',          6, true)
   on conflict (facility_id, slug) do nothing;
 
@@ -5059,7 +5059,7 @@ $$;
 -- Name: FUNCTION seed_default_refrigeration_sections(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_refrigeration_sections(p_facility_id uuid) IS 'Seeds canonical refrigeration_sections (compressors, pumps, condensers, supply_return, machine_hours, alarms) and a default refrigeration_settings row for a facility. Idempotent.';
+COMMENT ON FUNCTION public.seed_default_refrigeration_sections(p_facility_id uuid) IS 'Seeds canonical refrigeration_sections (compressors, pumps, condensers, supply-return, machine-hours, alarms) and a default refrigeration_settings row for a facility. Idempotent, and slug-compatible with the admin console''s inline seeder.';
 
 
 --

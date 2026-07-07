@@ -8,6 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+import { formatInTz } from "@/lib/timezone"
+
 import type {
   EmployeeLite,
   HistoryParams,
@@ -30,14 +32,8 @@ type Props = {
   moreHref: string | null
   /** Super admins may hard-delete an (otherwise immutable) session. */
   canDelete: boolean
-}
-
-function fmt(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+  /** Facility IANA timezone; timestamps render as facility wall-clock. */
+  timezone: string | null
 }
 
 function buildDetailHref(sessionId: string, params: HistoryParams): string {
@@ -64,10 +60,16 @@ export function HistoryTab({
   params,
   moreHref,
   canDelete,
+  timezone,
 }: Props) {
   if (detail) {
     return (
-      <SessionDetail detail={detail} backHref={backHref} canDelete={canDelete} />
+      <SessionDetail
+        detail={detail}
+        backHref={backHref}
+        canDelete={canDelete}
+        timezone={timezone}
+      />
     )
   }
 
@@ -94,7 +96,7 @@ export function HistoryTab({
         </Card>
       ) : (
         <>
-          <SessionsList list={list} params={params} />
+          <SessionsList list={list} params={params} timezone={timezone} />
           {moreHref && (
             <div className="flex justify-center">
               <Link
@@ -115,9 +117,11 @@ export function HistoryTab({
 function SessionsList({
   list,
   params,
+  timezone,
 }: {
   list: SessionListItem[]
   params: HistoryParams
+  timezone: string | null
 }) {
   return (
     <div className="overflow-auto rounded-md border">
@@ -143,7 +147,7 @@ function SessionsList({
           {list.map((s) => (
             <tr key={s.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle">
-                {fmt(s.submitted_at)}
+                {formatInTz(s.submitted_at, timezone)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {s.layout?.name ?? "—"}

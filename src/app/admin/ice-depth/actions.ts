@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 import type {
@@ -64,16 +65,36 @@ function dbError(err: SupabaseError, fallback: string): string {
   if (err.code === "23503") {
     return "Cannot complete: a related record prevents this change."
   }
-  if (err.code === "P0001") {
-    if (/active ice_depth_layouts/i.test(msg)) {
-      return "Maximum 8 active layouts reached. Deactivate one first."
-    }
-    if (/active ice_depth_points/i.test(msg)) {
-      return "Maximum 60 active points reached."
-    }
-    return msg || fallback
+  // The cap triggers raise with errcode 'check_violation' (23514), not the
+  // plpgsql default P0001 — match the message regardless of code so the
+  // friendly text (not a raw message with a facility UUID) reaches the admin.
+  if (/active ice_depth_layouts/i.test(msg)) {
+    return "Maximum 8 active layouts reached. Deactivate one first."
+  }
+  if (/active ice_depth_points/i.test(msg)) {
+    return "Maximum 60 active points reached."
   }
   return msg || fallback
+}
+
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the ice-depth RLS write policies
+ * gate on has_module_admin_access('ice_depth') — a module-scoped
+ * user_permissions grant requireAdmin does NOT imply. Without this check, an
+ * admin lacking the module grant reaches the action and the mutation dies at
+ * the RLS layer with an opaque error (or is silently filtered to zero rows).
+ * Returns a human-readable denial message, or null when allowed. (A message,
+ * not a redirect: these actions run inside try/catch blocks that would
+ * swallow the NEXT_REDIRECT control-flow error.)
+ */
+async function ensureIceDepthAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "ice_depth", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the ice depth module's admin permission. Ask an administrator to grant it under Admin → Permissions."
 }
 
 async function resolveFacility(): Promise<
@@ -97,7 +118,8 @@ export async function createLayout(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -114,7 +136,6 @@ export async function createLayout(
       }
     }
     const description = nonEmpty(formData.get("description"))
-    const aspect = asNumber(formData.get("diagram_aspect_ratio"))
     const sort_order = asInt(formData.get("sort_order")) ?? 0
 
     const rink_id = nonEmpty(formData.get("rink_id"))
@@ -132,13 +153,15 @@ export async function createLayout(
       .maybeSingle()
     if (!rink) return { ok: false, error: "Rink not found." }
 
+    // diagram_aspect_ratio is left to its DB default: every rink surface
+    // renders the fixed USA-Hockey SVG (380:740), so the column has no
+    // rendering effect and the admin control for it was removed.
     const { error } = await supabase.from("ice_depth_layouts").insert({
       facility_id: facility.facilityId,
       rink_id,
       name,
       slug,
       description,
-      diagram_aspect_ratio: aspect ?? 0.425,
       sort_order,
     })
     if (error) {
@@ -157,7 +180,8 @@ export async function updateLayout(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -174,28 +198,29 @@ export async function updateLayout(
       }
     }
     const description = nonEmpty(formData.get("description"))
-    const aspect = asNumber(formData.get("diagram_aspect_ratio"))
-    if (aspect !== null && (aspect <= 0 || aspect > 10)) {
-      return { ok: false, error: "Aspect ratio must be between 0 and 10." }
-    }
     const sort_order = asInt(formData.get("sort_order"))
     const logo_url = nonEmpty(formData.get("logo_url"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // `.select()` makes a zero-row update detectable (RLS/permission denial or
+    // a stale id returns no rows rather than silently succeeding).
+    const { data, error } = await supabase
       .from("ice_depth_layouts")
       .update({
         name,
         slug,
         description,
         logo_url,
-        ...(aspect !== null ? { diagram_aspect_ratio: aspect } : {}),
         ...(sort_order !== null ? { sort_order } : {}),
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update layout.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Layout not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Layout updated." }
@@ -210,18 +235,23 @@ export async function setLayoutActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing layout id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_layouts")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update layout.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Layout not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -233,16 +263,18 @@ export async function setLayoutActive(
 
 export async function deleteLayout(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing layout id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_layouts")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -251,6 +283,9 @@ export async function deleteLayout(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete layout.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Layout not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -265,7 +300,8 @@ export async function setLayoutRink(
   rinkId: string,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!layoutId || !rinkId) {
@@ -282,13 +318,17 @@ export async function setLayoutRink(
 
     // Moving to a different rink clears the default flag so we never collide
     // with the destination rink's existing default diagram.
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_layouts")
       .update({ rink_id: rinkId, is_default: false })
       .eq("id", layoutId)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to move diagram.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Diagram not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -304,7 +344,8 @@ export async function setLayoutRink(
  */
 export async function setLayoutDefault(layoutId: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!layoutId) return { ok: false, error: "Missing diagram id." }
@@ -333,13 +374,17 @@ export async function setLayoutDefault(layoutId: string): Promise<SimpleResult> 
       return { ok: false, error: dbError(clearErr, "Failed to set default.") }
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_layouts")
       .update({ is_default: true })
       .eq("id", layoutId)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to set default.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Diagram not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -358,7 +403,8 @@ export async function createRink(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -406,7 +452,8 @@ export async function updateRink(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -425,7 +472,7 @@ export async function updateRink(
     const sort_order = asInt(formData.get("sort_order"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_rinks")
       .update({
         name,
@@ -434,8 +481,12 @@ export async function updateRink(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update rink.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Rink not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true, message: "Rink updated." }
@@ -450,18 +501,23 @@ export async function setRinkActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rink id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_rinks")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update rink.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Rink not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -477,7 +533,8 @@ export async function setRinkActive(
  */
 export async function setRinkDefault(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rink id." }
@@ -492,13 +549,17 @@ export async function setRinkDefault(id: string): Promise<SimpleResult> {
       return { ok: false, error: dbError(clearErr, "Failed to set default.") }
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_rinks")
       .update({ is_default: true })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to set default.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Rink not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -510,16 +571,18 @@ export async function setRinkDefault(id: string): Promise<SimpleResult> {
 
 export async function deleteRink(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rink id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_rinks")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -528,6 +591,9 @@ export async function deleteRink(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete rink.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Rink not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -547,7 +613,8 @@ export async function createPoint(
   y: number,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!layoutId) return { ok: false, error: "Missing layout id." }
@@ -603,7 +670,8 @@ export async function updatePoint(
   },
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing point id." }
@@ -641,13 +709,17 @@ export async function updatePoint(
     if (Object.keys(update).length === 0) return { ok: true }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_points")
       .update(update)
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update point.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Point not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -662,7 +734,8 @@ export async function movePoint(
   direction: -1 | 1,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing point id." }
@@ -705,12 +778,14 @@ export async function movePoint(
     // Three-step swap using a temp negative number to dodge the
     // (layout_id, point_number) unique constraint.
     const tmp = -(TEMP_OFFSET + cur.point_number)
-    const { error: e1 } = await supabase
+    const { data: d1, error: e1 } = await supabase
       .from("ice_depth_points")
       .update({ point_number: tmp })
       .eq("id", cur.id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
+    if (!d1 || d1.length === 0) return { ok: false, error: "Point not found." }
 
     const { error: e2 } = await supabase
       .from("ice_depth_points")
@@ -742,20 +817,25 @@ export async function movePoint(
 
 export async function deletePoint(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing point id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ice_depth_points")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       // FK on measurements is ON DELETE SET NULL so deletion should succeed
       // even if historical measurements reference this point.
       return { ok: false, error: dbError(error, "Failed to delete point.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Point not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -775,7 +855,8 @@ export async function renumberPointsForLayout(
   layoutId: string,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!layoutId) return { ok: false, error: "Missing layout id." }
@@ -808,11 +889,16 @@ export async function renumberPointsForLayout(
                 : { point_number: u.point_number, sort_order: u.sort_order },
             )
             .eq("id", u.id)
-            .eq("facility_id", facility.facilityId),
+            .eq("facility_id", facility.facilityId)
+            .select("id"),
         ),
       )
       const failed = results.find((r) => r.error)
-      return failed ? dbError(failed.error, "Failed to renumber.") : null
+      if (failed) return dbError(failed.error, "Failed to renumber.")
+      // An RLS-filtered update matches zero rows without erroring; surface it
+      // instead of leaving the layout half-renumbered silently.
+      const missed = results.some((r) => !r.data || r.data.length === 0)
+      return missed ? "Failed to renumber: some points were not updated." : null
     }
 
     // 1) Park every row in the negative range so the unique constraint on
@@ -863,7 +949,8 @@ export async function addIceDepthFollowupNote(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -910,24 +997,26 @@ export async function deleteIceDepthSession(
   try {
     const current = await requireAdmin()
     if (!sessionId) return { ok: false, error: "Missing session id." }
+    // The sessions DELETE policy is super-admin-only. RLS does not error for
+    // other callers — it silently filters the delete to zero rows — so check
+    // up front rather than reporting a success that didn't happen.
+    if (!current.profile?.is_super_admin) {
+      return {
+        ok: false,
+        error: "Only a super admin can delete ice depth sessions.",
+      }
+    }
     const supabase = await createClient()
-    let query = supabase
+    const { data, error } = await supabase
       .from("ice_depth_sessions")
       .delete()
       .eq("id", sessionId)
-    // Non-super-admins must be facility-scoped (an explicit requirement, not
-    // inferred from a null facility_id); super admins delete cross-facility by
-    // intent. RLS backstops either path.
-    if (!current.profile?.is_super_admin) {
-      if (!current.profile?.facility_id) {
-        return { ok: false, error: "No facility assigned to your account." }
-      }
-      query = query.eq("facility_id", current.profile.facility_id)
-    }
-    const { error } = await query
+      .select("id")
     if (error) {
-      // RLS will block non-super-admin with permission denied.
       return { ok: false, error: dbError(error, "Failed to delete session.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Session not found." }
     }
     revalidatePath("/admin/ice-depth")
     return { ok: true }
@@ -946,7 +1035,8 @@ export async function updateIceDepthSettings(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -968,9 +1058,10 @@ export async function updateIceDepthSettings(
       }
     }
 
-    const low_color = nonEmpty(formData.get("low_color")) ?? "#1d4ed8"
-    const ok_color = nonEmpty(formData.get("ok_color")) ?? "#16a34a"
-    const high_color = nonEmpty(formData.get("high_color")) ?? "#dc2626"
+    // Fallbacks mirror the DB column defaults (migration 14).
+    const low_color = nonEmpty(formData.get("low_color")) ?? "#ef4444"
+    const ok_color = nonEmpty(formData.get("ok_color")) ?? "#22c55e"
+    const high_color = nonEmpty(formData.get("high_color")) ?? "#eab308"
     for (const c of [low_color, ok_color, high_color]) {
       if (!HEX_RE.test(c)) {
         return { ok: false, error: "Colors must be 6-digit hex (e.g. #1d4ed8)." }
@@ -979,13 +1070,13 @@ export async function updateIceDepthSettings(
 
     const alerts_enabled = formData.get("alerts_enabled") === "on"
 
-    const alertOnRaw = nonEmpty(formData.get("alert_on")) ?? "any"
+    const alertOnRaw = nonEmpty(formData.get("alert_on")) ?? "low"
     if (!isAlertOn(alertOnRaw)) {
       return { ok: false, error: "Invalid alert trigger." }
     }
     const alert_on: AlertOn = alertOnRaw
 
-    const sevRaw = nonEmpty(formData.get("default_alert_severity")) ?? "warn"
+    const sevRaw = nonEmpty(formData.get("default_alert_severity")) ?? "high"
     if (!isSeverity(sevRaw)) {
       return { ok: false, error: "Invalid default severity." }
     }
@@ -1029,7 +1120,8 @@ export async function updateIceDepthSettings(
 
 export async function seedDefaultIceDepthSettings(): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureIceDepthAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 

@@ -16,25 +16,22 @@ import {
   toggleSubmissionItem,
   updateNote,
 } from "../actions"
+import { formatInTz } from "@/lib/timezone"
+
 import type { ActionState, SubmissionDetail } from "../types"
 
 type Props = {
   detail: SubmissionDetail
   /** Search params string to keep on the back link, minus `submission`. */
   backHref: string
+  /** Facility IANA timezone; timestamps render as facility wall-clock. */
+  timezone: string | null
 }
 
 const NOTE_INITIAL: ActionState = { ok: null }
 
-function fmt(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
-}
-
-export function SubmissionDetailPanel({ detail, backHref }: Props) {
+export function SubmissionDetailPanel({ detail, backHref, timezone }: Props) {
+  const fmt = (ts: string) => formatInTz(ts, timezone)
   const { submission, area, template, employee, items, notes } = detail
   const [noteState, noteAction, notePending] = useActionState(
     addAdminNote,
@@ -42,6 +39,7 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
   )
   const [pendingItem, setPendingItem] = useState<string | null>(null)
   const [pendingNote, setPendingNote] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingNoteBody, setEditingNoteBody] = useState("")
   const [, startTransition] = useTransition()
@@ -69,9 +67,11 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
     ) {
       return
     }
+    setDeleting(true)
     startTransition(async () => {
       const r = await deleteSubmission(submission.id)
       if (!r.ok) toast.error(r.error)
+      setDeleting(false)
     })
   }
 
@@ -127,8 +127,9 @@ export function SubmissionDetailPanel({ detail, backHref }: Props) {
               variant="destructive"
               size="sm"
               onClick={onDeleteSubmission}
+              disabled={deleting}
             >
-              Delete submission
+              {deleting ? "Deleting…" : "Delete submission"}
             </Button>
           </div>
         </div>

@@ -1,19 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
-import {
-  ArrowLeft,
-  Building2,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  LayoutDashboard,
-  Thermometer,
-  User,
-} from "lucide-react"
+import { ArrowLeft, CheckCircle2, LayoutDashboard } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
@@ -24,10 +15,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { MetaChip } from "@/components/ui/meta-chip"
 import { PageHeader } from "@/components/ui/page-header"
 import { RequiredMark } from "@/components/ui/required-mark"
-import { SectionCard } from "@/components/ui/section-card"
 import {
   Select,
   SelectContent,
@@ -91,8 +80,6 @@ type Props = {
   readingsPerShift: number | null
   userName: string
   facilityName: string
-  tempF: number | null
-  tempLocation: string | null
 }
 
 const initialState: SubmissionFormState = {}
@@ -117,43 +104,6 @@ function nowForDateTimeLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
     d.getHours()
   )}:${pad(d.getMinutes())}`
-}
-
-function formatDate(d: Date): string {
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  })
-}
-
-// Live clock via useSyncExternalStore. The snapshot must be CACHED — returning a
-// fresh Date.now() on every getClockSnapshot call makes the store look
-// perpetually changed and sends React into an infinite render loop ("Maximum
-// update depth exceeded"). We mutate `clockNow` only inside the interval, so the
-// snapshot is stable between ticks. getClockServerSnapshot is null so SSR shows
-// "—" with no hydration mismatch.
-let clockNow = Date.now()
-function subscribeClock(cb: () => void) {
-  const id = setInterval(() => {
-    clockNow = Date.now()
-    cb()
-  }, 1000)
-  return () => clearInterval(id)
-}
-function getClockSnapshot(): number {
-  return clockNow
-}
-function getClockServerSnapshot(): number | null {
-  return null
 }
 
 /** Convert a numeric field's displayed value to its canonical (°F) base unit. */
@@ -196,8 +146,6 @@ export function SubmissionForm({
   readingsPerShift,
   userName,
   facilityName,
-  tempF,
-  tempLocation,
 }: Props) {
   const [state, formAction] = useActionState(
     submitRefrigerationReport,
@@ -228,13 +176,6 @@ export function SubmissionForm({
     Object.values(values).some((v) => v.text.trim() !== "" || v.bool) ||
     Object.values(followupNotes).some((n) => n.trim() !== "")
   useUnsavedGuard(hasEnteredData && !queued)
-
-  const nowMs = useSyncExternalStore(
-    subscribeClock,
-    getClockSnapshot,
-    getClockServerSnapshot
-  )
-  const now = nowMs == null ? null : new Date(nowMs)
 
   useEffect(() => {
     if (state.error) toast.error(state.error)
@@ -371,11 +312,6 @@ export function SubmissionForm({
     [sections, values, notes, followupNotes, readingAt, shift, roundNo, displayUnit]
   )
 
-  const tempLabel =
-    typeof tempF === "number"
-      ? `${Math.round(tempF)}°F${tempLocation ? ` · ${tempLocation}` : ""}`
-      : "Temp unavailable"
-
   if (queued) {
     return (
       <Card className="gap-4 py-8">
@@ -466,36 +402,6 @@ export function SubmissionForm({
           </>
         }
       />
-
-      <SectionCard
-        as="div"
-        className="flex-row flex-wrap items-center gap-x-3 gap-y-2 p-4 text-sm"
-      >
-        <MetaChip module="refrig" icon={<User className="h-4 w-4" aria-hidden />}>
-          {userName}
-        </MetaChip>
-        <MetaChip
-          module="refrig"
-          icon={<Building2 className="h-4 w-4" aria-hidden />}
-        >
-          {facilityName}
-        </MetaChip>
-        <MetaChip
-          module="refrig"
-          icon={<Calendar className="h-4 w-4" aria-hidden />}
-        >
-          {now ? formatDate(now) : "—"}
-        </MetaChip>
-        <MetaChip module="refrig" icon={<Clock className="h-4 w-4" aria-hidden />}>
-          {now ? formatTime(now) : "—"}
-        </MetaChip>
-        <MetaChip
-          module="refrig"
-          icon={<Thermometer className="h-4 w-4" aria-hidden />}
-        >
-          {tempLabel}
-        </MetaChip>
-      </SectionCard>
 
       <FormError message={state.error} />
 

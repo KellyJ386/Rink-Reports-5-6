@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import type { Json } from "@/types/database"
 import type { ImportResult, ValidatedRow } from "@/components/admin/bulk-upload"
 import { createClient } from "@/lib/supabase/server"
@@ -70,6 +71,26 @@ function asBool(value: FormDataEntryValue | null): boolean {
   return value === "on" || value === "true" || value === "1"
 }
 
+/**
+ * Guard shared by every action in this module. requireAdmin() covers console
+ * access (global admin / role fallback), but the air-quality RLS write
+ * policies gate on has_module_admin_access('air_quality') — a module-scoped
+ * user_permissions grant requireAdmin does NOT imply. Without this check, an
+ * admin lacking the module grant reaches the action and the mutation dies at
+ * the RLS layer with an opaque error (or is silently filtered to zero rows).
+ * Returns a human-readable denial message, or null when allowed. (A message,
+ * not a redirect: these actions run inside try/catch blocks that would
+ * swallow the NEXT_REDIRECT control-flow error.)
+ */
+async function ensureAirQualityAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "air_quality", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the air quality module's admin permission. Ask an administrator to grant it under Admin → Permissions."
+}
+
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
 > {
@@ -97,7 +118,8 @@ export async function createEquipment(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -145,7 +167,8 @@ export async function updateEquipment(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -165,7 +188,9 @@ export async function updateEquipment(
     const serial_number = nonEmpty(formData.get("serial_number"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // `.select()` makes a zero-row update detectable (RLS/permission denial or
+    // a stale id returns no rows rather than silently succeeding).
+    const { data, error } = await supabase
       .from("air_quality_equipment")
       .update({
         name,
@@ -176,8 +201,12 @@ export async function updateEquipment(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Equipment not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Equipment updated." }
@@ -195,18 +224,23 @@ export async function setEquipmentActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_equipment")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to update equipment.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Equipment not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -221,16 +255,18 @@ export async function setEquipmentActive(
 
 export async function deleteEquipment(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing equipment id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_equipment")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -239,6 +275,9 @@ export async function deleteEquipment(id: string): Promise<SimpleResult> {
         }
       }
       return { ok: false, error: dbError(error, "Failed to delete equipment.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Equipment not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -259,7 +298,8 @@ export async function importReadingTypes(
   rows: ValidatedRow[],
 ): Promise<ImportResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -334,7 +374,8 @@ export async function createReadingType(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -390,7 +431,8 @@ export async function updateReadingType(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -417,7 +459,7 @@ export async function updateReadingType(
     const is_required = asBool(formData.get("is_required"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_reading_types")
       .update({
         key,
@@ -429,11 +471,15 @@ export async function updateReadingType(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return {
         ok: false,
         error: dbError(error, "Failed to update reading type."),
       }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Reading type not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Reading type updated." }
@@ -451,21 +497,26 @@ export async function setReadingTypeActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reading type id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_reading_types")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return {
         ok: false,
         error: dbError(error, "Failed to update reading type."),
       }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Reading type not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -480,16 +531,18 @@ export async function setReadingTypeActive(
 
 export async function deleteReadingType(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reading type id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_reading_types")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       if (error.code === "23503") {
         return {
@@ -501,6 +554,9 @@ export async function deleteReadingType(id: string): Promise<SimpleResult> {
         ok: false,
         error: dbError(error, "Failed to delete reading type."),
       }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Reading type not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -522,7 +578,8 @@ export async function moveReadingType(
   direction: -1 | 1,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing reading type id." }
@@ -561,12 +618,16 @@ export async function moveReadingType(
     if (!neighbor) return { ok: true }
 
     const tmp = -1 - Math.abs(cur.sort_order) - Math.abs(neighbor.sort_order)
-    const { error: e1 } = await supabase
+    const { data: d1, error: e1 } = await supabase
       .from("air_quality_reading_types")
       .update({ sort_order: tmp })
       .eq("id", cur.id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
+    if (!d1 || d1.length === 0) {
+      return { ok: false, error: "Reading type not found." }
+    }
     const { error: e2 } = await supabase
       .from("air_quality_reading_types")
       .update({ sort_order: cur.sort_order })
@@ -600,7 +661,8 @@ export async function createComplianceRule(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -648,7 +710,8 @@ export async function updateComplianceRule(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const id = nonEmpty(formData.get("id"))
@@ -664,7 +727,7 @@ export async function updateComplianceRule(
     const sort_order = asInt(formData.get("sort_order"))
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_compliance_rules")
       .update({
         jurisdiction,
@@ -676,11 +739,15 @@ export async function updateComplianceRule(
       })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return {
         ok: false,
         error: dbError(error, "Failed to update compliance rule."),
       }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Compliance rule not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true, message: "Compliance rule updated." }
@@ -698,21 +765,26 @@ export async function setComplianceRuleActive(
   is_active: boolean,
 ): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rule id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_compliance_rules")
       .update({ is_active })
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return {
         ok: false,
         error: dbError(error, "Failed to update compliance rule."),
       }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Compliance rule not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -727,21 +799,26 @@ export async function setComplianceRuleActive(
 
 export async function deleteComplianceRule(id: string): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing rule id." }
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("air_quality_compliance_rules")
       .delete()
       .eq("id", id)
       .eq("facility_id", facility.facilityId)
+      .select("id")
     if (error) {
       return {
         ok: false,
         error: dbError(error, "Failed to delete compliance rule."),
       }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Compliance rule not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -763,7 +840,8 @@ export async function saveComplianceProfileConfig(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -883,7 +961,8 @@ export async function addAirQualityFollowupNote(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -935,24 +1014,26 @@ export async function deleteAirQualityReport(
   try {
     const current = await requireAdmin()
     if (!reportId) return { ok: false, error: "Missing report id." }
+    // The reports DELETE policy is super-admin-only. RLS does not error for
+    // other callers — it silently filters the delete to zero rows — so check
+    // up front rather than reporting a success that didn't happen.
+    if (!current.profile?.is_super_admin) {
+      return {
+        ok: false,
+        error: "Only a super admin can delete air quality reports.",
+      }
+    }
     const supabase = await createClient()
-    let query = supabase
+    const { data, error } = await supabase
       .from("air_quality_reports")
       .delete()
       .eq("id", reportId)
-    // Non-super-admins must be facility-scoped (an explicit requirement, not
-    // inferred from a null facility_id); super admins delete cross-facility by
-    // intent. RLS backstops either path.
-    if (!current.profile?.is_super_admin) {
-      if (!current.profile?.facility_id) {
-        return { ok: false, error: "No facility assigned to your account." }
-      }
-      query = query.eq("facility_id", current.profile.facility_id)
-    }
-    const { error } = await query
+      .select("id")
     if (error) {
-      // RLS will block non-super-admin with a 42501 / permission denied.
       return { ok: false, error: dbError(error, "Failed to delete report.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Report not found." }
     }
     revalidatePath("/admin/air-quality")
     return { ok: true }
@@ -974,7 +1055,8 @@ export async function updateAirQualitySettings(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -1106,7 +1188,8 @@ const DEFAULT_COMPLIANCE_RULES: ReadonlyArray<{
 
 export async function seedDefaultAirQualityConfig(): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureAirQualityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 

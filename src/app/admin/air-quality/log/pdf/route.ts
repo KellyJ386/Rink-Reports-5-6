@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/auth"
+import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { buildAirQualityLogPdf } from "../_lib/log-pdf"
@@ -17,6 +17,10 @@ function isoDate(d: Date): string {
 // a caller only ever renders their own facility's readings.
 export async function GET(req: Request) {
   const current = await requireAdmin()
+  // Report reads gate on module access, which requireAdmin does not imply;
+  // without this an admin lacking the grant downloads an empty-but-official
+  // looking log instead of being turned away.
+  await requireModuleAdmin("air_quality")
   const facilityId = current.profile?.facility_id ?? null
   if (!facilityId) {
     return new Response("No facility", { status: 400 })

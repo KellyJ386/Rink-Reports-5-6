@@ -4,11 +4,25 @@ import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 import type { SimpleResult } from "./types"
 
 const MODULE_KEY = "daily_reports"
+
+/**
+ * Same guard as actions.ts: the module-scoped admin grant is what RLS
+ * enforces on these writes; requireAdmin alone does not imply it.
+ */
+async function ensureDailyAdmin(): Promise<string | null> {
+  await requireAdmin()
+  const supabase = await createClient()
+  const allowed = await currentUserCan(supabase, "daily_reports", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the daily reports module's admin permission. Ask an administrator to grant it under Admin → Permissions."
+}
 
 async function resolveFacility(): Promise<
   { ok: true; facilityId: string } | { ok: false; error: string }
@@ -34,7 +48,8 @@ export async function setDailyAreaAccess(input: {
   enabled: boolean
 }): Promise<SimpleResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -110,7 +125,8 @@ export async function bulkImportDailyAreaAccessCsv(
   csv: string,
 ): Promise<BulkAreaAccessResult> {
   try {
-    await requireAdmin()
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
     const supabase = await createClient()

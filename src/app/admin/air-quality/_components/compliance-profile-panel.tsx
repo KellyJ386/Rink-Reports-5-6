@@ -272,8 +272,8 @@ export function ComplianceProfilePanel({
             </>
           ) : (
             <p className="text-muted-foreground text-sm">
-              No profile selected — the legacy per-facility thresholds below
-              still apply.
+              No profile selected — no automated compliance evaluation runs
+              until one is chosen.
             </p>
           )}
 

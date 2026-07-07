@@ -959,7 +959,9 @@ function ThresholdsBlock({
 
 function severityBadgeVariant(sev: Severity): BadgeProps["variant"] {
   if (sev === "critical") return "destructive"
-  if (sev === "high") return "warning"
+  // Soft-red for high vs soft-amber for warn, so the three severities read
+  // apart at a glance.
+  if (sev === "high") return "error"
   return "warning"
 }
 
@@ -1139,11 +1141,15 @@ function ThresholdCreateForm({
               <SelectValue placeholder="All equipment" />
             </SelectTrigger>
             <SelectContent>
-              {equipment.map((e) => (
-                <SelectItem key={e.id} value={e.id}>
-                  {e.name}
-                </SelectItem>
-              ))}
+              {/* Create-form scope: active equipment only (display lookups
+                  elsewhere stay unfiltered so history keeps resolving). */}
+              {equipment
+                .filter((e) => e.is_active)
+                .map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.name}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>

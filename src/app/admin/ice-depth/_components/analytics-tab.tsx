@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils"
 
 import type { DayBucket, PointRollup, AnalyticsSummary } from "../_lib/analytics"
 
+import { AnalyticsDateFilter } from "./analytics-date-filter"
+
 type Colors = { low: string; ok: string; high: string }
 
 type Props = {
@@ -75,6 +77,8 @@ export function AnalyticsTab({
 
   return (
     <div className="flex flex-col gap-4">
+      <AnalyticsDateFilter from={from} to={to} />
+
       {/* Layout picker — analytics are per-diagram. */}
       {layouts.length > 1 && (
         <div className="flex flex-wrap gap-2">

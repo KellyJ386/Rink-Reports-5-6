@@ -121,7 +121,6 @@ export function LayoutEditor({ detail, rinks, backHref }: Props) {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
             <DiagramPanel
               layoutId={layout.id}
-              aspectRatio={layout.diagram_aspect_ratio}
               logoUrl={layout.logo_url}
               points={points}
               mode={mode}
@@ -326,23 +325,6 @@ function LayoutHeaderCard({
               </p>
             </div>
             <div className="flex flex-col gap-1">
-              <Label htmlFor="ld-aspect">
-                Aspect ratio (width / height)
-              </Label>
-              <Input
-                id="ld-aspect"
-                name="diagram_aspect_ratio"
-                type="number"
-                step="0.001"
-                min="0.05"
-                max="10"
-                defaultValue={layout.diagram_aspect_ratio}
-              />
-              <p className="text-muted-foreground text-xs">
-                Default 0.425 ≈ 85×200 NHL rink (vertical).
-              </p>
-            </div>
-            <div className="flex flex-col gap-1">
               <Label htmlFor="ld-sort">Sort order</Label>
               <Input
                 id="ld-sort"
@@ -470,7 +452,6 @@ function DiagramPanel({
   onSelect,
 }: {
   layoutId: string
-  aspectRatio: number
   logoUrl?: string | null
   points: PointRow[]
   mode: EditorMode
