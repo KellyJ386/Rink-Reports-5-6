@@ -1,26 +1,10 @@
 import type { NextConfig } from "next"
 
-// `'unsafe-inline'` for script-src/style-src is required because Next.js
-// emits inline bootstrap scripts during hydration and Tailwind v4 +
-// shadcn/ui ship inline <style> tags. Switching to nonce-based CSP would
-// need a custom proxy that injects a per-request nonce into every inline
-// tag — out of scope for this baseline.
-const cspDirectives = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  // *.i.posthog.com covers the default US cloud endpoint
-  // (us.i.posthog.com); EU customers point at eu.i.posthog.com. For
-  // self-hosted PostHog, add the host explicitly here.
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.i.posthog.com",
-  "worker-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ")
-
+// The Content-Security-Policy is NOT set here. It is nonce-based and therefore
+// per-request, so it is generated and attached in the proxy
+// (src/lib/supabase/session.ts -> buildCsp), where a fresh nonce is minted for
+// each request and enforced in production only. The static headers below apply
+// to every route via the headers() config.
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -29,11 +13,6 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=()",
   },
-  // CSP is enforced only in production; dev/HMR needs inline eval and
-  // would break under this policy.
-  ...(process.env.NODE_ENV === "production"
-    ? [{ key: "Content-Security-Policy", value: cspDirectives }]
-    : []),
 ]
 
 const nextConfig: NextConfig = {

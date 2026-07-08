@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next"
+import { headers } from "next/headers"
 import "./globals.css"
 import { PostHogProvider } from "@/components/app/posthog-provider"
 import { PwaInstallPrompt } from "@/components/app/pwa-install-prompt"
@@ -27,11 +28,16 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Per-request CSP nonce set by the proxy (src/lib/supabase/session.ts).
+  // The inline theme script below must carry it, otherwise the nonce-based
+  // script-src blocks it and the pre-paint theme is lost. Undefined in dev,
+  // where CSP is not enforced.
+  const nonce = (await headers()).get("x-nonce") ?? undefined
   return (
     <html
       lang="en"
@@ -46,6 +52,7 @@ export default function RootLayout({
           via ThemeToggle, localStorage.rr-theme takes over.
         */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('rr-theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add('light');}})();`,
           }}
