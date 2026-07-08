@@ -24,8 +24,8 @@ import { cn } from "@/lib/utils"
 import type { ImportSchema, ValidatedRow } from "./types"
 import { mapHeaders, validateRows, type RowResult } from "./validate"
 
-// `./parse` and `./template` statically `import * as XLSX from "xlsx"` (~400KB+).
-// They are imported dynamically inside event handlers below so xlsx is only
+// `./parse` and `./template` statically import "exceljs" (~1MB minified).
+// They are imported dynamically inside event handlers below so exceljs is only
 // fetched on file-pick or template-download — never at render / on initial load.
 
 type Props = {
@@ -36,7 +36,8 @@ type Props = {
   disabled?: boolean
 }
 
-const ACCEPT = ".csv,.xlsx,.xls"
+// Legacy .xls (BIFF) is not supported: exceljs only reads OOXML (.xlsx).
+const ACCEPT = ".csv,.xlsx"
 
 export function BulkUploadPanel({
   schema,
@@ -102,11 +103,19 @@ function PanelBody({
     (mode === "partial" || errorCount === 0)
 
   async function handleFile(file: File) {
+    // Drag-and-drop bypasses the input's `accept` filter; reject legacy .xls
+    // explicitly since exceljs cannot read the old binary format.
+    if (/\.xls$/i.test(file.name)) {
+      toast.error(
+        "Legacy .xls files aren't supported. Save as .xlsx or .csv and try again.",
+      )
+      return
+    }
     setParsing(true)
     setResults(null)
     setFileName(file.name)
     try {
-      // Lazy-load the xlsx-backed parser only when a file is actually picked.
+      // Lazy-load the exceljs-backed parser only when a file is actually picked.
       const { parseFile } = await import("./parse")
       const parsed = await parseFile(file)
       if (parsed.headers.length === 0) {
@@ -140,13 +149,13 @@ function PanelBody({
     if (inputRef.current) inputRef.current.value = ""
   }
 
-  // Lazy-load the xlsx-backed template generator only on download click.
+  // Lazy-load the exceljs-backed template generator only on download click.
   async function handleTemplateDownload(format: "xlsx" | "csv") {
     setDownloadingTemplate(true)
     try {
       const mod = await import("./template")
       if (format === "xlsx") {
-        mod.downloadTemplateXlsx(schema.columns, schema.surfaceId)
+        await mod.downloadTemplateXlsx(schema.columns, schema.surfaceId)
       } else {
         mod.downloadTemplateCsv(schema.columns, schema.surfaceId)
       }
@@ -221,7 +230,7 @@ function PanelBody({
           {fileName ?? "Drop a file here or click to choose"}
         </span>
         <span className="text-muted-foreground text-xs">
-          Accepts .csv, .xlsx, .xls
+          Accepts .csv, .xlsx
         </span>
         <input
           ref={inputRef}

@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx"
+import { Workbook } from "exceljs"
 
 import type { ColumnDef } from "./types"
 
@@ -28,41 +28,42 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-function buildWorkbook(columns: ColumnDef[]): XLSX.WorkBook {
-  const headerRow = columns.map((c) => c.header)
-  const exampleRow = columns.map((c) => exampleCell(c))
-  const templateSheet = XLSX.utils.aoa_to_sheet([headerRow, exampleRow])
+function buildWorkbook(columns: ColumnDef[]): Workbook {
+  const wb = new Workbook()
 
-  const instructionsHeader = [
+  const templateSheet = wb.addWorksheet("Template")
+  templateSheet.addRow(columns.map((c) => c.header))
+  templateSheet.addRow(columns.map((c) => exampleCell(c)))
+
+  const instructionsSheet = wb.addWorksheet("Instructions")
+  instructionsSheet.addRow([
     "Column",
     "Required?",
     "Type",
     "Allowed values",
     "Default",
     "Notes",
-  ]
-  const instructionsRows = columns.map((c) => [
-    c.header,
-    c.required ? "Yes" : "No",
-    c.type,
-    c.type === "enum" && c.enumValues ? c.enumValues.join(", ") : "",
-    c.default !== undefined && c.default !== null ? String(c.default) : "",
-    c.description ?? "",
   ])
-  const instructionsSheet = XLSX.utils.aoa_to_sheet([
-    instructionsHeader,
-    ...instructionsRows,
-  ])
+  for (const c of columns) {
+    instructionsSheet.addRow([
+      c.header,
+      c.required ? "Yes" : "No",
+      c.type,
+      c.type === "enum" && c.enumValues ? c.enumValues.join(", ") : "",
+      c.default !== undefined && c.default !== null ? String(c.default) : "",
+      c.description ?? "",
+    ])
+  }
 
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, templateSheet, "Template")
-  XLSX.utils.book_append_sheet(wb, instructionsSheet, "Instructions")
   return wb
 }
 
-export function downloadTemplateXlsx(columns: ColumnDef[], surfaceId: string) {
+export async function downloadTemplateXlsx(
+  columns: ColumnDef[],
+  surfaceId: string,
+) {
   const wb = buildWorkbook(columns)
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer
+  const out = await wb.xlsx.writeBuffer()
   triggerDownload(
     new Blob([out], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

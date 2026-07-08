@@ -9,7 +9,9 @@ stack — do not fork per-surface importers.
   trigger button, file picker + drop zone, template downloads, the preview
   table (row #, parsed values, ok/error + inline messages, valid/error counts),
   and the confirm action.
-- `parse.ts` — reads `.csv`, `.xlsx`, `.xls` with SheetJS into header + rows.
+- `parse.ts` — reads `.xlsx` with exceljs and `.csv` with the small RFC 4180
+  parser in `parse-core.ts` into header + rows (cells normalized to strings).
+  Legacy `.xls` (BIFF) is not supported — exceljs only reads OOXML.
 - `validate.ts` — case-insensitive/trimmed header mapping (reports unknown and
   missing-required headers), per-`ColumnDef` coercion, then `zodRow` validation.
 - `template.ts` — generates the `.xlsx` (header + example row + an
