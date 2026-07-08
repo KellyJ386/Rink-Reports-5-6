@@ -75,11 +75,13 @@ the role matrix and the four 🟡 follow-ups (all addressed in migration 180,
    - no variable referencing the old project ref anywhere
 3. **Migrations** — deploy-migrations workflow green; hosted migration count
    matches the repo (contiguous, all applied). _Migration 180 must be applied._
-4. **Auth hardening** — confirm **leaked-password protection** is ON for the
-   hosted project (Authentication → Sign In / Providers → Passwords). This is
-   codified in `config.toml` (`password_hibp_enabled = true`) but SQL migrations
-   do **not** carry auth config — apply via `supabase config push` or the
-   dashboard toggle.
+4. **Auth hardening** — turn **leaked-password protection** ON for the hosted
+   project (Authentication → Sign In / Providers → Passwords), or via the
+   Management API (`PATCH /v1/projects/{ref}/config/auth` with
+   `{ "password_hibp_enabled": true }`). This is **not** configurable through
+   `config.toml` — the CLI exposes no HIBP key and strict-parses unknown keys —
+   and SQL migrations don't carry auth config, so it must be flipped on the
+   project directly.
 5. **Deploy** — promote to production; load the prod URL in a private window;
    confirm login, dashboard tiles, and monitoring lights render.
 6. **Domain flip** (only if 1–5 are clean) — point the custom domain at the 5-6
