@@ -93,6 +93,19 @@ function isAvailabilityType(v: string): v is AvailabilityType {
   return (VALID_AVAILABILITY_TYPES as string[]).includes(v)
 }
 
+// PUBLISH-LOCK SCOPE (intentional): the scheduling publish-lock guards *admin
+// edits to published schedule_shifts* — enforced at the DB boundary by the
+// trg_schedule_shifts_publish_lock trigger and driven from the online-only admin
+// grid (src/app/admin/scheduling/_lib/grid-actions.ts). The self-service writes
+// in this file (time-off, availability, swap requests) are staff *requests*
+// against separate tables and are deliberately NOT publish-lock gated: a locked/
+// published schedule must not stop an employee from requesting time off or
+// setting availability. These flows queue offline via enqueueSubmission and
+// replay through /api/offline-sync; any server-side rejection that does occur
+// surfaces to the user as a failed queue item (SyncStatusBadge + the offline
+// queue view) rather than being silently dropped. Do not add a lock check here
+// expecting it to reject queued writes against a locked schedule — that is not
+// what the lock protects, and offline replay cannot re-run grid enforcement.
 export async function submitTimeOffRequest(
   _prev: ActionState,
   formData: FormData

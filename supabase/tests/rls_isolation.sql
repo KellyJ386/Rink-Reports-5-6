@@ -1418,8 +1418,10 @@ reset role;
 -- The public lead form (src/app/api/information-requests/route.ts) calls
 -- public.check_rate_limit() via the anon client. Verify:
 --   (a) anon CAN call the function and is blocked after p_max within a window;
---   (b) anon CANNOT touch public.rate_limit_counters directly (RLS enabled,
---       no policies — reachable only through the SECURITY DEFINER function).
+--   (b) anon CANNOT touch public.rate_limit_counters directly (the only policy
+--       targets service_role (migration 180); anon/authenticated have none, so
+--       direct access is denied — reachable only through the SECURITY DEFINER
+--       function).
 -- ---------------------------------------------------------------------------
 reset role;
 set local role anon;
@@ -1443,17 +1445,45 @@ select pg_temp.expect_count(
       then 1 else 0 end$$,
   0, 'RL: anon call #4 BLOCKED (over the cap)');
 
--- (b) anon cannot read or write the counters table directly. RLS is enabled
--- with no policies, so SELECT returns 0 rows (no error) and INSERT is blocked.
+-- (b) anon cannot read or write the counters table directly. The only policy on
+-- the table targets service_role (migration 180), so anon has no applicable
+-- policy: SELECT returns 0 rows (no error) and INSERT is blocked.
 select pg_temp.expect_count(
   $$select count(*) from public.rate_limit_counters$$,
-  0, 'RL: anon CANNOT SELECT rate_limit_counters directly (no policy)');
+  0, 'RL: anon CANNOT SELECT rate_limit_counters directly (no anon policy)');
 
 select pg_temp.expect_error(
   $$insert into public.rate_limit_counters
       (bucket, identifier, window_start, hits)
     values ('rls_test', 'forged', now(), 1)$$,
   'RL: anon CANNOT INSERT into rate_limit_counters directly');
+
+-- ---------------------------------------------------------------------------
+-- IR: public lead-form INSERT policy (migration 180).
+--
+-- The information_requests_insert policy admits anonymous writes (the public
+-- splash form uses the anon key) but only at the initial status = 'new'. Verify
+-- a well-formed 'new' lead is accepted and that a forged insert trying to seed a
+-- later pipeline status is rejected by the WITH CHECK.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$with ins as (
+      insert into public.information_requests
+        (name, email, company, address_line1, address_line2, address_city,
+         address_region, address_postal, address_country, note)
+      values ('Reg Test', 'ir-new@example.com', 'Rink Co', '1 Ice Way', '',
+              'Anytown', 'NY', '00000', 'US', 'hi')
+      returning 1)
+    select count(*) from ins$$,
+  1, 'IR: anon CAN INSERT a status=new lead (default status)');
+
+select pg_temp.expect_error(
+  $$insert into public.information_requests
+      (name, email, company, address_line1, address_line2, address_city,
+       address_region, address_postal, address_country, note, status)
+    values ('Forged', 'ir-forge@example.com', 'Rink Co', '1 Ice Way', '',
+            'Anytown', 'NY', '00000', 'US', 'hi', 'closed')$$,
+  'IR: anon CANNOT INSERT a lead with a forged non-new status');
 
 reset role;
 
