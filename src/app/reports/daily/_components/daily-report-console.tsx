@@ -399,7 +399,7 @@ export function DailyReportConsole({ areas }: Props) {
 
       {/* Note — optional, only meaningful once a shift is in progress. */}
       {selectedTemplate ? (
-        <Card className="gap-3 py-5">
+        <Card className="gap-3 border-l-4 border-l-module-daily py-5">
           <div className="flex flex-col gap-2 px-6">
             <label htmlFor="note" className="text-sm font-medium">
               Note (optional)
