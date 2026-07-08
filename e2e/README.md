@@ -55,6 +55,34 @@ reason** instead of failing, so the suite stays green against a partially
 seeded environment and self-documents what it needs. The skip reasons are
 collected in `REPORT.md`. Provide the missing env var to un-skip.
 
+## CI
+
+`.github/workflows/e2e.yml` runs the full suite nightly at **06:00 UTC**
+against the deployed target, and can be run on demand from the Actions tab
+(**E2E → Run workflow**), optionally with a `url` input to override the base
+URL for that run. It installs chromium only (both Playwright projects are
+chromium-based) and uploads `e2e/report/` — HTML report, `REPORT.md`,
+`results.json`, failure traces/screenshots/videos — as a `playwright-report`
+artifact (14-day retention) when the run fails.
+
+Configuration lives in GitHub Actions **repo variables** (non-secret) and
+**secrets**:
+
+| Kind | Name | Purpose |
+| --- | --- | --- |
+| variable | `E2E_BASE_URL` | Deployed environment to test (e.g. staging). |
+| variable | `E2E_FACILITY_B_REPORT_PATH` | Optional; Facility-B report URL (section 9). |
+| variable | `E2E_DAILY_REPORT_PATH` | Optional; daily-report deep link. |
+| variable | `E2E_ICE_DEPTH_LAYOUT_SLUG` | Optional; ice-depth layout slug. |
+| secret | `E2E_ADMIN_PASSWORD` … `E2E_JANITORIAL_PASSWORD` | The 7 role passwords (ADMIN, MANAGER, SUPERVISOR, ICETECH, FRONTDESK, CONCESSIONS, JANITORIAL). |
+| secret | `E2E_INACTIVE_PASSWORD` | Deactivated account. |
+| secret | `E2E_FACILITY_B_PASSWORD` | Facility-B user (multi-tenant isolation). |
+
+The workflow is **fail-soft**: if `E2E_BASE_URL` or `E2E_ADMIN_PASSWORD` is
+not configured it logs a notice and exits green rather than failing nightly —
+and, as always, individual tests missing a credential or seed value skip with
+a reason instead of failing.
+
 ## Layout
 
 ```

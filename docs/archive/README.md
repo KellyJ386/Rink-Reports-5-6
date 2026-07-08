@@ -1,0 +1,3 @@
+# Archived audit artifacts
+
+These directories are historical, point-in-time artifacts from completed multi-agent audits of the platform; they are kept for reference only and do not describe current behavior. `audit-output-2026-06/` holds the full platform audit of 2026-06-17 plus the fresh re-run of 2026-06-20 (`rerun-2026-06-20/`), whose `FINAL-AUDIT-REPORT.md` verifies that all criticals (C1–C4) from the first run were remediated and merged to `main`; `audit-2026-07/` holds the functional-completeness audit of 2026-07-01 (element inventory, phase 0/1 findings, and the fixes applied, closed out in its `final-report.md`). All findings from both audits have been remediated; nothing in the codebase references these files.

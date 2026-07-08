@@ -1,0 +1,136 @@
+name: E2E
+
+# Nightly Playwright run of the browser-driven E2E suite (e2e/tests/) against
+# a DEPLOYED environment — staging by default. This is the black-box layer on
+# top of the vitest unit tests (pure logic) and the SQL RLS harness
+# (supabase/tests/rls_isolation.sql): it exercises real auth, role
+# permissions, report submission, admin flows, and multi-tenant isolation
+# through an actual browser hitting a live deployment. See e2e/README.md and
+# e2e/TEST-PLAN.md for the scenario map.
+#
+# Configuration comes from GitHub Actions secrets/vars (never hard-coded —
+# see e2e/.env.e2e.example for the full list):
+#   - vars.E2E_BASE_URL                    target environment, e.g. the
+#                                          staging URL (overridable per-run
+#                                          via the workflow_dispatch `url`
+#                                          input, mirroring post-deploy-smoke)
+#   - secrets.E2E_<ROLE>_PASSWORD          the 7 role accounts (ADMIN, MANAGER,
+#                                          SUPERVISOR, ICETECH, FRONTDESK,
+#                                          CONCESSIONS, JANITORIAL)
+#   - secrets.E2E_INACTIVE_PASSWORD        deactivated-account login check
+#   - secrets.E2E_FACILITY_B_PASSWORD      multi-tenant isolation (section 9)
+#   - vars.E2E_FACILITY_B_REPORT_PATH,     optional seed-specific deep links
+#     vars.E2E_DAILY_REPORT_PATH,          (tests skip gracefully without
+#     vars.E2E_ICE_DEPTH_LAYOUT_SLUG       them)
+#
+# Fail-soft: if the target URL or the admin password isn't configured, the
+# run logs a notice and exits green instead of failing red — forks and repos
+# without staging secrets shouldn't get nightly failures. Tests missing an
+# individual credential/seed value skip with a reason (see e2e/README.md
+# "Graceful skips"), so a partially seeded environment stays green too.
+#
+# Triggers:
+#   - schedule: nightly at 06:00 UTC (staging is quietest; after any US-
+#     evening manual testing, before the workday).
+#   - workflow_dispatch: manual run, optionally against a different base URL.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Base URL to test (overrides the E2E_BASE_URL repo variable)"
+        required: false
+        type: string
+
+concurrency:
+  # Never let two runs race the same shared staging data (the suite itself
+  # already runs single-worker for the same reason — see playwright.config.ts).
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      # Dispatch input wins over the repo variable, mirroring post-deploy-smoke.
+      E2E_BASE_URL: ${{ inputs.url != '' && inputs.url || vars.E2E_BASE_URL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+      E2E_SUPERVISOR_PASSWORD: ${{ secrets.E2E_SUPERVISOR_PASSWORD }}
+      E2E_ICETECH_PASSWORD: ${{ secrets.E2E_ICETECH_PASSWORD }}
+      E2E_FRONTDESK_PASSWORD: ${{ secrets.E2E_FRONTDESK_PASSWORD }}
+      E2E_CONCESSIONS_PASSWORD: ${{ secrets.E2E_CONCESSIONS_PASSWORD }}
+      E2E_JANITORIAL_PASSWORD: ${{ secrets.E2E_JANITORIAL_PASSWORD }}
+      E2E_INACTIVE_PASSWORD: ${{ secrets.E2E_INACTIVE_PASSWORD }}
+      E2E_FACILITY_B_PASSWORD: ${{ secrets.E2E_FACILITY_B_PASSWORD }}
+      # Optional non-secret seed config; tests skip gracefully when unset.
+      E2E_FACILITY_B_REPORT_PATH: ${{ vars.E2E_FACILITY_B_REPORT_PATH }}
+      E2E_DAILY_REPORT_PATH: ${{ vars.E2E_DAILY_REPORT_PATH }}
+      E2E_ICE_DEPTH_LAYOUT_SLUG: ${{ vars.E2E_ICE_DEPTH_LAYOUT_SLUG }}
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      # Fail-soft gate: without a target URL and at least the admin password
+      # every test would fail/skip pointlessly. Skip the whole run with a
+      # notice instead of going red — repos without configured staging
+      # secrets shouldn't get nightly failures.
+      - name: Check E2E secrets are configured
+        id: gate
+        run: |
+          MISSING=""
+          [ -z "$E2E_BASE_URL" ] && MISSING="$MISSING E2E_BASE_URL (repo variable or dispatch url input)"
+          [ -z "$E2E_ADMIN_PASSWORD" ] && MISSING="$MISSING E2E_ADMIN_PASSWORD (repo secret)"
+          if [ -n "$MISSING" ]; then
+            echo "::notice::E2E suite skipped — not configured. Missing:$MISSING. See e2e/README.md (CI section) for setup."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Targeting $E2E_BASE_URL"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.configured == 'true'
+
+      # pnpm before setup-node so setup-node's built-in pnpm store cache can
+      # find the binary. Version mirrors the lockfile (lockfileVersion 9.0 →
+      # pnpm 9/10); pin the major to avoid a future pnpm bumping the lockfile.
+      - name: Install pnpm
+        if: steps.gate.outputs.configured == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.configured == 'true'
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.configured == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Both Playwright projects (desktop + mobile) run on chromium, so one
+      # browser download is enough.
+      - name: Install Playwright chromium
+        if: steps.gate.outputs.configured == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E suite
+        if: steps.gate.outputs.configured == 'true'
+        run: pnpm test:e2e
+
+      # e2e/report/ holds the HTML report, results.json, REPORT.md, and the
+      # failure screenshots/traces/videos (see playwright.config.ts reporters).
+      - name: Upload Playwright report
+        if: failure() && steps.gate.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/report/
+          retention-days: 14
+          if-no-files-found: ignore
