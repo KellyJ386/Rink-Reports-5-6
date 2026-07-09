@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000180_scheduling_publish_lock_update_guard.sql
+-- 00000000000181_scheduling_publish_lock_update_guard.sql
 --
 -- Closes the UPDATE leg of the publish-lock bypass (RR56-SEC-FIX security
 -- re-audit). Migrations 148/164 froze an ALREADY-published row (any UPDATE or

@@ -136,7 +136,7 @@ const updateSchema = z
     // could flip a draft straight to 'published' via a direct UPDATE — bypassing
     // the second-approver check, the batch re-validation, the publish-events
     // audit row, the open-shift listings, and the publish notification. The DB
-    // trigger (schedule_shifts_publish_lock, migration 180) rejects that
+    // trigger (schedule_shifts_publish_lock, migration 181) rejects that
     // transition as a second layer.
     override_cert: z.boolean().optional(),
     acknowledge_warnings: z.boolean().optional(),
