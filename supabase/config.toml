@@ -43,12 +43,14 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 enable_signup = true
-# Reject known-leaked passwords at sign-up / password-change via the
-# HaveIBeenPwned Pwned Passwords API ("Prevent Leaked Passwords"). Codified here
-# as config-as-code; the RLS-isolation CI job does not run `supabase start`, so
-# this only reaches the hosted project via `supabase config push` or the
-# dashboard toggle (Authentication → Sign In / Providers → Passwords).
-password_hibp_enabled = true
+# NOTE: leaked-password protection ("Prevent Leaked Passwords" — rejecting
+# HaveIBeenPwned Pwned Passwords at sign-up / password-change) is NOT
+# configurable via config.toml. The Supabase CLI auth config exposes no
+# HIBP/leaked-password key, and recent CLI versions parse config.toml strictly
+# (UnmarshalExact), so an unknown key breaks `supabase start` / `supabase config
+# push`. Enable it on the hosted project via the dashboard (Authentication →
+# Sign In / Providers → Passwords) or the Management API
+# (PATCH /v1/projects/{ref}/config/auth { "password_hibp_enabled": true }).
 
 [auth.email]
 enable_signup = true
