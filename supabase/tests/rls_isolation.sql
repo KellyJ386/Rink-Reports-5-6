@@ -2975,6 +2975,17 @@ select pg_temp.expect_ok(
   $$update public.schedule_shifts set notes = 'draft edit ok'
      where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
   'SCHED-148: a DRAFT shift is still directly editable');
+-- Publish-lock UPDATE-to-published leg (migration 181, back-ported from the
+-- out-of-band remote hardening 20260708150033): a direct UPDATE that flips a
+-- DRAFT shift to 'published' from an end-user role mints a locked shift and
+-- skips the two-person publish-request approval. Migration 164 allowed this
+-- transition; 181 rejects it at the DB boundary. The legitimate publish path is
+-- the governed SECURITY DEFINER RPC (owner role), which is unaffected. Editing a
+-- draft WITHOUT changing status stays allowed (asserted just above).
+select pg_temp.expect_error(
+  $$update public.schedule_shifts set status = 'published'
+     where id = 'aaaa1111-5512-aaaa-aaaa-aaaa11110093'$$,
+  'SCHED-181: direct UPDATE transitioning a draft shift to published is rejected (publish-lock)');
 
 -- Publish-lock CREATE leg (migration 164 — publish-lock-bypass regression):
 -- a direct INSERT of a status='published' shift from an end-user role mints a
