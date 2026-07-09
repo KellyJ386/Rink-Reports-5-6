@@ -127,10 +127,17 @@ const updateSchema = z
     break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
     role_label: z.string().trim().max(120).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
-    // No `status` field: a client-supplied status could flip a draft straight
-    // to 'published' through the direct-update branch below, skipping the
-    // two-person publish-request approval. Status transitions happen only
-    // through the governed paths (publish-request RPC, cancel RPC, delete).
+    // NOTE — publish-lock: `status` is intentionally NOT accepted here, mirroring
+    // createSchema. A shift's status may only change via a governed path:
+    // draft -> published through scheduling_approve_publish_request (the
+    // two-person publish-request flow), published -> cancelled through
+    // scheduling_admin_cancel_shift, draft -> cancelled by outright delete. If
+    // this update path forwarded a client-supplied status, a scheduling admin
+    // could flip a draft straight to 'published' via a direct UPDATE — bypassing
+    // the second-approver check, the batch re-validation, the publish-events
+    // audit row, the open-shift listings, and the publish notification. The DB
+    // trigger (schedule_shifts_publish_lock, migration 181) rejects that
+    // transition as a second layer.
     override_cert: z.boolean().optional(),
     acknowledge_warnings: z.boolean().optional(),
     override_reason: z.string().trim().max(1000).nullable().optional(),
