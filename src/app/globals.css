@@ -295,13 +295,13 @@
      saturated mid-darks so white title text reads at full-flood. */
   --module-daily:       #4527A0;
   --module-ice-depth:   var(--sky-700);
-  --module-ice-ops:     var(--green-700);
-  --module-incidents:   var(--crimson-500);
-  --module-accidents:   var(--coral-600);
-  --module-refrig:      var(--navy-500);
-  --module-air:         var(--sky-500);
+  --module-ice-ops:     var(--green-800);
+  --module-incidents:   var(--crimson-600);
+  --module-accidents:   var(--coral-700);
+  --module-refrig:      var(--navy-600);
+  --module-air:         var(--sky-600);
   --module-comms:       #5D4037;
-  --module-scheduling:  var(--violet-500);
+  --module-scheduling:  var(--violet-600);
   --module-paperwork:   #475569;
 }
 
@@ -477,13 +477,13 @@
   --accent-coral-foreground:      #FFFFFF;
   --module-daily:       #4527A0;
   --module-ice-depth:   var(--sky-700);
-  --module-ice-ops:     var(--green-700);
-  --module-incidents:   var(--crimson-500);
-  --module-accidents:   var(--coral-600);
-  --module-refrig:      var(--navy-500);
-  --module-air:         var(--sky-500);
+  --module-ice-ops:     var(--green-800);
+  --module-incidents:   var(--crimson-600);
+  --module-accidents:   var(--coral-700);
+  --module-refrig:      var(--navy-600);
+  --module-air:         var(--sky-600);
   --module-comms:       #5D4037;
-  --module-scheduling:  var(--violet-500);
+  --module-scheduling:  var(--violet-600);
   --module-paperwork:   #475569;
 }
 
