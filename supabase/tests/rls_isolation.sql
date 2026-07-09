@@ -3127,6 +3127,71 @@ select pg_temp.expect_count(
   1, 'SCHED-DND: facility-B shift was NOT relocated by a cross-facility drag-move');
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- Publish-transition guard (migration 181 — publish-lock bypass, final leg).
+--
+-- Migrations 148/164 froze published shifts (UPDATE/DELETE) and rejected
+-- INSERTing a row born 'published', but the UPDATE leg only checked
+-- OLD.status: an end-user role could still UPDATE a draft straight to
+-- 'published', minting a locked shift while skipping the two-person
+-- publish-request approval, its re-validation, the publish audit event,
+-- open-shift seeding, and notifications. Migration 181 rejects any end-user
+-- transition INTO 'published'; the governed approve RPC (SECURITY DEFINER,
+-- runs as the table owner) is unaffected. Attacker here is Carol — an
+-- AUTHORIZED scheduling admin — because the guard must hold even for her.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+-- Fixtures: an unassigned draft in a far-future window nothing else uses, and
+-- a pending publish request from ALICE covering it (so Carol, the approver,
+-- is not self-approving).
+insert into public.schedule_shifts (id, facility_id, department_id, starts_at, ends_at, status)
+values ('aaaa1111-5514-aaaa-aaaa-aaaa11110181',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        now() + interval '90 days', now() + interval '90 days 4 hours', 'draft')
+on conflict (id) do nothing;
+insert into public.schedule_publish_requests (
+  id, facility_id, requested_by_employee_id, range_starts_at, range_ends_at, status
+) values ('aaaa1111-5811-aaaa-aaaa-aaaa11110181',
+          '11111111-1111-1111-1111-111111111111',
+          'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          now() + interval '89 days', now() + interval '92 days', 'pending')
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- Draft self-publish via direct UPDATE must be rejected at the DB boundary.
+select pg_temp.expect_error(
+  $$update public.schedule_shifts set status = 'published'
+     where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181'$$,
+  'SCHED-181: direct UPDATE of a DRAFT to published is rejected (publish-transition guard)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181' and status = 'draft'$$,
+  1, 'SCHED-181: the draft is still a draft after the rejected self-publish');
+-- Non-status edits to a draft stay open (the guard is transition-scoped).
+select pg_temp.expect_ok(
+  $$update public.schedule_shifts set notes = 'still editable'
+     where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181'$$,
+  'SCHED-181: a DRAFT shift remains directly editable (non-status fields)');
+-- The governed two-person path still publishes under the new guard: Alice
+-- requested, Carol approves; the DEFINER RPC takes the trigger's governed
+-- bypass and flips the draft.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.scheduling_approve_publish_request(
+        'aaaa1111-5811-aaaa-aaaa-aaaa11110181'))->>'ok' as ok) r
+    where ok = 'true'$$,
+  1, 'SCHED-181: governed approve-publish RPC still publishes (two-person path)');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181' and status = 'published'$$,
+  1, 'SCHED-181: the approved draft is now published');
+reset role;
+
 -- Staff (Alice): cannot override and cannot read the override audit log.
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';

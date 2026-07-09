@@ -127,7 +127,10 @@ const updateSchema = z
     break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
     role_label: z.string().trim().max(120).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
-    status: z.enum(["draft", "published", "cancelled"]).optional(),
+    // No `status` field: a client-supplied status could flip a draft straight
+    // to 'published' through the direct-update branch below, skipping the
+    // two-person publish-request approval. Status transitions happen only
+    // through the governed paths (publish-request RPC, cancel RPC, delete).
     override_cert: z.boolean().optional(),
     acknowledge_warnings: z.boolean().optional(),
     override_reason: z.string().trim().max(1000).nullable().optional(),
@@ -510,7 +513,6 @@ export async function updateGridShift(
     if (v.break_minutes !== undefined) patch.break_minutes = v.break_minutes ?? 0
     if (v.role_label !== undefined) patch.role_label = v.role_label
     if (v.notes !== undefined) patch.notes = v.notes
-    if (v.status !== undefined) patch.status = v.status
 
     if (Object.keys(patch).length === 0) {
       return { ok: false, error: "Nothing to update." }
