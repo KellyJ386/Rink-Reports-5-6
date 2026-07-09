@@ -2672,13 +2672,13 @@ CREATE FUNCTION public.schedule_shifts_publish_lock() RETURNS trigger
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
-  -- Governed contexts may mutate / create a published shift:
+  -- Governed contexts may mutate / create / publish a shift:
   --   * SECURITY DEFINER scheduling RPCs run as the table owner ('postgres');
   --   * trusted backend roles (service_role / supabase_admin);
   --   * an explicit transaction-local bypass flag set by a governed writer
   --     (select set_config('rr.publish_lock_bypass','on',true)).
   -- A direct write from an end-user role — i.e. the grid/edit/create server
-  -- actions or a crafted request — is rejected.
+  -- actions or a crafted request — is rejected per the rules below.
   if current_user in ('postgres', 'supabase_admin', 'service_role')
      or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
     return case when tg_op = 'DELETE' then old else new end;
@@ -2706,14 +2706,24 @@ begin
     return old;
   end if;
 
-  -- UPDATE: only a row that is ALREADY published is locked. Publishing a draft
-  -- (old.status='draft' -> 'published') is how the publish RPC works, so it is
-  -- allowed.
+  -- UPDATE, already-published row: locked regardless of the new values.
   if old.status = 'published' then
     raise exception
       'Schedule is published and locked: edits to a published shift require an explicit republish by a facility manager.'
       using errcode = '42501';
   end if;
+
+  -- UPDATE, draft/cancelled row transitioning TO published: this is the
+  -- update-leg of the publish-lock bypass. Publishing is exclusively the
+  -- two-person scheduling_approve_publish_request() flow; a direct end-user
+  -- UPDATE may never perform this transition, no matter how it currently got
+  -- routed at the app layer.
+  if new.status = 'published' and old.status is distinct from 'published' then
+    raise exception
+      'Schedule cannot be published directly: publishing requires the two-person publish-request approval.'
+      using errcode = '42501';
+  end if;
+
   return new;
 end;
 $$;
@@ -2723,7 +2733,7 @@ $$;
 -- Name: FUNCTION schedule_shifts_publish_lock(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.schedule_shifts_publish_lock() IS 'Publish-lock backstop: rejects a direct INSERT of a published row, and a direct UPDATE/DELETE of an already-published row, from an end-user PostgREST role. Governed SECURITY DEFINER RPCs (run as the table owner) and trusted backend roles are allowed, so swap/claim/publish/cancel/open-fill keep working. Closes the publish-lock bypass (create + edit + delete legs).';
+COMMENT ON FUNCTION public.schedule_shifts_publish_lock() IS 'Publish-lock backstop: rejects a direct INSERT of a published row, a direct UPDATE/DELETE of an already-published row, and a direct UPDATE transitioning a row TO published, all from an end-user PostgREST role. Governed SECURITY DEFINER RPCs (run as the table owner) and trusted backend roles are allowed, so swap/claim/publish/cancel/open-fill keep working. Closes the publish-lock bypass (create + edit + delete + direct-publish legs).';
 
 
 --
