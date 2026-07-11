@@ -279,6 +279,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         cy,
         state: chipState,
         doneColor: sev ? SEVERITY_COLOR[sev] : undefined,
+        severity: sev,
         depthValue: Number.isFinite(num) ? num : null,
         onClick: () => handlePointClick(p.id),
       }
@@ -493,6 +494,16 @@ export function SubmissionForm({ layout, points, settings }: Props) {
               boxShadow:
                 "0 12px 30px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.25)",
             }}
+            // Escape closes from anywhere in the popover, not only while the
+            // input has focus (eg after tabbing to Skip/Save). A full focus
+            // trap is intentionally omitted: the depth input treats Tab as
+            // save-and-advance for Bluetooth calipers, which a trap would break.
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault()
+                handleEscape()
+              }
+            }}
             onMouseDown={(e) => {
               // Clicks inside the popover (eg the Skip/Save buttons) shouldn't
               // bubble up and re-trigger the chip click that opened us.
@@ -549,6 +560,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
                 type="text"
                 inputMode="decimal"
                 autoComplete="off"
+                className="focus-visible:ring-[3px] focus-visible:ring-[var(--ring)]/50"
                 value={draftValue}
                 onChange={(e) => {
                   // Bluetooth HID calipers (eg iGaging IP54 100-700-B04) type
@@ -889,6 +901,7 @@ function ReviewPhase({
         <button
           type="button"
           onClick={onBack}
+          aria-label="Back to measure"
           style={{
             width: 34,
             height: 34,
@@ -912,6 +925,7 @@ function ReviewPhase({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
           >
             <path d="m15 18-6-6 6-6" />
           </svg>

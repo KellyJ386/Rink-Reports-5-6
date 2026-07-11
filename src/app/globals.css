@@ -202,7 +202,7 @@
 
   /* Strong heading ink */
   --foreground-strong:    var(--rr-navy);    /* #002244 — headings         */
-  --foreground-subtle:    var(--rr-grey);    /* #8A92A0 — placeholders     */
+  --foreground-subtle:    #646B7A;           /* placeholders/hints — 4.9:1 on --background (WCAG AA) */
 
   /* Primary — RinkReports green; on it sits deep-navy ink */
   --primary:              var(--rr-green);
@@ -255,7 +255,7 @@
   --warning:              var(--rr-yellow);
   --warning-foreground:   var(--navy-800);
   --warning-soft:         var(--amber-50);
-  --warning-soft-foreground: var(--amber-500);
+  --warning-soft-foreground: var(--amber-600); /* 4.7:1 on --amber-50 (WCAG AA) */
 
   --info:                 var(--sky-400);
   --info-foreground:      #FFFFFF;
@@ -416,7 +416,7 @@
   --popover:              #FFFFFF;
   --popover-foreground:   #1B2733;
   --foreground-strong:    var(--rr-navy);
-  --foreground-subtle:    var(--rr-grey);
+  --foreground-subtle:    #646B7A;           /* placeholders/hints — 4.9:1 on --background (WCAG AA) */
   --input-bg:             #FFFFFF;
   --primary:              var(--rr-green);
   --primary-foreground:   var(--rr-navy-dark);
@@ -448,7 +448,7 @@
   --warning:              var(--rr-yellow);
   --warning-foreground:   var(--navy-800);
   --warning-soft:         var(--amber-50);
-  --warning-soft-foreground: var(--amber-500);
+  --warning-soft-foreground: var(--amber-600); /* 4.7:1 on --amber-50 (WCAG AA) */
   --info:                 var(--sky-400);
   --info-foreground:      #FFFFFF;
   --info-soft:            var(--sky-50);

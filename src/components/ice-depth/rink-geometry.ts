@@ -20,6 +20,12 @@ export interface RinkPointSpec {
   state: PointChipState
   /** Hex color used when state === 'done'. */
   doneColor?: string
+  /**
+   * Optional severity of the measured value. Drives a non-color shape cue
+   * (▲ above target / ▼ below min) on the chip so out-of-range points are
+   * distinguishable without relying on color alone (WCAG 1.4.1).
+   */
+  severity?: "ok" | "low" | "high" | null
   /** Optional depth label shown inside done chips when showValues=true. */
   depthValue?: number | null
   onClick?: () => void

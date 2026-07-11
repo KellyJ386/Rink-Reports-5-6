@@ -57,6 +57,13 @@ interface SectionHeadProps {
   accent?: string
   /** Per-module theming key; colors the eyebrow and the icon badge background. */
   module?: ModuleKey
+  /**
+   * Heading level for the section title. Defaults to `h2` — the correct level
+   * directly under a page's `PageHeader` `h1` (avoids the h1→h3 skip that
+   * fails WCAG 1.3.1 / 2.4.10). Pass `"h3"` when the section is genuinely
+   * nested one level deeper.
+   */
+  headingLevel?: "h2" | "h3" | "h4"
   className?: string
 }
 
@@ -68,8 +75,10 @@ export function SectionHead({
   icon,
   accent,
   module,
+  headingLevel = "h2",
   className,
 }: SectionHeadProps) {
+  const Heading = headingLevel as React.ElementType
   // `module` takes precedence; fall back to the legacy `accent` CSS-var string.
   const accentVar = module ? `var(${MODULE_ACCENT_VAR[module]})` : accent ? `var(${accent})` : undefined
   const eyebrowClass = module ? MODULE_TEXT[module] : undefined
@@ -103,9 +112,9 @@ export function SectionHead({
             {eyebrow}
           </div>
         ) : null}
-        <h3 className="font-display text-[22px] leading-none tracking-[-0.01em] uppercase text-foreground m-0">
+        <Heading className="font-display text-[22px] leading-none tracking-[-0.01em] uppercase text-foreground m-0">
           {title}
-        </h3>
+        </Heading>
         {sub ? (
           <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
         ) : null}

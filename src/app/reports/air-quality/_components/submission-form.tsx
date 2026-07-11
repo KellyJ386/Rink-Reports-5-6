@@ -3,6 +3,7 @@
 import {
   useActionState,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -373,9 +374,9 @@ export function SubmissionForm({
 
       {availableEquipment.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <Label>Equipment</Label>
+          <Label htmlFor="equipment_id">Equipment</Label>
           <Select value={equipmentId} onValueChange={setEquipmentId}>
-            <SelectTrigger>
+            <SelectTrigger id="equipment_id">
               <SelectValue placeholder="Select equipment" />
             </SelectTrigger>
             <SelectContent>
@@ -632,6 +633,7 @@ function MeasurementList({
   onChange: (rows: AirQualityMeasurement[]) => void
   locations: LocationOption[]
 }) {
+  const baseId = useId()
   const update = (idx: number, patch: Partial<AirQualityMeasurement>) => {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   }
@@ -648,12 +650,14 @@ function MeasurementList({
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Location</Label>
+              <Label className="text-xs" htmlFor={`${baseId}-loc-${idx}`}>
+                Location
+              </Label>
               <Select
                 value={row.location ?? ""}
                 onValueChange={(v) => update(idx, { location: v })}
               >
-                <SelectTrigger>
+                <SelectTrigger id={`${baseId}-loc-${idx}`}>
                   <SelectValue placeholder="Select location" />
                 </SelectTrigger>
                 <SelectContent>
@@ -666,8 +670,11 @@ function MeasurementList({
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Time</Label>
+              <Label className="text-xs" htmlFor={`${baseId}-time-${idx}`}>
+                Time
+              </Label>
               <Input
+                id={`${baseId}-time-${idx}`}
                 type="time"
                 value={row.time ?? ""}
                 onChange={(e) => update(idx, { time: strOrNull(e.target.value) })}
@@ -676,8 +683,11 @@ function MeasurementList({
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">CO (ppm)</Label>
+              <Label className="text-xs" htmlFor={`${baseId}-co-${idx}`}>
+                CO (ppm)
+              </Label>
               <Input
+                id={`${baseId}-co-${idx}`}
                 type="text"
                 inputMode="decimal"
                 value={row.co ?? ""}
@@ -686,8 +696,11 @@ function MeasurementList({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">NO2 (ppm)</Label>
+              <Label className="text-xs" htmlFor={`${baseId}-no2-${idx}`}>
+                NO2 (ppm)
+              </Label>
               <Input
+                id={`${baseId}-no2-${idx}`}
                 type="text"
                 inputMode="decimal"
                 value={row.no2 ?? ""}
@@ -696,8 +709,11 @@ function MeasurementList({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Temp (°F)</Label>
+              <Label className="text-xs" htmlFor={`${baseId}-temp-${idx}`}>
+                Temp (°F)
+              </Label>
               <Input
+                id={`${baseId}-temp-${idx}`}
                 type="text"
                 inputMode="decimal"
                 value={row.temperature ?? ""}
@@ -709,8 +725,11 @@ function MeasurementList({
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Note</Label>
+            <Label className="text-xs" htmlFor={`${baseId}-note-${idx}`}>
+              Note
+            </Label>
             <Input
+              id={`${baseId}-note-${idx}`}
               type="text"
               value={row.note ?? ""}
               onChange={(e) => update(idx, { note: strOrNull(e.target.value) })}
@@ -751,6 +770,7 @@ function MonitoringLogSections({
   setFormData: Dispatch<SetStateAction<AirQualityFormData>>
   locations: LocationOption[]
 }) {
+  const baseId = useId()
   const update = (mutator: (draft: AirQualityFormData) => void) => {
     setFormData((prev) => {
       const next = structuredClone(prev)
@@ -837,7 +857,7 @@ function MonitoringLogSections({
         description="Arena status, resurfacers, ventilation, and maintenance."
       >
         <div className="flex flex-col gap-1.5">
-          <Label>Arena operating status</Label>
+          <Label htmlFor={`${baseId}-arena-status`}>Arena operating status</Label>
           <Select
             value={formData.section1.arena_status ?? ""}
             onValueChange={(v) =>
@@ -846,7 +866,7 @@ function MonitoringLogSections({
               })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger id={`${baseId}-arena-status`}>
               <SelectValue placeholder="Select arena status" />
             </SelectTrigger>
             <SelectContent>
@@ -867,8 +887,11 @@ function MonitoringLogSections({
               className="flex flex-col gap-3 rounded-lg border bg-background p-3 sm:flex-row sm:items-end"
             >
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label className="text-xs">Make / Model</Label>
+                <Label className="text-xs" htmlFor={`${baseId}-resurfacer-model-${idx}`}>
+                  Make / Model
+                </Label>
                 <Input
+                  id={`${baseId}-resurfacer-model-${idx}`}
                   value={unit.make_model ?? ""}
                   onChange={(e) =>
                     update((d) => {
@@ -880,7 +903,9 @@ function MonitoringLogSections({
                 />
               </div>
               <div className="flex flex-col gap-1.5 sm:w-44">
-                <Label className="text-xs">Fuel type</Label>
+                <Label className="text-xs" htmlFor={`${baseId}-resurfacer-fuel-${idx}`}>
+                  Fuel type
+                </Label>
                 <Select
                   value={unit.fuel_type ?? ""}
                   onValueChange={(v) =>
@@ -890,7 +915,7 @@ function MonitoringLogSections({
                     })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id={`${baseId}-resurfacer-fuel-${idx}`}>
                     <SelectValue placeholder="Select fuel type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -944,8 +969,11 @@ function MonitoringLogSections({
               className="flex flex-col gap-3 rounded-lg border bg-background p-3 sm:flex-row sm:items-end"
             >
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label className="text-xs">Equipment</Label>
+                <Label className="text-xs" htmlFor={`${baseId}-other-name-${idx}`}>
+                  Equipment
+                </Label>
                 <Input
+                  id={`${baseId}-other-name-${idx}`}
                   value={unit.name ?? ""}
                   onChange={(e) =>
                     update((d) => {
@@ -957,7 +985,9 @@ function MonitoringLogSections({
                 />
               </div>
               <div className="flex flex-col gap-1.5 sm:w-44">
-                <Label className="text-xs">Fuel type</Label>
+                <Label className="text-xs" htmlFor={`${baseId}-other-fuel-${idx}`}>
+                  Fuel type
+                </Label>
                 <Select
                   value={unit.fuel_type ?? ""}
                   onValueChange={(v) =>
@@ -967,7 +997,7 @@ function MonitoringLogSections({
                     })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id={`${baseId}-other-fuel-${idx}`}>
                     <SelectValue placeholder="Select fuel type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1009,7 +1039,7 @@ function MonitoringLogSections({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label>Ventilation system status</Label>
+          <Label htmlFor={`${baseId}-vent-status`}>Ventilation system status</Label>
           <Select
             value={formData.section1.ventilation_status ?? ""}
             onValueChange={(v) =>
@@ -1018,7 +1048,7 @@ function MonitoringLogSections({
               })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger id={`${baseId}-vent-status`}>
               <SelectValue placeholder="Select ventilation status" />
             </SelectTrigger>
             <SelectContent>
@@ -1033,8 +1063,11 @@ function MonitoringLogSections({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Last maintenance: resurfacer(s)</Label>
+            <Label className="text-xs" htmlFor={`${baseId}-maint-resurfacers`}>
+              Last maintenance: resurfacer(s)
+            </Label>
             <Input
+              id={`${baseId}-maint-resurfacers`}
               value={formData.section1.maintenance.resurfacers ?? ""}
               onChange={(e) =>
                 update((d) => {
@@ -1045,8 +1078,11 @@ function MonitoringLogSections({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Last maintenance: ventilation</Label>
+            <Label className="text-xs" htmlFor={`${baseId}-maint-ventilation`}>
+              Last maintenance: ventilation
+            </Label>
             <Input
+              id={`${baseId}-maint-ventilation`}
               value={formData.section1.maintenance.ventilation ?? ""}
               onChange={(e) =>
                 update((d) => {
@@ -1057,8 +1093,11 @@ function MonitoringLogSections({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Last maintenance: other equipment</Label>
+            <Label className="text-xs" htmlFor={`${baseId}-maint-other`}>
+              Last maintenance: other equipment
+            </Label>
             <Input
+              id={`${baseId}-maint-other`}
               value={formData.section1.maintenance.other ?? ""}
               onChange={(e) =>
                 update((d) => {
@@ -1104,7 +1143,9 @@ function MonitoringLogSections({
         description="Electric equipment, training, signage, and observations."
       >
         <div className="flex flex-col gap-1.5">
-          <Label>Consideration for electric equipment</Label>
+          <Label htmlFor={`${baseId}-electric-consideration`}>
+            Consideration for electric equipment
+          </Label>
           <Select
             value={formData.section4.electric_equipment_consideration ?? ""}
             onValueChange={(v) =>
@@ -1113,7 +1154,7 @@ function MonitoringLogSections({
               })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger id={`${baseId}-electric-consideration`}>
               <SelectValue placeholder="Select option" />
             </SelectTrigger>
             <SelectContent>
@@ -1182,27 +1223,33 @@ function MonitorFields({
     patch: Partial<AirQualityFormData["equipment"]["co_monitor"]>
   ) => void
 }) {
+  const baseId = useId()
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-background p-3">
       <h3 className="text-sm font-semibold">{legend}</h3>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Type</Label>
+          <Label className="text-xs" htmlFor={`${baseId}-type`}>Type</Label>
           <Input
+            id={`${baseId}-type`}
             value={monitor.type ?? ""}
             onChange={(e) => onChange({ type: strOrNull(e.target.value) })}
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Model</Label>
+          <Label className="text-xs" htmlFor={`${baseId}-model`}>Model</Label>
           <Input
+            id={`${baseId}-model`}
             value={monitor.model ?? ""}
             onChange={(e) => onChange({ model: strOrNull(e.target.value) })}
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Calibration date</Label>
+          <Label className="text-xs" htmlFor={`${baseId}-calibration`}>
+            Calibration date
+          </Label>
           <Input
+            id={`${baseId}-calibration`}
             type="date"
             value={monitor.calibration_date ?? ""}
             onChange={(e) =>

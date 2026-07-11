@@ -46,7 +46,10 @@ export function DiagramNav({
     >
       {rinks.length > 1 && (
         <div className="flex flex-col gap-1.5">
-          <label className="pl-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-muted-foreground">
+          <label
+            htmlFor="ice-depth-rink-select"
+            className="pl-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-muted-foreground"
+          >
             Rink
           </label>
           <Select
@@ -57,7 +60,7 @@ export function DiagramNav({
               if (slug) go(slug)
             }}
           >
-            <SelectTrigger className="h-11 w-full text-sm" aria-label="Select rink">
+            <SelectTrigger id="ice-depth-rink-select" className="h-11 w-full text-sm">
               <SelectValue placeholder="Pick a rink…" />
             </SelectTrigger>
             <SelectContent>
@@ -82,7 +85,10 @@ export function DiagramNav({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <label className="pl-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-muted-foreground">
+        <label
+          htmlFor="ice-depth-diagram-select"
+          className="pl-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-muted-foreground"
+        >
           Diagram
         </label>
         <Select
@@ -92,7 +98,7 @@ export function DiagramNav({
             if (slug && slug !== currentSlug) go(slug)
           }}
         >
-          <SelectTrigger className="h-11 w-full text-sm" aria-label="Select diagram">
+          <SelectTrigger id="ice-depth-diagram-select" className="h-11 w-full text-sm">
             <SelectValue placeholder="Pick a diagram…" />
           </SelectTrigger>
           <SelectContent>
