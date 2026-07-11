@@ -1,79 +1,59 @@
 "use client"
 
 import * as React from "react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-interface SheetContextValue {
-  open: boolean
-  setOpen: (open: boolean) => void
-}
+/**
+ * Slide-over panel built on `@radix-ui/react-dialog` (same primitive as
+ * `alert-dialog.tsx`). Radix handles the accessibility contract a hand-rolled
+ * dialog can't: focus is moved into the panel on open, trapped while open,
+ * and restored to the trigger on close; the background is made inert; Escape
+ * and overlay-click close it; and the panel is named by its `SheetTitle`
+ * (`Dialog.Title`). The trigger automatically advertises
+ * `aria-haspopup="dialog"` + `aria-expanded`.
+ *
+ * The exported API (`Sheet`, `SheetTrigger`, `SheetContent`, `SheetHeader`,
+ * `SheetTitle`, `SheetDescription`) is unchanged, so existing consumers keep
+ * working. Every `SheetContent` MUST contain a `SheetTitle` (may be `sr-only`)
+ * so the dialog has an accessible name.
+ */
 
-const SheetContext = React.createContext<SheetContextValue | null>(null)
+const Sheet = DialogPrimitive.Root
+const SheetTrigger = DialogPrimitive.Trigger
+const SheetClose = DialogPrimitive.Close
+const SheetPortal = DialogPrimitive.Portal
 
-function useSheet() {
-  const ctx = React.useContext(SheetContext)
-  if (!ctx) throw new Error("Sheet components must be used inside <Sheet>")
-  return ctx
-}
-
-interface SheetProps {
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  children: React.ReactNode
-}
-
-function Sheet({ open: openProp, onOpenChange, children }: SheetProps) {
-  const [openState, setOpenState] = React.useState(false)
-  const isControlled = openProp !== undefined
-  const open = isControlled ? openProp : openState
-
-  const setOpen = React.useCallback(
-    (next: boolean) => {
-      if (!isControlled) setOpenState(next)
-      onOpenChange?.(next)
-    },
-    [isControlled, onOpenChange]
-  )
-
-  return (
-    <SheetContext.Provider value={{ open, setOpen }}>
-      {children}
-    </SheetContext.Provider>
-  )
-}
-
-interface SheetTriggerProps extends React.ComponentProps<"button"> {
-  asChild?: boolean
-}
-
-function SheetTrigger({
+function SheetOverlay({
   className,
-  onClick,
-  children,
   ...props
-}: SheetTriggerProps) {
-  const { setOpen } = useSheet()
+}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
   return (
-    <button
-      data-slot="sheet-trigger"
-      type="button"
-      className={className}
-      onClick={(e) => {
-        onClick?.(e)
-        if (!e.defaultPrevented) setOpen(true)
-      }}
+    <DialogPrimitive.Overlay
+      className={cn(
+        "fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        className
+      )}
       {...props}
-    >
-      {children}
-    </button>
+    />
   )
 }
 
 type SheetSide = "left" | "right" | "top" | "bottom"
 
-interface SheetContentProps extends React.ComponentProps<"div"> {
+const sideClasses: Record<SheetSide, string> = {
+  left: "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left",
+  right:
+    "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
+  top: "inset-x-0 top-0 w-full border-b data-[state=open]:slide-in-from-top data-[state=closed]:slide-out-to-top",
+  bottom:
+    "inset-x-0 bottom-0 w-full border-t data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom",
+}
+
+interface SheetContentProps
+  extends React.ComponentProps<typeof DialogPrimitive.Content> {
   side?: SheetSide
 }
 
@@ -83,55 +63,28 @@ function SheetContent({
   side = "right",
   ...props
 }: SheetContentProps) {
-  const { open, setOpen } = useSheet()
-
-  React.useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open, setOpen])
-
-  if (!open) return null
-
-  const sideClasses: Record<SheetSide, string> = {
-    left: "inset-y-0 left-0 h-full w-3/4 max-w-sm border-r",
-    right: "inset-y-0 right-0 h-full w-3/4 max-w-sm border-l",
-    top: "inset-x-0 top-0 w-full border-b",
-    bottom: "inset-x-0 bottom-0 w-full border-t",
-  }
-
   return (
-    <div className="fixed inset-0 z-50">
-      <div
-        aria-hidden
-        className="fixed inset-0 bg-black/50"
-        onClick={() => setOpen(false)}
-      />
-      <div
+    <SheetPortal>
+      <SheetOverlay />
+      <DialogPrimitive.Content
         data-slot="sheet-content"
-        role="dialog"
-        aria-modal="true"
         className={cn(
-          "fixed bg-background shadow-lg p-6 flex flex-col gap-4",
+          "fixed z-50 flex flex-col gap-4 bg-background p-6 shadow-lg outline-none",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:duration-300",
           sideClasses[side],
           className
         )}
         {...props}
       >
         {children}
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={() => setOpen(false)}
+        <SheetClose
           className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Close"
         >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+          <X className="h-4 w-4" aria-hidden="true" />
+        </SheetClose>
+      </DialogPrimitive.Content>
+    </SheetPortal>
   )
 }
 
@@ -145,9 +98,12 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function SheetTitle({ className, ...props }: React.ComponentProps<"div">) {
+function SheetTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Title>) {
   return (
-    <div
+    <DialogPrimitive.Title
       data-slot="sheet-title"
       className={cn("text-lg font-semibold text-foreground", className)}
       {...props}
@@ -158,9 +114,9 @@ function SheetTitle({ className, ...props }: React.ComponentProps<"div">) {
 function SheetDescription({
   className,
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<typeof DialogPrimitive.Description>) {
   return (
-    <div
+    <DialogPrimitive.Description
       data-slot="sheet-description"
       className={cn("text-sm text-muted-foreground", className)}
       {...props}
@@ -171,6 +127,7 @@ function SheetDescription({
 export {
   Sheet,
   SheetTrigger,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,

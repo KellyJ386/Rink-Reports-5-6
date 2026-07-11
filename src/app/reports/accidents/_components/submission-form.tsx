@@ -495,7 +495,7 @@ export function SubmissionForm({
           <div className="flex flex-col gap-5">
             <FormField label="Severity" required>
               {severities.length > 0 ? (
-                <SeverityPillGroup ariaLabel="Severity">
+                <SeverityPillGroup ariaLabel="Severity" required>
                   {severities.map((o) => (
                     <SeverityRadioPill
                       key={o.id}
@@ -516,6 +516,7 @@ export function SubmissionForm({
             </FormField>
 
             <SelectField
+              id="primary_injury_type"
               label="Primary injury type"
               value={primaryInjuryTypeId}
               onValueChange={setPrimaryInjuryTypeId}
@@ -525,6 +526,7 @@ export function SubmissionForm({
 
             <div className="flex flex-col gap-2">
               <SelectField
+                id="medical_attention"
                 label="Medical attention"
                 value={medicalAttentionId}
                 onValueChange={setMedicalAttentionId}
@@ -601,6 +603,7 @@ export function SubmissionForm({
             </FormField>
 
             <SelectField
+              id="location"
               label="Location"
               value={locationId}
               onValueChange={setLocationId}
@@ -609,6 +612,7 @@ export function SubmissionForm({
             />
 
             <SelectField
+              id="activity"
               label="Activity at time of accident"
               value={activityId}
               onValueChange={setActivityId}
@@ -653,6 +657,7 @@ export function SubmissionForm({
                     </div>
                     <div className="flex flex-col gap-2">
                       <Input
+                        aria-label={`Witness ${idx + 1} name`}
                         placeholder="Name"
                         autoComplete="name"
                         value={w.name}
@@ -662,6 +667,7 @@ export function SubmissionForm({
                         className="h-11 text-base"
                       />
                       <Input
+                        aria-label={`Witness ${idx + 1} phone or email (optional)`}
                         placeholder="Phone or email (optional)"
                         autoComplete="off"
                         value={w.contact}
@@ -671,6 +677,7 @@ export function SubmissionForm({
                         className="h-11 text-base"
                       />
                       <Textarea
+                        aria-label={`Witness ${idx + 1} statement (optional)`}
                         placeholder="What they saw (optional)"
                         rows={3}
                         value={w.statement}
@@ -835,12 +842,14 @@ export function SubmissionForm({
 }
 
 function SelectField({
+  id,
   label,
   value,
   onValueChange,
   options,
   placeholder,
 }: {
+  id: string
   label: string
   value: string
   onValueChange: (v: string) => void
@@ -848,9 +857,9 @@ function SelectField({
   placeholder: string
 }) {
   return (
-    <FormField label={label}>
+    <FormField label={label} htmlFor={id}>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger>
+        <SelectTrigger id={id}>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>

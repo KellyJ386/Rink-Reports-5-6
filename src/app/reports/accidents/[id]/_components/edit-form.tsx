@@ -517,6 +517,7 @@ export function EditForm({
                   </button>
                 </div>
                 <Input
+                  aria-label={`Witness ${idx + 1} name`}
                   placeholder="Name"
                   autoComplete="name"
                   value={w.name}
@@ -524,6 +525,7 @@ export function EditForm({
                   className="h-11 text-base"
                 />
                 <Input
+                  aria-label={`Witness ${idx + 1} phone or email (optional)`}
                   placeholder="Phone or email (optional)"
                   autoComplete="off"
                   value={w.contact}
@@ -533,6 +535,7 @@ export function EditForm({
                   className="h-11 text-base"
                 />
                 <Textarea
+                  aria-label={`Witness ${idx + 1} statement (optional)`}
                   placeholder="What they saw (optional)"
                   rows={3}
                   value={w.statement}
@@ -624,9 +627,9 @@ function DropdownField({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <Label>{label}</Label>
+      <Label htmlFor={name}>{label}</Label>
       <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger>
+        <SelectTrigger id={name}>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>

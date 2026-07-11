@@ -155,6 +155,18 @@ function ModuleTile({
             />
           </div>
 
+          {/* Bottom scrim — guarantees the white title clears WCAG AA (≥4.5:1)
+              even over the lighter dark-mode module accents (e.g. amber/green
+              flood tiles), without darkening the accent identity up top. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5"
+            style={{
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.42), transparent)",
+            }}
+          />
+
           <div
             className="relative mt-auto pt-8 text-white"
             style={{

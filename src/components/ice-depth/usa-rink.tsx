@@ -200,10 +200,12 @@ function PointChip({
   cy,
   state,
   doneColor,
+  severity,
   depthValue,
   onClick,
   showValues,
 }: RinkPointSpec & { showValues?: boolean }) {
+  const [focused, setFocused] = React.useState(false)
   const isCurrent = state === "current"
   const isDone = state === "done"
   const isInactive = state === "inactive"
@@ -212,6 +214,8 @@ function PointChip({
   const stroke = isCurrent ? "#4DFF00" : isDone ? (doneColor ?? "#16a34a") : "#333333"
   const textFill = isDone || isCurrent ? "#ffffff" : "#111111"
   const opacity = isInactive ? 0.4 : 1
+  // Non-color severity cue for out-of-range done points (WCAG 1.4.1).
+  const outOfRange = isDone && (severity === "low" || severity === "high")
 
   return (
     <g
@@ -226,12 +230,32 @@ function PointChip({
             }
           : undefined
       }
-      style={{ cursor: onClick ? "pointer" : "default" }}
+      onFocus={onClick ? () => setFocused(true) : undefined}
+      onBlur={onClick ? () => setFocused(false) : undefined}
+      style={{ cursor: onClick ? "pointer" : "default", outline: "none" }}
       opacity={opacity}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       aria-label={onClick ? `Select measurement point ${pointNumber}` : undefined}
     >
+      {/* Keyboard focus ring — browser default outlines on SVG elements are
+          inconsistent, so draw an explicit high-contrast ring. */}
+      {focused && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={CHIP_R + 4}
+          fill="none"
+          stroke="var(--ring)"
+          strokeWidth={3}
+        />
+      )}
+      {/* Enlarged transparent hit target (~44px on a phone-width render) so the
+          tap target clears WCAG 2.5.8 without growing the visible chip. */}
+      {onClick && (
+        <circle cx={cx} cy={cy} r={22} fill="transparent" />
+      )}
+
       {/* Glow ring for current point */}
       {isCurrent && (
         <circle
@@ -252,6 +276,23 @@ function PointChip({
         stroke={stroke}
         strokeWidth={isCurrent ? 2.5 : 1.5}
       />
+
+      {/* Non-color severity badge: ▲ above target / ▼ below min. Sits at the
+          chip's top edge with a white halo so it reads on any fill. Redundant
+          with the fill color, so colorblind users still get the signal. */}
+      {outOfRange && (
+        <g aria-hidden="true">
+          <circle cx={cx + CHIP_R * 0.8} cy={cy - CHIP_R * 0.8} r={5.5} fill="#ffffff" stroke="#333333" strokeWidth={0.75} />
+          <path
+            d={
+              severity === "high"
+                ? `M ${cx + CHIP_R * 0.8} ${cy - CHIP_R * 0.8 - 2.6} L ${cx + CHIP_R * 0.8 + 2.4} ${cy - CHIP_R * 0.8 + 1.8} L ${cx + CHIP_R * 0.8 - 2.4} ${cy - CHIP_R * 0.8 + 1.8} Z`
+                : `M ${cx + CHIP_R * 0.8} ${cy - CHIP_R * 0.8 + 2.6} L ${cx + CHIP_R * 0.8 + 2.4} ${cy - CHIP_R * 0.8 - 1.8} L ${cx + CHIP_R * 0.8 - 2.4} ${cy - CHIP_R * 0.8 - 1.8} Z`
+            }
+            fill="#111111"
+          />
+        </g>
+      )}
 
       {/* Once measured (history / session-detail mode), the dot shows its depth
           value instead of the point index. Unmeasured points keep their number. */}
@@ -312,13 +353,17 @@ export function USARink({
   style,
   children,
 }: USARinkProps) {
+  // role="img" marks all descendants presentational, which would strip the
+  // interactive point chips (role="button") from the accessibility tree —
+  // use "group" whenever any point is clickable.
+  const interactive = points.some((p) => p.onClick)
   return (
     <svg
       viewBox={`0 0 ${RINK_W} ${RINK_H}`}
       preserveAspectRatio="xMidYMid meet"
       className={cn("w-full", className)}
       style={style}
-      role="img"
+      role={interactive ? "group" : "img"}
       aria-label="USA Hockey rink diagram with ice-depth measurement points"
     >
       <RinkMarkings />
