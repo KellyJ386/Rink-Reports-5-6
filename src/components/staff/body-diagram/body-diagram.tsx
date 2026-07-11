@@ -353,6 +353,9 @@ function ViewSvg({
   titleId: string
 }) {
   const [hovered, setHovered] = useState<string | null>(null)
+  // Keyboard focus tracking — drives a high-contrast stroke because SVG
+  // elements can't use the app's box-shadow focus rings reliably cross-browser.
+  const [focused, setFocused] = useState<string | null>(null)
 
   const enter = (id: string) => {
     if (readOnly) return
@@ -387,16 +390,19 @@ function ViewSvg({
       <figcaption className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {view === "front" ? "Front View" : "Back View"}
       </figcaption>
+      {/* role="img" would mark all descendants presentational and hide the
+          interactive region buttons from assistive tech, so the editable
+          diagram is a "group" instead. Read-only renders keep "img". */}
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-        role="img"
+        role={readOnly ? "img" : "group"}
         aria-labelledby={titleId}
         className="h-auto w-full max-w-[240px] touch-manipulation"
       >
         <title id={titleId}>
           {view === "front"
-            ? "Front view of body. Tap a region to mark it as injured."
-            : "Back view of body. Tap a region to mark it as injured."}
+            ? "Front view of body. Select a region to mark it as injured."
+            : "Back view of body. Select a region to mark it as injured."}
         </title>
 
         {REGIONS.map((region) => {
@@ -412,25 +418,42 @@ function ViewSvg({
             // report actually carries a head_neck selection.
             if (region.key === "head_neck" && side === "none") return null
             const isHovered = hovered === region.key
+            const isFocused = focused === region.key
             const paint = paintForSide(side, view)
             const fill =
               isHovered && paint.fill === BASE_FILL ? HOVER_FILL : paint.fill
             return (
               <g
                 key={region.key}
+                role={readOnly ? undefined : "button"}
+                tabIndex={readOnly ? undefined : 0}
                 aria-label={BODY_PART_LABELS[region.key]}
+                aria-pressed={
+                  readOnly ? undefined : side === "both" || side === view
+                }
                 data-body-part={region.key}
                 onClick={() => handleMidlineClick(region.key)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    handleMidlineClick(region.key)
+                  }
+                }}
+                onFocus={() => setFocused(region.key)}
+                onBlur={() =>
+                  setFocused((cur) => (cur === region.key ? null : cur))
+                }
                 onMouseEnter={() => enter(region.key)}
                 onMouseLeave={() => leave(region.key)}
                 style={{
                   cursor: readOnly ? "default" : "pointer",
                   pointerEvents: readOnly ? "none" : "auto",
                   fill,
-                  stroke: paint.stroke,
-                  strokeWidth: 2,
+                  stroke: isFocused ? "var(--ring)" : paint.stroke,
+                  strokeWidth: isFocused ? 3.5 : 2,
                   strokeLinejoin: "round",
                   transition: "fill 120ms ease, stroke 120ms ease",
+                  outline: "none",
                 }}
               >
                 <title>{`${BODY_PART_LABELS[region.key]} (${view})`}</title>
@@ -457,6 +480,7 @@ function ViewSvg({
                 }
                 const id = `${region.key}-${lat}`
                 const isHovered = hovered === id
+                const isFocused = focused === id
                 const paint = paintForSide(side, view)
                 const fill =
                   isHovered && paint.fill === BASE_FILL ? HOVER_FILL : paint.fill
@@ -464,19 +488,33 @@ function ViewSvg({
                 return (
                   <g
                     key={lat}
+                    role={readOnly ? undefined : "button"}
+                    tabIndex={readOnly ? undefined : 0}
                     aria-label={`${labelSide} ${BODY_PART_LABELS[region.key]}`}
+                    aria-pressed={
+                      readOnly ? undefined : side === "both" || side === view
+                    }
                     data-laterality={lat}
                     onClick={() => handlePairedClick(region.key, lat)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        handlePairedClick(region.key, lat)
+                      }
+                    }}
+                    onFocus={() => setFocused(id)}
+                    onBlur={() => setFocused((cur) => (cur === id ? null : cur))}
                     onMouseEnter={() => enter(id)}
                     onMouseLeave={() => leave(id)}
                     style={{
                       cursor: readOnly ? "default" : "pointer",
                       pointerEvents: readOnly ? "none" : "auto",
                       fill,
-                      stroke: paint.stroke,
-                      strokeWidth: 2,
+                      stroke: isFocused ? "var(--ring)" : paint.stroke,
+                      strokeWidth: isFocused ? 3.5 : 2,
                       strokeLinejoin: "round",
                       transition: "fill 120ms ease, stroke 120ms ease",
+                      outline: "none",
                     }}
                   >
                     <title>{`${labelSide} ${BODY_PART_LABELS[region.key]} (${view})`}</title>

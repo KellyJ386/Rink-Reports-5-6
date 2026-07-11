@@ -205,6 +205,7 @@ function PointChip({
   onClick,
   showValues,
 }: RinkPointSpec & { showValues?: boolean }) {
+  const [focused, setFocused] = React.useState(false)
   const isCurrent = state === "current"
   const isDone = state === "done"
   const isInactive = state === "inactive"
@@ -229,12 +230,26 @@ function PointChip({
             }
           : undefined
       }
-      style={{ cursor: onClick ? "pointer" : "default" }}
+      onFocus={onClick ? () => setFocused(true) : undefined}
+      onBlur={onClick ? () => setFocused(false) : undefined}
+      style={{ cursor: onClick ? "pointer" : "default", outline: "none" }}
       opacity={opacity}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       aria-label={onClick ? `Select measurement point ${pointNumber}` : undefined}
     >
+      {/* Keyboard focus ring — browser default outlines on SVG elements are
+          inconsistent, so draw an explicit high-contrast ring. */}
+      {focused && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={CHIP_R + 4}
+          fill="none"
+          stroke="var(--ring)"
+          strokeWidth={3}
+        />
+      )}
       {/* Enlarged transparent hit target (~44px on a phone-width render) so the
           tap target clears WCAG 2.5.8 without growing the visible chip. */}
       {onClick && (
@@ -338,13 +353,17 @@ export function USARink({
   style,
   children,
 }: USARinkProps) {
+  // role="img" marks all descendants presentational, which would strip the
+  // interactive point chips (role="button") from the accessibility tree —
+  // use "group" whenever any point is clickable.
+  const interactive = points.some((p) => p.onClick)
   return (
     <svg
       viewBox={`0 0 ${RINK_W} ${RINK_H}`}
       preserveAspectRatio="xMidYMid meet"
       className={cn("w-full", className)}
       style={style}
-      role="img"
+      role={interactive ? "group" : "img"}
       aria-label="USA Hockey rink diagram with ice-depth measurement points"
     >
       <RinkMarkings />

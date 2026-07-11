@@ -138,12 +138,19 @@ export function SeverityRadioPill({
 
 interface SeverityPillGroupProps {
   ariaLabel?: string
+  /**
+   * Marks the radiogroup required for assistive tech. The pills aren't native
+   * inputs, so the caller still enforces selection (e.g. the accidents form's
+   * submit guard) — this only exposes the requirement up front.
+   */
+  required?: boolean
   className?: string
   children: React.ReactNode
 }
 
 export function SeverityPillGroup({
   ariaLabel,
+  required,
   className,
   children,
 }: SeverityPillGroupProps) {
@@ -151,6 +158,7 @@ export function SeverityPillGroup({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
+      aria-required={required ? "true" : undefined}
       className={cn("flex flex-wrap gap-2", className)}
     >
       {children}

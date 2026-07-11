@@ -495,7 +495,7 @@ export function SubmissionForm({
           <div className="flex flex-col gap-5">
             <FormField label="Severity" required>
               {severities.length > 0 ? (
-                <SeverityPillGroup ariaLabel="Severity">
+                <SeverityPillGroup ariaLabel="Severity" required>
                   {severities.map((o) => (
                     <SeverityRadioPill
                       key={o.id}

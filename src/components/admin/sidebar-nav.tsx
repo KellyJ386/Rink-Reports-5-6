@@ -36,7 +36,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
         aria-current={isActive("/admin") ? "page" : undefined}
         className={linkCls("/admin")}
       >
-        <LayoutDashboard className="h-4 w-4 shrink-0" />
+        <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden />
         <span>Dashboard</span>
       </Link>
 
@@ -56,7 +56,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
                 aria-current={isActive(item.href) ? "page" : undefined}
                 className={linkCls(item.href)}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon className="h-4 w-4 shrink-0" aria-hidden />
                 <span className="truncate">{item.label}</span>
               </Link>
             )

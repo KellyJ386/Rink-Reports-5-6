@@ -112,7 +112,7 @@ export function AppSidebarNav({
             aria-current={active ? "page" : undefined}
             className={linkCls(item.href, item.exact)}
           >
-            <Icon className="h-4 w-4 shrink-0" />
+            <Icon className="h-4 w-4 shrink-0" aria-hidden />
             <span className="truncate">{item.label}</span>
             {badge > 0 ? (
               <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-sidebar-primary px-1.5 py-0.5 text-xs font-semibold text-sidebar-primary-foreground">
@@ -133,7 +133,7 @@ export function AppSidebarNav({
             aria-current={isActive("/admin") ? "page" : undefined}
             className={linkCls("/admin")}
           >
-            <Settings2 className="h-4 w-4 shrink-0" />
+            <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
             <span>Admin Center</span>
           </Link>
         </>

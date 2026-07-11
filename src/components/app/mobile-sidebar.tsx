@@ -59,7 +59,7 @@ export function AppMobileSidebar({
           aria-label="Open navigation"
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground lg:hidden"
         >
-          <Menu className="h-4 w-4" />
+          <Menu className="h-4 w-4" aria-hidden />
         </SheetTrigger>
       )}
       <SheetContent
