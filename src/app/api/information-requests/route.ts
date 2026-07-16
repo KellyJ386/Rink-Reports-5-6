@@ -44,17 +44,31 @@ const RATE_LIMIT_BUCKET = "information_requests"
 const RATE_LIMIT_MAX = 5 // requests allowed per IP per window
 const RATE_LIMIT_WINDOW_SECONDS = 600 // 10 minutes
 
-// Vercel sets x-forwarded-for; the client IP is the first comma-separated
-// entry. Fall back to a stable sentinel so a missing header still rate-limits
-// (shared bucket) rather than bypassing the check entirely.
+// Derive the client IP from a TRUSTED source. This endpoint is public and
+// unauthenticated, so the IP is the only rate-limit key — it must not be
+// attacker-controlled.
+//
+// The naive `x-forwarded-for`.split(",")[0] (leftmost) is spoofable: a client
+// can send its own XFF header and the platform APPENDS the real IP, so the
+// leftmost entry is whatever the attacker chose — rotating it defeats the cap
+// entirely. We instead prefer `x-real-ip` (set by the Vercel edge to the true
+// client IP, overwriting any client value) and fall back to the RIGHTMOST XFF
+// hop (the one added by our own trusted proxy), never the leftmost. A missing
+// value collapses to a single shared bucket so it still rate-limits rather than
+// bypassing the check.
 function clientIp(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for")
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim()
-    if (first) return first
-  }
   const realIp = request.headers.get("x-real-ip")?.trim()
   if (realIp) return realIp
+
+  const forwarded = request.headers.get("x-forwarded-for")
+  if (forwarded) {
+    const hops = forwarded
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean)
+    const last = hops[hops.length - 1]
+    if (last) return last
+  }
   return "unknown"
 }
 
@@ -87,8 +101,11 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createClient()
 
-  // Rate-limit by client IP before touching the table. Fail OPEN if the RPC
-  // itself errors (infra blip) so legit users aren't blocked, but log it.
+  // Rate-limit by client IP before touching the table. Fail CLOSED if the RPC
+  // itself errors: this is a public, unauthenticated write, so an unbounded
+  // insert path on a rate-limiter outage is worse than briefly turning away
+  // legitimate leads (who can retry). Abuse protection must not depend on the
+  // limiter being healthy.
   const ip = clientIp(request)
   const { data: allowed, error: rateError } = await supabase.rpc(
     "check_rate_limit",
@@ -102,8 +119,15 @@ export async function POST(request: NextRequest) {
 
   if (rateError) {
     console.error("information-requests: rate limit check failed", rateError)
-    // Fail open: continue to the insert.
-  } else if (allowed === false) {
+    return NextResponse.json(
+      { error: "Service temporarily unavailable. Please try again shortly." },
+      {
+        status: 503,
+        headers: { "Retry-After": "30" },
+      }
+    )
+  }
+  if (allowed === false) {
     return NextResponse.json(
       { error: "Too many requests. Please try again in a few minutes." },
       {

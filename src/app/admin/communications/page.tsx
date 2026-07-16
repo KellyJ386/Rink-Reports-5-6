@@ -75,6 +75,19 @@ function tabHref(tab: Tab): string {
   return `/admin/communications?${sp.toString()}`
 }
 
+// Build a safe PostgREST `ilike` value for use inside `.or(...)`. PostgREST's
+// `or` DSL is comma/paren-sensitive, so interpolating raw user input lets the
+// caller rewrite the filter tree. Wrap the `%…%` contains-pattern in double
+// quotes with embedded backslashes/quotes escaped — the same defense the
+// incident-reports and audit-log pages already use. (RLS + the facility_id .eq
+// still bound results to the tenant; this prevents filter-tree injection within
+// that scope.)
+function orIlikeValue(raw: string): string {
+  const pattern = `%${raw}%`
+  const quoted = pattern.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  return `"${quoted}"`
+}
+
 function defaultDateFrom(): string {
   const d = new Date()
   d.setDate(d.getDate() - 30)
@@ -212,7 +225,7 @@ async function InboxTabLoader({
     if (from) q = q.gte("created_at", `${from}T00:00:00.000Z`)
     if (to) q = q.lte("created_at", `${to}T23:59:59.999Z`)
     if (params.q) {
-      const pat = `%${params.q}%`
+      const pat = orIlikeValue(params.q)
       q = q.or(`title.ilike.${pat},body.ilike.${pat}`)
     }
 
@@ -316,7 +329,7 @@ async function InboxTabLoader({
   if (from) mq = mq.gte("sent_at", `${from}T00:00:00.000Z`)
   if (to) mq = mq.lte("sent_at", `${to}T23:59:59.999Z`)
   if (params.q) {
-    const pat = `%${params.q}%`
+    const pat = orIlikeValue(params.q)
     mq = mq.or(`subject.ilike.${pat},body.ilike.${pat}`)
   }
   const { data: msgsRaw } = await mq

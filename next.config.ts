@@ -13,6 +13,15 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=()",
   },
+  // Force HTTPS for two years and cover subdomains. This app is a PWA that
+  // stores auth cookies, so a first-visit / same-network SSL-strip is a real
+  // risk. `preload` opts into the browser preload list (submit the apex domain
+  // at hstspreload.org). Vercel may also set this at the edge; a duplicate is
+  // harmless. HSTS is ignored over plain HTTP (local dev), so it is safe here.
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
 ]
 
 const nextConfig: NextConfig = {
