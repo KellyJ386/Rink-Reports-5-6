@@ -38,7 +38,7 @@ const PRIMARY_BUTTON_STYLE: React.CSSProperties = {
   textDecoration: "none",
   minHeight: 56,
   cursor: "pointer",
-  boxShadow: "0 2px 0 0 #3F7C13, 0 4px 16px rgba(105,190,40,0.30)",
+  boxShadow: "0 2px 0 0 #3F7C13, 0 4px 16px rgba(77,255,0,0.30)",
   letterSpacing: "0.01em",
 }
 
@@ -348,7 +348,7 @@ function RequestInformationModal({ onClose }: { onClose: () => void }) {
                     fontSize: 15,
                     border: "none",
                     boxShadow:
-                      "0 2px 0 0 #3F7C13, 0 4px 16px rgba(105,190,40,0.30)",
+                      "0 2px 0 0 #3F7C13, 0 4px 16px rgba(77,255,0,0.30)",
                     cursor: submitting ? "wait" : "pointer",
                     opacity: submitting ? 0.7 : 1,
                   }}
@@ -372,7 +372,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
           width: 64,
           height: 64,
           borderRadius: "50%",
-          background: "rgba(105,190,40,0.18)",
+          background: "rgba(77,255,0,0.18)",
           display: "grid",
           placeItems: "center",
           margin: "0 auto 18px",
@@ -383,7 +383,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
           height="28"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#82CC36"
+          stroke="#4DFF00"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -424,7 +424,7 @@ function SuccessView({ onClose }: { onClose: () => void }) {
           fontWeight: 700,
           fontSize: 15,
           border: "none",
-          boxShadow: "0 2px 0 0 #3F7C13, 0 4px 16px rgba(105,190,40,0.30)",
+          boxShadow: "0 2px 0 0 #3F7C13, 0 4px 16px rgba(77,255,0,0.30)",
           cursor: "pointer",
         }}
       >
@@ -456,7 +456,7 @@ function FieldsetHeader({ children }: { children: React.ReactNode }) {
         fontWeight: 700,
         letterSpacing: "0.14em",
         textTransform: "uppercase",
-        color: "#82CC36",
+        color: "#4DFF00",
         margin: "20px 0 8px",
       }}
     >
@@ -513,7 +513,7 @@ function Field({
         }}
       >
         {label}
-        {required ? <span style={{ color: "#82CC36" }}> *</span> : null}
+        {required ? <span style={{ color: "#4DFF00" }}> *</span> : null}
       </label>
       {multiline ? (
         <textarea
