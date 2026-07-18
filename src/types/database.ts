@@ -6787,6 +6787,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      daily_area_assignment_allows: {
+        Args: { p_area_id: string; p_date: string }
+        Returns: boolean
+      }
       deactivate_role: {
         Args: { p_force?: boolean; p_role_id: string }
         Returns: {
@@ -6863,6 +6867,10 @@ export type Database = {
         Returns: boolean
       }
       has_module_admin_access: {
+        Args: { p_module_key: string }
+        Returns: boolean
+      }
+      has_module_edit_access: {
         Args: { p_module_key: string }
         Returns: boolean
       }

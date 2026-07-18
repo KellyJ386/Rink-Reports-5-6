@@ -3704,6 +3704,508 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- DAR: Daily-report area assignment & routing (migrations 182/183).
+--
+-- The date-scoped visibility layer (D10/D4): with routing enabled, a staff
+-- user may read/write a day's tab only if an active assignment names them or
+-- the area is open (no active assignment) that date. Module admins and `edit`
+-- holders bypass. Also proves: revert-to-open on supersede, multi-assignee,
+-- flag-off = pre-feature behavior, legacy NULL-business_date rows stay open,
+-- the NULL-date INSERT bypass is closed by the stamping trigger, snapshot
+-- immutability (even for admins), supersede-only assignments (no DELETE),
+-- and cross-facility isolation on all five routing tables.
+--
+-- Personas (facility A unless noted):
+--   alice (existing)  staff; daily view+submit; can_submit on Granted Area.
+--   zoe   (new)       staff; daily view+submit; NO per-area rows.
+--   sam   (new)       staff role but daily view+submit+EDIT (supervisor-tier).
+--   mona  (existing)  manager; seeded daily admin here for determinism.
+--   bob   (existing)  facility B staff.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+insert into auth.users (id, email)
+values
+  ('dada1111-0000-4000-8000-000000000001', 'zoe@fac-a.test'),
+  ('ed17ed17-0000-4000-8000-000000000001', 'sam@fac-a.test')
+on conflict (id) do nothing;
+
+insert into public.users (id, facility_id, email, is_super_admin)
+values
+  ('dada1111-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'zoe@fac-a.test', false),
+  ('ed17ed17-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'sam@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'dada1111-0000-4000-8000-000000000002'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'dada1111-0000-4000-8000-000000000001'::uuid,
+       r.id, 'Zoe', 'Zamora', 'zoe@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+on conflict (id) do nothing;
+
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'ed17ed17-0000-4000-8000-000000000002'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'ed17ed17-0000-4000-8000-000000000001'::uuid,
+       r.id, 'Sam', 'Shiftlead', 'sam@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+on conflict (id) do nothing;
+
+-- zoe: plain staff grants. sam: staff + the `edit` routing tier. mona: daily
+-- admin (+ scheduling view so the job-area-map with-check can see the target).
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values
+  ('dada1111-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'view',   true),
+  ('dada1111-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit', true),
+  ('ed17ed17-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'view',   true),
+  ('ed17ed17-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit', true),
+  ('ed17ed17-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'edit',   true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'view',   true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit', true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'daily_reports', 'admin',  true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'scheduling',    'view',   true)
+on conflict (user_id, facility_id, module_name, action)
+do update set enabled = true;
+
+-- Routing flag ON in both facilities (fac B row doubles as the cross-facility
+-- SELECT target).
+insert into public.daily_report_settings (facility_id, assignment_routing_enabled)
+values
+  ('11111111-1111-1111-1111-111111111111', true),
+  ('22222222-2222-2222-2222-222222222222', true)
+on conflict (facility_id) do update set assignment_routing_enabled = true;
+
+-- Active assignment: Granted Area today -> zoe ONLY. Plus a facility-B row
+-- (bob) as the cross-facility target.
+insert into public.report_area_assignments
+  (id, facility_id, report_date, area_id, employee_id, source)
+values
+  ('da5a0000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', current_date,
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+   'dada1111-0000-4000-8000-000000000002', 'manual'),
+  ('da5a0000-0000-4000-8000-00000000000b',
+   '22222222-2222-2222-2222-222222222222', current_date,
+   'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+   'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'manual')
+on conflict (id) do nothing;
+
+-- A restricted-day submission by zoe (SELECT-negative target for alice), and a
+-- legacy NULL-business_date row (must STAY visible: pre-feature data is open).
+-- The stamping trigger fills business_date on INSERT, so the legacy shape is
+-- produced by nulling it afterwards as postgres.
+insert into public.daily_report_submissions
+  (id, facility_id, area_id, template_id, employee_id, business_date)
+values
+  ('da5b0000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+   'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+   'dada1111-0000-4000-8000-000000000002', current_date),
+  ('da5b0000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+   'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+   null, current_date)
+on conflict (id) do nothing;
+
+update public.daily_report_submissions
+   set business_date = null
+ where id = 'da5b0000-0000-4000-8000-000000000002';
+
+-- Snapshot fixtures (yesterday) in both facilities; default-owner and
+-- job-area-map rows in facility B as cross-facility SELECT targets.
+insert into public.daily_area_assignment_snapshots
+  (id, facility_id, business_date, area_id, assignees, completed)
+values
+  ('da5c0000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', current_date - 1,
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011', '[]'::jsonb, false),
+  ('da5c0000-0000-4000-8000-000000000002',
+   '22222222-2222-2222-2222-222222222222', current_date - 1,
+   'bbbb2222-db01-bbbb-bbbb-bbbb22220011', '[]'::jsonb, false)
+on conflict (id) do nothing;
+
+insert into public.area_default_owners (facility_id, area_id, employee_id)
+values ('22222222-2222-2222-2222-222222222222',
+        'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+        'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+on conflict (area_id, employee_id) do nothing;
+
+insert into public.daily_area_job_area_map (facility_id, area_id, job_area_id)
+values ('22222222-2222-2222-2222-222222222222',
+        'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+        'bbbb2222-30b0-bbbb-bbbb-bbbb22220002')
+on conflict (area_id, job_area_id) do nothing;
+
+-- ---- alice (staff, NOT assigned): blocked from the restricted area+date ----
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submissions
+      (facility_id, area_id, template_id, business_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: unassigned alice CANNOT submit into an area assigned to zoe today');
+
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submissions
+      (facility_id, area_id, template_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013')$$,
+  'DAR: omitting business_date does NOT bypass the gate (stamping trigger)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where id = 'da5b0000-0000-4000-8000-000000000001'$$,
+  0, 'DAR: unassigned alice CANNOT SELECT zoe''s restricted-day submission');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where id = 'da5b0000-0000-4000-8000-000000000002'$$,
+  1, 'DAR: legacy NULL-business_date row REMAINS visible to alice (pre-feature open)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_settings
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'DAR: alice can SELECT her own facility''s routing settings');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_settings
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DAR: alice CANNOT SELECT facility B routing settings');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.daily_report_settings
+         set assignment_routing_enabled = false
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+      returning 1
+    ) select count(*)::int from u$$,
+  0, 'DAR: staff alice CANNOT flip the routing flag (admin-only write)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and superseded_at is null$$,
+  1, 'DAR: alice can SELECT her facility''s assignment map (module view)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DAR: alice CANNOT SELECT assignments in facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    values ('11111111-1111-1111-1111-111111111111', current_date,
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'manual')$$,
+  'DAR: staff alice CANNOT self-assign (INSERT requires edit/admin)');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.report_area_assignments
+         set superseded_at = now()
+       where id = 'da5a0000-0000-4000-8000-000000000001'
+      returning 1
+    ) select count(*)::int from u$$,
+  0, 'DAR: staff alice CANNOT supersede an assignment (UPDATE requires edit/admin)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.area_default_owners
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DAR: alice CANNOT SELECT default owners in facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_job_area_map
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DAR: alice CANNOT SELECT the job-area map in facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DAR: alice CANNOT SELECT snapshots in facility B');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where id = 'da5c0000-0000-4000-8000-000000000001'$$,
+  1, 'DAR: alice CAN SELECT her facility''s snapshot for an area she can access');
+
+select pg_temp.expect_error(
+  $$insert into public.daily_area_assignment_snapshots
+      (facility_id, business_date, area_id, assignees, completed)
+    values ('11111111-1111-1111-1111-111111111111', current_date,
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011', '[]'::jsonb, false)$$,
+  'DAR: staff alice CANNOT INSERT a snapshot');
+
+-- ---- zoe (assigned staff): the restricted area+date works for her ----------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dada1111-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dada1111-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('da5b0000-0000-4000-8000-000000000003',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: assigned zoe CAN submit into the restricted area today');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where id = 'da5b0000-0000-4000-8000-000000000001'$$,
+  1, 'DAR: assigned zoe CAN SELECT the restricted-day submission');
+
+-- ---- multi-assignee (D2): adding alice restores her access -----------------
+set local role postgres;
+insert into public.report_area_assignments
+  (id, facility_id, report_date, area_id, employee_id, source)
+values ('da5a0000-0000-4000-8000-000000000002',
+        '11111111-1111-1111-1111-111111111111', current_date,
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'manual')
+on conflict (id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('da5b0000-0000-4000-8000-000000000004',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: co-assigned alice CAN submit (multiple assignees all have access)');
+
+-- ---- supersede: alice loses access; superseding ALL rows reopens the area --
+set local role postgres;
+update public.report_area_assignments set superseded_at = now()
+ where id = 'da5a0000-0000-4000-8000-000000000002';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submissions
+      (facility_id, area_id, template_id, business_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: alice loses access the moment her assignment is superseded (zoe still active)');
+
+set local role postgres;
+update public.report_area_assignments set superseded_at = now()
+ where id = 'da5a0000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('da5b0000-0000-4000-8000-000000000005',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: last active assignment superseded -> area reverts to OPEN (D4)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where id = 'da5b0000-0000-4000-8000-000000000001'$$,
+  1, 'DAR: alice regains SELECT on the day''s rows once the area is open again');
+
+-- ---- sam (edit tier): bypasses the gate and can manage assignments ---------
+set local role postgres;
+insert into public.report_area_assignments
+  (id, facility_id, report_date, area_id, employee_id, source)
+values ('da5a0000-0000-4000-8000-000000000003',
+        '11111111-1111-1111-1111-111111111111', current_date,
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'dada1111-0000-4000-8000-000000000002', 'manual')
+on conflict (id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ed17ed17-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ed17ed17-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('da5b0000-0000-4000-8000-000000000006',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: edit-tier sam CAN submit into a restricted area he is not assigned to');
+
+select pg_temp.expect_ok(
+  $$insert into public.report_area_assignments
+      (id, facility_id, report_date, area_id, employee_id, source, assigned_by)
+    values ('da5a0000-0000-4000-8000-000000000004',
+            '11111111-1111-1111-1111-111111111111', current_date,
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'manual',
+            'ed17ed17-0000-4000-8000-000000000002')$$,
+  'DAR: edit-tier sam CAN assign a coworker to an area');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.report_area_assignments
+         set superseded_at = now()
+       where id = 'da5a0000-0000-4000-8000-000000000004'
+      returning 1
+    ) select count(*)::int from u$$,
+  1, 'DAR: edit-tier sam CAN supersede an assignment');
+
+select pg_temp.expect_error(
+  $$insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    values ('22222222-2222-2222-2222-222222222222', current_date,
+            'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+            'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'manual')$$,
+  'DAR: edit-tier sam CANNOT assign into facility B');
+
+-- No DELETE policy exists, so the row is invisible to DELETE: it silently
+-- matches 0 rows (RLS filters, it does not raise). Assert 0 rows affected AND
+-- that the row survives.
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.report_area_assignments
+       where id = 'da5a0000-0000-4000-8000-000000000004'
+      returning 1
+    ) select count(*)::int from d$$,
+  0, 'DAR: assignments are supersede-only — DELETE affects 0 rows even for the edit tier');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where id = 'da5a0000-0000-4000-8000-000000000004'$$,
+  1, 'DAR: the assignment row survives the denied DELETE');
+
+-- ---- mona (module admin): unaffected reads, config writes, no snapshot writes
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+    where id = 'da5b0000-0000-4000-8000-000000000001'$$,
+  1, 'DAR: module-admin mona sees restricted-day rows (supervisor+ unaffected)');
+
+select pg_temp.expect_ok(
+  $$insert into public.area_default_owners (facility_id, area_id, employee_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'dada1111-0000-4000-8000-000000000002')$$,
+  'DAR: module-admin mona CAN configure default owners');
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_area_job_area_map (facility_id, area_id, job_area_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-30b0-aaaa-aaaa-aaaa11110002')$$,
+  'DAR: module-admin mona CAN map an area to a scheduling job area');
+
+select pg_temp.expect_error(
+  $$insert into public.daily_area_job_area_map (facility_id, area_id, job_area_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'bbbb2222-30b0-bbbb-bbbb-bbbb22220002')$$,
+  'DAR: mona CANNOT map to a facility-B job area (endpoint facility match)');
+
+select pg_temp.expect_error(
+  $$insert into public.daily_area_assignment_snapshots
+      (facility_id, business_date, area_id, assignees, completed)
+    values ('11111111-1111-1111-1111-111111111111', current_date,
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011', '[]'::jsonb, false)$$,
+  'DAR: snapshots reject INSERT even from a module admin (day-close path only)');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.daily_area_assignment_snapshots
+         set completed = true
+       where id = 'da5c0000-0000-4000-8000-000000000001'
+      returning 1
+    ) select count(*)::int from u$$,
+  0, 'DAR: snapshots reject UPDATE even from a module admin (immutable)');
+
+select pg_temp.expect_error(
+  $$insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    values ('22222222-2222-2222-2222-222222222222', current_date,
+            'bbbb2222-db01-bbbb-bbbb-bbbb22220011',
+            'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'manual')$$,
+  'DAR: module-admin mona CANNOT assign into facility B');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.daily_report_settings
+         set assignment_routing_enabled = false
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+      returning 1
+    ) select count(*)::int from u$$,
+  1, 'DAR: module-admin mona CAN toggle the routing flag');
+
+-- ---- flag OFF (mona just disabled it): pre-feature behavior returns --------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submissions
+      (id, facility_id, area_id, template_id, business_date)
+    values ('da5b0000-0000-4000-8000-000000000007',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: flag OFF -> unassigned alice can submit despite zoe''s active assignment');
+
+-- Flag back ON: the restriction resumes (proves the flag is live, not cached).
+set local role postgres;
+update public.daily_report_settings set assignment_routing_enabled = true
+ where facility_id = '11111111-1111-1111-1111-111111111111';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submissions
+      (facility_id, area_id, template_id, business_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'aaaa1111-d701-aaaa-aaaa-aaaa11110013', current_date)$$,
+  'DAR: flag back ON -> the restriction resumes for unassigned alice');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
