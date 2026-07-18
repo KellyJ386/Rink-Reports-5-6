@@ -1,6 +1,6 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
-import { History } from "lucide-react"
+import { ClipboardList, History } from "lucide-react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
@@ -22,6 +22,11 @@ import {
   type ConsoleItem,
   type ConsoleTemplate,
 } from "./_components/daily-report-console"
+import { MyAreasTodayView } from "./_components/my-areas-today"
+import {
+  getMyAreasToday,
+  getMyAssignmentNotifications,
+} from "./_lib/assignments"
 import { getAllowedDailyAreas } from "./actions"
 
 export const dynamic = "force-dynamic"
@@ -60,6 +65,13 @@ export default async function DailyReportsPage() {
   // server-side RLS boundary via getAllowedDailyAreas().
   const allowed = await getAllowedDailyAreas()
 
+  // Assignment routing (D7/D10): resolves + partitions today's areas. With
+  // routing off this reports routingEnabled=false and the page renders the
+  // pre-feature console unchanged.
+  const routing = await getMyAreasToday()
+  const routingData = routing.ok ? routing.data : null
+  const routingOn = routingData?.routingEnabled === true
+
   const shell = (children: ReactNode) => (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
       <PageHeader
@@ -76,12 +88,22 @@ export default async function DailyReportsPage() {
         }
         title="Daily Reports"
         actions={
-          <Button asChild variant="outline" size="sm">
-            <Link href="/reports/daily/history">
-              <History className="h-4 w-4" aria-hidden />
-              View history
-            </Link>
-          </Button>
+          <>
+            {routingData?.canRoute ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/reports/daily/assignments">
+                  <ClipboardList className="h-4 w-4" aria-hidden />
+                  Assignments
+                </Link>
+              </Button>
+            ) : null}
+            <Button asChild variant="outline" size="sm">
+              <Link href="/reports/daily/history">
+                <History className="h-4 w-4" aria-hidden />
+                View history
+              </Link>
+            </Button>
+          </>
         }
       />
       {children}
@@ -102,7 +124,19 @@ export default async function DailyReportsPage() {
     )
   }
 
-  const areaIds = allowed.map((a) => a.id)
+  // With routing ON, staff only see (and load templates for) their assigned
+  // areas plus today's open areas — areas assigned to someone else are RLS-
+  // blocked anyway (D10). With routing OFF this is exactly `allowed`.
+  const visible = routingOn && routingData
+    ? new Set(
+        [...routingData.myAreas, ...routingData.openAreas].map((a) => a.id),
+      )
+    : null
+  const consoleAllowed = visible
+    ? allowed.filter((a) => visible.has(a.id))
+    : allowed
+
+  const areaIds = consoleAllowed.map((a) => a.id)
 
   // Templates for every assignable area (one query).
   const { data: templates } = await supabase
@@ -149,13 +183,25 @@ export default async function DailyReportsPage() {
     templatesByArea.set(t.area_id, list)
   }
 
-  const areas: ConsoleArea[] = allowed.map((a) => ({
+  const areas: ConsoleArea[] = consoleAllowed.map((a) => ({
     id: a.id,
     slug: a.slug,
     name: a.name,
     color: a.color,
     templates: templatesByArea.get(a.id) ?? [],
   }))
+
+  if (routingOn && routingData) {
+    const { notifications, unreadCount } = await getMyAssignmentNotifications()
+    return shell(
+      <MyAreasTodayView
+        data={routingData}
+        consoleAreas={areas}
+        notifications={notifications}
+        unreadCount={unreadCount}
+      />,
+    )
+  }
 
   return shell(<DailyReportConsole areas={areas} />)
 }

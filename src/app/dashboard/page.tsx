@@ -17,6 +17,7 @@ import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
 import { createClient } from "@/lib/supabase/server"
 
 import { hideDashboardModule, showDashboardModule } from "./actions"
+import { MyAreasWidget } from "./_components/my-areas-widget"
 import { getDashboardModuleStatus, type ModuleStatus } from "./_lib/status"
 
 export const dynamic = "force-dynamic"
@@ -325,6 +326,12 @@ export default async function DashboardPage() {
           }
           description="Pick a module to get started."
         />
+
+        {/* Assignment widget resolves the CALLER's own areas, so hide it in
+            preview mode where the page renders the target's perspective. */}
+        {!preview.active && isFacilityEnabled("daily_reports") ? (
+          <MyAreasWidget />
+        ) : null}
 
         {visibleModules.length === 0 ? (
           <EmptyState

@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/run-reminders",
       "schedule": "3-59/5 * * * *"
+    },
+    {
+      "path": "/api/cron/snapshot-daily-assignments",
+      "schedule": "27 * * * *"
     }
   ]
 }

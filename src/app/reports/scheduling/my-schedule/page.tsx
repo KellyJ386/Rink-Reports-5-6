@@ -146,20 +146,28 @@ export default async function MySchedulePage({
     .eq("employee_id", employeeRow.id)
     .order("starts_at", { ascending: true })
 
+  // DRAFT shifts are NEVER shown to staff: the schedule isn't real until the
+  // two-person publish flow runs, and RLS does not filter by status (the
+  // SELECT policy is facility+module scoped), so this query-side filter is
+  // the enforcement point. "All" in the status picker means published +
+  // cancelled — cancelled is the employee's own useful signal; draft is a
+  // leak of an unapproved schedule.
+  const visibleStatuses =
+    statusFilter === "all" ? ["published", "cancelled"] : ["published"]
+
   if (currentView === "week") {
     // Week view date range
     const weekEnd = new Date(weekStart)
     weekEnd.setDate(weekEnd.getDate() + 7)
     query = query
+      .in("status", visibleStatuses)
       .gte("starts_at", weekStart.toISOString())
       .lt("starts_at", weekEnd.toISOString())
   } else {
     query = query
+      .in("status", visibleStatuses)
       .gte("starts_at", fromDate.toISOString())
       .lte("starts_at", toDate.toISOString())
-    if (statusFilter !== "all") {
-      query = query.eq("status", "published")
-    }
   }
 
   const { data: shiftsRaw } = await query

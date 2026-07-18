@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 
 import { createClient } from "@/lib/supabase/client"
+import { clearDailyAreasCache } from "@/lib/offline/daily-areas-cache"
 import { clearScheduleCache } from "@/lib/offline/schedule-cache"
 import { setCurrentOwnerId } from "@/lib/offline/current-owner"
 import { postToServiceWorker } from "@/lib/offline/use-sync-queue"
@@ -35,6 +36,7 @@ export function AuthStateListener() {
       const uid = session?.user?.id ?? null
       if (event === "SIGNED_OUT") {
         void clearScheduleCache()
+        void clearDailyAreasCache()
         setCurrentOwnerId(null)
         // Park any queued item so nothing replays under the next session.
         void postToServiceWorker({
@@ -45,9 +47,10 @@ export function AuthStateListener() {
         return
       }
       if (uid && lastUserId.current && uid !== lastUserId.current) {
-        // A different user signed in on this device — drop the prior cache and
-        // quarantine the previous user's queued submissions.
+        // A different user signed in on this device — drop the prior caches
+        // and quarantine the previous user's queued submissions.
         void clearScheduleCache()
+        void clearDailyAreasCache()
         void postToServiceWorker({
           type: "QUARANTINE_FOREIGN",
           currentOwnerId: uid,

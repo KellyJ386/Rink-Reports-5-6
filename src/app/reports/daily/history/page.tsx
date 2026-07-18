@@ -15,6 +15,9 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import type { Tables } from "@/types/database"
 
+import { AssignmentRecordCard } from "../_components/assignment-record"
+import { getAssignmentRecord } from "../_lib/assignments"
+
 export const dynamic = "force-dynamic"
 
 // Cap on how many recent submissions to surface. Daily reports auto-purge
@@ -193,30 +196,39 @@ export default async function DailyReportHistoryPage() {
     }
   })
 
+  // Frozen assignment record for closed days (empty when routing was never
+  // enabled — the page then renders exactly as before the feature).
+  const record = await getAssignmentRecord()
+
   if (items.length === 0) {
     return shell(
-      <SectionCard className="items-center gap-3 py-12 text-center">
-        <span
-          aria-hidden
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <ClipboardList className="h-6 w-6" />
-        </span>
-        <h2 className="text-lg font-semibold tracking-tight">
-          No reports yet
-        </h2>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Once daily reports are submitted for areas you can access, they&apos;ll
-          appear here. Reports auto-delete after 14 days.
-        </p>
-      </SectionCard>
+      <>
+        <AssignmentRecordCard days={record} />
+        <SectionCard className="items-center gap-3 py-12 text-center">
+          <span
+            aria-hidden
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          >
+            <ClipboardList className="h-6 w-6" />
+          </span>
+          <h2 className="text-lg font-semibold tracking-tight">
+            No reports yet
+          </h2>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Once daily reports are submitted for areas you can access,
+            they&apos;ll appear here. Reports auto-delete after 14 days.
+          </p>
+        </SectionCard>
+      </>
     )
   }
 
   return shell(
-    <Card className="gap-0 py-0">
-      <ul className="flex flex-col divide-y divide-border">
-        {items.map((it) => (
+    <>
+      <AssignmentRecordCard days={record} />
+      <Card className="gap-0 py-0">
+        <ul className="flex flex-col divide-y divide-border">
+          {items.map((it) => (
           <li
             key={it.id}
             className="flex flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
@@ -251,7 +263,8 @@ export default async function DailyReportHistoryPage() {
             ) : null}
           </li>
         ))}
-      </ul>
-    </Card>
+        </ul>
+      </Card>
+    </>
   )
 }
