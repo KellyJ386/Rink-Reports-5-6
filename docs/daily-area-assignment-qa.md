@@ -36,8 +36,16 @@ Resolved after the initial gate (same branch):
 4. ~~No snapshot/assignment retention~~ — **resolved** by migration 186: the retention-aware `purge_old_daily_reports()` now also purges day-scoped routing rows (assignments, snapshots, notifications) on the same per-facility `keep_days`; standing config is never purged.
 5. ~~CLAUDE.md staleness~~ — refreshed (cron routes documented, migration count).
 
+Hosted project (`bqbdgwlhbhabsibjgwmk`), applied 2026-07-18:
+
+- Migrations **180–187 applied** via MCP (180/181 were pending from `main`; 182–187 are this feature). The migration ledger was re-stamped to the repo's numeric versions after each apply — `apply_migration` records timestamp versions, the exact drift `docs/migration-ledger-reconcile-2026-06.md` warns about — and verified clean: 187 rows, contiguous `00000000000001`–`00000000000187`, zero timestamp versions.
+- All six routing tables live with RLS enabled and the expected policy counts (snapshots: SELECT-only).
+- **Security advisors run**: no ERROR findings. The four new SECURITY DEFINER functions appear under the same `authenticated_security_definer_function_executable` WARN class as the 46 pre-existing permission helpers — the codebase's intentional pattern; each new function is internally caller-gated (module access / edit-admin / service-role) as documented in its migration.
+- **Routing-tier grant check (read-only)**: every active admin/manager account at Tennity already holds enabled `daily_reports` `edit` + `admin` grants — no backfill needed.
+
 Still open (require a human or the production environment):
 
 - **Device checklist items** (§7 above) need the standard pre-launch hardware pass.
-- **Production env confirmation**: `CRON_SECRET` + `SUPABASE_SERVICE_ROLE_KEY` must be present in the deploy environment for the snapshot cron route.
+- **Production env confirmation**: `CRON_SECRET` + `SUPABASE_SERVICE_ROLE_KEY` must be present in the deploy environment for the snapshot cron route (same vars the existing crons use).
 - **Tennity configuration + flag-on** (default owners / job-area mapping / threshold) — product decisions, then flip the flag. Rollout note for whoever runs scheduling: publish the schedule **before** a day starts (or use the board's re-sync button after late publishes).
+- **PR #278 review + merge** — note the schema is now live (dark) ahead of the merge; the app code lands with the PR.
