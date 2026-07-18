@@ -222,6 +222,14 @@ export async function applyAreaAssignment(
   if (!isDateWithinAssignmentWindow(input.date, ctx.today)) {
     return { ok: false, error: "Assignments can only be changed for the current few days." }
   }
+  // Closed days are immutable (ISO strings compare correctly). The
+  // migration-185 trigger enforces the same rule at the DB boundary.
+  if (input.date < ctx.today) {
+    return {
+      ok: false,
+      error: "That day is closed — its assignment record can no longer change.",
+    }
+  }
 
   // Area must be an active area of the caller's facility.
   const { data: area } = await supabase
@@ -553,6 +561,94 @@ export async function getAssignmentBoard(
       })),
     },
   }
+}
+
+// ─── Locked-day assignment record (D5/D8) ───────────────────────────────────
+
+export type SnapshotPerson = { employeeId: string | null; name: string }
+
+export type AssignmentRecordArea = {
+  areaId: string
+  areaName: string
+  areaColor: string | null
+  completed: boolean
+  assignees: SnapshotPerson[]
+  completedBy: SnapshotPerson[]
+}
+
+export type AssignmentRecordDay = {
+  date: string
+  areas: AssignmentRecordArea[]
+}
+
+function parsePeople(value: unknown): SnapshotPerson[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((v) => {
+    if (typeof v !== "object" || v === null) return []
+    const rec = v as Record<string, unknown>
+    return [
+      {
+        employeeId: typeof rec.employee_id === "string" ? rec.employee_id : null,
+        name: typeof rec.name === "string" && rec.name ? rec.name : "Unknown",
+      },
+    ]
+  })
+}
+
+/**
+ * The frozen assignment record for recent closed days (day-keyed snapshots,
+ * migration 185), grouped by date. RLS scopes rows to the caller's facility
+ * and standing area access; areas that were open at close have no row and
+ * simply don't appear (they render exactly as pre-feature days).
+ */
+export async function getAssignmentRecord(
+  maxDays = 7,
+): Promise<AssignmentRecordDay[]> {
+  const context = await getAssignmentContext()
+  if (!context.ok) return []
+  const { supabase, facilityId } = context.ctx
+
+  const { data: rows } = await supabase
+    .from("daily_area_assignment_snapshots")
+    .select("business_date, area_id, assignees, completed, completed_by")
+    .eq("facility_id", facilityId)
+    .order("business_date", { ascending: false })
+    .limit(200)
+  if (!rows || rows.length === 0) return []
+
+  const areaIds = [...new Set(rows.map((r) => r.area_id))]
+  const { data: areas } = await supabase
+    .from("daily_report_areas")
+    .select("id, name, color, sort_order")
+    .in("id", areaIds)
+  const areaById = new Map((areas ?? []).map((a) => [a.id, a]))
+
+  const byDate = new Map<string, AssignmentRecordArea[]>()
+  for (const r of rows) {
+    const area = areaById.get(r.area_id)
+    const list = byDate.get(r.business_date) ?? []
+    list.push({
+      areaId: r.area_id,
+      areaName: area?.name ?? "Removed area",
+      areaColor: area?.color ?? null,
+      completed: r.completed,
+      assignees: parsePeople(r.assignees),
+      completedBy: parsePeople(r.completed_by),
+    })
+    byDate.set(r.business_date, list)
+  }
+
+  return [...byDate.entries()]
+    .sort(([a], [b]) => (a < b ? 1 : -1))
+    .slice(0, maxDays)
+    .map(([date, list]) => ({
+      date,
+      areas: list.sort((a, b) => {
+        // Incomplete assigned areas first (the permanent D5 flag), then name.
+        if (a.completed !== b.completed) return a.completed ? 1 : -1
+        return a.areaName.localeCompare(b.areaName)
+      }),
+    }))
 }
 
 // ─── Notifications ───────────────────────────────────────────────────────────

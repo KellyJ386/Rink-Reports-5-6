@@ -4364,6 +4364,145 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- DAR-5: day close — snapshot freeze + past-date assignment lock (mig 185).
+--
+-- Fixture: two days ago (a closed day; current_date-1 already carries the
+-- DAR snapshot fixture for the granted area, so -2 keeps this section's
+-- NOT-EXISTS paths unambiguous): granted area assigned to zoe AND completed
+-- (submission that day); nogrant area assigned to alice, NOT completed;
+-- default-area untouched (open) -> must get NO snapshot row.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+insert into public.report_area_assignments
+  (id, facility_id, report_date, area_id, employee_id, source)
+values
+  ('da5e0000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', current_date - 2,
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+   'dada1111-0000-4000-8000-000000000002', 'manual'),
+  ('da5e0000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111', current_date - 2,
+   'aaaa1111-da02-aaaa-aaaa-aaaa11110012',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'manual')
+on conflict (id) do nothing;
+
+insert into public.daily_report_submissions
+  (id, facility_id, area_id, template_id, employee_id, business_date)
+values ('da5e0000-5b11-4000-8000-000000000003',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+        'dada1111-0000-4000-8000-000000000002', current_date - 2)
+on conflict (id) do nothing;
+
+-- ---- past-date lock: even the edit tier cannot touch a closed day ----------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ed17ed17-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ed17ed17-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_error(
+  $$insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    values ('11111111-1111-1111-1111-111111111111', current_date - 1,
+            'aaaa1111-da03-aaaa-aaaa-aaaa11110015',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'manual')$$,
+  'DAR5: edit-tier sam CANNOT create an assignment for a past day');
+
+select pg_temp.expect_error(
+  $$update public.report_area_assignments
+       set superseded_at = now()
+     where id = 'da5e0000-0000-4000-8000-000000000001'$$,
+  'DAR5: edit-tier sam CANNOT supersede a past day''s assignment (locked)');
+
+select pg_temp.expect_error(
+  $$select public.snapshot_daily_assignment_days(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DAR5: authenticated users CANNOT invoke the snapshot writer directly');
+
+select pg_temp.expect_error(
+  $$select public.snapshot_closed_daily_assignment_days()$$,
+  'DAR5: authenticated users CANNOT invoke the cron snapshot wrapper');
+
+-- ---- snapshot freeze -------------------------------------------------------
+set local role postgres;
+
+select pg_temp.expect_count(
+  $$select public.snapshot_daily_assignment_days(
+      '11111111-1111-1111-1111-111111111111')$$,
+  2, 'DAR5: snapshot writer freezes exactly the two assigned areas of the closed day');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and business_date = current_date - 2
+      and area_id = 'aaaa1111-da01-aaaa-aaaa-aaaa11110011'
+      and completed = true
+      and jsonb_array_length(assignees) = 1
+      and assignees->0->>'employee_id' = 'dada1111-0000-4000-8000-000000000002'
+      and completed_by->0->>'employee_id' = 'dada1111-0000-4000-8000-000000000002'$$,
+  1, 'DAR5: completed area snapshot carries assignees + completed_by');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and business_date = current_date - 2
+      and area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and completed = false
+      and completed_by is null
+      and assignees->0->>'employee_id' = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  1, 'DAR5: incomplete area snapshot records "assigned, not completed"');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and business_date = current_date - 2
+      and area_id = 'aaaa1111-da03-aaaa-aaaa-aaaa11110015'$$,
+  0, 'DAR5: an OPEN (unassigned) closed day gets NO snapshot row');
+
+-- Immutability: later tampering with the day's rows must not alter the frozen
+-- record. Supersede zoe's row as postgres (service paths bypass the lock),
+-- re-run, and confirm the snapshot is untouched.
+update public.report_area_assignments set superseded_at = now()
+ where id = 'da5e0000-0000-4000-8000-000000000001';
+
+select pg_temp.expect_count(
+  $$select public.snapshot_daily_assignment_days(
+      '11111111-1111-1111-1111-111111111111')$$,
+  0, 'DAR5: re-running the snapshot writer is a no-op (insert-only)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and business_date = current_date - 2
+      and area_id = 'aaaa1111-da01-aaaa-aaaa-aaaa11110011'
+      and jsonb_array_length(assignees) = 1$$,
+  1, 'DAR5: the frozen record survives later changes to the day''s rows');
+
+select pg_temp.expect_ok(
+  $$select public.snapshot_closed_daily_assignment_days()$$,
+  'DAR5: the cron wrapper runs for a service path');
+
+-- ---- staff read model: snapshots respect the standing area layer -----------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where business_date = current_date - 2
+      and area_id = 'aaaa1111-da01-aaaa-aaaa-aaaa11110011'$$,
+  1, 'DAR5: alice sees the snapshot for an area she holds standing access to');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_area_assignment_snapshots
+    where business_date = current_date - 2
+      and area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'$$,
+  0, 'DAR5: alice CANNOT see the snapshot for an area outside her standing access');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

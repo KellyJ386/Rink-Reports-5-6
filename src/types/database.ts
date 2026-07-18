@@ -7164,6 +7164,14 @@ export type Database = {
         Args: { "": string }
         Returns: string[]
       }
+      snapshot_closed_daily_assignment_days: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      snapshot_daily_assignment_days: {
+        Args: { p_facility_id: string }
+        Returns: number
+      }
       submit_incident_report: {
         Args: {
           p_activity_id?: string

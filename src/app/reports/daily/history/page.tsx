@@ -1,4 +1,4 @@
-import { ClipboardList } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ClipboardList } from "lucide-react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
@@ -14,6 +14,11 @@ import { SectionCard } from "@/components/ui/section-card"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import type { Tables } from "@/types/database"
+
+import {
+  getAssignmentRecord,
+  type AssignmentRecordDay,
+} from "../_lib/assignments"
 
 export const dynamic = "force-dynamic"
 
@@ -35,6 +40,91 @@ type HistoryItem = {
   submittedBy: string | null
   checkedCount: number
   itemCount: number
+}
+
+function formatRecordDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(`${iso}T12:00:00Z`))
+  } catch {
+    return iso
+  }
+}
+
+function names(people: { name: string }[]): string {
+  return people.map((p) => p.name).join(", ")
+}
+
+/**
+ * Frozen assignment record for closed days (D5/D8): per area, a permanent
+ * "Completed by X" or "Assigned to X — not completed" flag, from the
+ * day-close snapshots. Days/areas that were open (unassigned) have no
+ * snapshot rows and render exactly as before the feature.
+ */
+function AssignmentRecord({ days }: { days: AssignmentRecordDay[] }) {
+  if (days.length === 0) return null
+  return (
+    <Card className="gap-4 py-5">
+      <h2 className="px-6 text-lg font-semibold tracking-tight">
+        Assignment record
+      </h2>
+      <div className="flex flex-col gap-4 px-6">
+        {days.map((day) => (
+          <div key={day.date} className="flex flex-col gap-1.5">
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              {formatRecordDate(day.date)}
+            </h3>
+            <ul className="flex flex-col divide-y divide-border rounded-lg border bg-background">
+              {day.areas.map((area) => (
+                <li
+                  key={area.areaId}
+                  className="flex items-start gap-3 px-4 py-2.5"
+                >
+                  {area.completed ? (
+                    <CheckCircle2
+                      aria-hidden
+                      className="mt-0.5 h-4 w-4 shrink-0 text-success"
+                    />
+                  ) : (
+                    <AlertTriangle
+                      aria-hidden
+                      className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                    />
+                  )}
+                  <span className="flex min-w-0 flex-col text-sm">
+                    <span className="flex items-center gap-2 font-medium">
+                      {area.areaColor ? (
+                        <span
+                          aria-hidden
+                          className="inline-block size-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: area.areaColor }}
+                        />
+                      ) : null}
+                      {area.areaName}
+                    </span>
+                    {area.completed ? (
+                      <span className="text-muted-foreground">
+                        Completed by{" "}
+                        {names(area.completedBy) || "an unrecorded submitter"}
+                      </span>
+                    ) : (
+                      <span className="text-destructive">
+                        Assigned to {names(area.assignees) || "—"} — not
+                        completed
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
 }
 
 function formatTimestamp(iso: string, timeZone: string): string {
@@ -193,30 +283,39 @@ export default async function DailyReportHistoryPage() {
     }
   })
 
+  // Frozen assignment record for closed days (empty when routing was never
+  // enabled — the page then renders exactly as before the feature).
+  const record = await getAssignmentRecord()
+
   if (items.length === 0) {
     return shell(
-      <SectionCard className="items-center gap-3 py-12 text-center">
-        <span
-          aria-hidden
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <ClipboardList className="h-6 w-6" />
-        </span>
-        <h2 className="text-lg font-semibold tracking-tight">
-          No reports yet
-        </h2>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Once daily reports are submitted for areas you can access, they&apos;ll
-          appear here. Reports auto-delete after 14 days.
-        </p>
-      </SectionCard>
+      <>
+        <AssignmentRecord days={record} />
+        <SectionCard className="items-center gap-3 py-12 text-center">
+          <span
+            aria-hidden
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          >
+            <ClipboardList className="h-6 w-6" />
+          </span>
+          <h2 className="text-lg font-semibold tracking-tight">
+            No reports yet
+          </h2>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Once daily reports are submitted for areas you can access,
+            they&apos;ll appear here. Reports auto-delete after 14 days.
+          </p>
+        </SectionCard>
+      </>
     )
   }
 
   return shell(
-    <Card className="gap-0 py-0">
-      <ul className="flex flex-col divide-y divide-border">
-        {items.map((it) => (
+    <>
+      <AssignmentRecord days={record} />
+      <Card className="gap-0 py-0">
+        <ul className="flex flex-col divide-y divide-border">
+          {items.map((it) => (
           <li
             key={it.id}
             className="flex flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
@@ -251,7 +350,8 @@ export default async function DailyReportHistoryPage() {
             ) : null}
           </li>
         ))}
-      </ul>
-    </Card>
+        </ul>
+      </Card>
+    </>
   )
 }
