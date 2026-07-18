@@ -329,6 +329,8 @@ export type AreaTodayStatus = AreaCompletion & {
 export type MyAreasToday = {
   date: string
   routingEnabled: boolean
+  /** Caller holds daily_reports edit/admin — show the assignment-board link. */
+  canRoute: boolean
   /** Areas actively assigned to the caller today (submittable ones). */
   myAreas: AreaTodayStatus[]
   /** Unassigned-today areas the caller may also complete (D4). */
@@ -422,6 +424,7 @@ export async function getMyAreasToday(): Promise<
     data: {
       date: today,
       routingEnabled: settings.enabled,
+      canRoute: ctx.canRoute,
       myAreas: statuses.filter((s) => s.assignedToMe),
       openAreas: statuses.filter(
         (s) => !s.assignedToMe && s.assignees.length === 0,
@@ -442,9 +445,30 @@ export type AssignmentBoard = {
   date: string
   routingEnabled: boolean
   prelockWarningMinutes: number
+  /**
+   * Minutes until the facility-local day rolls over (the implicit lock).
+   * Null when the board is not showing today. Drives the D5 pre-lock warning.
+   */
+  minutesUntilDayClose: number | null
   areas: AssignmentBoardRow[]
   /** Active facility employees for the assignee picker. */
   employees: { id: string; name: string }[]
+}
+
+function minutesUntilLocalMidnight(timezone: string | null): number {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone || "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date())
+    const [h, m] = parts.split(":").map((n) => Number.parseInt(n, 10))
+    if (Number.isNaN(h) || Number.isNaN(m)) return 24 * 60
+    return 24 * 60 - (h * 60 + m)
+  } catch {
+    return 24 * 60
+  }
 }
 
 /**
@@ -506,6 +530,8 @@ export async function getAssignmentBoard(
       date: boardDate,
       routingEnabled: settings.enabled,
       prelockWarningMinutes: settings.prelockWarningMinutes,
+      minutesUntilDayClose:
+        boardDate === ctx.today ? minutesUntilLocalMidnight(ctx.timezone) : null,
       areas: (areas ?? []).map((a) => ({
         id: a.id,
         slug: a.slug,

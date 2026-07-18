@@ -20,6 +20,7 @@ import { formatInTz } from "@/lib/timezone"
 
 import { AreaAccessTab } from "./_components/area-access-tab"
 import { AreasTab } from "./_components/areas-tab"
+import { AssignmentConfigTab } from "./_components/assignment-config-tab"
 import { ItemsTab } from "./_components/items-tab"
 import { SubmissionDetailPanel } from "./_components/submission-detail"
 import { SubmissionFilters } from "./_components/submission-filters"
@@ -161,6 +162,10 @@ export default async function DailyReportsAdminPage({
         <AccessTabLoader facilityId={facilityId} areas={areas} />
       )}
 
+      {tab === "assignments" && (
+        <AssignmentsTabLoader facilityId={facilityId} areas={areas} />
+      )}
+
       {tab === "submissions" && (
         <SubmissionsTabLoader
           facilityId={facilityId}
@@ -212,6 +217,79 @@ async function AccessTabLoader({
       employees={employees}
       areas={activeAreas}
       initialGrants={initialGrants}
+    />
+  )
+}
+
+async function AssignmentsTabLoader({
+  facilityId,
+  areas,
+}: {
+  facilityId: string
+  areas: AreaRow[]
+}) {
+  const supabase = await createClient()
+  const [
+    { data: settings },
+    { data: empsRaw },
+    { data: ownersRaw },
+    { data: mapRaw },
+    { data: jobAreasRaw },
+  ] = await Promise.all([
+    supabase
+      .from("daily_report_settings")
+      .select("assignment_routing_enabled, prelock_warning_minutes")
+      .eq("facility_id", facilityId)
+      .maybeSingle(),
+    supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("first_name", { ascending: true }),
+    supabase
+      .from("area_default_owners")
+      .select("area_id, employee_id")
+      .eq("facility_id", facilityId),
+    supabase
+      .from("daily_area_job_area_map")
+      .select("area_id, job_area_id")
+      .eq("facility_id", facilityId),
+    // Reads the scheduling job-area catalog: RLS requires scheduling view, so
+    // an admin without it simply sees an empty list (explained in the tab UI).
+    supabase
+      .from("employee_job_areas")
+      .select("id, name")
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+  ])
+
+  const defaultOwners: Record<string, string[]> = {}
+  for (const row of ownersRaw ?? []) {
+    ;(defaultOwners[row.area_id] ??= []).push(row.employee_id)
+  }
+  const jobAreaMap: Record<string, string[]> = {}
+  for (const row of mapRaw ?? []) {
+    ;(jobAreaMap[row.area_id] ??= []).push(row.job_area_id)
+  }
+
+  return (
+    <AssignmentConfigTab
+      settings={{
+        enabled: settings?.assignment_routing_enabled ?? false,
+        prelockWarningMinutes: settings?.prelock_warning_minutes ?? 60,
+      }}
+      areas={areas
+        .filter((a) => a.is_active)
+        .map((a) => ({ id: a.id, name: a.name, color: a.color }))}
+      employees={(empsRaw ?? []).map((e) => ({
+        id: e.id,
+        name: `${e.first_name} ${e.last_name}`.trim(),
+      }))}
+      jobAreas={(jobAreasRaw ?? []).map((j) => ({ id: j.id, name: j.name }))}
+      defaultOwners={defaultOwners}
+      jobAreaMap={jobAreaMap}
     />
   )
 }
