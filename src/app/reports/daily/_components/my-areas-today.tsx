@@ -6,13 +6,15 @@
 // routing OFF this component is never rendered — page.tsx falls back to the
 // pre-feature console, unchanged.
 
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Circle } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { putMyAreas } from "@/lib/offline/daily-areas-cache"
+import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 import {
@@ -119,6 +121,32 @@ export function MyAreasTodayView({
   const [showOpenAreas, setShowOpenAreas] = useState(data.myAreas.length === 0)
   const [dismissedBanner, setDismissedBanner] = useState(false)
   const [pending, startTransition] = useTransition()
+
+  // Seed the per-user offline snapshot (D9): every online render of the
+  // landing makes today's resolved areas available to /offline-daily.
+  // Best-effort — a storage failure never affects the page.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const {
+        data: { session },
+      } = await createClient().auth.getSession()
+      const userId = session?.user?.id
+      if (!userId || cancelled) return
+      await putMyAreas({
+        userId,
+        timezone: data.timezone,
+        businessDate: data.date,
+        routingEnabled: data.routingEnabled,
+        myAreas: data.myAreas,
+        openAreas: data.openAreas,
+        cachedAt: Date.now(),
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [data])
 
   const selectedConsoleArea = openAreaId
     ? consoleAreas.find((a) => a.id === openAreaId)

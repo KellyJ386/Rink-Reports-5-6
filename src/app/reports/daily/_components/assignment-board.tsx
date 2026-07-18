@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Callout } from "@/components/ui/callout"
 import { Card } from "@/components/ui/card"
+import { useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { cn } from "@/lib/utils"
 
 import {
@@ -45,11 +46,14 @@ function AreaRow({
   date,
   employees,
   flagged,
+  isOnline,
 }: {
   area: BoardArea
   date: string
   employees: AssignmentBoard["employees"]
   flagged: boolean
+  /** Assignment changes are online-only (D9) — no queueing, no conflicts. */
+  isOnline: boolean
 }) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
@@ -149,7 +153,7 @@ function AreaRow({
             setSelected(new Set(area.assignees.map((a) => a.employeeId)))
             setEditing((v) => !v)
           }}
-          disabled={pending}
+          disabled={pending || !isOnline}
         >
           <UserRoundPlus className="h-4 w-4" aria-hidden />
           {assigned ? "Reassign" : "Assign"}
@@ -160,7 +164,7 @@ function AreaRow({
             variant="ghost"
             size="sm"
             onClick={openUp}
-            disabled={pending}
+            disabled={pending || !isOnline}
             className="text-muted-foreground"
           >
             Open up
@@ -216,6 +220,7 @@ function AreaRow({
 }
 
 export function AssignmentBoardView({ board }: { board: AssignmentBoard }) {
+  const { isOnline } = useSyncQueue()
   const inWarningWindow =
     board.minutesUntilDayClose !== null &&
     board.minutesUntilDayClose <= board.prelockWarningMinutes
@@ -254,6 +259,14 @@ export function AssignmentBoardView({ board }: { board: AssignmentBoard }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {!isOnline ? (
+        <Callout tone="warning">
+          You&apos;re offline — assignment changes need a connection and are
+          disabled. They are never queued, so nothing will apply unexpectedly
+          later.
+        </Callout>
+      ) : null}
+
       {inWarningWindow && flaggedIds.size > 0 ? (
         <Callout tone="destructive" icon={<AlertTriangle />}>
           <span className="font-semibold">Day closes soon.</span>{" "}
@@ -274,6 +287,7 @@ export function AssignmentBoardView({ board }: { board: AssignmentBoard }) {
             date={board.date}
             employees={board.employees}
             flagged={flaggedIds.has(area.id)}
+            isOnline={isOnline}
           />
         ))}
       </div>

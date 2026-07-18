@@ -15,11 +15,17 @@
 //  - Supabase API calls: always network-only (no cache).
 // =============================================================================
 
-// CACHE_NAME bumped to v5 when the /offline-schedule data-free shell gained a
-// network-first cache entry, so any client on an older SW re-evaluates and
-// cleans its caches on activate, guaranteeing a clean swap to the new strategy.
-const CACHE_NAME = "rink-reports-v5"
-const STATIC_CACHE = "rink-reports-static-v5"
+// CACHE_NAME bumped to v6 when the /offline-daily data-free shell joined
+// /offline-schedule as a network-first cache entry, so any client on an older
+// SW re-evaluates and cleans its caches on activate, guaranteeing a clean
+// swap to the new strategy.
+const CACHE_NAME = "rink-reports-v6"
+const STATIC_CACHE = "rink-reports-static-v6"
+
+// Data-free page shells that are SAFE to cache for offline navigation: they
+// render no user data server-side (per-user content comes from per-user
+// IndexedDB caches on the client). Everything else stays network-only.
+const OFFLINE_SHELLS = ["/offline-schedule", "/offline-daily"]
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1
 const STORE_NAME = "submissions"
@@ -472,12 +478,13 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
-  // Exception: the dedicated /offline-schedule shell is DATA-FREE (it renders
-  // no user data server-side; shifts come from the per-user IndexedDB cache),
-  // so it is safe to cache for offline navigation on a shared device — unlike
-  // every other authenticated page. Network-first: refresh the shell when
-  // online, fall back to the cached shell when offline.
-  if (event.request.mode === "navigate" && url.pathname === "/offline-schedule") {
+  // Exception: the dedicated offline shells (/offline-schedule,
+  // /offline-daily) are DATA-FREE (they render no user data server-side;
+  // per-user content comes from per-user IndexedDB caches), so they are safe
+  // to cache for offline navigation on a shared device — unlike every other
+  // authenticated page. Network-first: refresh the shell when online, fall
+  // back to the cached shell when offline.
+  if (event.request.mode === "navigate" && OFFLINE_SHELLS.includes(url.pathname)) {
     event.respondWith(
       fetch(event.request)
         .then((res) => {
@@ -523,6 +530,9 @@ function offlineFallbackResponse() {
   p { font-size:0.9rem; color:#94a3b8; margin:0 0 1.25rem; line-height:1.5; }
   button { background:#3b82f6; color:#fff; border:0; padding:0.6rem 1.1rem; border-radius:0.375rem;
            font-size:0.9rem; cursor:pointer; }
+  nav { margin-top:1.25rem; font-size:0.85rem; }
+  nav a { color:#93c5fd; text-decoration:none; }
+  nav a:hover { text-decoration:underline; }
 </style>
 </head>
 <body>
@@ -530,6 +540,7 @@ function offlineFallbackResponse() {
   <h1>You're offline</h1>
   <p>Any reports you submit while offline are saved locally and will sync automatically once you're back online.</p>
   <button onclick="location.reload()">Try again</button>
+  <nav>Available offline: <a href="/offline-daily">My areas</a> &middot; <a href="/offline-schedule">My shifts</a></nav>
 </main>
 </body>
 </html>`

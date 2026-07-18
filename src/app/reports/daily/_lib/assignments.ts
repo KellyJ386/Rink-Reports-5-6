@@ -336,6 +336,8 @@ export type AreaTodayStatus = AreaCompletion & {
 
 export type MyAreasToday = {
   date: string
+  /** Facility timezone — lets the offline cache self-invalidate by date. */
+  timezone: string | null
   routingEnabled: boolean
   /** Caller holds daily_reports edit/admin — show the assignment-board link. */
   canRoute: boolean
@@ -431,6 +433,7 @@ export async function getMyAreasToday(): Promise<
     ok: true,
     data: {
       date: today,
+      timezone: ctx.timezone,
       routingEnabled: settings.enabled,
       canRoute: ctx.canRoute,
       myAreas: statuses.filter((s) => s.assignedToMe),

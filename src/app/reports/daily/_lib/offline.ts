@@ -106,6 +106,26 @@ export async function handleDailyReplay({
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
     await releaseClaim(supabase, localId)
+    // E-10 — access/assignment revoked while the report sat in the offline
+    // queue (D10): the area was reassigned to someone else, or the per-area
+    // grant was removed. RLS (daily_area_assignment_allows / area gates,
+    // migration 183) rejects the INSERT, and no retry can ever succeed — a
+    // transient 500 would burn the whole backoff ladder before parking with
+    // a generic reason. Return a permanent 422 with copy that tells the
+    // employee what actually happened, surfaced verbatim on the Pending Sync
+    // Queue page (never silently dropped).
+    const accessRevoked =
+      /row-level security/i.test(result.error) ||
+      result.error === "You don't have access to submit here."
+    if (accessRevoked) {
+      return NextResponse.json(
+        {
+          error:
+            "Your assignment or access to this area changed while the report was queued offline, so it can't be submitted. Ask a supervisor if it still needs to be filed.",
+        },
+        { status: 422 },
+      )
+    }
     return NextResponse.json({ error: result.error }, { status: 500 })
   }
 
