@@ -35,6 +35,23 @@ Queue behaviors:
       overwrite); replay lands two rows.
 - [ ] Killing and reopening the PWA while offline preserves the queue.
 
+## Area assignment routing (daily reports; run with the facility flag ON)
+
+- [ ] `/reports/daily` lands on "My Areas Today"; assigned cards open the
+      checklist; "Open areas" collapses/expands; unassigned staff see the
+      "No areas assigned — open areas below" empty state.
+- [ ] Open `/reports/daily` once online, then airplane mode → `/offline-daily`
+      renders the cached areas with the offline banner; after the facility's
+      midnight the same cache shows the "previous day" notice instead.
+- [ ] Airplane mode on the supervisor board: Assign/Reassign/Open-up are
+      disabled with the "changes need a connection" notice (nothing queues).
+- [ ] Stale-assignment rejection: queue a daily submission offline, have a
+      supervisor reassign that area away, reconnect → the item parks in
+      `/reports/offline-queue` as "won't retry" with the assignment-changed
+      message (not silently dropped, not endlessly retried).
+- [ ] Turn the facility flag OFF (Admin → Daily Reports → Assignments) →
+      staff landing reverts to the classic console; widget disappears.
+
 ## Long-form guards
 
 - [ ] Refrigeration: enter a reading, try to close the tab / pull-to-refresh →
