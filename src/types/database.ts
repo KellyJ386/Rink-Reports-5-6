@@ -7014,6 +7014,10 @@ export type Database = {
           employee_id: string
         }[]
       }
+      resync_daily_area_assignments: {
+        Args: { p_date: string }
+        Returns: number
+      }
       scheduling_admin_assign_open_shift: {
         Args: { p_employee_id: string; p_open_shift_id: string }
         Returns: Json

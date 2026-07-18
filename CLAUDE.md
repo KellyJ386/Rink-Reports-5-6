@@ -79,7 +79,8 @@ Generated DB types live in `src/types/database.ts` and are passed as the generic
 - `(auth)/login`, `(auth)/signup`, `(auth)/logout` — public auth pages.
 - `admin/*` — admin console; layout calls `requireAdmin`. Each module (scheduling, employees, retention, exports, etc.) keeps its UI in `_components/` and module-specific server code in `_lib/` (underscore-prefixed = not routable).
 - `reports/*` — staff-facing report submission flows, mirrored against admin modules (daily, incidents, accidents, ice-depth, ice-operations, refrigeration, air-quality, communications, scheduling). Many use dynamic segments like `[areaSlug]/[templateId]` and a `done/` subroute for the post-submit screen.
-- `api/offline-sync/route.ts` — the only API route; receives queued submissions from the service worker.
+- `api/offline-sync/route.ts` — receives queued submissions from the service worker.
+- `api/cron/*` — CRON_SECRET-authenticated service routes (notification drain, email send, retention purge, scheduling expiry, reminders, daily-assignment snapshots), scheduled in `vercel.json`.
 
 ### Offline / PWA
 
@@ -94,7 +95,7 @@ When adding a new submission flow, route writes through the SW queue + this endp
 
 ### Database / migrations
 
-`supabase/migrations/` is a flat, numerically-ordered set of SQL files (`00000000000001_…sql` … `00000000000172_…sql` and counting). New migrations should keep that monotonic prefix (one file per prefix — no duplicates). Regenerate `src/types/database.ts` in the same PR as any migration (`pnpm types:write` against a migrated DB; CI enforces freshness via `pnpm types:check`) — do not bridge schema gaps with `as any`. RLS is enforced — `00000000000004_backbone_rls.sql`, `00000000000030_submission_rls_module_permissions.sql`, and `00000000000029_module_permission_helper.sql` define the permission model that admin/staff routes rely on; check those before touching policies. The module-level RLS helpers (`has_module_access` / `has_module_admin_access` / `has_area_access`) read `user_permissions` as of `00000000000091_unify_permission_helpers.sql`; the legacy `module_permissions` table was removed in `00000000000099_drop_dead_legacy_permission_tables.sql` (`module_area_permissions` and `role_module_permission_defaults` are retained).
+`supabase/migrations/` is a flat, numerically-ordered set of SQL files (`00000000000001_…sql` … `00000000000187_…sql` and counting). New migrations should keep that monotonic prefix (one file per prefix — no duplicates). Regenerate `src/types/database.ts` in the same PR as any migration (`pnpm types:write` against a migrated DB; CI enforces freshness via `pnpm types:check`) — do not bridge schema gaps with `as any`. RLS is enforced — `00000000000004_backbone_rls.sql`, `00000000000030_submission_rls_module_permissions.sql`, and `00000000000029_module_permission_helper.sql` define the permission model that admin/staff routes rely on; check those before touching policies. The module-level RLS helpers (`has_module_access` / `has_module_admin_access` / `has_area_access`) read `user_permissions` as of `00000000000091_unify_permission_helpers.sql`; the legacy `module_permissions` table was removed in `00000000000099_drop_dead_legacy_permission_tables.sql` (`module_area_permissions` and `role_module_permission_defaults` are retained).
 
 `supabase/config.toml` defines local ports (API 54321, DB 54322, Studio 54323).
 

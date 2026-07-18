@@ -26,9 +26,18 @@ Verification environment: local PostgreSQL 16 with the Supabase-surface shim use
 - `pnpm build` — clean (all routes incl. `/reports/daily/assignments`, `/offline-daily`, `/api/cron/snapshot-daily-assignments`)
 - `pnpm types:check` — `src/types/database.ts` byte-fresh against the fully-migrated schema
 
-## Known limits / follow-ups (accepted v1 scope)
+## Known limits / follow-ups
 
-1. **Schedule changes published after first materialization don't auto-flow** into assignments (first-touch-wins engine; supervisors adjust manually). Revisit if rinks want live re-sync.
-2. **Device checklist items** (§7 above) need the standard pre-launch hardware pass.
-3. The migrations have **not been applied to the hosted Supabase project** from this environment; apply via the normal deploy flow, then run the security advisors against the live project.
-4. Pre-existing, out of scope: staff can view their own *draft* shifts via `/reports/scheduling/my-schedule?status=all` (app-side filter gap noted during discovery — scheduling RLS does not filter by status). Does not affect this feature (the engine filters server-side); worth its own ticket.
+Resolved after the initial gate (same branch):
+
+1. ~~Schedule changes don't auto-flow after first materialization~~ — **resolved** by migration 187: `resync_daily_area_assignments()` + the board's "Re-sync from schedule" button (edit/admin tier; manual overrides never touched; empty schedule leaves defaults standing; delta notifications; past dates rejected; explicit re-sync repopulates a previously opened-up area by design). Harness section "DAR-7" (9 assertions).
+2. ~~Staff draft-shift visibility via my-schedule~~ — **resolved**: `/reports/scheduling/my-schedule` now hard-filters drafts in both views; the "All" status option means published + cancelled.
+3. ~~No admin-side locked-day view~~ — **resolved**: the shared `AssignmentRecordCard` renders on the admin Submissions tab (list view) as well as staff history.
+4. ~~No snapshot/assignment retention~~ — **resolved** by migration 186: the retention-aware `purge_old_daily_reports()` now also purges day-scoped routing rows (assignments, snapshots, notifications) on the same per-facility `keep_days`; standing config is never purged.
+5. ~~CLAUDE.md staleness~~ — refreshed (cron routes documented, migration count).
+
+Still open (require a human or the production environment):
+
+- **Device checklist items** (§7 above) need the standard pre-launch hardware pass.
+- **Production env confirmation**: `CRON_SECRET` + `SUPABASE_SERVICE_ROLE_KEY` must be present in the deploy environment for the snapshot cron route.
+- **Tennity configuration + flag-on** (default owners / job-area mapping / threshold) — product decisions, then flip the flag. Rollout note for whoever runs scheduling: publish the schedule **before** a day starts (or use the board's re-sync button after late publishes).

@@ -4503,6 +4503,112 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- DAR-7: explicit "re-sync from schedule" (migration 187).
+--
+-- Continues the DAR fixtures for TODAY: nogrant-area is mapped to Front Desk
+-- A and carries zoe's schedule-derived active assignment (from DAR-3);
+-- granted-area carries zoe's MANUAL active assignment. Proves: re-sync adds a
+-- newly published assignee, is idempotent, removes an assignee whose shift is
+-- cancelled, never touches manual assignments, and is gated to the
+-- edit/admin tier with past dates rejected.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Alice gets a PUBLISHED shift on Front Desk A today (her DAR-3 shift was a
+-- draft and must stay invisible to the sync). 17:30-23:00 avoids the
+-- no-double-booking exclusion constraint (migration 140) against her
+-- 11:00-17:00 draft.
+insert into public.schedule_shifts
+  (id, facility_id, department_id, employee_id, job_area_id,
+   starts_at, ends_at, status, published_at)
+values ('da5f0000-0000-4000-8000-000000000001',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de70-aaaa-aaaa-aaaa11110001',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'aaaa1111-30b0-aaaa-aaaa-aaaa11110002',
+        current_date + time '17:30', current_date + time '23:00',
+        'published', now())
+on conflict (id) do nothing;
+
+-- ---- gates first ------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.resync_daily_area_assignments(current_date)$$,
+  'DAR7: plain staff CANNOT invoke the schedule re-sync');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ed17ed17-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ed17ed17-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_error(
+  $$select public.resync_daily_area_assignments(current_date - 1)$$,
+  'DAR7: re-sync rejects a past (closed) date');
+
+-- ---- add: newly published shift flows in ------------------------------------
+select pg_temp.expect_count(
+  $$select public.resync_daily_area_assignments(current_date)$$,
+  1, 'DAR7: re-sync picks up alice''s newly published shift (1 change)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and report_date = current_date
+      and employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      and source = 'schedule'
+      and superseded_at is null$$,
+  1, 'DAR7: alice is now schedule-assigned to the mapped area');
+
+select pg_temp.expect_count(
+  $$select public.resync_daily_area_assignments(current_date)$$,
+  0, 'DAR7: re-running the re-sync is a no-op');
+
+-- ---- remove: cancelled shift flows out; manual rows untouched ---------------
+set local role postgres;
+update public.schedule_shifts set status = 'cancelled'
+ where id = 'da5d0000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ed17ed17-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ed17ed17-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_count(
+  $$select public.resync_daily_area_assignments(current_date)$$,
+  1, 'DAR7: cancelling zoe''s shift removes her on the next re-sync (1 change)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and report_date = current_date
+      and employee_id = 'dada1111-0000-4000-8000-000000000002'
+      and superseded_at is null$$,
+  0, 'DAR7: zoe''s schedule-derived assignment is superseded');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where area_id = 'aaaa1111-da01-aaaa-aaaa-aaaa11110011'
+      and report_date = current_date
+      and source = 'manual'
+      and superseded_at is null$$,
+  1, 'DAR7: the MANUAL assignment on the granted area is untouched by re-sync');
+
+-- zoe received an 'unassigned' notification from the removal.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dada1111-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dada1111-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_assignment_notifications
+    where employee_id = 'dada1111-0000-4000-8000-000000000002'
+      and area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and notification_type = 'unassigned'$$,
+  1, 'DAR7: the removed assignee got an unassigned notification');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

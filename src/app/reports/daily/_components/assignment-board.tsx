@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  RefreshCw,
   UserRoundPlus,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -29,6 +30,7 @@ import { cn } from "@/lib/utils"
 
 import {
   reassignArea,
+  resyncScheduleAssignments,
   unassignArea,
   type AssignmentBoard,
 } from "../assignment-actions"
@@ -220,7 +222,29 @@ function AreaRow({
 }
 
 export function AssignmentBoardView({ board }: { board: AssignmentBoard }) {
+  const router = useRouter()
   const { isOnline } = useSyncQueue()
+  const [syncing, startSync] = useTransition()
+
+  // Explicit catch-up for schedules published/edited after the day
+  // materialized (the passive engine is first-touch-wins). Manual
+  // assignments are never touched.
+  function resync() {
+    startSync(async () => {
+      const result = await resyncScheduleAssignments(board.date)
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(
+        result.changed === 0
+          ? "Already in sync with the published schedule."
+          : `Re-synced from the schedule — ${result.changed} change${result.changed === 1 ? "" : "s"}.`,
+      )
+      router.refresh()
+    })
+  }
+
   const inWarningWindow =
     board.minutesUntilDayClose !== null &&
     board.minutesUntilDayClose <= board.prelockWarningMinutes
@@ -259,6 +283,22 @@ export function AssignmentBoardView({ board }: { board: AssignmentBoard }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={resync}
+          disabled={syncing || !isOnline}
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", syncing && "animate-spin")}
+            aria-hidden
+          />
+          {syncing ? "Re-syncing…" : "Re-sync from schedule"}
+        </Button>
+      </div>
+
       {!isOnline ? (
         <Callout tone="warning">
           You&apos;re offline — assignment changes need a connection and are

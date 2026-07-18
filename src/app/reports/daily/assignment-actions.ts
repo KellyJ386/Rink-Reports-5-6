@@ -89,6 +89,36 @@ export async function unassignArea(input: unknown): Promise<MutateResult> {
   }
 }
 
+/**
+ * Explicit "re-sync from schedule" for a today-or-future date: replaces
+ * schedule/default-derived assignees of mapped areas with the current
+ * published-shift set (manual overrides untouched). The SECURITY DEFINER RPC
+ * enforces the edit/admin gate, the date window, and the routing flag.
+ */
+export async function resyncScheduleAssignments(
+  date: unknown,
+): Promise<{ ok: true; changed: number } | { ok: false; error: string }> {
+  try {
+    const parsed = z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .safeParse(date)
+    if (!parsed.success) return invalid()
+    const { createClient } = await import("@/lib/supabase/server")
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc(
+      "resync_daily_area_assignments",
+      { p_date: parsed.data },
+    )
+    if (error) return { ok: false, error: error.message }
+    revalidatePath("/reports/daily")
+    return { ok: true, changed: typeof data === "number" ? data : 0 }
+  } catch (e) {
+    logServerError("reports/daily/assignment-actions#resyncSchedule", e)
+    return { ok: false, error: "Failed to re-sync from the schedule." }
+  }
+}
+
 /** Staff landing model: my assigned areas + open areas for today (D7). */
 export async function getMyAreasTodayAction(): Promise<
   { ok: true; data: MyAreasToday } | { ok: false; error: string }

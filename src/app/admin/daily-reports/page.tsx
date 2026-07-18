@@ -18,6 +18,9 @@ import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 import { formatInTz } from "@/lib/timezone"
 
+import { AssignmentRecordCard } from "@/app/reports/daily/_components/assignment-record"
+import { getAssignmentRecord } from "@/app/reports/daily/_lib/assignments"
+
 import { AreaAccessTab } from "./_components/area-access-tab"
 import { AreasTab } from "./_components/areas-tab"
 import { AssignmentConfigTab } from "./_components/assignment-config-tab"
@@ -632,6 +635,13 @@ async function SubmissionsTabLoader({
   if (params.to) backSp.set("to", params.to)
   const backHref = `/admin/daily-reports?${backSp.toString()}`
 
+  // Frozen assignment record for closed days (migration 185): the same
+  // "Assigned to X — not completed" / "Completed by X" flags the staff
+  // history shows, surfaced where supervisors review past days. Empty (and
+  // invisible) when routing was never enabled. Hidden while a submission
+  // detail is open to keep the panel focused.
+  const assignmentRecord = detail ? [] : await getAssignmentRecord()
+
   return (
     <div className="flex flex-col gap-4">
       <SubmissionFilters
@@ -642,6 +652,8 @@ async function SubmissionsTabLoader({
         from={params.from ?? null}
         to={params.to ?? null}
       />
+
+      <AssignmentRecordCard days={assignmentRecord} />
 
       {detail ? (
         <SubmissionDetailPanel
