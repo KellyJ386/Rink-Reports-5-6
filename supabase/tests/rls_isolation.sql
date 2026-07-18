@@ -4206,6 +4206,164 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- DAR-3: resolution engine + assignment notifications (migration 184).
+--
+-- Proves: the engine reads PUBLISHED shifts only (a draft shift produces no
+-- assignment), first-materialization-wins idempotency (re-run = 0, existing
+-- areas untouched), the default-owner branch, notification recipient
+-- isolation, staff cannot forge notifications, and the caller gate rejects a
+-- user without daily_reports access. Continues the DAR fixtures: granted-area
+-- already has assignment history (must be skipped); mona mapped granted-area
+-- to Front Desk A earlier; routing is ON for facility A.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Bridge the second area (nogrant-area, no assignment rows yet) to Front Desk
+-- A, then give zoe a PUBLISHED shift and alice a DRAFT shift on that job area
+-- today. postgres bypasses the publish-lock trigger (by design).
+insert into public.daily_area_job_area_map (facility_id, area_id, job_area_id)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da02-aaaa-aaaa-aaaa11110012',
+        'aaaa1111-30b0-aaaa-aaaa-aaaa11110002')
+on conflict (area_id, job_area_id) do nothing;
+
+insert into public.schedule_shifts
+  (id, facility_id, department_id, employee_id, job_area_id,
+   starts_at, ends_at, status, published_at)
+values
+  ('da5d0000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de70-aaaa-aaaa-aaaa11110001',
+   'dada1111-0000-4000-8000-000000000002',
+   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002',
+   current_date + time '10:00', current_date + time '18:00',
+   'published', now()),
+  ('da5d0000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de70-aaaa-aaaa-aaaa11110001',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'aaaa1111-30b0-aaaa-aaaa-aaaa11110002',
+   current_date + time '11:00', current_date + time '17:00',
+   'draft', null)
+on conflict (id) do nothing;
+
+-- ---- alice (plain staff, module view) triggers materialization -------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select public.resolve_daily_area_assignments(current_date)$$,
+  1, 'DAR3: staff-triggered resolution materializes exactly the published-shift assignee');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and report_date = current_date
+      and employee_id = 'dada1111-0000-4000-8000-000000000002'
+      and source = 'schedule'
+      and superseded_at is null$$,
+  1, 'DAR3: zoe''s PUBLISHED shift became a schedule-derived assignment');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and report_date = current_date
+      and employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  0, 'DAR3: alice''s DRAFT shift produced NO assignment (published-only filter)');
+
+select pg_temp.expect_count(
+  $$select public.resolve_daily_area_assignments(current_date)$$,
+  0, 'DAR3: re-running the resolution is a no-op (first materialization wins)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_assignment_notifications
+    where employee_id = 'dada1111-0000-4000-8000-000000000002'$$,
+  0, 'DAR3: alice (plain staff) CANNOT read zoe''s assignment notification');
+
+select pg_temp.expect_error(
+  $$insert into public.daily_report_assignment_notifications
+      (facility_id, employee_id, area_id, report_date, notification_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dada1111-0000-4000-8000-000000000002',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011', current_date, 'assigned')$$,
+  'DAR3: staff alice CANNOT forge an assignment notification');
+
+-- ---- zoe: sees exactly her own notification and can mark it read -----------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dada1111-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dada1111-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_assignment_notifications
+    where employee_id = 'dada1111-0000-4000-8000-000000000002'
+      and area_id = 'aaaa1111-da02-aaaa-aaaa-aaaa11110012'
+      and notification_type = 'assigned'
+      and (payload->>'source') = 'schedule'$$,
+  1, 'DAR3: zoe sees her schedule-derived assignment notification');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.daily_report_assignment_notifications
+         set read_at = now()
+       where employee_id = 'dada1111-0000-4000-8000-000000000002'
+         and read_at is null
+      returning 1
+    ) select count(*)::int from u$$,
+  1, 'DAR3: zoe can mark her own notification read');
+
+-- ---- default branch: a fresh area with a standing default owner ------------
+set local role postgres;
+
+insert into public.daily_report_areas (id, facility_id, name, slug, sort_order, is_active)
+values ('aaaa1111-da03-aaaa-aaaa-aaaa11110015',
+        '11111111-1111-1111-1111-111111111111', 'Default Area', 'default-area', 3, true)
+on conflict (id) do nothing;
+
+insert into public.area_default_owners (facility_id, area_id, employee_id)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da03-aaaa-aaaa-aaaa11110015',
+        'dada1111-0000-4000-8000-000000000002')
+on conflict (area_id, employee_id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select public.resolve_daily_area_assignments(current_date)$$,
+  1, 'DAR3: re-run picks up ONLY the new area, via its default owner');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_area_assignments
+    where area_id = 'aaaa1111-da03-aaaa-aaaa-aaaa11110015'
+      and report_date = current_date
+      and employee_id = 'dada1111-0000-4000-8000-000000000002'
+      and source = 'default'
+      and superseded_at is null$$,
+  1, 'DAR3: the default-owner branch materialized with source = default');
+
+-- ---- caller gate: a user without daily_reports access is rejected ----------
+-- Bob's employee insert auto-seeded staff role defaults (migration 82), which
+-- include daily_reports view — so first disable his daily grants (nothing
+-- after this block impersonates bob).
+set local role postgres;
+update public.user_permissions
+   set enabled = false
+ where user_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+   and module_name = 'daily_reports';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true);
+
+select pg_temp.expect_error(
+  $$select public.resolve_daily_area_assignments(current_date)$$,
+  'DAR3: a caller without daily_reports access CANNOT run the resolution engine');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

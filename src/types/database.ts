@@ -1852,6 +1852,64 @@ export type Database = {
           },
         ]
       }
+      daily_report_assignment_notifications: {
+        Row: {
+          area_id: string
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+          notification_type: string
+          payload: Json
+          read_at: string | null
+          report_date: string
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+          notification_type: string
+          payload?: Json
+          read_at?: string | null
+          report_date: string
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          notification_type?: string
+          payload?: Json
+          read_at?: string | null
+          report_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_assignment_notifications_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_assignment_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_assignment_notifications_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_report_checklist_items: {
         Row: {
           created_at: string
@@ -6944,6 +7002,10 @@ export type Database = {
       }
       reapply_role_defaults_for_role: {
         Args: { p_facility_id: string; p_role_id: string }
+        Returns: number
+      }
+      resolve_daily_area_assignments: {
+        Args: { p_date: string }
         Returns: number
       }
       resolve_rule_recipients: {
