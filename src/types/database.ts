@@ -922,6 +922,52 @@ export type Database = {
           },
         ]
       }
+      area_default_owners: {
+        Row: {
+          area_id: string
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "area_default_owners_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "area_default_owners_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "area_default_owners_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -1668,6 +1714,100 @@ export type Database = {
           },
         ]
       }
+      daily_area_assignment_snapshots: {
+        Row: {
+          area_id: string
+          assignees: Json
+          business_date: string
+          completed: boolean
+          completed_by: Json | null
+          facility_id: string
+          id: string
+          snapshot_at: string
+        }
+        Insert: {
+          area_id: string
+          assignees: Json
+          business_date: string
+          completed: boolean
+          completed_by?: Json | null
+          facility_id: string
+          id?: string
+          snapshot_at?: string
+        }
+        Update: {
+          area_id?: string
+          assignees?: Json
+          business_date?: string
+          completed?: boolean
+          completed_by?: Json | null
+          facility_id?: string
+          id?: string
+          snapshot_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_area_assignment_snapshots_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_area_assignment_snapshots_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_area_job_area_map: {
+        Row: {
+          area_id: string
+          created_at: string
+          facility_id: string
+          id: string
+          job_area_id: string
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          job_area_id: string
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          job_area_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_area_job_area_map_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_area_job_area_map_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_area_job_area_map_job_area_id_fkey"
+            columns: ["job_area_id"]
+            isOneToOne: false
+            referencedRelation: "employee_job_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_report_areas: {
         Row: {
           color: string | null
@@ -1814,6 +1954,38 @@ export type Database = {
             columns: ["submission_id"]
             isOneToOne: false
             referencedRelation: "daily_report_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_settings: {
+        Row: {
+          assignment_routing_enabled: boolean
+          created_at: string
+          facility_id: string
+          prelock_warning_minutes: number
+          updated_at: string | null
+        }
+        Insert: {
+          assignment_routing_enabled?: boolean
+          created_at?: string
+          facility_id: string
+          prelock_warning_minutes?: number
+          updated_at?: string | null
+        }
+        Update: {
+          assignment_routing_enabled?: boolean
+          created_at?: string
+          facility_id?: string
+          prelock_warning_minutes?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]
@@ -5101,6 +5273,71 @@ export type Database = {
           },
         ]
       }
+      report_area_assignments: {
+        Row: {
+          area_id: string
+          assigned_by: string | null
+          created_at: string
+          employee_id: string
+          facility_id: string
+          id: string
+          report_date: string
+          source: string
+          superseded_at: string | null
+        }
+        Insert: {
+          area_id: string
+          assigned_by?: string | null
+          created_at?: string
+          employee_id: string
+          facility_id: string
+          id?: string
+          report_date: string
+          source: string
+          superseded_at?: string | null
+        }
+        Update: {
+          area_id?: string
+          assigned_by?: string | null
+          created_at?: string
+          employee_id?: string
+          facility_id?: string
+          id?: string
+          report_date?: string
+          source?: string
+          superseded_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_area_assignments_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "report_area_assignments_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "report_area_assignments_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "report_area_assignments_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       retention_settings: {
         Row: {
           auto_purge: boolean
@@ -6937,12 +7174,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -6964,13 +7201,12 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -6989,13 +7225,12 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7014,13 +7249,12 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7033,11 +7267,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

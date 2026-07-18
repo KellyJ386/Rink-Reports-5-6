@@ -236,4 +236,10 @@ Policy changes (only `daily_report_submissions` policies change; children inheri
 
 ---
 
-**STOP.** End of Phase 0. Nothing beyond this document has been created. Gate decisions requested: §1 option A vs B, §3 `edit`-action mapping, §8 table, §9 schema diff, §10 RLS diff.
+## 12. Gate decisions (approved 2026-07-18)
+
+- **§1 = Option A.** No lock entity; day-keyed `daily_area_assignment_snapshots`, written by the Phase 5 day-close SECURITY DEFINER path.
+- **Assign/reassign rights:** gated on the `daily_reports` module's `edit` action (server-side `currentUserCan(…, "daily_reports", "edit")` + matching RLS clause; `admin` implies it). Role defaults seed `edit` for canonical `manager` and `admin`, plus any per-facility custom role keyed `supervisor`.
+- **Notifications (D6):** new minimal daily-report notification table mirroring the `schedule_notifications` pattern (recipient-scoped RLS), surfaced in My Areas Today + the dashboard widget. Do **not** widen the scheduling enum.
+- **Overnight shifts:** a schedule-derived shift assigns the business date it **starts** on.
+- **§9 schema diff and §10 RLS approach approved.** Phase 1 shipped as migration `00000000000182_daily_area_assignment_schema.sql` (tables + indexes + deny-all RLS; policies deferred to Phase 2), with `src/types/database.ts` regenerated.
