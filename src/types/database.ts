@@ -6283,10 +6283,10 @@ export type Database = {
           },
           {
             foreignKeyName: "schedule_shifts_recurring_parent_id_fkey"
-            columns: ["recurring_parent_id"]
+            columns: ["recurring_parent_id", "facility_id"]
             isOneToOne: false
             referencedRelation: "schedule_shifts"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "schedule_shifts_template_origin_id_fkey"

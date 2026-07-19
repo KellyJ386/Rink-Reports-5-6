@@ -4609,6 +4609,109 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- SCHED-188: recurring series facility fence (migration 188).
+--
+-- Migration 15's recurring_parent_id was a bare single-column self-FK: it
+-- only checked that the parent id existed SOMEWHERE in schedule_shifts, not
+-- that it belonged to the same facility as the child. Migration 188 replaces
+-- it with a composite FK (recurring_parent_id, facility_id) ->
+-- schedule_shifts(id, facility_id), so a child can only reference a parent in
+-- its OWN facility. Reuses Carol (scheduling admin, Facility A) and the
+-- B-side shift fixture (bbbb2222-5511-bbbb-bbbb-bbbb22220083) seeded above.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- Facility-A root shift for a would-be recurring series. Far-future window,
+-- draft/unassigned, so it doesn't collide with other fixtures or trip the
+-- publish-lock / double-booking constraints.
+insert into public.schedule_shifts (id, facility_id, department_id, starts_at, ends_at, status)
+values ('aaaa1111-5515-aaaa-aaaa-aaaa11110188',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        now() + interval '150 days', now() + interval '150 days 4 hours', 'draft')
+on conflict (id) do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- A Facility-A draft shift whose recurring_parent_id points at a FACILITY-B
+-- shift must be rejected by the composite FK (RLS's with-check only looks at
+-- the new row's OWN facility_id, so this is the FK doing the fencing, not RLS).
+select pg_temp.expect_error(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, starts_at, ends_at, status, recurring_parent_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            now() + interval '151 days', now() + interval '151 days 4 hours', 'draft',
+            'bbbb2222-5511-bbbb-bbbb-bbbb22220083')$$,
+  'SCHED-188: Facility-A child pointing at a Facility-B recurring_parent_id is rejected (composite FK)');
+
+-- A Facility-A draft shift whose recurring_parent_id points at a FACILITY-A
+-- shift (the root seeded above) succeeds — the same-facility case is
+-- unaffected by the fence.
+select pg_temp.expect_ok(
+  $$insert into public.schedule_shifts
+      (id, facility_id, department_id, starts_at, ends_at, status, recurring_parent_id)
+    values ('aaaa1111-5516-aaaa-aaaa-aaaa11110188',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            now() + interval '151 days', now() + interval '151 days 4 hours', 'draft',
+            'aaaa1111-5515-aaaa-aaaa-aaaa11110188')$$,
+  'SCHED-188: Facility-A child pointing at a Facility-A recurring_parent_id succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5516-aaaa-aaaa-aaaa11110188'
+       and recurring_parent_id = 'aaaa1111-5515-aaaa-aaaa-aaaa11110188'$$,
+  1, 'SCHED-188: the Facility-A child row was actually persisted with its parent link');
+
+-- "Delete the whole series" (root OR any occurrence pointing at it), scoped to
+-- Carol's own facility: deletes both the root and the child seeded above.
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.schedule_shifts
+       where facility_id = public.current_facility_id()
+         and (id = 'aaaa1111-5515-aaaa-aaaa-aaaa11110188'
+              or recurring_parent_id = 'aaaa1111-5515-aaaa-aaaa-aaaa11110188')
+      returning 1
+    )
+    select count(*) from d$$,
+  2, 'SCHED-188: facility-scoped series delete removes the Facility-A root + child (2 rows)');
+
+-- Same delete shape, but the "root" id belongs to FACILITY B. Even though
+-- Carol is a scheduling admin, the delete's facility_id = current_facility_id()
+-- clause (Facility A) means the Facility-B row is never in the deletable set —
+-- the statement runs (no error) but affects 0 rows.
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.schedule_shifts
+       where facility_id = public.current_facility_id()
+         and (id = 'bbbb2222-5511-bbbb-bbbb-bbbb22220083'
+              or recurring_parent_id = 'bbbb2222-5511-bbbb-bbbb-bbbb22220083')
+      returning 1
+    )
+    select count(*) from d$$,
+  0, 'SCHED-188: series delete against a Facility-B root id (as a Facility-A admin) affects 0 rows');
+
+reset role;
+set local role postgres;
+
+-- Confirm (as owner) the Facility-A series is actually gone and the
+-- Facility-B fixture shift was left untouched by the scoped-away delete above.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id in ('aaaa1111-5515-aaaa-aaaa-aaaa11110188', 'aaaa1111-5516-aaaa-aaaa-aaaa11110188')$$,
+  0, 'SCHED-188: Facility-A series root + child are gone after the scoped delete');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'bbbb2222-5511-bbbb-bbbb-bbbb22220083'$$,
+  1, 'SCHED-188: Facility-B fixture shift untouched by the cross-facility delete attempt');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
