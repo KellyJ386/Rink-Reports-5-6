@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/auth"
 import {
   MODULE_NAMES,
   USER_ACTIONS,
+  isAdminConsoleGrant,
   presetMatrix,
   type ModuleName,
   type Preset,
@@ -35,15 +36,33 @@ function isUserAction(value: string): value is UserAction {
   return (USER_ACTIONS as readonly string[]).includes(value)
 }
 
-// The admin/admin cell is exactly what requireAdmin() keys off, so enabling it
-// grants Admin Center access (i.e. mints another facility admin). Only super
-// admins may turn it on — RLS only blocks cross-facility writes, so this
-// intra-facility escalation must be caught in app code. Granting the `admin`
-// action on a *report* module (configure that module) is normal delegation and
-// stays allowed.
-function isAdminConsoleGrant(moduleName: string, action: string): boolean {
-  return moduleName === "admin" && action === "admin"
+// The `user_permissions` write policy only fences by facility_id — it does NOT
+// confirm the target user actually belongs to that facility. Without this
+// check a facility admin could write rows for an arbitrary UUID scoped to their
+// own facility (data hygiene; the rows are inert since resolution keys off the
+// user's home facility). Confirm membership via an active employee row — the
+// unit of facility membership in this app, and one a facility admin can read
+// under RLS. Super admins skip this (they legitimately grant across facilities).
+async function isFacilityMember(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  facilityId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("facility_id", facilityId)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle()
+  return data !== null
 }
+
+// `isAdminConsoleGrant` (the admin/admin escalation guard) is shared from
+// @/lib/permissions so every write path into user_permissions /
+// role_permission_defaults enforces the same "only a super admin can mint a
+// facility admin" rule.
 
 /**
  * Upsert a single permission cell for one (user, facility, module, action).
@@ -66,6 +85,7 @@ export async function upsertUserPermission(input: {
     }
 
     const isSuperAdmin = profile?.is_super_admin ?? false
+    const supabase = await createClient()
     if (!isSuperAdmin) {
       // Defense-in-depth: a facility admin may only manage permissions within
       // their own facility, and may never grant Admin Center access.
@@ -75,9 +95,11 @@ export async function upsertUserPermission(input: {
       if (input.enabled && isAdminConsoleGrant(input.moduleName, input.action)) {
         return { ok: false, error: "Only a super admin can grant Admin Center access." }
       }
+      if (!(await isFacilityMember(supabase, input.userId, input.facilityId))) {
+        return { ok: false, error: "That user is not an active member of this facility." }
+      }
     }
 
-    const supabase = await createClient()
     const { error } = await supabase
       .from("user_permissions")
       .upsert(
@@ -115,11 +137,16 @@ export async function applyPresetToUser(input: {
   try {
     const { profile } = await requireAdmin()
     const isSuperAdmin = profile?.is_super_admin ?? false
-    if (!isSuperAdmin && input.facilityId !== profile?.facility_id) {
-      return { ok: false, error: "You can only manage permissions within your own facility." }
+    const supabase = await createClient()
+    if (!isSuperAdmin) {
+      if (input.facilityId !== profile?.facility_id) {
+        return { ok: false, error: "You can only manage permissions within your own facility." }
+      }
+      if (!(await isFacilityMember(supabase, input.userId, input.facilityId))) {
+        return { ok: false, error: "That user is not an active member of this facility." }
+      }
     }
 
-    const supabase = await createClient()
     const matrix = presetMatrix(input.preset)
 
     const rows: CellRow[] = []
@@ -177,6 +204,23 @@ export async function bulkImportUserPermissionsCsv(
     const parsed = parseCsv(csv)
     if (!parsed.ok) return { ok: false, error: parsed.error }
 
+    // For a non-super-admin importer, preload the set of active employee
+    // user_ids in their facility once (rather than one query per row) so we can
+    // reject grants aimed at users who aren't members of the facility.
+    let facilityMemberIds: Set<string> | null = null
+    if (!isSuperAdmin && profile?.facility_id) {
+      const { data: members } = await supabase
+        .from("employees")
+        .select("user_id")
+        .eq("facility_id", profile.facility_id)
+        .eq("is_active", true)
+      facilityMemberIds = new Set(
+        (members ?? [])
+          .map((m) => m.user_id)
+          .filter((id): id is string => Boolean(id)),
+      )
+    }
+
     const rows: CellRow[] = []
     const errors: string[] = []
     let skipped = 0
@@ -230,6 +274,11 @@ export async function bulkImportUserPermissionsCsv(
         if (enabled && isAdminConsoleGrant(moduleName, action)) {
           skipped++
           errors.push(`Line ${lineNo}: only a super admin can grant Admin Center access`)
+          return
+        }
+        if (facilityMemberIds && !facilityMemberIds.has(userId)) {
+          skipped++
+          errors.push(`Line ${lineNo}: user is not an active member of this facility`)
           return
         }
       }

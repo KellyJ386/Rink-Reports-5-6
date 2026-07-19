@@ -59,6 +59,19 @@ export type UserPermissionRow = {
 
 export type PermissionMatrix = Record<ModuleName, Record<UserAction, boolean>>
 
+/**
+ * The `admin`/`admin` cell is exactly what `requireAdmin()` keys off, so
+ * enabling it grants Admin Center access (i.e. mints another facility admin).
+ * Only super admins may turn it on — RLS only blocks cross-facility writes, so
+ * this intra-facility privilege escalation must be caught in app code at EVERY
+ * write path into `user_permissions` / `role_permission_defaults`. Granting the
+ * `admin` action on a *report* module (configure that module) is normal
+ * delegation and stays allowed.
+ */
+export function isAdminConsoleGrant(moduleName: string, action: string): boolean {
+  return moduleName === "admin" && action === "admin"
+}
+
 export function emptyMatrix(): PermissionMatrix {
   const matrix = {} as PermissionMatrix
   for (const m of MODULE_NAMES) {

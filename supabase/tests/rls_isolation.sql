@@ -506,6 +506,21 @@ values ('bbbb2222-c0a2-bbbb-bbbb-bbbb22220080',
         'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
 on conflict (id) do nothing;
 
+-- A-side message + recipient so a Facility-A communications admin has a
+-- non-empty own-facility positive to assert against (proving migration 182's
+-- fix didn't over-restrict legitimate admin reads).
+insert into public.communication_messages (id, facility_id, body)
+values ('aaaa1111-c0a1-aaaa-aaaa-aaaa11110079',
+        '11111111-1111-1111-1111-111111111111', 'A-facility broadcast')
+on conflict (id) do nothing;
+
+insert into public.communication_recipients (id, facility_id, message_id, employee_id)
+values ('aaaa1111-c0a2-aaaa-aaaa-aaaa11110080',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-c0a1-aaaa-aaaa-aaaa11110079',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+on conflict (id) do nothing;
+
 insert into public.communication_alerts (id, facility_id, source_module, severity, title)
 values ('bbbb2222-c0a3-bbbb-bbbb-bbbb22220081',
         '22222222-2222-2222-2222-222222222222',
@@ -589,7 +604,13 @@ insert into public.user_permissions (
   ('cccccccc-cccc-cccc-cccc-cccccccccccc',
    '11111111-1111-1111-1111-111111111111', 'scheduling', 'admin', true),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc',
-   '11111111-1111-1111-1111-111111111111', 'scheduling', 'view', true)
+   '11111111-1111-1111-1111-111111111111', 'scheduling', 'view', true),
+  -- Communications admin too, so the communication_recipients_select policy's
+  -- admin branch is actually exercised (migration 182 cross-tenant fix).
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'communications', 'admin', true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'communications', 'view', true)
 on conflict (user_id, facility_id, module_name, action) do nothing;
 
 -- A-side scheduling rows so Carol's OWN-facility positive assertions are
@@ -2418,6 +2439,20 @@ select pg_temp.expect_count(
   $$select count(*) from public.certification_types
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B certification types');
+
+-- Communications recipients (migration 182): the SELECT policy's admin branch
+-- (has_module_admin_access('communications')) used to lack a facility_id match,
+-- so a Facility-A communications admin could read Facility-B recipient rosters.
+-- Carol also holds communications admin, so this exercises that exact branch.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recipients
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A communications admin CANNOT SELECT facility-B communication_recipients (migration 182)');
+-- Positive: she DOES still read her own facility's recipients (fix not over-broad).
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recipients
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'ISO-ADMIN: communications admin STILL sees own-facility communication_recipients');
 
 reset role;
 

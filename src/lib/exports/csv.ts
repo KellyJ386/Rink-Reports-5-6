@@ -7,20 +7,46 @@ const DELIMITERS: Record<ExportSettingsRow["csv_delimiter"], string> = {
   semicolon: ";",
 }
 
+// Characters that trigger formula evaluation in Excel / Google Sheets /
+// LibreOffice when they lead a cell. User-authored export content (report
+// notes, names, communication bodies) must never be evaluated as a formula on
+// the admin's machine (CSV/DDE injection), so we neutralize them.
+const FORMULA_TRIGGERS = new Set(["=", "+", "-", "@", "\t", "\r"])
+
+// A plain signed number (incl. decimals / scientific notation). A leading
+// `+`/`-` here is a legitimate value — e.g. a negative temperature like -5.0 —
+// not a formula, so it must NOT be quote-prefixed (that would render it as text
+// in Excel). Anything else leading with a trigger (=SUM, -1+1, @cmd) is escaped.
+const PLAIN_NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/
+
 /**
- * Escape a single CSV cell per RFC 4180: wrap in double quotes and double any
- * embedded quotes when the value contains the delimiter, a quote, or a newline.
+ * Escape a single CSV cell.
+ *
+ * 1. Formula-injection defense: if the value leads with a spreadsheet formula
+ *    trigger (`= + - @`, tab, CR) and is not a plain number, prefix it with a
+ *    single quote so the spreadsheet treats the whole cell as literal text.
+ *    (Force-quoting alone is insufficient — Excel still evaluates `"=1+1"`.)
+ * 2. RFC 4180 quoting: wrap in double quotes and double any embedded quotes
+ *    when the value contains the delimiter, a quote, or a newline.
  */
 function escapeCell(value: string, delimiter: string): string {
+  let cell = value
   if (
-    value.includes(delimiter) ||
-    value.includes('"') ||
-    value.includes("\n") ||
-    value.includes("\r")
+    cell.length > 0 &&
+    FORMULA_TRIGGERS.has(cell[0]) &&
+    !PLAIN_NUMBER.test(cell)
   ) {
-    return `"${value.replace(/"/g, '""')}"`
+    cell = `'${cell}`
   }
-  return value
+  if (
+    cell.includes(delimiter) ||
+    cell.includes('"') ||
+    cell.includes("\n") ||
+    cell.includes("\r")
+  ) {
+    return `"${cell.replace(/"/g, '""')}"`
+  }
+  return cell
 }
 
 /**

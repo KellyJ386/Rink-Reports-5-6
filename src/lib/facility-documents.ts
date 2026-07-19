@@ -62,6 +62,32 @@ export function isAllowedDocumentExtension(fileName: string): boolean {
   return (ALLOWED_DOCUMENT_EXTENSIONS as readonly string[]).includes(ext)
 }
 
+// Canonical MIME type per allowed extension. The stored content-type must be
+// derived here — NOT from the browser-supplied `file.type` — so a client can't
+// mislabel an upload (e.g. tag a script as image/png) to influence how the
+// object is later served. Unknown/other → the opaque octet-stream default.
+const EXTENSION_MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  txt: "text/plain",
+  csv: "text/csv",
+  rtf: "application/rtf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+}
+
+export function documentMimeType(fileName: string): string {
+  return EXTENSION_MIME_TYPES[fileExtension(fileName)] ?? "application/octet-stream"
+}
+
 // Sanitize an uploaded filename into a storage-safe object segment. Keeps the
 // extension, strips path separators and anything outside a conservative set.
 export function sanitizeFileName(fileName: string): string {

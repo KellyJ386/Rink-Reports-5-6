@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { logServerError } from "@/lib/observability/log-server-error"
 import {
   MAX_DOCUMENT_BYTES,
+  documentMimeType,
   fileExtension,
   isAllowedDocumentExtension,
   isFacilityDocumentCategory,
@@ -147,10 +148,14 @@ export async function uploadDocuments(
       const storagePath = `${facility.facilityId}/${docId}/${sanitizeFileName(file.name)}`
       const buffer = Buffer.from(await file.arrayBuffer())
 
+      // Derive the content-type from the validated extension, not the
+      // browser-supplied file.type, so a client can't mislabel the object.
+      const contentType = documentMimeType(file.name)
+
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET)
         .upload(storagePath, buffer, {
-          contentType: file.type || "application/octet-stream",
+          contentType,
           upsert: false,
         })
       if (uploadErr) {
@@ -166,7 +171,7 @@ export async function uploadDocuments(
         category,
         storage_path: storagePath,
         file_name: file.name.slice(0, 255),
-        mime_type: file.type || null,
+        mime_type: contentType,
         size_bytes: file.size,
         uploaded_by: uploaderId,
       })

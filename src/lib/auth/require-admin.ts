@@ -65,14 +65,24 @@ export const requireAdmin = cache(async (): Promise<AuthedUser> => {
   // permission model would lock those admins out of the console entirely.
   // ('gm' is intentionally absent — it is retired into 'admin', see
   // docs/permission-model-consolidation.md.)
-  const { data: adminEmployee } = await supabase
+  //
+  // Scope the fallback to the caller's own facility (when they have one), the
+  // same way getIsAdmin does. Otherwise a user who is an admin-role employee in
+  // facility B but whose profile.facility_id is A would pass this guard while
+  // operating in facility A's context, where they hold no admin rights.
+  let fallbackQuery = supabase
     .from("employees")
     .select("id, roles!inner(key)")
     .eq("user_id", profile.id)
     .eq("is_active", true)
     .in("roles.key", ["admin", "super_admin"])
     .limit(1)
-    .maybeSingle()
+
+  if (profile.facility_id) {
+    fallbackQuery = fallbackQuery.eq("facility_id", profile.facility_id)
+  }
+
+  const { data: adminEmployee } = await fallbackQuery.maybeSingle()
 
   if (adminEmployee) {
     return current
