@@ -9,11 +9,9 @@ name: E2E Branch Run
 # and is dropped when the module-check session that seeded it cleans up.
 
 on:
-  # push trigger: the session driving this run authenticates through a GitHub
-  # App that cannot POST workflow dispatches (403), so pushes to this branch
-  # start the run instead.
-  push:
-    branches: [claude/module-functionality-check-kv051s]
+  # Dispatch-only: a run needs the e2e_temp_credentials table and the test
+  # accounts seeded first (see docs/module-functionality-check-2026-07.md).
+  # The push trigger used during the 2026-07 module check has been removed.
   workflow_dispatch:
     inputs:
       url:
