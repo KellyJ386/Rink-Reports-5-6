@@ -17,6 +17,8 @@ export type GridEvent = {
   breakMinutes: number
   roleLabel: string | null
   notes: string | null
+  /** Series link: null for standalone shifts and series parents. */
+  recurringParentId: string | null
 }
 
 export function dtoToEvent(dto: GridShiftDTO): GridEvent {
@@ -31,6 +33,7 @@ export function dtoToEvent(dto: GridShiftDTO): GridEvent {
     breakMinutes: dto.break_minutes,
     roleLabel: dto.role_label,
     notes: dto.notes,
+    recurringParentId: dto.recurring_parent_id,
   }
 }
 

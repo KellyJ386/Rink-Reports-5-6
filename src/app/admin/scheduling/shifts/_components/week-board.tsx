@@ -36,7 +36,9 @@ import type {
 } from "../../_lib/grid-actions"
 import {
   createGridShift,
+  createRecurringGridShifts,
   deleteGridShift,
+  deleteRecurringSeries,
   previewShiftWarnings,
   saveGridTemplate,
   updateGridShift,
@@ -118,6 +120,17 @@ function sameLocalDay(a: Date, b: Date): boolean {
 function isoDateKey(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** "Tue, Aug 4" label for a facility-local "YYYY-MM-DD" key (messages only). */
+function formatDateKeyShort(key: string): string {
+  const [y, m, d] = key.split("-").map(Number)
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d, 12)))
 }
 
 export type WeekBoardProps = {
@@ -582,6 +595,39 @@ export function WeekBoard(props: WeekBoardProps) {
     })
   }, [deleteTarget, undoDelete])
 
+  // True when the delete target is the parent or a child of a recurring
+  // series, so the confirm dialog can offer the bulk "delete series" option
+  // alongside the existing single-shift delete.
+  const deleteTargetIsSeries =
+    deleteTarget != null &&
+    (deleteTarget.recurringParentId != null ||
+      events.some((e) => e.recurringParentId === deleteTarget.id))
+
+  const confirmDeleteSeries = useCallback(() => {
+    const ev = deleteTarget
+    if (!ev) return
+    setDeleteTarget(null)
+    startTransition(async () => {
+      const res = await deleteRecurringSeries(ev.id)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      const deletedIds = new Set(res.data.deletedIds)
+      setEvents((evs) => evs.filter((e) => !deletedIds.has(e.id)))
+      setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur))
+      if (res.data.publishedLeft > 0) {
+        toast.success(
+          `Series deleted. ${res.data.publishedLeft} published shift${
+            res.data.publishedLeft === 1 ? "" : "s"
+          } were left — cancel them individually.`,
+        )
+      } else {
+        toast.success("Series deleted.")
+      }
+    })
+  }, [deleteTarget])
+
   // ---- Popover save / delete / template ----
   const handlePopoverSave = useCallback(
     (opts?: SaveOpts) => {
@@ -598,8 +644,46 @@ export function WeekBoard(props: WeekBoardProps) {
       }
 
       if (popover.mode === "create") {
-        const { start, end } = popover
+        const { start, end, repeat } = popover
         startTransition(async () => {
+          if (repeat && repeat.days.length > 0) {
+            const res = await createRecurringGridShifts({
+              starts_at: start.toISOString(),
+              ends_at: end.toISOString(),
+              employee_id,
+              job_area_id,
+              repeat: { days_of_week: repeat.days, until: repeat.untilKey },
+              ...gateFields,
+            })
+            if (!res.ok) {
+              setPopoverError(res.error)
+              return
+            }
+            const { created, skipped } = res.data
+            setEvents((evs) => [...evs, ...created.map(dtoToEvent)])
+            if (skipped.length > 0) {
+              const detail = skipped
+                .slice(0, 3)
+                .map((s) => `${formatDateKeyShort(s.date)} (${s.reason})`)
+                .join("; ")
+              const more =
+                skipped.length > 3 ? `; and ${skipped.length - 3} more` : ""
+              toast.warning(
+                `Created ${created.length} shifts. ${skipped.length} date${
+                  skipped.length === 1 ? "" : "s"
+                } skipped: ${detail}${more}.`,
+              )
+            } else {
+              toast.success(
+                opts?.overrideCert
+                  ? `Created ${created.length} shifts — certification override logged.`
+                  : `Created ${created.length} shifts.`,
+              )
+            }
+            closePopover()
+            return
+          }
+
           const res = await createGridShift({
             starts_at: start.toISOString(),
             ends_at: end.toISOString(),
@@ -1049,10 +1133,21 @@ export function WeekBoard(props: WeekBoardProps) {
               {deleteTarget?.status === "published"
                 ? " The shift will be cancelled and the assigned employee notified."
                 : " Draft shifts are removed immediately — you can undo from the toast."}
+              {deleteTargetIsSeries
+                ? " This shift is part of a recurring series."
+                : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep shift</AlertDialogCancel>
+            {deleteTargetIsSeries ? (
+              <AlertDialogAction
+                variant="destructive"
+                onClick={confirmDeleteSeries}
+              >
+                Delete series (drafts)
+              </AlertDialogAction>
+            ) : null}
             <AlertDialogAction onClick={confirmDelete}>
               {deleteTarget?.status === "published"
                 ? "Cancel shift"
