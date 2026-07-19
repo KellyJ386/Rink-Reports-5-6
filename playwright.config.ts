@@ -41,6 +41,11 @@ export default defineConfig({
     video: "retain-on-failure",
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
+    // The app is a PWA; its service worker serves cached app-shell responses
+    // for navigations, which in automation means net::ERR_ABORTED goto()s and
+    // pages that "load" without ever hitting the server (so auth redirects
+    // never happen). Block SWs in tests — real browsers keep the PWA.
+    serviceWorkers: "block",
   },
   projects: [
     {

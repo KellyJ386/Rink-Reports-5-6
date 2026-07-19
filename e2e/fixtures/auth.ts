@@ -30,6 +30,36 @@ export async function login(page: Page, role: RoleKey): Promise<void> {
     )
   }
 
+  // Session reuse: a fresh UI login for every test hammers the Supabase
+  // password-grant endpoint (~30 sign-ins / 5 min / IP) and the whole suite
+  // collapses into rate-limit failures on CI, where every test shares one IP.
+  // The first login per role goes through the real form (so the login flow
+  // itself stays covered — spec 01 runs first on an empty cache); afterwards
+  // the cookies are cached on disk and replayed into each test's fresh
+  // context.
+  const cached = storagePath(role)
+  if (fs.existsSync(cached)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(cached, "utf8")) as {
+        cookies?: Parameters<
+          ReturnType<Page["context"]>["addCookies"]
+        >[0]
+      }
+      if (state.cookies?.length) {
+        await page.context().addCookies(state.cookies)
+        await page.goto(user.expectedLandingPath)
+        if (!page.url().includes("/login")) {
+          await expect(page).toHaveURL(new RegExp(user.expectedLandingPath))
+          return
+        }
+        // Session expired/invalid — fall through to a real login.
+        await page.context().clearCookies()
+      }
+    } catch {
+      // Corrupt cache — fall through to a real login.
+    }
+  }
+
   await page.goto("/login")
   await page.getByLabel("Email").fill(user.email)
   await page.getByLabel("Password").fill(password)
@@ -41,6 +71,10 @@ export async function login(page: Page, role: RoleKey): Promise<void> {
     timeout: 20_000,
   })
   await expect(page).toHaveURL(new RegExp(user.expectedLandingPath))
+
+  // Cache the session for reuse by later tests (see note above).
+  fs.mkdirSync(STORAGE_DIR, { recursive: true })
+  await page.context().storageState({ path: storagePath(role) })
 }
 
 export async function logout(page: Page): Promise<void> {
