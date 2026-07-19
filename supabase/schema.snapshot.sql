@@ -19043,7 +19043,7 @@ CREATE POLICY information_requests_delete ON public.information_requests FOR DEL
 -- Name: information_requests information_requests_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY information_requests_insert ON public.information_requests FOR INSERT TO anon, authenticated WITH CHECK ((status = 'new'::text));
+CREATE POLICY information_requests_insert ON public.information_requests FOR INSERT TO authenticated, anon WITH CHECK ((status = 'new'::text));
 
 
 --
