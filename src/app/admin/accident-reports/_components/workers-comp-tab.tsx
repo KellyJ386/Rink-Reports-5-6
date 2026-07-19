@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { updateWorkersCompInstructions } from "../actions"
 import type { ActionState } from "../types"
@@ -22,15 +23,6 @@ type Props = {
   instructions: string
   updatedAt: string | null
   hasRow: boolean
-}
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
 }
 
 export function WorkersCompTab({ instructions, updatedAt, hasRow }: Props) {
@@ -52,7 +44,7 @@ export function WorkersCompTab({ instructions, updatedAt, hasRow }: Props) {
         <CardDescription>
           Shown to staff when they file an accident report and toggle Workers&apos;
           Comp. Newlines are preserved. Last updated{" "}
-          {hasRow ? fmt(updatedAt) : "(not yet saved)"}.
+          {hasRow ? <LocalDateTime iso={updatedAt} /> : "(not yet saved)"}.
         </CardDescription>
       </CardHeader>
       <CardContent>

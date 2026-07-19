@@ -4,6 +4,7 @@ import Link from "next/link"
 
 import { Badge } from "@/components/ui/badge"
 import type { BadgeProps } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import type { AuditLogEntry } from "../types"
 import { ACTION_LABELS, ENTITY_TYPE_LABELS } from "../types"
@@ -53,7 +54,7 @@ export function AuditLogTable({ entries, activeEntryId, buildDetailHref }: Props
                     href={buildDetailHref(entry.id)}
                     className="text-primary underline-offset-2 hover:underline"
                   >
-                    {new Date(entry.created_at).toLocaleString()}
+                    <LocalDateTime iso={entry.created_at} />
                   </Link>
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">{actorName}</td>

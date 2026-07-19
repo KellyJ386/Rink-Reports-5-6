@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { upsertRetentionSetting, triggerManualPurge } from "../actions"
 import type { ActionState, RetentionRow } from "../types"
@@ -56,9 +57,11 @@ export function RetentionRowForm({
             {lastPurged && (
               <span className="text-xs text-muted-foreground">
                 Last purged:{" "}
-                {new Date(lastPurged).toLocaleDateString(undefined, {
-                  dateStyle: "medium",
-                })}
+                <LocalDateTime
+                  iso={lastPurged}
+                  format="date"
+                  options={{ dateStyle: "medium" }}
+                />
                 {lastCount != null && ` · ${lastCount} record${lastCount === 1 ? "" : "s"} deleted`}
               </span>
             )}

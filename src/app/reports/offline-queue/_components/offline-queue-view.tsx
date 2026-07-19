@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { cn } from "@/lib/utils"
 
 interface QueueItem {
@@ -195,10 +196,10 @@ export function OfflineQueueView() {
             </div>
             <CardDescription>
               Queued{" "}
-              {new Date(item.startedAt).toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
+              <LocalDateTime
+                iso={new Date(item.startedAt).toISOString()}
+                options={{ dateStyle: "medium", timeStyle: "short" }}
+              />
               {item.retryCount > 0 && ` · ${item.retryCount} attempt${item.retryCount === 1 ? "" : "s"}`}
             </CardDescription>
           </CardHeader>

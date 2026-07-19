@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState, useEffect } from "react"
+import { useActionState, useEffect, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { addIceOperationsFollowupNote } from "../actions"
 import type {
@@ -35,32 +36,6 @@ type Props = {
   detail: SubmissionDetailData
   backHref: string
   tempUnit: TemperatureUnit
-}
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
-}
-
-function fmtTime(ts: string | null): string {
-  if (!ts) return "—"
-  // Accept either HH:MM, full timestamps, or ISO strings.
-  const dateLike = /^\d{4}-/.test(ts)
-  if (dateLike) {
-    try {
-      return new Date(ts).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    } catch {
-      return ts
-    }
-  }
-  return ts
 }
 
 export function SubmissionDetail({ detail, backHref, tempUnit }: Props) {
@@ -89,7 +64,7 @@ export function SubmissionDetail({ detail, backHref, tempUnit }: Props) {
               )}
             </div>
             <p className="text-muted-foreground text-sm">
-              {fmt(submission.occurred_at)} ·{" "}
+              <LocalDateTime iso={submission.occurred_at} /> ·{" "}
               {rink ? rink.name : "No rink"} ·{" "}
               {equipment ? equipment.name : "No equipment"} ·{" "}
               {employee
@@ -143,7 +118,7 @@ export function SubmissionDetail({ detail, backHref, tempUnit }: Props) {
                       )}
                     </span>
                     <span className="text-muted-foreground">
-                      {fmt(n.created_at)}
+                      <LocalDateTime iso={n.created_at} />
                     </span>
                   </div>
                   <p className="text-sm whitespace-pre-wrap">{n.body}</p>
@@ -195,7 +170,7 @@ function GridRow({
   value,
 }: {
   label: string
-  value: string | null | undefined
+  value: ReactNode
 }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -239,8 +214,26 @@ function PayloadSection({
                 p.snow_taken_pct !== null ? String(p.snow_taken_pct) : null
               }
             />
-            <GridRow label="Time on" value={fmtTime(p.time_in)} />
-            <GridRow label="Time off" value={fmtTime(p.time_out)} />
+            <GridRow
+              label="Time on"
+              value={
+                <LocalDateTime
+                  iso={p.time_in}
+                  format="time"
+                  options={{ hour: "2-digit", minute: "2-digit" }}
+                />
+              }
+            />
+            <GridRow
+              label="Time off"
+              value={
+                <LocalDateTime
+                  iso={p.time_out}
+                  format="time"
+                  options={{ hour: "2-digit", minute: "2-digit" }}
+                />
+              }
+            />
             {hasLegacyTemps ? (
               <>
                 <GridRow

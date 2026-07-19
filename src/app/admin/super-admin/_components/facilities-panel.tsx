@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { setFacilityActive } from "../actions"
 import type { ActionState, FacilityWithStats } from "../types"
@@ -102,7 +103,7 @@ function FacilityRow({ facility }: { facility: FacilityWithStats }) {
         <span className="text-xs text-muted-foreground">
           {facility.employee_count} employee{facility.employee_count !== 1 ? "s" : ""} ·{" "}
           {facility.timezone} · Created{" "}
-          {new Date(facility.created_at).toLocaleDateString()}
+          <LocalDateTime iso={facility.created_at} format="date" />
         </span>
         {state.ok === false && (
           <p className="text-xs text-destructive">{state.error}</p>

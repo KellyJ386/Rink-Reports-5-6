@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { checkInviteServiceHealth } from "../actions"
 import type { InviteServiceHealth } from "../types"
@@ -53,14 +54,14 @@ export function InviteServiceHealthCard() {
         </div>
         {state.ok === true && (
           <p className="text-xs text-muted-foreground">
-            Last checked {new Date(state.checkedAt).toLocaleString()}.
+            Last checked <LocalDateTime iso={state.checkedAt} />.
           </p>
         )}
         {state.ok === false && (
           <div className="flex flex-col gap-1">
             <p className="text-sm text-destructive">{state.detail}</p>
             <p className="text-xs text-muted-foreground">
-              Last checked {new Date(state.checkedAt).toLocaleString()}.
+              Last checked <LocalDateTime iso={state.checkedAt} />.
             </p>
           </div>
         )}

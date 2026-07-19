@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import type { AuditLogItem, EmployeeLite } from "../types"
 
@@ -37,14 +38,6 @@ type Props = {
   entityTypes: string[]
   actions: string[]
   params: AuditParams
-}
-
-function fmt(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
 }
 
 function actionBadgeVariant(action: string): BadgeProps["variant"] {
@@ -255,7 +248,7 @@ function AuditRowItem({ item }: { item: AuditLogItem }) {
               ? `${item.actor.first_name} ${item.actor.last_name}`
               : "system"}
           </span>
-          <span>{fmt(item.created_at)}</span>
+          <span><LocalDateTime iso={item.created_at} /></span>
           {hasDiff && (
             <Button
               type="button"

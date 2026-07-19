@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { retryFailedEmail, retryFailedOutboxRow } from "../actions"
 
@@ -144,7 +145,7 @@ export function DeliveriesTab({
                       <ErrorCell text={r.email_error} />
                     </td>
                     <td className="border-b px-3 py-2 whitespace-nowrap">
-                      {new Date(r.created_at).toLocaleString()}
+                      <LocalDateTime iso={r.created_at} />
                     </td>
                     <td className="border-b px-3 py-2 text-right">
                       <RetryButton onRetry={() => retryFailedEmail(r.id)} />
@@ -190,7 +191,7 @@ export function DeliveriesTab({
                       <ErrorCell text={o.error} />
                     </td>
                     <td className="border-b px-3 py-2 whitespace-nowrap">
-                      {new Date(o.scheduled_for).toLocaleString()}
+                      <LocalDateTime iso={o.scheduled_for} />
                     </td>
                     <td className="border-b px-3 py-2 text-right">
                       <RetryButton onRetry={() => retryFailedOutboxRow(o.id)} />
