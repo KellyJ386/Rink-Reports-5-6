@@ -43,15 +43,39 @@ jobs:
 
       - name: Fetch E2E credentials from database
         env:
+          # SUPABASE_DB_URL is optional (unset in this repo); fall back to
+          # building a connection string from the SUPABASE_DB_PASSWORD secret
+          # that Deploy Migrations already uses. GitHub runners are IPv4-only,
+          # so prefer the Supavisor pooler host over the direct db host.
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ]; then
-            echo "::error::SUPABASE_DB_URL secret not configured — cannot fetch e2e credentials."
+          REF="bqbdgwlhbhabsibjgwmk"
+          CANDIDATES=()
+          [ -n "${SUPABASE_DB_URL:-}" ] && CANDIDATES+=("$SUPABASE_DB_URL")
+          if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
+            ENCPW=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'],safe=''))")
+            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-0-us-east-1.pooler.supabase.com:5432/postgres")
+            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-1-us-east-1.pooler.supabase.com:5432/postgres")
+            CANDIDATES+=("postgresql://postgres:${ENCPW}@db.${REF}.supabase.co:5432/postgres")
+          fi
+          if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+            echo "::error::Neither SUPABASE_DB_URL nor SUPABASE_DB_PASSWORD secret is configured."
             exit 1
           fi
-          ROWS=$(psql "$SUPABASE_DB_URL" -At -F '|' \
-            -c "select role_key, password from public.e2e_temp_credentials")
+          ROWS=""
+          for URL in "${CANDIDATES[@]}"; do
+            HOSTDESC=$(echo "$URL" | sed -E 's|.*@([^/:]+).*|\1|')
+            echo "Trying $HOSTDESC ..."
+            if ROWS=$(psql "$URL" -At -F '|' --set=sslmode=require -w \
+              -c "select role_key, password from public.e2e_temp_credentials" 2>/tmp/psql.err); then
+              echo "Connected via $HOSTDESC"
+              break
+            fi
+            sed 's/:[^@:]*@/:***@/' /tmp/psql.err || true
+            ROWS=""
+          done
           if [ -z "$ROWS" ]; then
             echo "::error::e2e_temp_credentials table is empty or missing — seed it before dispatching."
             exit 1
