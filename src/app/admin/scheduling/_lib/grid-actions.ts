@@ -16,8 +16,13 @@ import { z } from "zod"
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
+import { addDaysToKey, utcToWallTime, wallTimeToUtc } from "@/lib/timezone"
 import type { TablesUpdate } from "@/types/database"
 
+import {
+  expandRecurrenceDates,
+  validateRecurrenceSpec,
+} from "../shifts/_lib/recurrence"
 import { computeShiftSignals } from "./grid-warnings"
 import {
   describeViolation,
@@ -60,6 +65,8 @@ export type GridShiftDTO = {
   break_minutes: number
   role_label: string | null
   notes: string | null
+  /** Series link: null for standalone shifts and series parents. */
+  recurring_parent_id: string | null
 }
 
 /** A single-slot reusable shift template surfaced in the grid's side panel. */
@@ -77,7 +84,7 @@ export type GridResult<T> =
   | { ok: false; error: string; gate?: GridGate }
 
 const SHIFT_SELECT =
-  "id, starts_at, ends_at, employee_id, job_area_id, department_id, status, break_minutes, role_label, notes"
+  "id, starts_at, ends_at, employee_id, job_area_id, department_id, status, break_minutes, role_label, notes, recurring_parent_id"
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -97,24 +104,44 @@ const nullableUuid = z.string().uuid().nullable().optional()
 // would let a direct call mint a `published` (locked) shift outright, bypassing
 // that approval — the create-leg of the publish-lock bypass. The DB trigger
 // (schedule_shifts_publish_lock) rejects a published INSERT as a second layer.
-const createSchema = z
-  .object({
-    starts_at: isoDateTime,
-    ends_at: isoDateTime,
-    employee_id: nullableUuid,
-    job_area_id: nullableUuid,
-    department_id: nullableUuid,
-    break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
-    role_label: z.string().trim().max(120).nullable().optional(),
-    notes: z.string().trim().max(2000).nullable().optional(),
-    override_cert: z.boolean().optional(),
-    acknowledge_warnings: z.boolean().optional(),
-    override_reason: z.string().trim().max(1000).nullable().optional(),
+const createFields = z.object({
+  starts_at: isoDateTime,
+  ends_at: isoDateTime,
+  employee_id: nullableUuid,
+  job_area_id: nullableUuid,
+  department_id: nullableUuid,
+  break_minutes: z.number().int().min(0).max(1440).nullable().optional(),
+  role_label: z.string().trim().max(120).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  override_cert: z.boolean().optional(),
+  acknowledge_warnings: z.boolean().optional(),
+  override_reason: z.string().trim().max(1000).nullable().optional(),
+})
+
+const endAfterStart = {
+  check: (v: { starts_at: string; ends_at: string }) =>
+    new Date(v.ends_at).getTime() > new Date(v.starts_at).getTime(),
+  params: { message: "End must be after start.", path: ["ends_at"] },
+}
+
+const createSchema = createFields.refine(endAfterStart.check, endAfterStart.params)
+
+// Weekly recurrence rule attached to a grid create: which weekdays repeat and
+// the (inclusive, facility-local) end date. Range/occurrence caps are enforced
+// by validateRecurrenceSpec against the facility-local anchor date.
+const recurringCreateSchema = createFields
+  .extend({
+    repeat: z.object({
+      days_of_week: z
+        .array(z.number().int().min(0).max(6))
+        .min(1, "Select at least one day of the week.")
+        .max(7),
+      until: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid repeat end date."),
+    }),
   })
-  .refine(
-    (v) => new Date(v.ends_at).getTime() > new Date(v.starts_at).getTime(),
-    { message: "End must be after start.", path: ["ends_at"] }
-  )
+  .refine(endAfterStart.check, endAfterStart.params)
 
 const updateSchema = z
   .object({
@@ -180,8 +207,15 @@ const previewSchema = z.object({
 })
 
 export type CreateGridShiftInput = z.input<typeof createSchema>
+export type CreateRecurringShiftsInput = z.input<typeof recurringCreateSchema>
 export type UpdateGridShiftInput = z.input<typeof updateSchema>
 export type PreviewShiftInput = z.input<typeof previewSchema>
+
+/** Outcome of a recurring create: what landed plus what was skipped and why. */
+export type RecurringCreateData = {
+  created: GridShiftDTO[]
+  skipped: { date: string; reason: string }[]
+}
 
 // ---------------------------------------------------------------------------
 // Session context (facility_id is ALWAYS derived server-side, never trusted
@@ -211,6 +245,10 @@ function dbError(
   if (!err) return fallback
   if (err.code === "23505") {
     return "That value conflicts with an existing record (duplicate)."
+  }
+  if (err.code === "23P01") {
+    // GiST exclusion `schedule_shifts_no_double_booking` (migration 140).
+    return "Overlaps another shift for that employee."
   }
   return err.message?.trim() || fallback
 }
@@ -407,6 +445,24 @@ async function gateShiftWrite(
   return { ok: true }
 }
 
+/** "Tue, Aug 4" label for a facility-local "YYYY-MM-DD" key (messages only). */
+function formatDateKey(key: string): string {
+  const [y, m, d] = key.split("-").map(Number)
+  // UTC-noon probe: the key is already facility-local, so no zone conversion.
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d, 12)))
+}
+
+/** Cap a warning list for display; the tail collapses into a count. */
+function truncateLines(lines: string[], max = 10): string[] {
+  if (lines.length <= max) return lines
+  return [...lines.slice(0, max), `…and ${lines.length - max} more.`]
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -487,6 +543,345 @@ export async function createGridShift(
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")
     return { ok: true, data: data as GridShiftDTO }
+  } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Create a weekly-recurring series from one painted shift: the drawn shift is
+ * the series PARENT; one child draft is generated per selected weekday between
+ * the anchor and the (inclusive) `repeat.until` date, linked via
+ * `recurring_parent_id`. Occurrences are ordinary draft rows — they publish,
+ * edit, and delete exactly like hand-drawn shifts.
+ *
+ * Times are facility-local wall clock: the parent's instants are converted to
+ * the facility timezone once, then each occurrence re-projects that wall time
+ * onto its own date (same pattern as applyTemplateToWeek), so a series keeps
+ * e.g. 9:00–17:00 across a DST boundary.
+ *
+ * Gating runs per occurrence (same signals as a single create). Cert gaps on
+ * ANY date hard-block unless overridden (each violating date is audit-logged);
+ * advisory warnings aggregate into one confirm. Under block_on_violations,
+ * advisory-flagged CHILD dates are skipped (policy blocks the date, not the
+ * batch) while a flagged parent blocks outright, matching createGridShift.
+ * Inserts are per-row so the DB's double-booking exclusion (23P01) skips just
+ * the conflicting date; partial success is success and reports `skipped`.
+ *
+ * Within-batch limitation: signals are computed against EXISTING rows before
+ * any insert, so two occurrences in the same batch can't warn about each
+ * other (e.g. weekly-hour totals the batch itself creates). True same-time
+ * overlaps are still caught by the exclusion constraint at insert time.
+ */
+export async function createRecurringGridShifts(
+  input: CreateRecurringShiftsInput
+): Promise<GridResult<RecurringCreateData>> {
+  try {
+    const ctx = await resolveFacility()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const parsed = recurringCreateSchema.safeParse(input)
+    if (!parsed.success) {
+      return { ok: false, error: firstZodError(parsed.error) }
+    }
+    const v = parsed.data
+
+    const supabase = await createClient()
+
+    const owned = await assertOwned(supabase, ctx.facilityId, {
+      employeeId: v.employee_id ?? null,
+      jobAreaId: v.job_area_id ?? null,
+    })
+    if (!owned.ok) return { ok: false, error: owned.error }
+
+    // Wall-clock template from the PARENT's instants (facility timezone) — the
+    // client never supplies wall times, so generation is independent of the
+    // admin's browser zone.
+    const { data: facilityRow } = await supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", ctx.facilityId)
+      .maybeSingle<{ timezone: string | null }>()
+    const timezone = facilityRow?.timezone ?? null
+
+    const startWall = utcToWallTime(v.starts_at, timezone)
+    const endWall = utcToWallTime(v.ends_at, timezone)
+    if (!startWall || !endWall) {
+      return { ok: false, error: "Invalid shift times." }
+    }
+    const anchorKey = startWall.slice(0, 10)
+    const startTime = startWall.slice(11) // "HH:MM"
+    const endKey = endWall.slice(0, 10)
+    const endTime = endWall.slice(11)
+    // Overnight shifts end 1+ calendar days after they start; carry the offset.
+    const [ay, am, ad] = anchorKey.split("-").map(Number)
+    const [ey, em, ed] = endKey.split("-").map(Number)
+    const endDayOffset = Math.round(
+      (Date.UTC(ey, em - 1, ed, 12) - Date.UTC(ay, am - 1, ad, 12)) / 86_400_000
+    )
+
+    const spec = {
+      anchorKey,
+      daysOfWeek: v.repeat.days_of_week,
+      untilKey: v.repeat.until,
+    }
+    const valid = validateRecurrenceSpec(spec)
+    if (!valid.ok) return { ok: false, error: valid.error }
+
+    type Occurrence = { dateKey: string; startsAt: string; endsAt: string }
+    const skipped: RecurringCreateData["skipped"] = []
+    const children: Occurrence[] = []
+    for (const dateKey of expandRecurrenceDates(spec)) {
+      const startsAt = wallTimeToUtc(`${dateKey}T${startTime}:00`, timezone)
+      const endsAt = wallTimeToUtc(
+        `${addDaysToKey(dateKey, endDayOffset)}T${endTime}:00`,
+        timezone
+      )
+      if (!startsAt || !endsAt) {
+        skipped.push({ date: dateKey, reason: "Couldn't compute shift times." })
+        continue
+      }
+      children.push({
+        dateKey,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+      })
+    }
+
+    // ---- Batch gate (assigned series only; open slots never gate) ----------
+    const policySkipped = new Set<string>()
+    if (v.employee_id) {
+      const employeeId = v.employee_id
+      const probes: (Occurrence & { isParent: boolean })[] = [
+        {
+          dateKey: anchorKey,
+          startsAt: v.starts_at,
+          endsAt: v.ends_at,
+          isParent: true,
+        },
+        ...children.map((c) => ({ ...c, isParent: false })),
+      ]
+
+      type ProbeSignals = {
+        probe: (typeof probes)[number]
+        cert: string[]
+        advisory: string[]
+      }
+      const results: ProbeSignals[] = []
+      const CHUNK = 5
+      for (let i = 0; i < probes.length; i += CHUNK) {
+        const batch = await Promise.all(
+          probes.slice(i, i + CHUNK).map(async (probe) => {
+            const { codes, capWarning, boundsWarning } =
+              await computeShiftSignals(supabase, {
+                facilityId: ctx.facilityId,
+                employeeId,
+                startsAt: probe.startsAt,
+                endsAt: probe.endsAt,
+                breakMinutes: v.break_minutes ?? null,
+                jobAreaId: v.job_area_id ?? null,
+                excludeShiftId: null,
+              })
+            const { cert, advisory } = partitionViolations(codes)
+            return {
+              probe,
+              cert,
+              advisory: [
+                ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
+                ...(capWarning ? [capWarning] : []),
+                ...(boundsWarning ? [boundsWarning] : []),
+              ],
+            }
+          })
+        )
+        results.push(...batch)
+      }
+
+      const withCert = results.filter((r) => r.cert.length > 0)
+      const certWarnings = truncateLines(
+        withCert.flatMap((r) =>
+          r.cert.map(
+            (c) =>
+              `${formatDateKey(r.probe.dateKey)}: ${capitalize(describeViolation(c))}.`
+          )
+        )
+      )
+      const withAdvisory = results.filter((r) => r.advisory.length > 0)
+      const advisoryWarnings = truncateLines(
+        withAdvisory.flatMap((r) =>
+          r.advisory.map((w) => `${formatDateKey(r.probe.dateKey)}: ${w}`)
+        )
+      )
+
+      if (withCert.length > 0) {
+        if (!v.override_cert) {
+          return {
+            ok: false,
+            error: certWarnings.join(" "),
+            gate: { kind: "cert_block", certWarnings, advisoryWarnings },
+          }
+        }
+        if (!v.job_area_id) {
+          return {
+            ok: false,
+            error: "A job area is required to override a certification gap.",
+          }
+        }
+        // One audit row per violating date (no shift id yet — rows aren't
+        // inserted until the gate clears).
+        for (const r of withCert) {
+          const { error } = await supabase.rpc("scheduling_log_cert_override", {
+            p_employee_id: employeeId,
+            p_job_area_id: v.job_area_id,
+            p_violation_codes: r.cert,
+            p_reason: v.override_reason ?? undefined,
+          })
+          if (error) {
+            return {
+              ok: false,
+              error: `Couldn't record the certification override: ${error.message ?? "unknown error"}.`,
+            }
+          }
+        }
+      }
+
+      if (withAdvisory.length > 0) {
+        if (await readBlockOnViolations(supabase, ctx.facilityId)) {
+          const parentFlagged = withAdvisory.find((r) => r.probe.isParent)
+          if (parentFlagged) {
+            return {
+              ok: false,
+              error: `Blocked by facility policy — ${parentFlagged.advisory.join(" ")}`,
+            }
+          }
+          for (const r of withAdvisory) {
+            policySkipped.add(r.probe.dateKey)
+            skipped.push({
+              date: r.probe.dateKey,
+              reason: `Blocked by facility policy — ${r.advisory.join(" ")}`,
+            })
+          }
+        } else if (!v.acknowledge_warnings) {
+          return {
+            ok: false,
+            error: `Please confirm: ${advisoryWarnings.join(" ")}`,
+            gate: { kind: "confirm", advisoryWarnings },
+          }
+        }
+      }
+    }
+
+    // ---- Inserts: parent first, then children one row at a time ------------
+    const baseRow = {
+      facility_id: ctx.facilityId,
+      department_id: v.department_id ?? null,
+      job_area_id: v.job_area_id ?? null,
+      employee_id: v.employee_id ?? null,
+      break_minutes: v.break_minutes ?? 0,
+      role_label: v.role_label ?? null,
+      notes: v.notes ?? null,
+      // Always drafts — publishing stays the governed two-person flow.
+      status: "draft" as const,
+      compliance_warnings: [],
+    }
+
+    const { data: parent, error: parentErr } = await supabase
+      .from("schedule_shifts")
+      .insert({ ...baseRow, starts_at: v.starts_at, ends_at: v.ends_at })
+      .select(SHIFT_SELECT)
+      .single()
+    if (parentErr || !parent) {
+      return { ok: false, error: dbError(parentErr, "Failed to create shift.") }
+    }
+
+    const created: GridShiftDTO[] = [parent as GridShiftDTO]
+    for (const occ of children) {
+      if (policySkipped.has(occ.dateKey)) continue
+      const { data, error } = await supabase
+        .from("schedule_shifts")
+        .insert({
+          ...baseRow,
+          starts_at: occ.startsAt,
+          ends_at: occ.endsAt,
+          recurring_parent_id: (parent as GridShiftDTO).id,
+        })
+        .select(SHIFT_SELECT)
+        .single()
+      if (error || !data) {
+        skipped.push({
+          date: occ.dateKey,
+          reason: dbError(error, "Failed to create shift."),
+        })
+      } else {
+        created.push(data as GridShiftDTO)
+      }
+    }
+
+    revalidatePath("/admin/scheduling/shifts")
+    revalidatePath("/admin/scheduling")
+    return { ok: true, data: { created, skipped } }
+  } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Delete every DRAFT shift in a series (the parent and all children linked by
+ * recurring_parent_id), given any member's id. Published occurrences are left
+ * untouched — removing those is the governed per-shift cancel
+ * (scheduling_admin_cancel_shift) — and their count is reported so the UI can
+ * say so. Cancelled rows are likewise left as history.
+ */
+export async function deleteRecurringSeries(
+  id: string
+): Promise<GridResult<{ deletedIds: string[]; publishedLeft: number }>> {
+  try {
+    const ctx = await resolveFacility()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const parsedId = z.string().uuid().safeParse(id)
+    if (!parsedId.success) return { ok: false, error: "Invalid shift id." }
+
+    const supabase = await createClient()
+
+    const { data: member } = await supabase
+      .from("schedule_shifts")
+      .select("id, recurring_parent_id")
+      .eq("id", parsedId.data)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!member) return { ok: false, error: "Shift not found." }
+
+    const root = member.recurring_parent_id ?? member.id
+    const { data: rows, error: readErr } = await supabase
+      .from("schedule_shifts")
+      .select("id, status")
+      .eq("facility_id", ctx.facilityId)
+      .or(`id.eq.${root},recurring_parent_id.eq.${root}`)
+    if (readErr || !rows) {
+      return { ok: false, error: dbError(readErr, "Failed to load the series.") }
+    }
+
+    const draftIds = rows.filter((r) => r.status === "draft").map((r) => r.id)
+    const publishedLeft = rows.filter((r) => r.status === "published").length
+
+    if (draftIds.length > 0) {
+      const { error } = await supabase
+        .from("schedule_shifts")
+        .delete()
+        .in("id", draftIds)
+        .eq("facility_id", ctx.facilityId)
+        .eq("status", "draft")
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to delete series.") }
+      }
+    }
+
+    revalidatePath("/admin/scheduling/shifts")
+    revalidatePath("/admin/scheduling")
+    return { ok: true, data: { deletedIds: draftIds, publishedLeft } }
   } catch (e) {
     logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
