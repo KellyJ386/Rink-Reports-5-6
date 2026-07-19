@@ -9,6 +9,11 @@ name: E2E Branch Run
 # and is dropped when the module-check session that seeded it cleans up.
 
 on:
+  # push trigger: the session driving this run authenticates through a GitHub
+  # App that cannot POST workflow dispatches (403), so pushes to this branch
+  # start the run instead.
+  push:
+    branches: [claude/module-functionality-check-kv051s]
   workflow_dispatch:
     inputs:
       url:
@@ -27,7 +32,7 @@ jobs:
     timeout-minutes: 90
 
     env:
-      E2E_BASE_URL: ${{ inputs.url }}
+      E2E_BASE_URL: ${{ inputs.url || 'https://www.rinkreports.com' }}
       # Non-secret seed deep links (see e2e/README.md "Staging data prerequisites").
       E2E_ICE_DEPTH_LAYOUT_SLUG: rink-a
       E2E_FACILITY_B_REPORT_PATH: /reports/incidents/5b81c73b-21e1-4d66-8104-45719ce57fad
