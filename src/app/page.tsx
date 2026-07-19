@@ -38,50 +38,135 @@ const MODULES = [
     title: "Daily Reports",
     desc: "Submit daily checklists for every area of your facility.",
     icon: '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect width="6" height="4" x="9" y="3" rx="1" ry="1"/><path d="M9 12h6"/><path d="M9 16h4"/>',
+    bullets: [
+      "Up to 20 admin-configurable tabs, one for every area of your facility",
+      "Each tab saves independently — no waiting on other departments to finish",
+      "Reports lock and submit at end of day for a clean, tamper-proof record",
+      "Full historical archive with PDF export",
+    ],
   },
   {
     key: "incidents",
     title: "Incident Reports",
     desc: "Report on-ice incidents and unusual occurrences in real time.",
     icon: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><circle cx="12" cy="17" r="1"/>',
+    bullets: [
+      "Document on-ice incidents and unusual occurrences in real time",
+      "Interactive body diagram for precise injury location",
+      "Photo uploads and witness statements attached to every report",
+      "Trend tracking to spot recurring problem areas",
+    ],
+  },
+  {
+    key: "refrig",
+    title: "Refrigeration Plant",
+    desc: "Track compressor readings, system temps, and alarms.",
+    icon: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0z"/>',
+    bullets: [
+      "Compressor count and readings-per-shift configured by your admin, not hardcoded",
+      "Log suction, discharge, and oil pressure, amps, oil temp, and brine supply/return/flow",
+      "Normal operating ranges displayed inline as staff enter readings",
+      "Complete compliance history, audit-ready at any time",
+    ],
+  },
+  {
+    key: "air",
+    title: "Air Quality Monitoring",
+    desc: "Monitor CO, NO₂, and ventilation across all ice surfaces.",
+    icon: '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/>',
+    bullets: [
+      "Jurisdiction-aware CO and NO₂ thresholds — the system knows your state's regulatory floor",
+      "Four-tier escalation from routine logging to alarm response",
+      "Admins can tighten standards, never loosen them",
+      "Audit-ready exceedance and compliance history",
+    ],
+  },
+  {
+    key: "iceops",
+    title: "Ice Operations Log",
+    desc: "Log ice resurfacer runs, blade changes, circle checks, and edging.",
+    icon: '<line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/>',
+    bullets: [
+      "Four-tab structure covering every ice activity: resurfacer runs, circle checks, edging, blade changes",
+      "Operation and equipment types are admin-configurable to match your fleet",
+      "Operator assignment and automatic timestamps on every entry",
+      "Complete maintenance history for every sheet of ice",
+    ],
+  },
+  {
+    key: "icedepth",
+    title: "Ice Depth Monitoring",
+    desc: "Measure depth at numbered points on your custom rink layout.",
+    icon: '<path d="M21.3 8.7L15.3 2.7a1 1 0 0 0-1.4 0L2.7 13.9a1 1 0 0 0 0 1.4l6 6a1 1 0 0 0 1.4 0L21.3 10.1a1 1 0 0 0 0-1.4z"/><path d="m8 18-2-2"/><path d="m12 14-2-2"/><path d="m16 10-2-2"/><path d="m10 16-2-2"/><path d="m14 12-2-2"/>',
+    bullets: [
+      "Interactive rink diagrams with admin-built measurement point templates",
+      "Bluetooth caliper integration — readings flow straight from the tool to the app",
+      "Numbered measurement points on your custom rink layout",
+      "Historical trend analysis to catch buildup and thin spots early",
+    ],
+  },
+  {
+    key: "scheduling",
+    title: "Employee Scheduling",
+    desc: "Build, publish, and manage staff schedules across your facility.",
+    icon: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
+    bullets: [
+      "Built for facilities with up to 1,000 employees",
+      "Shift management with role-based access at every level",
+      "Published schedules locked against unauthorized changes",
+      "Mobile sign-off so staff confirm shifts from anywhere",
+    ],
   },
   {
     key: "accidents",
     title: "Accident Reports",
     desc: "Log staff and patron injuries with workers' comp documentation.",
     icon: '<path d="M10 10H6"/><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.28a1 1 0 0 0-.684-.948l-1.923-.641a1 1 0 0 1-.578-.502l-1.539-3.076A1 1 0 0 0 16.382 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
-  },
-  {
-    key: "refrig",
-    title: "Refrigeration",
-    desc: "Track compressor readings, system temps, and alarms.",
-    icon: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0z"/>',
-  },
-  {
-    key: "air",
-    title: "Air Quality",
-    desc: "Monitor CO, NO₂, and ventilation across all ice surfaces.",
-    icon: '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/>',
-  },
-  {
-    key: "iceops",
-    title: "Ice Operations",
-    desc: "Log ice resurfacer runs, blade changes, circle checks, and edging.",
-    icon: '<line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/>',
-  },
-  {
-    key: "icedepth",
-    title: "Ice Depth",
-    desc: "Measure depth at numbered points on your custom rink layout.",
-    icon: '<path d="M21.3 8.7L15.3 2.7a1 1 0 0 0-1.4 0L2.7 13.9a1 1 0 0 0 0 1.4l6 6a1 1 0 0 0 1.4 0L21.3 10.1a1 1 0 0 0 0-1.4z"/><path d="m8 18-2-2"/><path d="m12 14-2-2"/><path d="m16 10-2-2"/><path d="m10 16-2-2"/><path d="m14 12-2-2"/>',
+    bullets: [
+      "Separate workflows for staff and patron injuries",
+      "Workers' comp documentation captured at the time of the incident",
+      "Structured forms ensure nothing is missed under pressure",
+      "Injury trends and reporting for insurance and risk management",
+    ],
   },
   {
     key: "comms",
-    title: "Communications",
+    title: "Communications Center",
     desc: "Send facility alerts, messages, and shift reminders to staff.",
     icon: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+    bullets: [
+      "Facility-wide alerts pushed to all staff instantly",
+      "Shift reminders tied directly to the published schedule",
+      "Targeted messages by role, department, or facility",
+      "Message history so nothing gets lost in a group text",
+    ],
+  },
+  {
+    key: "admin",
+    title: "Admin Panel",
+    desc: "Configure every module and control access across your organization.",
+    icon: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    bullets: [
+      "User management across the full five-tier role hierarchy",
+      "Permission controls down to the module level",
+      "System configuration for every module — tabs, thresholds, equipment, templates",
+      "Analytics dashboard with facility-wide visibility",
+    ],
   },
 ]
+
+// Small integer → capitalized English word, so display copy derived from a
+// count (e.g. the module-grid subhead) never drifts from the data. Falls back
+// to the numeral for counts outside the table.
+const NUMBER_WORDS = [
+  "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+  "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen",
+  "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty",
+]
+
+function countWord(n: number): string {
+  return NUMBER_WORDS[n] ?? String(n)
+}
 
 const WHY_ITEMS = [
   "Purpose-built for ice rink operations",
@@ -214,7 +299,7 @@ export default async function Home() {
             position: "absolute",
             inset: 0,
             background:
-              "radial-gradient(ellipse 52% 82% at 0% 50%, rgba(105,190,40,0.52) 0%, rgba(105,190,40,0.18) 35%, transparent 65%), linear-gradient(104deg, rgba(105,190,40,0.42) 0%, rgba(105,190,40,0.0) 38%, rgba(0,59,111,0.38) 60%, rgba(0,26,58,0.92) 100%)",
+              "radial-gradient(ellipse 52% 82% at 0% 50%, rgba(77,255,0,0.52) 0%, rgba(77,255,0,0.18) 35%, transparent 65%), linear-gradient(104deg, rgba(77,255,0,0.42) 0%, rgba(77,255,0,0.0) 38%, rgba(0,59,111,0.38) 60%, rgba(0,26,58,0.92) 100%)",
           }}
         />
         {/* Ice-crystal dot pattern */}
@@ -255,7 +340,7 @@ export default async function Home() {
               fontWeight: 700,
               letterSpacing: "0.16em",
               textTransform: "uppercase",
-              color: "#82CC36",
+              color: "#4DFF00",
             }}
           >
             <span
@@ -265,10 +350,10 @@ export default async function Home() {
                 height: 7,
                 borderRadius: "50%",
                 background: "var(--rr-green)",
-                boxShadow: "0 0 0 4px rgba(105,190,40,0.22)",
+                boxShadow: "0 0 0 4px rgba(77,255,0,0.22)",
               }}
             />
-            Max Facility Operations
+            By Max Facility LLC
           </div>
 
           {/* Logo wordmark */}
@@ -303,8 +388,8 @@ export default async function Home() {
               lineHeight: 1.52,
             }}
           >
-            The operations console for Max Facility ice rinks. Schedules,
-            staff, and reporting in one place.
+            The operations platform built for ice rinks. Schedules,
+            staff, compliance, and reporting in one place.
           </p>
 
         </div>
@@ -343,7 +428,7 @@ export default async function Home() {
                 fontWeight: 700,
                 letterSpacing: "0.14em",
                 textTransform: "uppercase",
-                color: "#82CC36",
+                color: "#4DFF00",
                 marginBottom: 16,
               }}
             >
@@ -371,7 +456,8 @@ export default async function Home() {
                 lineHeight: 1.5,
               }}
             >
-              Eight integrated modules. Zero spreadsheets.
+              {countWord(MODULES.length)} integrated modules. Zero
+              spreadsheets.
             </p>
           </div>
 
@@ -409,7 +495,7 @@ export default async function Home() {
                     display: "grid",
                     placeItems: "center",
                     color: "#fff",
-                    boxShadow: "0 6px 14px -4px rgba(105,190,40,0.42)",
+                    boxShadow: "0 6px 14px -4px rgba(77,255,0,0.42)",
                     flexShrink: 0,
                   }}
                 >
@@ -439,6 +525,49 @@ export default async function Home() {
                     {m.desc}
                   </div>
                 </div>
+
+                {/* Feature bullets */}
+                <ul
+                  style={{
+                    listStyle: "none",
+                    padding: 0,
+                    margin: "2px 0 0",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  {m.bullets.map((b, i) => (
+                    <li
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 10,
+                        fontSize: 13.5,
+                        lineHeight: 1.45,
+                        color: "rgba(255,255,255,0.82)",
+                      }}
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#4DFF00"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                        focusable="false"
+                        style={{ flexShrink: 0, marginTop: 3 }}
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
@@ -515,7 +644,7 @@ export default async function Home() {
                         width: 28,
                         height: 28,
                         borderRadius: "50%",
-                        background: "rgba(105,190,40,0.16)",
+                        background: "rgba(77,255,0,0.16)",
                         display: "grid",
                         placeItems: "center",
                         flexShrink: 0,
@@ -526,7 +655,7 @@ export default async function Home() {
                         height="14"
                         viewBox="0 0 24 24"
                         fill="none"
-                        stroke="#82CC36"
+                        stroke="#4DFF00"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -596,7 +725,7 @@ export default async function Home() {
           fontSize: 13,
         }}
       >
-        Max Facility Operations · Rink Reports ·{" "}
+        Max Facility LLC · Rink Reports ·{" "}
         {new Date().getFullYear()}
       </footer>
     </div>
