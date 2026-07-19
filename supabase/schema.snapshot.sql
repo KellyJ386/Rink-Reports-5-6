@@ -966,6 +966,86 @@ COMMENT ON FUNCTION public.current_user_role() IS 'Role key (e.g. ''gm'', ''mana
 
 
 --
+-- Name: daily_area_assignment_allows(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.daily_area_assignment_allows(p_area_id uuid, p_date date) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select
+    p_area_id is not null
+    and (
+      -- Legacy / pre-feature rows carry no business_date: always open.
+      p_date is null
+      -- Routing disabled (no settings row, or flag off): every area is open.
+      or not exists (
+        select 1
+          from public.daily_report_settings s
+         where s.facility_id = public.current_facility_id()
+           and s.assignment_routing_enabled = true
+      )
+      -- D4: no ACTIVE assignment for this area+date -> open to all permitted staff.
+      or not exists (
+        select 1
+          from public.report_area_assignments a
+         where a.facility_id  = public.current_facility_id()
+           and a.area_id      = p_area_id
+           and a.report_date  = p_date
+           and a.superseded_at is null
+      )
+      -- An active assignment names the caller.
+      or exists (
+        select 1
+          from public.report_area_assignments a
+          join public.employees e on e.id = a.employee_id
+         where a.facility_id  = public.current_facility_id()
+           and a.area_id      = p_area_id
+           and a.report_date  = p_date
+           and a.superseded_at is null
+           and e.user_id      = auth.uid()
+           and e.is_active    = true
+      )
+    );
+$$;
+
+
+--
+-- Name: FUNCTION daily_area_assignment_allows(p_area_id uuid, p_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.daily_area_assignment_allows(p_area_id uuid, p_date date) IS 'Daily Reports routing (D10/D4): true iff the caller may work the given area on the given business date — routing disabled, area open (no active assignment that date), assignment names the caller, or NULL date (legacy row). Admin/edit bypass lives in the policies, not here. SECURITY DEFINER to avoid recursing into the routing tables'' own RLS.';
+
+
+--
+-- Name: daily_report_submissions_stamp_business_date(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.daily_report_submissions_stamp_business_date() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.business_date is null then
+    select (coalesce(new.submitted_at, now())
+              at time zone coalesce(f.timezone, 'UTC'))::date
+      into new.business_date
+      from public.facilities f
+     where f.id = new.facility_id;
+  end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION daily_report_submissions_stamp_business_date(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.daily_report_submissions_stamp_business_date() IS 'BEFORE INSERT: fills daily_report_submissions.business_date from the facility timezone when the client omitted it, so the assignment-routing RLS (which keys on business_date) cannot be bypassed by a crafted NULL-date insert.';
+
+
+--
 -- Name: deactivate_role(uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1878,6 +1958,38 @@ COMMENT ON FUNCTION public.has_module_admin_access(p_module_key text) IS 'True i
 
 
 --
+-- Name: has_module_edit_access(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.has_module_edit_access(p_module_key text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select
+    p_module_key is not null
+    and (
+      public.is_super_admin()
+      or exists (
+        select 1
+          from public.user_permissions up
+         where up.user_id     = auth.uid()
+           and up.facility_id = public.current_facility_id()
+           and up.module_name = p_module_key
+           and up.action      = 'edit'::public.user_action
+           and up.enabled     = true
+      )
+    );
+$$;
+
+
+--
+-- Name: FUNCTION has_module_edit_access(p_module_key text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.has_module_edit_access(p_module_key text) IS 'True if super admin OR the current user has an enabled `edit` grant on the named module at their current facility (public.user_permissions). The elevated-but-not-admin tier used by daily-report assignment routing (assign/reassign + visibility bypass).';
+
+
+--
 -- Name: hide_dashboard_module(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2221,6 +2333,7 @@ declare
   v_total   integer := 0;
   v_deleted integer;
   v_row     record;
+  v_cutoff_date date;
 begin
   for v_row in
     select facility_id, keep_days
@@ -2233,6 +2346,26 @@ begin
        and submitted_at < now() - (v_row.keep_days || ' days')::interval;
     get diagnostics v_deleted = row_count;
     v_total := v_total + v_deleted;
+
+    v_cutoff_date := (now() - (v_row.keep_days || ' days')::interval)::date;
+
+    delete from public.report_area_assignments
+     where facility_id = v_row.facility_id
+       and report_date < v_cutoff_date;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.daily_area_assignment_snapshots
+     where facility_id = v_row.facility_id
+       and business_date < v_cutoff_date;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.daily_report_assignment_notifications
+     where facility_id = v_row.facility_id
+       and created_at < now() - (v_row.keep_days || ' days')::interval;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
   end loop;
   return v_total;
 end;
@@ -2243,7 +2376,7 @@ $$;
 -- Name: FUNCTION purge_old_daily_reports(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_old_daily_reports() IS 'Deletes daily_report_submissions older than 14 days (cascades to items + notes). Schedule via Supabase Cron (pg_cron) - not auto-scheduled by this migration.';
+COMMENT ON FUNCTION public.purge_old_daily_reports() IS 'Retention-aware purge for the Daily Reports module: submissions (cascading items + notes) plus the day-scoped assignment-routing rows (assignments, snapshots, notifications), per facility keep_days from retention_settings. Standing routing config is never purged. Invoked by the retention cron; service_role only.';
 
 
 --
@@ -2588,6 +2721,192 @@ COMMENT ON FUNCTION public.reapply_role_defaults_for_role(p_facility_id uuid, p_
 
 
 --
+-- Name: report_area_assignments_block_past(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.report_area_assignments_block_past() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_row   public.report_area_assignments;
+  v_today date;
+begin
+  -- Service paths bypass (mirrors schedule_shifts_publish_lock).
+  if current_user in ('postgres', 'supabase_admin', 'service_role') then
+    return coalesce(new, old);
+  end if;
+
+  v_row := coalesce(new, old);
+  select (now() at time zone coalesce(f.timezone, 'UTC'))::date
+    into v_today
+    from public.facilities f
+   where f.id = v_row.facility_id;
+
+  if v_row.report_date < coalesce(v_today, current_date)
+     or (tg_op = 'UPDATE' and old.report_date < coalesce(v_today, current_date)) then
+    raise exception
+      'Assignments for a past day are locked: % is before the facility''s current date.',
+      v_row.report_date
+      using errcode = '42501';
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION report_area_assignments_block_past(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.report_area_assignments_block_past() IS 'Trigger: rejects INSERT/UPDATE of report_area_assignments rows whose report_date is before the facility-local current date for end-user roles — the assignment record of a closed day is immutable ("no reassignment after lock"). Service roles bypass.';
+
+
+--
+-- Name: resolve_daily_area_assignments(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_daily_area_assignments(p_date date) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility uuid;
+  v_tz       text;
+  v_start    timestamptz;
+  v_end      timestamptz;
+  v_n        integer;
+  v_total    integer := 0;
+begin
+  v_facility := public.current_facility_id();
+  if v_facility is null then
+    raise exception 'No facility for caller' using errcode = '42501';
+  end if;
+
+  -- Caller gate: any daily-reports member may trigger materialization (the
+  -- writes below are the engine's, not the caller's).
+  if not public.has_module_access('daily_reports') then
+    raise exception 'daily_reports access required' using errcode = '42501';
+  end if;
+
+  -- Only today's window (facility-local "today" can differ from the server's
+  -- UTC date by a day in either direction). Past days are locked; far-future
+  -- materialization is meaningless because schedules/defaults still change.
+  if p_date is null or p_date < current_date - 2 or p_date > current_date + 2 then
+    raise exception 'resolve_daily_area_assignments: date % out of range', p_date;
+  end if;
+
+  -- Day close (Phase 5): freeze the assignment record of any prior days
+  -- before touching today. Runs even when routing has since been disabled.
+  perform public.snapshot_daily_assignment_days(v_facility);
+
+  -- Routing disabled -> no-op.
+  if not exists (
+    select 1 from public.daily_report_settings s
+     where s.facility_id = v_facility
+       and s.assignment_routing_enabled = true
+  ) then
+    return 0;
+  end if;
+
+  -- One materializer per (facility, date) at a time; concurrent console loads
+  -- queue up behind the first instead of double-inserting.
+  perform pg_advisory_xact_lock(hashtextextended(v_facility::text || ':' || p_date::text, 42));
+
+  select coalesce(f.timezone, 'UTC') into v_tz
+    from public.facilities f where f.id = v_facility;
+  v_start := (p_date::timestamp) at time zone v_tz;
+  v_end   := v_start + interval '1 day';
+
+  -- Schedule branch: PUBLISHED shifts starting inside the facility-local day,
+  -- mapped to daily areas via daily_area_job_area_map. Only areas with no
+  -- assignment rows at all for this date (see migration 184 header).
+  with ins as (
+    insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    select distinct v_facility, p_date, m.area_id, s.employee_id, 'schedule'
+      from public.daily_area_job_area_map m
+      join public.daily_report_areas a
+        on a.id = m.area_id and a.is_active = true
+      join public.schedule_shifts s
+        on s.facility_id = v_facility
+       and s.job_area_id = m.job_area_id
+       and s.status      = 'published'
+       and s.employee_id is not null
+       and s.starts_at  >= v_start
+       and s.starts_at  <  v_end
+      join public.employees e
+        on e.id = s.employee_id and e.is_active = true
+     where m.facility_id = v_facility
+       and not exists (
+         select 1 from public.report_area_assignments x
+          where x.facility_id = v_facility
+            and x.report_date = p_date
+            and x.area_id     = m.area_id
+       )
+    on conflict (facility_id, report_date, area_id, employee_id)
+      where superseded_at is null
+      do nothing
+    returning area_id, employee_id
+  )
+  insert into public.daily_report_assignment_notifications
+    (facility_id, employee_id, area_id, report_date, notification_type, payload)
+  select v_facility, ins.employee_id, ins.area_id, p_date, 'assigned',
+         jsonb_build_object('area_name', a.name, 'source', 'schedule',
+                            'report_date', p_date)
+    from ins
+    join public.daily_report_areas a on a.id = ins.area_id;
+  get diagnostics v_n = row_count;
+  v_total := v_total + v_n;
+
+  -- Default branch: standing default owners for active areas that STILL have
+  -- no assignment rows for this date (i.e. no manual history and no
+  -- schedule-derived assignees materialized above).
+  with ins as (
+    insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    select distinct v_facility, p_date, d.area_id, d.employee_id, 'default'
+      from public.area_default_owners d
+      join public.daily_report_areas a
+        on a.id = d.area_id and a.is_active = true
+      join public.employees e
+        on e.id = d.employee_id and e.is_active = true
+     where d.facility_id = v_facility
+       and not exists (
+         select 1 from public.report_area_assignments x
+          where x.facility_id = v_facility
+            and x.report_date = p_date
+            and x.area_id     = d.area_id
+       )
+    on conflict (facility_id, report_date, area_id, employee_id)
+      where superseded_at is null
+      do nothing
+    returning area_id, employee_id
+  )
+  insert into public.daily_report_assignment_notifications
+    (facility_id, employee_id, area_id, report_date, notification_type, payload)
+  select v_facility, ins.employee_id, ins.area_id, p_date, 'assigned',
+         jsonb_build_object('area_name', a.name, 'source', 'default',
+                            'report_date', p_date)
+    from ins
+    join public.daily_report_areas a on a.id = ins.area_id;
+  get diagnostics v_n = row_count;
+  v_total := v_total + v_n;
+
+  return v_total;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION resolve_daily_area_assignments(p_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.resolve_daily_area_assignments(p_date date) IS 'Daily Reports routing: materializes report_area_assignments for the caller''s facility and the given business date (manual > published-schedule > default > open). First materialization per (area, date) wins; areas with any existing rows are never touched, so re-runs are no-ops and manual changes are never overwritten. Also freezes snapshots for prior closed days (Phase 5). Reads scheduling data (schedule_shifts, published only) but never writes it. SECURITY DEFINER; caller must hold daily_reports module access; date restricted to a small window around today.';
+
+
+--
 -- Name: resolve_rule_recipients(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2661,6 +2980,192 @@ $$;
 --
 
 COMMENT ON FUNCTION public.resolve_rule_recipients(p_rule_id uuid) IS 'Expands a routing rule''s target_* columns to a unique set of active employee_ids. Includes a facility check (is_super_admin OR rule.facility_id = current_facility_id), but that check is DEFENCE IN DEPTH only — the primary tenant gate for dispatch lives in dispatch_rules_for_submission (migration 49). Future refactors that add a wrapper around this function must NOT rely on the inner check.';
+
+
+--
+-- Name: resync_daily_area_assignments(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resync_daily_area_assignments(p_date date) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility uuid;
+  v_tz       text;
+  v_today    date;
+  v_start    timestamptz;
+  v_end      timestamptz;
+  v_n        integer;
+  v_total    integer := 0;
+begin
+  v_facility := public.current_facility_id();
+  if v_facility is null then
+    raise exception 'No facility for caller' using errcode = '42501';
+  end if;
+
+  -- Explicit assignment mutation: the routing tier only (mirrors the RLS
+  -- write gate on report_area_assignments).
+  if not (
+    public.has_module_admin_access('daily_reports')
+    or public.has_module_edit_access('daily_reports')
+  ) then
+    raise exception 'daily_reports edit or admin access required'
+      using errcode = '42501';
+  end if;
+
+  select coalesce(f.timezone, 'UTC') into v_tz
+    from public.facilities f where f.id = v_facility;
+  v_today := (now() at time zone v_tz)::date;
+
+  if p_date is null or p_date < v_today or p_date > current_date + 2 then
+    raise exception 'resync_daily_area_assignments: date % out of range', p_date;
+  end if;
+
+  -- Routing disabled -> no-op.
+  if not exists (
+    select 1 from public.daily_report_settings s
+     where s.facility_id = v_facility
+       and s.assignment_routing_enabled = true
+  ) then
+    return 0;
+  end if;
+
+  -- Same lock family as the engine: one mutator per (facility, date).
+  perform pg_advisory_xact_lock(hashtextextended(v_facility::text || ':' || p_date::text, 42));
+
+  v_start := (p_date::timestamp) at time zone v_tz;
+  v_end   := v_start + interval '1 day';
+
+  -- 1. Supersede stale schedule-derived rows (and defaults ousted by a
+  --    non-empty schedule) in mapped areas without an active manual override.
+  with eligible as (
+    select distinct m.area_id
+      from public.daily_area_job_area_map m
+      join public.daily_report_areas a
+        on a.id = m.area_id and a.is_active = true
+     where m.facility_id = v_facility
+       and not exists (
+         select 1 from public.report_area_assignments x
+          where x.facility_id = v_facility
+            and x.report_date = p_date
+            and x.area_id     = m.area_id
+            and x.superseded_at is null
+            and x.source = 'manual'
+       )
+  ),
+  desired as (
+    select distinct m.area_id, s.employee_id
+      from public.daily_area_job_area_map m
+      join public.schedule_shifts s
+        on s.facility_id = v_facility
+       and s.job_area_id = m.job_area_id
+       and s.status      = 'published'
+       and s.employee_id is not null
+       and s.starts_at  >= v_start
+       and s.starts_at  <  v_end
+      join public.employees e
+        on e.id = s.employee_id and e.is_active = true
+     where m.facility_id = v_facility
+       and m.area_id in (select area_id from eligible)
+  ),
+  sup as (
+    update public.report_area_assignments x
+       set superseded_at = now()
+     where x.facility_id = v_facility
+       and x.report_date = p_date
+       and x.superseded_at is null
+       and x.area_id in (select area_id from eligible)
+       and x.source in ('schedule', 'default')
+       and not exists (
+         select 1 from desired d
+          where d.area_id = x.area_id and d.employee_id = x.employee_id
+       )
+       and (
+         x.source = 'schedule'
+         or exists (select 1 from desired d where d.area_id = x.area_id)
+       )
+    returning x.area_id, x.employee_id
+  )
+  insert into public.daily_report_assignment_notifications
+    (facility_id, employee_id, area_id, report_date, notification_type, payload)
+  select v_facility, sup.employee_id, sup.area_id, p_date, 'unassigned',
+         jsonb_build_object('area_name', a.name, 'source', 'schedule',
+                            'report_date', p_date)
+    from sup
+    join public.daily_report_areas a on a.id = sup.area_id;
+  get diagnostics v_n = row_count;
+  v_total := v_total + v_n;
+
+  -- 2. Insert missing desired assignees.
+  with eligible as (
+    select distinct m.area_id
+      from public.daily_area_job_area_map m
+      join public.daily_report_areas a
+        on a.id = m.area_id and a.is_active = true
+     where m.facility_id = v_facility
+       and not exists (
+         select 1 from public.report_area_assignments x
+          where x.facility_id = v_facility
+            and x.report_date = p_date
+            and x.area_id     = m.area_id
+            and x.superseded_at is null
+            and x.source = 'manual'
+       )
+  ),
+  desired as (
+    select distinct m.area_id, s.employee_id
+      from public.daily_area_job_area_map m
+      join public.schedule_shifts s
+        on s.facility_id = v_facility
+       and s.job_area_id = m.job_area_id
+       and s.status      = 'published'
+       and s.employee_id is not null
+       and s.starts_at  >= v_start
+       and s.starts_at  <  v_end
+      join public.employees e
+        on e.id = s.employee_id and e.is_active = true
+     where m.facility_id = v_facility
+       and m.area_id in (select area_id from eligible)
+  ),
+  ins as (
+    insert into public.report_area_assignments
+      (facility_id, report_date, area_id, employee_id, source)
+    select v_facility, p_date, d.area_id, d.employee_id, 'schedule'
+      from desired d
+     where not exists (
+       select 1 from public.report_area_assignments x
+        where x.facility_id = v_facility
+          and x.report_date = p_date
+          and x.area_id     = d.area_id
+          and x.employee_id = d.employee_id
+          and x.superseded_at is null
+     )
+    on conflict (facility_id, report_date, area_id, employee_id)
+      where superseded_at is null
+      do nothing
+    returning area_id, employee_id
+  )
+  insert into public.daily_report_assignment_notifications
+    (facility_id, employee_id, area_id, report_date, notification_type, payload)
+  select v_facility, ins.employee_id, ins.area_id, p_date, 'assigned',
+         jsonb_build_object('area_name', a.name, 'source', 'schedule',
+                            'report_date', p_date)
+    from ins
+    join public.daily_report_areas a on a.id = ins.area_id;
+  get diagnostics v_n = row_count;
+  v_total := v_total + v_n;
+
+  return v_total;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION resync_daily_area_assignments(p_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.resync_daily_area_assignments(p_date date) IS 'Daily Reports routing: explicit supervisor "re-sync from schedule" for a today-or-future date — replaces schedule/default-sourced assignees of mapped areas with the current PUBLISHED-shift set (manual overrides never touched; empty schedule leaves defaults standing; delta notifications fire per change). Reads scheduling only, writes none of it. SECURITY DEFINER; caller must hold the daily_reports edit or admin action.';
 
 
 --
@@ -5255,6 +5760,153 @@ COMMENT ON FUNCTION public.show_dashboard_module(p_module_key text) IS 'Removes 
 
 
 --
+-- Name: snapshot_closed_daily_assignment_days(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.snapshot_closed_daily_assignment_days() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_fac   uuid;
+  v_total integer := 0;
+begin
+  -- Internal-only: cron route with the service key (or a superuser).
+  if not (
+    public.is_super_admin()
+    or session_user in ('postgres', 'supabase_admin')
+    or current_user in ('postgres', 'supabase_admin', 'service_role')
+  ) then
+    raise exception 'snapshot_closed_daily_assignment_days: not authorized'
+      using errcode = '42501';
+  end if;
+
+  for v_fac in
+    select distinct facility_id from public.report_area_assignments
+  loop
+    v_total := v_total + public.snapshot_daily_assignment_days(v_fac);
+  end loop;
+
+  return v_total;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION snapshot_closed_daily_assignment_days(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.snapshot_closed_daily_assignment_days() IS 'Cron entry point: runs snapshot_daily_assignment_days for every facility with assignment rows, freezing closed days that opportunistic console loads have not covered. Authorized for service paths / super admins only.';
+
+
+--
+-- Name: snapshot_daily_assignment_days(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.snapshot_daily_assignment_days(p_facility_id uuid) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_today date;
+  v_count integer;
+begin
+  if p_facility_id is null then
+    return 0;
+  end if;
+
+  select (now() at time zone coalesce(f.timezone, 'UTC'))::date
+    into v_today
+    from public.facilities f
+   where f.id = p_facility_id;
+  if v_today is null then
+    return 0;
+  end if;
+
+  -- One snapshot writer per facility at a time (same lock family as the
+  -- resolution engine's per-date lock, keyed on facility alone).
+  perform pg_advisory_xact_lock(hashtextextended(p_facility_id::text || ':snapshot', 42));
+
+  insert into public.daily_area_assignment_snapshots
+    (facility_id, business_date, area_id, assignees, completed, completed_by)
+  select
+    p_facility_id,
+    d.report_date,
+    d.area_id,
+    (
+      select jsonb_agg(
+               jsonb_build_object(
+                 'employee_id', a.employee_id,
+                 'name', coalesce(
+                   nullif(trim(e.first_name || ' ' || e.last_name), ''),
+                   'Unknown'),
+                 'source', a.source
+               )
+               order by e.first_name, e.last_name)
+        from public.report_area_assignments a
+        join public.employees e on e.id = a.employee_id
+       where a.facility_id  = p_facility_id
+         and a.report_date  = d.report_date
+         and a.area_id      = d.area_id
+         and a.superseded_at is null
+    ),
+    exists (
+      select 1
+        from public.daily_report_submissions s
+       where s.facility_id   = p_facility_id
+         and s.area_id       = d.area_id
+         and s.business_date = d.report_date
+    ),
+    (
+      select jsonb_agg(
+               jsonb_build_object(
+                 'employee_id', s.employee_id,
+                 'name', coalesce(
+                   nullif(trim(e.first_name || ' ' || e.last_name), ''),
+                   'Unknown'),
+                 'submission_id', s.id,
+                 'submitted_at', s.submitted_at
+               )
+               order by s.submitted_at)
+        from public.daily_report_submissions s
+        left join public.employees e on e.id = s.employee_id
+       where s.facility_id   = p_facility_id
+         and s.area_id       = d.area_id
+         and s.business_date = d.report_date
+    )
+  from (
+    -- Closed days (facility-local) within the retention window that carry
+    -- ACTIVE assignment rows and are not snapshotted yet.
+    select distinct a.report_date, a.area_id
+      from public.report_area_assignments a
+     where a.facility_id = p_facility_id
+       and a.report_date < v_today
+       and a.report_date >= v_today - 14
+       and a.superseded_at is null
+       and not exists (
+         select 1
+           from public.daily_area_assignment_snapshots sn
+          where sn.facility_id   = p_facility_id
+            and sn.business_date = a.report_date
+            and sn.area_id       = a.area_id
+       )
+  ) d
+  on conflict (facility_id, business_date, area_id) do nothing;
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION snapshot_daily_assignment_days(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.snapshot_daily_assignment_days(p_facility_id uuid) IS 'Daily Reports routing (D8): freezes the assignment record for every closed facility-local day (within 14 days) that has active assignment rows and no snapshot yet — assignees, completed y/n, completed-by. Insert-only; existing snapshots are never modified. Internal: invoked by resolve_daily_area_assignments and the cron wrapper, not by end users.';
+
+
+--
 -- Name: submit_incident_report(uuid, uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, text, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6112,6 +6764,26 @@ COMMENT ON TABLE public.air_quality_settings IS 'Air Quality: per-facility modul
 
 
 --
+-- Name: area_default_owners; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.area_default_owners (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    area_id uuid NOT NULL,
+    employee_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE area_default_owners; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.area_default_owners IS 'Daily Reports routing: standing default owner(s) per area (admin-configured). Used by the resolution engine when a business date has no manual assignment and no published schedule-derived assignment. Multiple rows per area = multiple default assignees.';
+
+
+--
 -- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6523,6 +7195,49 @@ COMMENT ON TABLE public.communication_templates IS 'Communications: reusable mes
 
 
 --
+-- Name: daily_area_assignment_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_area_assignment_snapshots (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    business_date date NOT NULL,
+    area_id uuid NOT NULL,
+    assignees jsonb NOT NULL,
+    completed boolean NOT NULL,
+    completed_by jsonb,
+    snapshot_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE daily_area_assignment_snapshots; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_area_assignment_snapshots IS 'Daily Reports routing: immutable record, frozen at day close, of who was assigned to an area for a business date and whether any assignee completed it. Written only by the day-close SECURITY DEFINER path (Phase 5); no PostgREST role may write it. Areas that were open (unassigned) that day get no row and render as today. assignees / completed_by are jsonb snapshots ([{employee_id, name, source}] / [{employee_id, name, submission_id, submitted_at}]) so the record outlives the 14-day submission purge and later employee changes.';
+
+
+--
+-- Name: daily_area_job_area_map; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_area_job_area_map (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    area_id uuid NOT NULL,
+    job_area_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE daily_area_job_area_map; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_area_job_area_map IS 'Daily Reports routing: maps a daily report area to one or more scheduling job areas (employee_job_areas). The resolution engine reads PUBLISHED schedule_shifts whose job_area_id is mapped here to derive the day''s assignees. The two catalogs are otherwise deliberately unlinked (migration 107); this bridge is additive and read-only against scheduling.';
+
+
+--
 -- Name: daily_report_areas; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6544,6 +7259,31 @@ CREATE TABLE public.daily_report_areas (
 --
 
 COMMENT ON TABLE public.daily_report_areas IS 'Daily Reports: per-facility checklist areas (max 30 active per facility).';
+
+
+--
+-- Name: daily_report_assignment_notifications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_report_assignment_notifications (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    employee_id uuid NOT NULL,
+    area_id uuid NOT NULL,
+    report_date date NOT NULL,
+    notification_type text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    read_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT daily_report_assignment_notifications_notification_type_check CHECK ((notification_type = ANY (ARRAY['assigned'::text, 'unassigned'::text])))
+);
+
+
+--
+-- Name: TABLE daily_report_assignment_notifications; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_report_assignment_notifications IS 'Daily Reports routing: per-employee in-app notifications for area assignment changes. payload carries render context (area_name, source, ...) so the UI needs no joins; read_at NULL = unread. Written by the assignment actions (edit/admin) and the resolution engine (SECURITY DEFINER); recipients mark their own rows read.';
 
 
 --
@@ -6591,6 +7331,27 @@ CREATE TABLE public.daily_report_notes (
 --
 
 COMMENT ON TABLE public.daily_report_notes IS 'Daily Reports: free-text notes attached to a submission. is_admin_note differentiates staff-authored vs. admin-authored notes.';
+
+
+--
+-- Name: daily_report_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_report_settings (
+    facility_id uuid NOT NULL,
+    assignment_routing_enabled boolean DEFAULT false NOT NULL,
+    prelock_warning_minutes integer DEFAULT 60 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT daily_report_settings_prelock_warning_minutes_check CHECK (((prelock_warning_minutes >= 5) AND (prelock_warning_minutes <= 720)))
+);
+
+
+--
+-- Name: TABLE daily_report_settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_report_settings IS 'Per-facility Daily Reports settings. assignment_routing_enabled is the feature flag for area assignment & routing: OFF (or no row) = every area is open to all permitted staff, exactly the pre-feature behavior. prelock_warning_minutes is how long before facility-local day close the supervisor pre-lock warning view flags incomplete assigned areas.';
 
 
 --
@@ -8568,6 +9329,45 @@ COMMENT ON TABLE public.refrigeration_thresholds IS 'Refrigeration: numeric out-
 
 
 --
+-- Name: report_area_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.report_area_assignments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    report_date date NOT NULL,
+    area_id uuid NOT NULL,
+    employee_id uuid NOT NULL,
+    source text NOT NULL,
+    assigned_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    superseded_at timestamp with time zone,
+    CONSTRAINT report_area_assignments_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'schedule'::text, 'default'::text])))
+);
+
+
+--
+-- Name: TABLE report_area_assignments; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.report_area_assignments IS 'Daily Reports routing: who is responsible for an area on a facility-local business date. Multiple active (superseded_at IS NULL) rows per (area, date) = multiple assignees; any one assignee completing the area satisfies it for all. Reassignment supersedes rows (never deletes) so history survives into the day-close snapshot. source records how the row was produced: manual override > schedule-derived (published shifts only) > standing default.';
+
+
+--
+-- Name: COLUMN report_area_assignments.report_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_area_assignments.report_date IS 'Facility-local business date this assignment applies to (same day model as daily_report_submissions.business_date). For schedule-derived rows, an overnight shift assigns the business date it STARTS on.';
+
+
+--
+-- Name: COLUMN report_area_assignments.superseded_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_area_assignments.superseded_at IS 'NULL = active. Set (never deleted) when the assignment is replaced or removed, so the assignment history for the day remains auditable.';
+
+
+--
 -- Name: retention_settings; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -9098,7 +9898,7 @@ COMMENT ON COLUMN public.schedule_shifts.employee_id IS 'NULL = unassigned ("ope
 -- Name: COLUMN schedule_shifts.recurring_parent_id; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.schedule_shifts.recurring_parent_id IS 'Optional link from a generated occurrence to a parent shift -- v1 use is light; included for forward-compatibility with native recurring rules.';
+COMMENT ON COLUMN public.schedule_shifts.recurring_parent_id IS 'Optional link from a generated occurrence to a parent/root shift in a recurring series. Facility-fenced via a composite FK (recurring_parent_id, facility_id) -> schedule_shifts(id, facility_id): a child can only ever reference a parent in its OWN facility, so a crafted or buggy insert can no longer parent a shift onto another facility''s row.';
 
 
 --
@@ -9468,6 +10268,22 @@ ALTER TABLE ONLY public.air_quality_settings
 
 
 --
+-- Name: area_default_owners area_default_owners_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.area_default_owners
+    ADD CONSTRAINT area_default_owners_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: area_default_owners area_default_owners_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.area_default_owners
+    ADD CONSTRAINT area_default_owners_uniq UNIQUE (area_id, employee_id);
+
+
+--
 -- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9596,6 +10412,38 @@ ALTER TABLE ONLY public.communication_templates
 
 
 --
+-- Name: daily_area_assignment_snapshots daily_area_assignment_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_assignment_snapshots
+    ADD CONSTRAINT daily_area_assignment_snapshots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: daily_area_assignment_snapshots daily_area_assignment_snapshots_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_assignment_snapshots
+    ADD CONSTRAINT daily_area_assignment_snapshots_uniq UNIQUE (facility_id, business_date, area_id);
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_job_area_map
+    ADD CONSTRAINT daily_area_job_area_map_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_job_area_map
+    ADD CONSTRAINT daily_area_job_area_map_uniq UNIQUE (area_id, job_area_id);
+
+
+--
 -- Name: daily_report_areas daily_report_areas_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9612,6 +10460,14 @@ ALTER TABLE ONLY public.daily_report_areas
 
 
 --
+-- Name: daily_report_assignment_notifications daily_report_assignment_notifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_assignment_notifications
+    ADD CONSTRAINT daily_report_assignment_notifications_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: daily_report_checklist_items daily_report_checklist_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9625,6 +10481,14 @@ ALTER TABLE ONLY public.daily_report_checklist_items
 
 ALTER TABLE ONLY public.daily_report_notes
     ADD CONSTRAINT daily_report_notes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: daily_report_settings daily_report_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_settings
+    ADD CONSTRAINT daily_report_settings_pkey PRIMARY KEY (facility_id);
 
 
 --
@@ -10348,6 +11212,14 @@ ALTER TABLE ONLY public.refrigeration_thresholds
 
 
 --
+-- Name: report_area_assignments report_area_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_area_assignments
+    ADD CONSTRAINT report_area_assignments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: retention_settings retention_settings_facility_module_uniq; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10877,6 +11749,20 @@ CREATE INDEX idx_air_quality_reports_location ON public.air_quality_reports USIN
 
 
 --
+-- Name: idx_area_default_owners_employee; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_area_default_owners_employee ON public.area_default_owners USING btree (employee_id);
+
+
+--
+-- Name: idx_area_default_owners_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_area_default_owners_facility ON public.area_default_owners USING btree (facility_id);
+
+
+--
 -- Name: idx_audit_logs_actor_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11084,6 +11970,41 @@ CREATE INDEX idx_communication_routing_rules_timing ON public.communication_rout
 --
 
 CREATE INDEX idx_communication_templates_facility_category ON public.communication_templates USING btree (facility_id, category);
+
+
+--
+-- Name: idx_daily_area_assignment_snapshots_facility_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_area_assignment_snapshots_facility_date ON public.daily_area_assignment_snapshots USING btree (facility_id, business_date);
+
+
+--
+-- Name: idx_daily_area_job_area_map_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_area_job_area_map_facility ON public.daily_area_job_area_map USING btree (facility_id);
+
+
+--
+-- Name: idx_daily_area_job_area_map_job_area; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_area_job_area_map_job_area ON public.daily_area_job_area_map USING btree (job_area_id);
+
+
+--
+-- Name: idx_daily_assignment_notifications_employee_unread; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_assignment_notifications_employee_unread ON public.daily_report_assignment_notifications USING btree (employee_id, read_at NULLS FIRST, created_at DESC);
+
+
+--
+-- Name: idx_daily_assignment_notifications_facility_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_assignment_notifications_facility_date ON public.daily_report_assignment_notifications USING btree (facility_id, report_date);
 
 
 --
@@ -11997,6 +12918,27 @@ CREATE INDEX idx_refrigeration_thresholds_facility ON public.refrigeration_thres
 
 
 --
+-- Name: idx_report_area_assignments_area; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_report_area_assignments_area ON public.report_area_assignments USING btree (area_id);
+
+
+--
+-- Name: idx_report_area_assignments_employee_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_report_area_assignments_employee_date ON public.report_area_assignments USING btree (employee_id, report_date);
+
+
+--
+-- Name: idx_report_area_assignments_facility_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_report_area_assignments_facility_date ON public.report_area_assignments USING btree (facility_id, report_date);
+
+
+--
 -- Name: idx_retention_settings_facility_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -12326,10 +13268,31 @@ CREATE INDEX rate_limit_counters_window_start_idx ON public.rate_limit_counters 
 
 
 --
+-- Name: report_area_assignments_active_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX report_area_assignments_active_uniq ON public.report_area_assignments USING btree (facility_id, report_date, area_id, employee_id) WHERE (superseded_at IS NULL);
+
+
+--
 -- Name: role_permission_defaults_role_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX role_permission_defaults_role_idx ON public.role_permission_defaults USING btree (facility_id, role_id);
+
+
+--
+-- Name: schedule_shifts_id_facility_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX schedule_shifts_id_facility_key ON public.schedule_shifts USING btree (id, facility_id);
+
+
+--
+-- Name: schedule_shifts_recurring_parent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX schedule_shifts_recurring_parent_idx ON public.schedule_shifts USING btree (recurring_parent_id) WHERE (recurring_parent_id IS NOT NULL);
 
 
 --
@@ -12767,6 +13730,20 @@ CREATE TRIGGER trg_daily_report_notes_updated_at BEFORE UPDATE ON public.daily_r
 
 
 --
+-- Name: daily_report_settings trg_daily_report_settings_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_daily_report_settings_updated_at BEFORE UPDATE ON public.daily_report_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: daily_report_submissions trg_daily_report_submissions_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_daily_report_submissions_stamp_business_date BEFORE INSERT ON public.daily_report_submissions FOR EACH ROW EXECUTE FUNCTION public.daily_report_submissions_stamp_business_date();
+
+
+--
 -- Name: daily_report_submissions trg_daily_report_submissions_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -13107,6 +14084,13 @@ CREATE TRIGGER trg_refrigeration_settings_updated_at BEFORE UPDATE ON public.ref
 --
 
 CREATE TRIGGER trg_refrigeration_thresholds_updated_at BEFORE UPDATE ON public.refrigeration_thresholds FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: report_area_assignments trg_report_area_assignments_block_past; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_report_area_assignments_block_past BEFORE INSERT OR UPDATE ON public.report_area_assignments FOR EACH ROW EXECUTE FUNCTION public.report_area_assignments_block_past();
 
 
 --
@@ -13568,6 +14552,30 @@ ALTER TABLE ONLY public.air_quality_settings
 
 
 --
+-- Name: area_default_owners area_default_owners_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.area_default_owners
+    ADD CONSTRAINT area_default_owners_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: area_default_owners area_default_owners_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.area_default_owners
+    ADD CONSTRAINT area_default_owners_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+
+--
+-- Name: area_default_owners area_default_owners_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.area_default_owners
+    ADD CONSTRAINT area_default_owners_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: audit_logs audit_logs_actor_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13824,11 +14832,75 @@ ALTER TABLE ONLY public.communication_templates
 
 
 --
+-- Name: daily_area_assignment_snapshots daily_area_assignment_snapshots_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_assignment_snapshots
+    ADD CONSTRAINT daily_area_assignment_snapshots_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_area_assignment_snapshots daily_area_assignment_snapshots_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_assignment_snapshots
+    ADD CONSTRAINT daily_area_assignment_snapshots_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_job_area_map
+    ADD CONSTRAINT daily_area_job_area_map_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_job_area_map
+    ADD CONSTRAINT daily_area_job_area_map_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_job_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_area_job_area_map
+    ADD CONSTRAINT daily_area_job_area_map_job_area_id_fkey FOREIGN KEY (job_area_id) REFERENCES public.employee_job_areas(id) ON DELETE CASCADE;
+
+
+--
 -- Name: daily_report_areas daily_report_areas_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.daily_report_areas
     ADD CONSTRAINT daily_report_areas_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_assignment_notifications daily_report_assignment_notifications_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_assignment_notifications
+    ADD CONSTRAINT daily_report_assignment_notifications_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_report_assignment_notifications daily_report_assignment_notifications_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_assignment_notifications
+    ADD CONSTRAINT daily_report_assignment_notifications_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_report_assignment_notifications daily_report_assignment_notifications_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_assignment_notifications
+    ADD CONSTRAINT daily_report_assignment_notifications_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
 
 
 --
@@ -13869,6 +14941,14 @@ ALTER TABLE ONLY public.daily_report_notes
 
 ALTER TABLE ONLY public.daily_report_notes
     ADD CONSTRAINT daily_report_notes_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.daily_report_submissions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_report_settings daily_report_settings_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_settings
+    ADD CONSTRAINT daily_report_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
 
 
 --
@@ -14904,6 +15984,38 @@ ALTER TABLE ONLY public.refrigeration_thresholds
 
 
 --
+-- Name: report_area_assignments report_area_assignments_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_area_assignments
+    ADD CONSTRAINT report_area_assignments_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: report_area_assignments report_area_assignments_assigned_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_area_assignments
+    ADD CONSTRAINT report_area_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: report_area_assignments report_area_assignments_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_area_assignments
+    ADD CONSTRAINT report_area_assignments_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+
+--
+-- Name: report_area_assignments report_area_assignments_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_area_assignments
+    ADD CONSTRAINT report_area_assignments_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: retention_settings retention_settings_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -15220,7 +16332,7 @@ ALTER TABLE ONLY public.schedule_shifts
 --
 
 ALTER TABLE ONLY public.schedule_shifts
-    ADD CONSTRAINT schedule_shifts_recurring_parent_id_fkey FOREIGN KEY (recurring_parent_id) REFERENCES public.schedule_shifts(id) ON DELETE SET NULL;
+    ADD CONSTRAINT schedule_shifts_recurring_parent_id_fkey FOREIGN KEY (recurring_parent_id, facility_id) REFERENCES public.schedule_shifts(id, facility_id) ON DELETE SET NULL (recurring_parent_id);
 
 
 --
@@ -15886,6 +16998,35 @@ CREATE POLICY air_quality_settings_update ON public.air_quality_settings FOR UPD
 
 
 --
+-- Name: area_default_owners; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.area_default_owners ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: area_default_owners area_default_owners_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY area_default_owners_delete ON public.area_default_owners FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: area_default_owners area_default_owners_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY area_default_owners_insert ON public.area_default_owners FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text) AND (EXISTS ( SELECT 1
+   FROM public.employees e
+  WHERE ((e.id = area_default_owners.employee_id) AND (e.facility_id = area_default_owners.facility_id)))))));
+
+
+--
+-- Name: area_default_owners area_default_owners_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY area_default_owners_select ON public.area_default_owners FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('daily_reports'::text))));
+
+
+--
 -- Name: audit_logs; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -16256,6 +17397,80 @@ CREATE POLICY communication_templates_update ON public.communication_templates F
 
 
 --
+-- Name: daily_area_assignment_snapshots; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_area_assignment_snapshots ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_area_assignment_snapshots daily_area_assignment_snapshots_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_area_assignment_snapshots_select ON public.daily_area_assignment_snapshots FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR (public.has_module_access('daily_reports'::text) AND public.has_area_access('daily_reports'::text, area_id))))));
+
+
+--
+-- Name: daily_area_job_area_map; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_area_job_area_map ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_area_job_area_map_delete ON public.daily_area_job_area_map FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_area_job_area_map_insert ON public.daily_area_job_area_map FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text) AND (EXISTS ( SELECT 1
+   FROM public.daily_report_areas a
+  WHERE ((a.id = daily_area_job_area_map.area_id) AND (a.facility_id = daily_area_job_area_map.facility_id)))) AND (EXISTS ( SELECT 1
+   FROM public.employee_job_areas j
+  WHERE ((j.id = daily_area_job_area_map.job_area_id) AND (j.facility_id = daily_area_job_area_map.facility_id)))))));
+
+
+--
+-- Name: daily_area_job_area_map daily_area_job_area_map_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_area_job_area_map_select ON public.daily_area_job_area_map FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_assignment_notifications daily_assignment_notifications_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_assignment_notifications_delete ON public.daily_report_assignment_notifications FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_assignment_notifications daily_assignment_notifications_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_assignment_notifications_insert ON public.daily_report_assignment_notifications FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
+   FROM public.employees e
+  WHERE ((e.id = daily_report_assignment_notifications.employee_id) AND (e.facility_id = daily_report_assignment_notifications.facility_id)))))));
+
+
+--
+-- Name: daily_report_assignment_notifications daily_assignment_notifications_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_assignment_notifications_select ON public.daily_report_assignment_notifications FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text) OR (employee_id = public.current_employee_id())))));
+
+
+--
+-- Name: daily_report_assignment_notifications daily_assignment_notifications_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_assignment_notifications_update ON public.daily_report_assignment_notifications FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR (employee_id = public.current_employee_id()))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR (employee_id = public.current_employee_id())))));
+
+
+--
 -- Name: daily_report_areas; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -16288,6 +17503,12 @@ CREATE POLICY daily_report_areas_select ON public.daily_report_areas FOR SELECT 
 
 CREATE POLICY daily_report_areas_update ON public.daily_report_areas FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
 
+
+--
+-- Name: daily_report_assignment_notifications; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_report_assignment_notifications ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: daily_report_checklist_items; Type: ROW SECURITY; Schema: public; Owner: -
@@ -16362,6 +17583,33 @@ CREATE POLICY daily_report_notes_update ON public.daily_report_notes FOR UPDATE 
 
 
 --
+-- Name: daily_report_settings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_report_settings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_report_settings daily_report_settings_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_settings_insert ON public.daily_report_settings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_settings daily_report_settings_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_settings_select ON public.daily_report_settings FOR SELECT TO authenticated USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: daily_report_settings daily_report_settings_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_settings_update ON public.daily_report_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
 -- Name: daily_report_submission_items; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -16414,14 +17662,14 @@ CREATE POLICY daily_report_submissions_delete ON public.daily_report_submissions
 -- Name: daily_report_submissions daily_report_submissions_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY daily_report_submissions_insert ON public.daily_report_submissions FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND public.has_area_submit_access('daily_reports'::text, area_id))));
+CREATE POLICY daily_report_submissions_insert ON public.daily_report_submissions FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND public.has_area_submit_access('daily_reports'::text, area_id) AND (public.has_module_edit_access('daily_reports'::text) OR public.daily_area_assignment_allows(area_id, business_date)))));
 
 
 --
 -- Name: daily_report_submissions daily_report_submissions_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY daily_report_submissions_select ON public.daily_report_submissions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id))))));
+CREATE POLICY daily_report_submissions_select ON public.daily_report_submissions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id) AND (public.has_module_edit_access('daily_reports'::text) OR public.daily_area_assignment_allows(area_id, business_date)))))));
 
 
 --
@@ -17795,7 +19043,14 @@ CREATE POLICY information_requests_delete ON public.information_requests FOR DEL
 -- Name: information_requests information_requests_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY information_requests_insert ON public.information_requests FOR INSERT TO authenticated, anon WITH CHECK (true);
+CREATE POLICY information_requests_insert ON public.information_requests FOR INSERT TO anon, authenticated WITH CHECK ((status = 'new'::text));
+
+
+--
+-- Name: POLICY information_requests_insert ON information_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON POLICY information_requests_insert ON public.information_requests IS 'Public sales-lead inbox: anon/authenticated may INSERT, but only with the initial status = ''new'' (the column default the API route relies on). Replaces the previous with-check-true policy (rls_policy_always_true linter finding). Length/email/rate-limit defences live in migrations 88 and 177.';
 
 
 --
@@ -17979,6 +19234,20 @@ CREATE POLICY profile_audit_log_select ON public.profile_audit_log FOR SELECT TO
 --
 
 ALTER TABLE public.rate_limit_counters ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rate_limit_counters rate_limit_counters_service_role_all; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rate_limit_counters_service_role_all ON public.rate_limit_counters TO service_role USING (true) WITH CHECK (true);
+
+
+--
+-- Name: POLICY rate_limit_counters_service_role_all ON rate_limit_counters; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON POLICY rate_limit_counters_service_role_all ON public.rate_limit_counters IS 'Explicit service-role full access. Cosmetic (service_role bypasses RLS) but documents intent and clears the rls_enabled_no_policy linter finding. anon/authenticated intentionally have NO policy and remain deny-all; direct access is only via SECURITY DEFINER check_rate_limit().';
+
 
 --
 -- Name: refrigeration_change_log; Type: ROW SECURITY; Schema: public; Owner: -
@@ -18256,6 +19525,37 @@ CREATE POLICY refrigeration_thresholds_select ON public.refrigeration_thresholds
 --
 
 CREATE POLICY refrigeration_thresholds_update ON public.refrigeration_thresholds FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('refrigeration'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('refrigeration'::text))));
+
+
+--
+-- Name: report_area_assignments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.report_area_assignments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: report_area_assignments report_area_assignments_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_area_assignments_insert ON public.report_area_assignments FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
+   FROM public.employees e
+  WHERE ((e.id = report_area_assignments.employee_id) AND (e.facility_id = report_area_assignments.facility_id)))))));
+
+
+--
+-- Name: report_area_assignments report_area_assignments_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_area_assignments_select ON public.report_area_assignments FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('daily_reports'::text))));
+
+
+--
+-- Name: report_area_assignments report_area_assignments_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_area_assignments_update ON public.report_area_assignments FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
+   FROM public.employees e
+  WHERE ((e.id = report_area_assignments.employee_id) AND (e.facility_id = report_area_assignments.facility_id)))))));
 
 
 --

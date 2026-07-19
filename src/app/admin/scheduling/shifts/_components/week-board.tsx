@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -31,6 +38,7 @@ import { cn } from "@/lib/utils"
 
 import type { EmployeeLite, JobAreaLite, TemplateRow } from "../../_lib/types"
 import type {
+  GridGate,
   GridShiftDTO,
   GridTemplateDTO,
 } from "../../_lib/grid-actions"
@@ -39,10 +47,12 @@ import {
   createRecurringGridShifts,
   deleteGridShift,
   deleteRecurringSeries,
+  getRecurringSeriesInfo,
   previewShiftWarnings,
   saveGridTemplate,
   updateGridShift,
 } from "../../_lib/grid-actions"
+import { formatDayKeyLabel } from "../../_lib/datetime"
 import { hhmmToMinutes, type OperatingHours } from "../../_lib/operating-hours"
 import {
   tallyWeeklyHoursByEmployee,
@@ -120,17 +130,6 @@ function sameLocalDay(a: Date, b: Date): boolean {
 function isoDateKey(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-/** "Tue, Aug 4" label for a facility-local "YYYY-MM-DD" key (messages only). */
-function formatDateKeyShort(key: string): string {
-  const [y, m, d] = key.split("-").map(Number)
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(Date.UTC(y, m - 1, d, 12)))
 }
 
 export type WeekBoardProps = {
@@ -373,6 +372,22 @@ export function WeekBoard(props: WeekBoardProps) {
     setWarningBlocking(false)
   }, [])
 
+  // Feed a server-side gate back into the popover's warning state. The live
+  // preview only checks the anchor shift, so a recurring create can be gated
+  // by a CHILD date the preview never saw — without this, the footer's
+  // "Confirm & save" / "Override & assign" buttons would never appear and the
+  // save would dead-end on the same rejection.
+  const applyGateWarnings = useCallback((gate: GridGate | undefined) => {
+    if (!gate) return
+    warnTokenRef.current++ // invalidate any in-flight anchor-only preview
+    setCertWarnings(gate.kind === "cert_block" ? gate.certWarnings : [])
+    setAdvisoryWarnings(gate.advisoryWarnings)
+    // A gate means the server is offering confirm/override — policy blocking
+    // would have been a plain error instead.
+    setWarningBlocking(false)
+    setWarnLoading(false)
+  }, [])
+
   const openPopover = useCallback(
     (next: PopoverState) => {
       setPopoverError(null)
@@ -597,11 +612,33 @@ export function WeekBoard(props: WeekBoardProps) {
 
   // True when the delete target is the parent or a child of a recurring
   // series, so the confirm dialog can offer the bulk "delete series" option
-  // alongside the existing single-shift delete.
+  // alongside the existing single-shift delete. Loaded events only cover the
+  // page's ±42-day fetch window while a series can span 84 days, so the local
+  // check is just an instant hint — the server's series lookup is the
+  // authority (it also catches a parent whose children are all out of window).
+  const [seriesInfo, setSeriesInfo] = useState<{
+    id: string
+    memberCount: number
+  } | null>(null)
+  useEffect(() => {
+    const target = deleteTarget
+    // No reset needed on close: seriesInfo is only read when its id matches
+    // the current deleteTarget, so an entry for another shift is inert.
+    if (!target) return
+    let stale = false
+    getRecurringSeriesInfo(target.id).then((res) => {
+      if (stale || !res.ok) return
+      setSeriesInfo({ id: target.id, memberCount: res.data.memberCount })
+    })
+    return () => {
+      stale = true
+    }
+  }, [deleteTarget])
   const deleteTargetIsSeries =
     deleteTarget != null &&
     (deleteTarget.recurringParentId != null ||
-      events.some((e) => e.recurringParentId === deleteTarget.id))
+      events.some((e) => e.recurringParentId === deleteTarget.id) ||
+      (seriesInfo?.id === deleteTarget.id && seriesInfo.memberCount > 1))
 
   const confirmDeleteSeries = useCallback(() => {
     const ev = deleteTarget
@@ -656,6 +693,7 @@ export function WeekBoard(props: WeekBoardProps) {
               ...gateFields,
             })
             if (!res.ok) {
+              applyGateWarnings(res.gate)
               setPopoverError(res.error)
               return
             }
@@ -664,7 +702,7 @@ export function WeekBoard(props: WeekBoardProps) {
             if (skipped.length > 0) {
               const detail = skipped
                 .slice(0, 3)
-                .map((s) => `${formatDateKeyShort(s.date)} (${s.reason})`)
+                .map((s) => `${formatDayKeyLabel(s.date)} (${s.reason})`)
                 .join("; ")
               const more =
                 skipped.length > 3 ? `; and ${skipped.length - 3} more` : ""
@@ -692,6 +730,7 @@ export function WeekBoard(props: WeekBoardProps) {
             ...gateFields,
           })
           if (!res.ok) {
+            applyGateWarnings(res.gate)
             setPopoverError(res.error)
             return
           }
@@ -718,6 +757,7 @@ export function WeekBoard(props: WeekBoardProps) {
             ...gateFields,
           })
           if (!res.ok) {
+            applyGateWarnings(res.gate)
             setPopoverError(res.error)
             return
           }
@@ -731,7 +771,7 @@ export function WeekBoard(props: WeekBoardProps) {
         })
       }
     },
-    [popover, replaceEvent, closePopover],
+    [popover, replaceEvent, closePopover, applyGateWarnings],
   )
 
   const handlePopoverDelete = useCallback(() => {

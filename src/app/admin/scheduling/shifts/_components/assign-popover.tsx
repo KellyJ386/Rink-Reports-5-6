@@ -22,6 +22,7 @@ import { isEndAfterStart, toTimeInput, withTime } from "../_lib/time-edit"
 import {
   expandRecurrenceDates,
   validateRecurrenceSpec,
+  DEFAULT_REPEAT_SPAN_DAYS,
   MAX_RANGE_DAYS,
 } from "../_lib/recurrence"
 
@@ -154,7 +155,10 @@ export function AssignPopover({
       ...state,
       repeat: {
         days: [weekdayOfKey(anchorKey)],
-        untilKey: addDaysToKey(anchorKey, Math.min(28, MAX_RANGE_DAYS)),
+        untilKey: addDaysToKey(
+          anchorKey,
+          Math.min(DEFAULT_REPEAT_SPAN_DAYS, MAX_RANGE_DAYS)
+        ),
       },
     })
   }

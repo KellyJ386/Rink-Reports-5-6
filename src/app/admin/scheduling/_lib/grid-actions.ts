@@ -20,9 +20,11 @@ import { addDaysToKey, utcToWallTime, wallTimeToUtc } from "@/lib/timezone"
 import type { TablesUpdate } from "@/types/database"
 
 import {
+  daysBetween,
   expandRecurrenceDates,
   validateRecurrenceSpec,
 } from "../shifts/_lib/recurrence"
+import { formatDayKeyLabel } from "./datetime"
 import { computeShiftSignals } from "./grid-warnings"
 import {
   describeViolation,
@@ -329,6 +331,28 @@ async function readBlockOnViolations(
   return Boolean(data?.block_on_violations)
 }
 
+/**
+ * Human-readable cert/advisory warning lists from raw shift signals — the ONE
+ * formatter shared by the single-shift gate, the popover preview, and the
+ * recurring batch gate, so wording can't drift between them.
+ */
+function formatSignals(signals: {
+  codes: string[]
+  capWarning?: string | null
+  boundsWarning?: string | null
+}): { certCodes: string[]; certWarnings: string[]; advisoryWarnings: string[] } {
+  const { cert, advisory } = partitionViolations(signals.codes)
+  return {
+    certCodes: cert,
+    certWarnings: cert.map((c) => capitalize(describeViolation(c)) + "."),
+    advisoryWarnings: [
+      ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
+      ...(signals.capWarning ? [signals.capWarning] : []),
+      ...(signals.boundsWarning ? [signals.boundsWarning] : []),
+    ],
+  }
+}
+
 type GateArgs = {
   employeeId: string | null
   startsAt: string
@@ -372,26 +396,17 @@ async function gateShiftWrite(
 ): Promise<{ ok: true } | { ok: false; error: string; gate?: GridGate }> {
   if (!args.employeeId) return { ok: true }
 
-  const { codes, capWarning, boundsWarning } = await computeShiftSignals(
-    supabase,
-    {
-      facilityId,
-      employeeId: args.employeeId,
-      startsAt: args.startsAt,
-      endsAt: args.endsAt,
-      breakMinutes: args.breakMinutes,
-      jobAreaId: args.jobAreaId,
-      excludeShiftId: args.excludeShiftId,
-    }
-  )
-
-  const { cert, advisory } = partitionViolations(codes)
-  const advisoryWarnings = [
-    ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
-    ...(capWarning ? [capWarning] : []),
-    ...(boundsWarning ? [boundsWarning] : []),
-  ]
-  const certWarnings = cert.map((c) => capitalize(describeViolation(c)) + ".")
+  const signals = await computeShiftSignals(supabase, {
+    facilityId,
+    employeeId: args.employeeId,
+    startsAt: args.startsAt,
+    endsAt: args.endsAt,
+    breakMinutes: args.breakMinutes,
+    jobAreaId: args.jobAreaId,
+    excludeShiftId: args.excludeShiftId,
+  })
+  const { certCodes: cert, certWarnings, advisoryWarnings } =
+    formatSignals(signals)
 
   // --- Cert gate (always blocks unless a manager overrides + logs it) -------
   if (cert.length > 0) {
@@ -443,18 +458,6 @@ async function gateShiftWrite(
   }
 
   return { ok: true }
-}
-
-/** "Tue, Aug 4" label for a facility-local "YYYY-MM-DD" key (messages only). */
-function formatDateKey(key: string): string {
-  const [y, m, d] = key.split("-").map(Number)
-  // UTC-noon probe: the key is already facility-local, so no zone conversion.
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(Date.UTC(y, m - 1, d, 12)))
 }
 
 /** Cap a warning list for display; the tail collapses into a count. */
@@ -615,11 +618,7 @@ export async function createRecurringGridShifts(
     const endKey = endWall.slice(0, 10)
     const endTime = endWall.slice(11)
     // Overnight shifts end 1+ calendar days after they start; carry the offset.
-    const [ay, am, ad] = anchorKey.split("-").map(Number)
-    const [ey, em, ed] = endKey.split("-").map(Number)
-    const endDayOffset = Math.round(
-      (Date.UTC(ey, em - 1, ed, 12) - Date.UTC(ay, am - 1, ad, 12)) / 86_400_000
-    )
+    const endDayOffset = daysBetween(anchorKey, endKey)
 
     const spec = {
       anchorKey,
@@ -665,55 +664,50 @@ export async function createRecurringGridShifts(
 
       type ProbeSignals = {
         probe: (typeof probes)[number]
-        cert: string[]
-        advisory: string[]
+        certCodes: string[]
+        certWarnings: string[]
+        advisoryWarnings: string[]
       }
       const results: ProbeSignals[] = []
       const CHUNK = 5
       for (let i = 0; i < probes.length; i += CHUNK) {
         const batch = await Promise.all(
           probes.slice(i, i + CHUNK).map(async (probe) => {
-            const { codes, capWarning, boundsWarning } =
-              await computeShiftSignals(supabase, {
-                facilityId: ctx.facilityId,
-                employeeId,
-                startsAt: probe.startsAt,
-                endsAt: probe.endsAt,
-                breakMinutes: v.break_minutes ?? null,
-                jobAreaId: v.job_area_id ?? null,
-                excludeShiftId: null,
-              })
-            const { cert, advisory } = partitionViolations(codes)
-            return {
-              probe,
-              cert,
-              advisory: [
-                ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
-                ...(capWarning ? [capWarning] : []),
-                ...(boundsWarning ? [boundsWarning] : []),
-              ],
-            }
+            const signals = await computeShiftSignals(supabase, {
+              facilityId: ctx.facilityId,
+              employeeId,
+              startsAt: probe.startsAt,
+              endsAt: probe.endsAt,
+              breakMinutes: v.break_minutes ?? null,
+              jobAreaId: v.job_area_id ?? null,
+              excludeShiftId: null,
+            })
+            return { probe, ...formatSignals(signals) }
           })
         )
         results.push(...batch)
       }
 
-      const withCert = results.filter((r) => r.cert.length > 0)
+      const withCert = results.filter((r) => r.certCodes.length > 0)
       const certWarnings = truncateLines(
         withCert.flatMap((r) =>
-          r.cert.map(
-            (c) =>
-              `${formatDateKey(r.probe.dateKey)}: ${capitalize(describeViolation(c))}.`
+          r.certWarnings.map(
+            (w) => `${formatDayKeyLabel(r.probe.dateKey)}: ${w}`
           )
         )
       )
-      const withAdvisory = results.filter((r) => r.advisory.length > 0)
+      const withAdvisory = results.filter((r) => r.advisoryWarnings.length > 0)
       const advisoryWarnings = truncateLines(
         withAdvisory.flatMap((r) =>
-          r.advisory.map((w) => `${formatDateKey(r.probe.dateKey)}: ${w}`)
+          r.advisoryWarnings.map(
+            (w) => `${formatDayKeyLabel(r.probe.dateKey)}: ${w}`
+          )
         )
       )
 
+      // All gate DECISIONS run before any audit logging, so a round trip that
+      // ends in another gate (e.g. override granted but advisories still need
+      // a confirm) can't log the same override twice.
       if (withCert.length > 0) {
         if (!v.override_cert) {
           return {
@@ -728,22 +722,6 @@ export async function createRecurringGridShifts(
             error: "A job area is required to override a certification gap.",
           }
         }
-        // One audit row per violating date (no shift id yet — rows aren't
-        // inserted until the gate clears).
-        for (const r of withCert) {
-          const { error } = await supabase.rpc("scheduling_log_cert_override", {
-            p_employee_id: employeeId,
-            p_job_area_id: v.job_area_id,
-            p_violation_codes: r.cert,
-            p_reason: v.override_reason ?? undefined,
-          })
-          if (error) {
-            return {
-              ok: false,
-              error: `Couldn't record the certification override: ${error.message ?? "unknown error"}.`,
-            }
-          }
-        }
       }
 
       if (withAdvisory.length > 0) {
@@ -752,14 +730,14 @@ export async function createRecurringGridShifts(
           if (parentFlagged) {
             return {
               ok: false,
-              error: `Blocked by facility policy — ${parentFlagged.advisory.join(" ")}`,
+              error: `Blocked by facility policy — ${parentFlagged.advisoryWarnings.join(" ")}`,
             }
           }
           for (const r of withAdvisory) {
             policySkipped.add(r.probe.dateKey)
             skipped.push({
               date: r.probe.dateKey,
-              reason: `Blocked by facility policy — ${r.advisory.join(" ")}`,
+              reason: `Blocked by facility policy — ${r.advisoryWarnings.join(" ")}`,
             })
           }
         } else if (!v.acknowledge_warnings) {
@@ -767,6 +745,27 @@ export async function createRecurringGridShifts(
             ok: false,
             error: `Please confirm: ${advisoryWarnings.join(" ")}`,
             gate: { kind: "confirm", advisoryWarnings },
+          }
+        }
+      }
+
+      // Gates cleared — record one audit row per violating date that will
+      // actually be created (no shift id yet; rows aren't inserted until now).
+      const overrideJobAreaId = v.job_area_id
+      if (overrideJobAreaId) {
+        for (const r of withCert) {
+          if (policySkipped.has(r.probe.dateKey)) continue
+          const { error } = await supabase.rpc("scheduling_log_cert_override", {
+            p_employee_id: employeeId,
+            p_job_area_id: overrideJobAreaId,
+            p_violation_codes: r.certCodes,
+            p_reason: v.override_reason ?? undefined,
+          })
+          if (error) {
+            return {
+              ok: false,
+              error: `Couldn't record the certification override: ${error.message ?? "unknown error"}.`,
+            }
           }
         }
       }
@@ -795,32 +794,109 @@ export async function createRecurringGridShifts(
       return { ok: false, error: dbError(parentErr, "Failed to create shift.") }
     }
 
+    // Per-row inserts (never one bulk statement) so a single date tripping the
+    // double-booking exclusion skips just that date; chunked concurrency keeps
+    // a 62-occurrence series from serializing 62 round trips.
     const created: GridShiftDTO[] = [parent as GridShiftDTO]
-    for (const occ of children) {
-      if (policySkipped.has(occ.dateKey)) continue
-      const { data, error } = await supabase
-        .from("schedule_shifts")
-        .insert({
-          ...baseRow,
-          starts_at: occ.startsAt,
-          ends_at: occ.endsAt,
-          recurring_parent_id: (parent as GridShiftDTO).id,
+    const toInsert = children.filter((occ) => !policySkipped.has(occ.dateKey))
+    const INSERT_CHUNK = 5
+    for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+      const chunk = await Promise.all(
+        toInsert.slice(i, i + INSERT_CHUNK).map(async (occ) => {
+          const { data, error } = await supabase
+            .from("schedule_shifts")
+            .insert({
+              ...baseRow,
+              starts_at: occ.startsAt,
+              ends_at: occ.endsAt,
+              recurring_parent_id: (parent as GridShiftDTO).id,
+            })
+            .select(SHIFT_SELECT)
+            .single()
+          return { occ, data, error }
         })
-        .select(SHIFT_SELECT)
-        .single()
-      if (error || !data) {
-        skipped.push({
-          date: occ.dateKey,
-          reason: dbError(error, "Failed to create shift."),
-        })
-      } else {
-        created.push(data as GridShiftDTO)
+      )
+      for (const { occ, data, error } of chunk) {
+        if (error || !data) {
+          skipped.push({
+            date: occ.dateKey,
+            reason: dbError(error, "Failed to create shift."),
+          })
+        } else {
+          created.push(data as GridShiftDTO)
+        }
       }
     }
 
     revalidatePath("/admin/scheduling/shifts")
     revalidatePath("/admin/scheduling")
     return { ok: true, data: { created, skipped } }
+  } catch (e) {
+    logServerError("admin/scheduling/_lib/grid-actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * All rows of the recurring series containing shift `id` (the root plus every
+ * child pointing at it), facility-scoped. A standalone shift yields just its
+ * own row.
+ */
+async function loadSeries(
+  supabase: ServerSupabase,
+  facilityId: string,
+  id: string
+): Promise<
+  | { ok: true; rows: { id: string; status: string }[] }
+  | { ok: false; error: string }
+> {
+  const { data: member } = await supabase
+    .from("schedule_shifts")
+    .select("id, recurring_parent_id")
+    .eq("id", id)
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  if (!member) return { ok: false, error: "Shift not found." }
+
+  const root = member.recurring_parent_id ?? member.id
+  const { data: rows, error } = await supabase
+    .from("schedule_shifts")
+    .select("id, status")
+    .eq("facility_id", facilityId)
+    .or(`id.eq.${root},recurring_parent_id.eq.${root}`)
+  if (error || !rows) {
+    return { ok: false, error: dbError(error, "Failed to load the series.") }
+  }
+  return { ok: true, rows }
+}
+
+/**
+ * Series membership for the delete dialog: how many shifts (and how many
+ * deletable drafts) share a series with this one. The client's loaded window
+ * can be narrower than a full series (±42-day fetch vs an up-to-84-day
+ * series), so the dialog asks the server instead of trusting loaded events.
+ */
+export async function getRecurringSeriesInfo(
+  id: string
+): Promise<GridResult<{ memberCount: number; draftCount: number }>> {
+  try {
+    const ctx = await resolveFacility()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const parsedId = z.string().uuid().safeParse(id)
+    if (!parsedId.success) return { ok: false, error: "Invalid shift id." }
+
+    const supabase = await createClient()
+    const series = await loadSeries(supabase, ctx.facilityId, parsedId.data)
+    if (!series.ok) return series
+
+    return {
+      ok: true,
+      data: {
+        memberCount: series.rows.length,
+        draftCount: series.rows.filter((r) => r.status === "draft").length,
+      },
+    }
   } catch (e) {
     logServerError("admin/scheduling/_lib/grid-actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
@@ -845,27 +921,15 @@ export async function deleteRecurringSeries(
     if (!parsedId.success) return { ok: false, error: "Invalid shift id." }
 
     const supabase = await createClient()
+    const series = await loadSeries(supabase, ctx.facilityId, parsedId.data)
+    if (!series.ok) return series
 
-    const { data: member } = await supabase
-      .from("schedule_shifts")
-      .select("id, recurring_parent_id")
-      .eq("id", parsedId.data)
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle()
-    if (!member) return { ok: false, error: "Shift not found." }
-
-    const root = member.recurring_parent_id ?? member.id
-    const { data: rows, error: readErr } = await supabase
-      .from("schedule_shifts")
-      .select("id, status")
-      .eq("facility_id", ctx.facilityId)
-      .or(`id.eq.${root},recurring_parent_id.eq.${root}`)
-    if (readErr || !rows) {
-      return { ok: false, error: dbError(readErr, "Failed to load the series.") }
-    }
-
-    const draftIds = rows.filter((r) => r.status === "draft").map((r) => r.id)
-    const publishedLeft = rows.filter((r) => r.status === "published").length
+    const draftIds = series.rows
+      .filter((r) => r.status === "draft")
+      .map((r) => r.id)
+    const publishedLeft = series.rows.filter(
+      (r) => r.status === "published"
+    ).length
 
     if (draftIds.length > 0) {
       const { error } = await supabase
@@ -1073,7 +1137,7 @@ export async function previewShiftWarnings(
     const v = parsed.data
 
     const supabase = await createClient()
-    const [{ codes, capWarning, boundsWarning }, blocking] = await Promise.all([
+    const [signals, blocking] = await Promise.all([
       computeShiftSignals(supabase, {
         facilityId: ctx.facilityId,
         employeeId: v.employee_id,
@@ -1086,13 +1150,7 @@ export async function previewShiftWarnings(
       readBlockOnViolations(supabase, ctx.facilityId),
     ])
 
-    const { cert, advisory } = partitionViolations(codes)
-    const certWarnings = cert.map((c) => capitalize(describeViolation(c)) + ".")
-    const advisoryWarnings = [
-      ...advisory.map((c) => capitalize(describeViolation(c)) + "."),
-      ...(capWarning ? [capWarning] : []),
-      ...(boundsWarning ? [boundsWarning] : []),
-    ]
+    const { certWarnings, advisoryWarnings } = formatSignals(signals)
     return {
       ok: true,
       data: {

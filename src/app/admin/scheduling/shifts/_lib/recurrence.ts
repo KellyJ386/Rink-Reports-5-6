@@ -19,6 +19,9 @@ export const MAX_RANGE_DAYS = 84
 /** Most child occurrences a recurrence may generate (anchor/parent excluded). */
 export const MAX_OCCURRENCES = 62
 
+/** Default "repeat until" span pre-filled by the UI (four weeks). */
+export const DEFAULT_REPEAT_SPAN_DAYS = 28
+
 export type RecurrenceSpec = {
   /** "YYYY-MM-DD" facility-local date of the drawn (parent) shift. */
   anchorKey: string
@@ -48,7 +51,7 @@ function isValidDayKey(key: string): boolean {
 }
 
 /** Whole calendar days from `fromKey` to `toKey` (may be negative). */
-function daysBetween(fromKey: string, toKey: string): number {
+export function daysBetween(fromKey: string, toKey: string): number {
   const [fy, fm, fd] = fromKey.split("-").map(Number)
   const [ty, tm, td] = toKey.split("-").map(Number)
   const fromUtc = Date.UTC(fy, fm - 1, fd, 12)
