@@ -124,7 +124,7 @@ jobs:
       # clock and the previous run hit the job timeout; mobile stays covered
       # by the nightly workflow once its secrets are configured.
       - name: Run E2E suite
-        run: pnpm test:e2e -- --project=chromium-desktop
+        run: pnpm exec playwright test --project=chromium-desktop
 
       # Upload the report ALWAYS (not just on failure): this run's REPORT.md,
       # results.json, and walkthrough screenshots are the deliverable.
