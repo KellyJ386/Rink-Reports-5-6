@@ -208,6 +208,7 @@ export default async function ShiftsPage({
     break_minutes: s.break_minutes ?? 0,
     role_label: s.role_label,
     notes: s.notes,
+    recurring_parent_id: s.recurring_parent_id,
   }))
 
   const templateRows = (templatesRes.data ?? []) as TemplateRow[]

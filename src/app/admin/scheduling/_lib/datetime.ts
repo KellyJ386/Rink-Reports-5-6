@@ -78,6 +78,14 @@ export function formatDateLabel(d: Date): string {
   }).format(d)
 }
 
+/** "Tue, Aug 4" label for a "YYYY-MM-DD" day key (no zone conversion — the
+ * key is already the calendar date to show; the UTC-noon probe just avoids
+ * boundary straddle). */
+export function formatDayKeyLabel(key: string): string {
+  const [y, m, d] = key.split("-").map(Number)
+  return formatDateLabel(new Date(Date.UTC(y, m - 1, d, 12)))
+}
+
 export function formatDateTime(s: string, timeZone?: string | null): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",

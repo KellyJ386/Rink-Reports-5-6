@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { format } from "date-fns"
+import { Repeat2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,12 +14,33 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { addDaysToKey, weekdayOfKey } from "@/lib/timezone"
 
 import type { EmployeeLite, JobAreaLite } from "../../_lib/types"
+import { DAY_SHORT } from "../../_lib/datetime"
 import { isEndAfterStart, toTimeInput, withTime } from "../_lib/time-edit"
+import {
+  expandRecurrenceDates,
+  validateRecurrenceSpec,
+  DEFAULT_REPEAT_SPAN_DAYS,
+  MAX_RANGE_DAYS,
+} from "../_lib/recurrence"
 
 export const OPEN_VALUE = "__open__"
 export const NONE_VALUE = "__none__"
+
+/** Facility-local "YYYY-MM-DD" of a Date, using the same local calendar-field
+ * convention as the rest of the week board (parseLocalDate / isoDateKey in
+ * week-board.tsx, toTimeInput/withTime in _lib/time-edit.ts) — the board has
+ * no facility-timezone prop wired to the client, so "local" here means the
+ * browser's rendering of the shift's Date, matching how the popover already
+ * labels the shift's date (`format(state.start, "EEE, MMM d")` below). */
+function localDayKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+export type RepeatSpec = { days: number[]; untilKey: string }
 
 export type PopoverState =
   | {
@@ -27,6 +49,8 @@ export type PopoverState =
       end: Date
       employeeId: string
       jobAreaId: string
+      /** Weekly recurrence, create mode only. `null`/undefined = one-off. */
+      repeat?: RepeatSpec | null
     }
   | {
       mode: "edit"
@@ -96,6 +120,62 @@ export function AssignPopover({
   const [templateMode, setTemplateMode] = useState(false)
   const [templateName, setTemplateName] = useState("")
   const [overrideReason, setOverrideReason] = useState("")
+
+  // ---- Weekly recurrence (create mode only) --------------------------------
+  const anchorKey = localDayKey(state.start)
+  const repeat = state.mode === "create" ? (state.repeat ?? null) : null
+  const repeatOn = repeat !== null
+  const repeatValidation = repeat
+    ? validateRecurrenceSpec({
+        anchorKey,
+        daysOfWeek: repeat.days,
+        untilKey: repeat.untilKey,
+      })
+    : null
+  const repeatDates =
+    repeat && repeatValidation?.ok
+      ? expandRecurrenceDates({
+          anchorKey,
+          daysOfWeek: repeat.days,
+          untilKey: repeat.untilKey,
+        })
+      : []
+  const repeatTotal = repeatDates.length + 1
+  const repeatValid = repeatOn && repeatValidation?.ok === true
+  const minUntilKey = addDaysToKey(anchorKey, 1)
+  const maxUntilKey = addDaysToKey(anchorKey, MAX_RANGE_DAYS)
+
+  const toggleRepeat = () => {
+    if (state.mode !== "create") return
+    if (state.repeat) {
+      onChange({ ...state, repeat: null })
+      return
+    }
+    onChange({
+      ...state,
+      repeat: {
+        days: [weekdayOfKey(anchorKey)],
+        untilKey: addDaysToKey(
+          anchorKey,
+          Math.min(DEFAULT_REPEAT_SPAN_DAYS, MAX_RANGE_DAYS)
+        ),
+      },
+    })
+  }
+
+  const toggleRepeatDay = (day: number) => {
+    if (state.mode !== "create" || !state.repeat) return
+    const days = state.repeat.days.includes(day)
+      ? state.repeat.days.filter((d) => d !== day)
+      : [...state.repeat.days, day].sort((a, b) => a - b)
+    onChange({ ...state, repeat: { ...state.repeat, days } })
+  }
+
+  const setRepeatUntil = (untilKey: string) => {
+    if (state.mode !== "create" || !state.repeat) return
+    onChange({ ...state, repeat: { ...state.repeat, untilKey } })
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -207,6 +287,74 @@ export function AssignPopover({
               </SelectContent>
             </Select>
           </label>
+
+          {state.mode === "create" ? (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                aria-pressed={repeatOn}
+                onClick={toggleRepeat}
+                className={cn(
+                  "flex h-9 w-fit items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors",
+                  repeatOn
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-muted-foreground hover:bg-accent",
+                )}
+              >
+                <Repeat2 className="h-4 w-4" />
+                Repeat weekly
+              </button>
+
+              {repeatOn && state.repeat ? (
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3">
+                  <div className="flex flex-wrap gap-1">
+                    {DAY_SHORT.map((label, i) => {
+                      const selected = state.repeat?.days.includes(i) ?? false
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => toggleRepeatDay(i)}
+                          className={cn(
+                            "flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-xs font-semibold transition-colors",
+                            selected
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-accent",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">Repeat until</span>
+                    <Input
+                      type="date"
+                      value={state.repeat.untilKey}
+                      min={minUntilKey}
+                      max={maxUntilKey}
+                      onChange={(e) => setRepeatUntil(e.target.value)}
+                      className="h-11"
+                    />
+                  </label>
+
+                  {repeatValidation && !repeatValidation.ok ? (
+                    <p className="text-sm text-destructive">
+                      {repeatValidation.error}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Will create {repeatTotal} shifts (this one +{" "}
+                      {repeatTotal - 1} repeats).
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {warningsLoading ? (
@@ -371,7 +519,12 @@ export function AssignPopover({
             ) : (
               <Button
                 type="button"
-                disabled={pending || advisoryBlockedByPolicy || !endAfterStart}
+                disabled={
+                  pending ||
+                  advisoryBlockedByPolicy ||
+                  !endAfterStart ||
+                  (repeatOn && !repeatValid)
+                }
                 onClick={() =>
                   onSave(needsConfirm ? { acknowledgeWarnings: true } : undefined)
                 }
@@ -380,7 +533,9 @@ export function AssignPopover({
                   ? "Saving…"
                   : needsConfirm
                     ? "Confirm & save"
-                    : "Save"}
+                    : repeatValid
+                      ? `Create ${repeatTotal} shifts`
+                      : "Save"}
               </Button>
             )}
           </div>

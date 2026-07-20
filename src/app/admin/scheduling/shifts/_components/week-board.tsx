@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -31,16 +38,21 @@ import { cn } from "@/lib/utils"
 
 import type { EmployeeLite, JobAreaLite, TemplateRow } from "../../_lib/types"
 import type {
+  GridGate,
   GridShiftDTO,
   GridTemplateDTO,
 } from "../../_lib/grid-actions"
 import {
   createGridShift,
+  createRecurringGridShifts,
   deleteGridShift,
+  deleteRecurringSeries,
+  getRecurringSeriesInfo,
   previewShiftWarnings,
   saveGridTemplate,
   updateGridShift,
 } from "../../_lib/grid-actions"
+import { formatDayKeyLabel } from "../../_lib/datetime"
 import { hhmmToMinutes, type OperatingHours } from "../../_lib/operating-hours"
 import {
   tallyWeeklyHoursByEmployee,
@@ -360,6 +372,22 @@ export function WeekBoard(props: WeekBoardProps) {
     setWarningBlocking(false)
   }, [])
 
+  // Feed a server-side gate back into the popover's warning state. The live
+  // preview only checks the anchor shift, so a recurring create can be gated
+  // by a CHILD date the preview never saw — without this, the footer's
+  // "Confirm & save" / "Override & assign" buttons would never appear and the
+  // save would dead-end on the same rejection.
+  const applyGateWarnings = useCallback((gate: GridGate | undefined) => {
+    if (!gate) return
+    warnTokenRef.current++ // invalidate any in-flight anchor-only preview
+    setCertWarnings(gate.kind === "cert_block" ? gate.certWarnings : [])
+    setAdvisoryWarnings(gate.advisoryWarnings)
+    // A gate means the server is offering confirm/override — policy blocking
+    // would have been a plain error instead.
+    setWarningBlocking(false)
+    setWarnLoading(false)
+  }, [])
+
   const openPopover = useCallback(
     (next: PopoverState) => {
       setPopoverError(null)
@@ -582,6 +610,61 @@ export function WeekBoard(props: WeekBoardProps) {
     })
   }, [deleteTarget, undoDelete])
 
+  // True when the delete target is the parent or a child of a recurring
+  // series, so the confirm dialog can offer the bulk "delete series" option
+  // alongside the existing single-shift delete. Loaded events only cover the
+  // page's ±42-day fetch window while a series can span 84 days, so the local
+  // check is just an instant hint — the server's series lookup is the
+  // authority (it also catches a parent whose children are all out of window).
+  const [seriesInfo, setSeriesInfo] = useState<{
+    id: string
+    memberCount: number
+  } | null>(null)
+  useEffect(() => {
+    const target = deleteTarget
+    // No reset needed on close: seriesInfo is only read when its id matches
+    // the current deleteTarget, so an entry for another shift is inert.
+    if (!target) return
+    let stale = false
+    getRecurringSeriesInfo(target.id).then((res) => {
+      if (stale || !res.ok) return
+      setSeriesInfo({ id: target.id, memberCount: res.data.memberCount })
+    })
+    return () => {
+      stale = true
+    }
+  }, [deleteTarget])
+  const deleteTargetIsSeries =
+    deleteTarget != null &&
+    (deleteTarget.recurringParentId != null ||
+      events.some((e) => e.recurringParentId === deleteTarget.id) ||
+      (seriesInfo?.id === deleteTarget.id && seriesInfo.memberCount > 1))
+
+  const confirmDeleteSeries = useCallback(() => {
+    const ev = deleteTarget
+    if (!ev) return
+    setDeleteTarget(null)
+    startTransition(async () => {
+      const res = await deleteRecurringSeries(ev.id)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      const deletedIds = new Set(res.data.deletedIds)
+      setEvents((evs) => evs.filter((e) => !deletedIds.has(e.id)))
+      setSelectedId((cur) => (cur && deletedIds.has(cur) ? null : cur))
+      if (res.data.publishedLeft > 0) {
+        toast.success(
+          `Series deleted. ${res.data.publishedLeft} published shift${
+            res.data.publishedLeft === 1 ? "" : "s"
+          } were left — cancel them individually.`,
+        )
+      } else {
+        toast.success("Series deleted.")
+      }
+    })
+  }, [deleteTarget])
+
   // ---- Popover save / delete / template ----
   const handlePopoverSave = useCallback(
     (opts?: SaveOpts) => {
@@ -598,8 +681,47 @@ export function WeekBoard(props: WeekBoardProps) {
       }
 
       if (popover.mode === "create") {
-        const { start, end } = popover
+        const { start, end, repeat } = popover
         startTransition(async () => {
+          if (repeat && repeat.days.length > 0) {
+            const res = await createRecurringGridShifts({
+              starts_at: start.toISOString(),
+              ends_at: end.toISOString(),
+              employee_id,
+              job_area_id,
+              repeat: { days_of_week: repeat.days, until: repeat.untilKey },
+              ...gateFields,
+            })
+            if (!res.ok) {
+              applyGateWarnings(res.gate)
+              setPopoverError(res.error)
+              return
+            }
+            const { created, skipped } = res.data
+            setEvents((evs) => [...evs, ...created.map(dtoToEvent)])
+            if (skipped.length > 0) {
+              const detail = skipped
+                .slice(0, 3)
+                .map((s) => `${formatDayKeyLabel(s.date)} (${s.reason})`)
+                .join("; ")
+              const more =
+                skipped.length > 3 ? `; and ${skipped.length - 3} more` : ""
+              toast.warning(
+                `Created ${created.length} shifts. ${skipped.length} date${
+                  skipped.length === 1 ? "" : "s"
+                } skipped: ${detail}${more}.`,
+              )
+            } else {
+              toast.success(
+                opts?.overrideCert
+                  ? `Created ${created.length} shifts — certification override logged.`
+                  : `Created ${created.length} shifts.`,
+              )
+            }
+            closePopover()
+            return
+          }
+
           const res = await createGridShift({
             starts_at: start.toISOString(),
             ends_at: end.toISOString(),
@@ -608,6 +730,7 @@ export function WeekBoard(props: WeekBoardProps) {
             ...gateFields,
           })
           if (!res.ok) {
+            applyGateWarnings(res.gate)
             setPopoverError(res.error)
             return
           }
@@ -634,6 +757,7 @@ export function WeekBoard(props: WeekBoardProps) {
             ...gateFields,
           })
           if (!res.ok) {
+            applyGateWarnings(res.gate)
             setPopoverError(res.error)
             return
           }
@@ -647,7 +771,7 @@ export function WeekBoard(props: WeekBoardProps) {
         })
       }
     },
-    [popover, replaceEvent, closePopover],
+    [popover, replaceEvent, closePopover, applyGateWarnings],
   )
 
   const handlePopoverDelete = useCallback(() => {
@@ -1049,10 +1173,21 @@ export function WeekBoard(props: WeekBoardProps) {
               {deleteTarget?.status === "published"
                 ? " The shift will be cancelled and the assigned employee notified."
                 : " Draft shifts are removed immediately — you can undo from the toast."}
+              {deleteTargetIsSeries
+                ? " This shift is part of a recurring series."
+                : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep shift</AlertDialogCancel>
+            {deleteTargetIsSeries ? (
+              <AlertDialogAction
+                variant="destructive"
+                onClick={confirmDeleteSeries}
+              >
+                Delete series (drafts)
+              </AlertDialogAction>
+            ) : null}
             <AlertDialogAction onClick={confirmDelete}>
               {deleteTarget?.status === "published"
                 ? "Cancel shift"

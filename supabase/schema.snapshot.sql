@@ -9895,7 +9895,7 @@ COMMENT ON COLUMN public.schedule_shifts.employee_id IS 'NULL = unassigned ("ope
 -- Name: COLUMN schedule_shifts.recurring_parent_id; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.schedule_shifts.recurring_parent_id IS 'Optional link from a generated occurrence to a parent shift -- v1 use is light; included for forward-compatibility with native recurring rules.';
+COMMENT ON COLUMN public.schedule_shifts.recurring_parent_id IS 'Optional link from a generated occurrence to a parent/root shift in a recurring series. Facility-fenced via a composite FK (recurring_parent_id, facility_id) -> schedule_shifts(id, facility_id): a child can only ever reference a parent in its OWN facility, so a crafted or buggy insert can no longer parent a shift onto another facility''s row.';
 
 
 --
@@ -13279,6 +13279,20 @@ CREATE INDEX role_permission_defaults_role_idx ON public.role_permission_default
 
 
 --
+-- Name: schedule_shifts_id_facility_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX schedule_shifts_id_facility_key ON public.schedule_shifts USING btree (id, facility_id);
+
+
+--
+-- Name: schedule_shifts_recurring_parent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX schedule_shifts_recurring_parent_idx ON public.schedule_shifts USING btree (recurring_parent_id) WHERE (recurring_parent_id IS NOT NULL);
+
+
+--
 -- Name: uniq_accident_workers_comp_settings_facility_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -16315,7 +16329,7 @@ ALTER TABLE ONLY public.schedule_shifts
 --
 
 ALTER TABLE ONLY public.schedule_shifts
-    ADD CONSTRAINT schedule_shifts_recurring_parent_id_fkey FOREIGN KEY (recurring_parent_id) REFERENCES public.schedule_shifts(id) ON DELETE SET NULL;
+    ADD CONSTRAINT schedule_shifts_recurring_parent_id_fkey FOREIGN KEY (recurring_parent_id, facility_id) REFERENCES public.schedule_shifts(id, facility_id) ON DELETE SET NULL (recurring_parent_id);
 
 
 --
