@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/auth"
 import {
   MODULE_NAMES,
   USER_ACTIONS,
+  isAdminConsoleGrant,
   type ModuleName,
   type UserAction,
 } from "@/lib/permissions"
@@ -58,9 +59,20 @@ export async function setRoleModuleAction(
   enabled: boolean,
 ): Promise<ActionResult> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
     if (!isModuleName(moduleName)) return err(`Invalid module: ${moduleName}`)
     if (!isUserAction(action)) return err(`Invalid action: ${action}`)
+
+    // Escalation guard: this default is re-applied onto every employee holding
+    // the role, so enabling the admin/admin cell would mint peer facility
+    // admins. Only a super admin may do that (RLS only fences by facility).
+    if (
+      !profile?.is_super_admin &&
+      enabled &&
+      isAdminConsoleGrant(moduleName, action)
+    ) {
+      return err("Only a super admin can grant Admin Center access.")
+    }
 
     const supabase = await createClient()
 

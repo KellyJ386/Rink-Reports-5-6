@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import {
   PERMISSION_LEVELS,
   PERMISSION_LEVEL_LABELS,
@@ -705,7 +706,7 @@ function ActivityTab({ data }: { data: EmployeeDetailData }) {
               {data.audit.map((row) => (
                 <tr key={row.id} className="border-t">
                   <td className="px-3 py-2 text-xs">
-                    {new Date(row.created_at).toLocaleString()}
+                    <LocalDateTime iso={row.created_at} />
                   </td>
                   <td className="px-3 py-2">{row.action}</td>
                   <td className="px-3 py-2 text-xs">

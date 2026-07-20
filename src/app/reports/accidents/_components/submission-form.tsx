@@ -9,6 +9,7 @@ import { useUnsavedGuard } from "@/hooks/use-unsaved-guard"
 import { Card } from "@/components/ui/card"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
+import { useHydrated } from "@/components/app/local-datetime"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   BODY_PART_KEYS,
@@ -153,8 +154,14 @@ export function SubmissionForm({
   const [localId] = useState<string>(genLocalId)
   const [queued, setQueued] = useState(false)
 
-  const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [occurredAt, setOccurredAt] = useState(defaultOccurredAt)
+  // The datetime-local "now" default is browser-local; computing it during SSR
+  // would mismatch the UTC server (React #418). So the default is "" until
+  // hydrated, then the client-local "now"; once the user types their own value
+  // (occurredAtInput) that wins.
+  const hydrated = useHydrated()
+  const [occurredAtInput, setOccurredAtInput] = useState<string | null>(null)
+  const occurredAt =
+    occurredAtInput ?? (hydrated ? nowForDateTimeLocal() : "")
   const [injuredName, setInjuredName] = useState(defaultInjuredName)
   const [injuredContact, setInjuredContact] = useState(defaultInjuredContact)
   const [injuredAge, setInjuredAge] = useState("")
@@ -597,7 +604,7 @@ export function SubmissionForm({
                 aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
                 type="datetime-local"
                 value={occurredAt}
-                onChange={(e) => setOccurredAt(e.target.value)}
+                onChange={(e) => setOccurredAtInput(e.target.value)}
                 className="h-12 text-base"
               />
             </FormField>

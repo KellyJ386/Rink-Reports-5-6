@@ -7,7 +7,6 @@ import {
   CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
 import { getCurrentUser } from "@/lib/auth"
 
@@ -25,7 +24,14 @@ export default async function ForbiddenPage() {
     <main className="bg-background flex min-h-screen items-center justify-center px-4 py-10">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-xl">Access denied</CardTitle>
+          {/* Real heading: the page's one piece of headline content should be
+              exposed to assistive tech (CardTitle renders a div). */}
+          <h1
+            data-slot="card-title"
+            className="text-xl leading-tight font-semibold tracking-tight"
+          >
+            Access denied
+          </h1>
           <CardDescription>
             This page requires admin permissions. Contact a super admin if
             you need access.

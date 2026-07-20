@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { DataList, DataListRow } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { SectionCard } from "@/components/ui/section-card"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 export type RecentActivityItem = {
   id: string
@@ -24,19 +25,6 @@ type Props = {
   isAdmin: boolean
   configureHref: string
   recent: RecentActivityItem[]
-}
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-  } catch {
-    return iso
-  }
 }
 
 export function IceOpsShell({
@@ -120,7 +108,15 @@ export function IceOpsShell({
                     ) : null}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {formatWhen(r.when)}
+                    <LocalDateTime
+                      iso={r.when}
+                      options={{
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }}
+                    />
                   </span>
                 </DataListRow>
               ))}

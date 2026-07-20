@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
 import { resolveCertificationType } from "@/lib/certifications"
+import { isAdminConsoleGrant } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 
@@ -40,9 +41,26 @@ export async function setEmployeeModuleOverride(
   level: string,
 ): Promise<ActionResult> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
     assertValidLevel(level)
     assertValidModuleKey(moduleKey)
+
+    const enabledActions = new Set(LEVEL_ACTIONS[level] ?? [])
+
+    // Escalation guard: a level like approve/publish/manage_settings/admin
+    // explodes to include the `admin` action. On the `admin` module that is the
+    // admin/admin cell requireAdmin() keys off — minting a peer facility admin.
+    // Only a super admin may do that; RLS only fences by facility, not by cell.
+    if (
+      !profile?.is_super_admin &&
+      isAdminConsoleGrant(moduleKey, "admin") &&
+      enabledActions.has("admin")
+    ) {
+      return {
+        ok: false,
+        error: "Only a super admin can grant Admin Center access.",
+      }
+    }
 
     const supabase = await createClient()
     const { data: employee, error: empErr } = await supabase
@@ -57,7 +75,6 @@ export async function setEmployeeModuleOverride(
     }
     const userId = employee.user_id
 
-    const enabledActions = new Set(LEVEL_ACTIONS[level] ?? [])
     const rows = ALL_ACTIONS.map((action) => ({
       user_id: userId,
       facility_id: employee.facility_id,

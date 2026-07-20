@@ -7,8 +7,9 @@ import { SwRegister } from "@/components/app/sw-register"
 import { Toaster } from "@/components/ui/sonner"
 
 export const metadata: Metadata = {
-  title: "MFO / Rink Reports",
-  description: "Operations console for Max Facility ice rinks.",
+  title: "Rink Reports | Ice Rink Operations Platform",
+  description:
+    "The operations platform built for ice rinks. Daily reports, refrigeration logs, ice depth, air quality, and scheduling — offline-first, on any device.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

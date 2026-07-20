@@ -67,4 +67,23 @@ describe("buildCsv", () => {
     const out = text(table(["x"], [["a;b"]]), "comma")
     expect(out).toBe(`${BOM}x\r\na;b\r\n`)
   })
+
+  it("neutralizes formula-injection triggers by prefixing a single quote", () => {
+    // = + @ leading a cell would be evaluated as a formula on open. No
+    // delimiter/quote present, so RFC quoting doesn't additionally apply.
+    expect(text(table(["x"], [["=SUM(A1:A9)"]]))).toBe(
+      `${BOM}x\r\n'=SUM(A1:A9)\r\n`,
+    )
+    expect(text(table(["x"], [["@cmd"]]))).toBe(`${BOM}x\r\n'@cmd\r\n`)
+    // A DDE payload leading with `-` that is NOT a plain number is escaped.
+    expect(text(table(["x"], [["-1+1cmd"]]))).toBe(`${BOM}x\r\n'-1+1cmd\r\n`)
+    // When the neutralized value ALSO contains the delimiter, both apply.
+    expect(text(table(["x"], [["=A,B"]]))).toBe(`${BOM}x\r\n"'=A,B"\r\n`)
+  })
+
+  it("does NOT prefix legitimate signed numbers (e.g. negative temperatures)", () => {
+    expect(text(table(["t"], [["-5.0"]]))).toBe(`${BOM}t\r\n-5.0\r\n`)
+    expect(text(table(["t"], [["+3"]]))).toBe(`${BOM}t\r\n+3\r\n`)
+    expect(text(table(["t"], [["-12.5"]]))).toBe(`${BOM}t\r\n-12.5\r\n`)
+  })
 })

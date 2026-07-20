@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
+import { useHydrated } from "@/components/app/local-datetime"
 import {
   cToF,
   fToC,
@@ -155,7 +156,13 @@ export function SubmissionForm({
   const [values, setValues] = useState<Record<string, RawValue>>({})
   const [notes, setNotes] = useState("")
   const [followupNotes, setFollowupNotes] = useState<Record<string, string>>({})
-  const [readingAt, setReadingAt] = useState<string>(nowForDateTimeLocal)
+  // nowForDateTimeLocal() reads the browser-local clock, which differs from the
+  // UTC server — computing it during SSR would mismatch the client (React #418).
+  // So the default is "" until hydrated, then the client-local "now"; once the
+  // user types their own value (readingAtInput) that wins.
+  const hydrated = useHydrated()
+  const [readingAtInput, setReadingAtInput] = useState<string | null>(null)
+  const readingAt = readingAtInput ?? (hydrated ? nowForDateTimeLocal() : "")
   const [shift, setShift] = useState("")
   const [roundNo, setRoundNo] = useState("")
   const [displayUnit, setDisplayUnit] = useState<TempUnit>("F")
@@ -435,7 +442,7 @@ export function SubmissionForm({
               id="reading_at"
               type="datetime-local"
               value={readingAt}
-              onChange={(e) => setReadingAt(e.target.value)}
+              onChange={(e) => setReadingAtInput(e.target.value)}
               className="h-12 text-base"
             />
           </div>

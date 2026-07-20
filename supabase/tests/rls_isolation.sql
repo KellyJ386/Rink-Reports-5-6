@@ -506,6 +506,21 @@ values ('bbbb2222-c0a2-bbbb-bbbb-bbbb22220080',
         'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
 on conflict (id) do nothing;
 
+-- A-side message + recipient so a Facility-A communications admin has a
+-- non-empty own-facility positive to assert against (proving migration 182's
+-- fix didn't over-restrict legitimate admin reads).
+insert into public.communication_messages (id, facility_id, body)
+values ('aaaa1111-c0a1-aaaa-aaaa-aaaa11110079',
+        '11111111-1111-1111-1111-111111111111', 'A-facility broadcast')
+on conflict (id) do nothing;
+
+insert into public.communication_recipients (id, facility_id, message_id, employee_id)
+values ('aaaa1111-c0a2-aaaa-aaaa-aaaa11110080',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-c0a1-aaaa-aaaa-aaaa11110079',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+on conflict (id) do nothing;
+
 insert into public.communication_alerts (id, facility_id, source_module, severity, title)
 values ('bbbb2222-c0a3-bbbb-bbbb-bbbb22220081',
         '22222222-2222-2222-2222-222222222222',
@@ -589,7 +604,13 @@ insert into public.user_permissions (
   ('cccccccc-cccc-cccc-cccc-cccccccccccc',
    '11111111-1111-1111-1111-111111111111', 'scheduling', 'admin', true),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc',
-   '11111111-1111-1111-1111-111111111111', 'scheduling', 'view', true)
+   '11111111-1111-1111-1111-111111111111', 'scheduling', 'view', true),
+  -- Communications admin too, so the communication_recipients_select policy's
+  -- admin branch is actually exercised (migration 182 cross-tenant fix).
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'communications', 'admin', true),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'communications', 'view', true)
 on conflict (user_id, facility_id, module_name, action) do nothing;
 
 -- A-side scheduling rows so Carol's OWN-facility positive assertions are
@@ -778,7 +799,7 @@ select pg_temp.expect_count(
 -- Roles: Alice can see her facility's roles, not Bob's.
 select pg_temp.expect_count(
   $$select count(*) from public.roles where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  6, 'alice can SELECT roles in her facility (6 system roles)');
+  4, 'alice can SELECT roles in her facility (4 canonical system roles)');
 
 select pg_temp.expect_count(
   $$select count(*) from public.roles where facility_id = '22222222-2222-2222-2222-222222222222'$$,
@@ -2419,6 +2440,22 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'ISO-ADMIN: facility-A scheduling admin CANNOT SELECT facility-B certification types');
 
+-- Communications recipients (migration 189): the SELECT policy's admin branch
+-- (has_module_admin_access('communications')) used to lack a facility_id match,
+-- so a Facility-A communications admin could read Facility-B recipient rosters.
+-- Carol also holds communications admin, so this exercises that exact branch.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recipients
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'ISO-ADMIN: facility-A communications admin CANNOT SELECT facility-B communication_recipients (migration 189)');
+-- Positive: she DOES still read her own facility's recipients (fix not
+-- over-broad). Pinned to the fixture row rather than a facility-wide count so
+-- other sections' recipient fixtures can't skew the assertion.
+select pg_temp.expect_count(
+  $$select count(*) from public.communication_recipients
+    where id = 'aaaa1111-c0a2-aaaa-aaaa-aaaa11110080'$$,
+  1, 'ISO-ADMIN: communications admin STILL sees own-facility communication_recipients');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -3344,15 +3381,35 @@ reset role;
 reset role;
 set local role postgres;
 
--- Carol gets VIEW-ONLY (no submit) on refrigeration. Before migration 170,
+-- Vera gets VIEW-ONLY (no submit) on refrigeration. Before migration 170,
 -- communication_alerts INSERT accepted mere view access on the row's
--- source_module; the carol assertion below proves view is no longer enough.
--- (Alice can't serve as the view-only subject — by this point in the harness
--- she has accumulated submit or admin on every module she can see.)
+-- source_module; the view-only assertion below proves view is no longer
+-- enough. (Neither alice nor carol can serve as the view-only subject — by
+-- this point in the harness alice has accumulated submit or admin on every
+-- module she can see, and the migration-189 section made carol a
+-- communications admin, which passes the alerts INSERT policy outright.)
+insert into auth.users (id, email)
+values ('ceeeeeee-cccc-4ccc-8ccc-cccccc000170', 'vera@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('ceeeeeee-cccc-4ccc-8ccc-cccccc000170',
+        '11111111-1111-1111-1111-111111111111', 'vera@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'aaaa1111-ce17-aaaa-aaaa-aaaa11110170'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'ceeeeeee-cccc-4ccc-8ccc-cccccc000170'::uuid,
+       r.id, 'Vera', 'Viewer', 'vera@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
 insert into public.user_permissions (
   user_id, facility_id, module_name, action, enabled
 ) values (
-  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'ceeeeeee-cccc-4ccc-8ccc-cccccc000170',
   '11111111-1111-1111-1111-111111111111',
   'refrigeration', 'view'::public.user_action, true
 ) on conflict (user_id, facility_id, module_name, action) do nothing;
@@ -3557,11 +3614,11 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'ISO: alice CANNOT SELECT facility-B notification_outbox');
 
--- --- Block 1b: carol (view-only on refrigeration, no comms admin) -----------
+-- --- Block 1b: vera (view-only on refrigeration, no comms rights) -----------
 reset role;
 set local role authenticated;
-set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
-select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+set local request.jwt.claims to '{"sub":"ceeeeeee-cccc-4ccc-8ccc-cccccc000170","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ceeeeeee-cccc-4ccc-8ccc-cccccc000170', true);
 
 select pg_temp.expect_error(
   $$insert into public.communication_alerts (
@@ -4710,6 +4767,53 @@ select pg_temp.expect_count(
   1, 'SCHED-188: Facility-B fixture shift untouched by the cross-facility delete attempt');
 
 reset role;
+-- FRS: facility role seeding is canonical (migration 188).
+--
+-- Migrations 55/87 retired gm/supervisor, but the seed functions kept
+-- inserting the six-role set until migration 188. Assert the seed now yields
+-- exactly the four canonical roles at the canonical hierarchy levels, and
+-- that the retired keys are rejected outright by the roles_key_not_retired
+-- constraint (any path — seed function or direct insert).
+-- ---------------------------------------------------------------------------
+insert into public.facilities (id, name, slug, timezone)
+values ('f125e88f-0000-4000-8000-000000000188', 'FRS Seed Test Facility',
+        'frs-seed-test-facility', 'America/New_York');
+
+select public.seed_default_roles_for_facility('f125e88f-0000-4000-8000-000000000188');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.roles
+    where facility_id = 'f125e88f-0000-4000-8000-000000000188'$$,
+  4, 'FRS1: seed_default_roles_for_facility creates exactly four roles');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.roles
+    where facility_id = 'f125e88f-0000-4000-8000-000000000188'
+      and (key, hierarchy_level) in
+          (('super_admin', 0), ('admin', 1), ('manager', 2), ('staff', 3))$$,
+  4, 'FRS2: seeded roles are the canonical keys at the canonical levels');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.roles
+    where facility_id = 'f125e88f-0000-4000-8000-000000000188'
+      and key in ('gm', 'supervisor')$$,
+  0, 'FRS3: retired gm/supervisor roles are not seeded');
+
+select pg_temp.expect_error(
+  $$insert into public.roles (facility_id, key, display_name, hierarchy_level, is_system)
+    values ('f125e88f-0000-4000-8000-000000000188', 'gm', 'General Manager', 2, true)$$,
+  'FRS4: inserting a gm role is rejected by roles_key_not_retired');
+
+select pg_temp.expect_error(
+  $$insert into public.roles (facility_id, key, display_name, hierarchy_level, is_system)
+    values ('f125e88f-0000-4000-8000-000000000188', 'supervisor', 'Supervisor', 4, true)$$,
+  'FRS5: inserting a supervisor role is rejected by roles_key_not_retired');
+
+-- Custom per-facility keys stay allowed (the constraint only blocks retired ones).
+select pg_temp.expect_ok(
+  $$insert into public.roles (facility_id, key, display_name, hierarchy_level, is_system)
+    values ('f125e88f-0000-4000-8000-000000000188', 'driver', 'Driver', 4, false)$$,
+  'FRS6: custom role keys are still accepted');
 
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.

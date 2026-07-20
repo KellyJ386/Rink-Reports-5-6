@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import {
   createReminder,
@@ -42,15 +43,6 @@ type Props = {
   reminders: ReminderWithRefs[]
   templates: TemplateRow[]
   groups: GroupRow[]
-}
-
-function fmt(ts: string | null | undefined): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
 }
 
 function toLocalDatetimeInput(ts: string | null): string {
@@ -191,11 +183,11 @@ function ReminderRowItem({
           </div>
           <div>
             <span className="font-medium uppercase">Last run:</span>{" "}
-            {fmt(reminder.last_run_at)}
+            <LocalDateTime iso={reminder.last_run_at} />
           </div>
           <div>
             <span className="font-medium uppercase">Next run:</span>{" "}
-            {fmt(reminder.next_run_at)}
+            <LocalDateTime iso={reminder.next_run_at} />
           </div>
         </div>
       )}
@@ -409,7 +401,7 @@ function ReminderForm({
 
       {reminder && (
         <p className="text-muted-foreground text-xs">
-          Last run: {fmt(reminder.last_run_at)}
+          Last run: <LocalDateTime iso={reminder.last_run_at} />
         </p>
       )}
 

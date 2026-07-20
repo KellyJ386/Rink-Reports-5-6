@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { sendPasswordReset, setSuperAdminFlag } from "../actions"
 import type { ActionState, SuperAdminUserRow } from "../types"
@@ -80,7 +81,7 @@ function UserRow({
         )}
         {user.last_seen_at && (
           <span className="text-xs text-muted-foreground">
-            Last seen {new Date(user.last_seen_at).toLocaleString()}
+            Last seen <LocalDateTime iso={user.last_seen_at} />
           </span>
         )}
         {toggleState.ok === false && (

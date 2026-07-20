@@ -713,12 +713,10 @@ begin
 
   insert into public.roles (facility_id, key, display_name, hierarchy_level, is_system)
   values
-    (v_facility_id, 'super_admin', 'Super Admin',    0, true),
-    (v_facility_id, 'admin',       'Administrator',  1, true),
-    (v_facility_id, 'gm',          'General Manager',2, true),
-    (v_facility_id, 'manager',     'Manager',        3, true),
-    (v_facility_id, 'supervisor',  'Supervisor',     4, true),
-    (v_facility_id, 'staff',       'Staff',          5, true)
+    (v_facility_id, 'super_admin', 'Super Admin',   0, true),
+    (v_facility_id, 'admin',       'Administrator', 1, true),
+    (v_facility_id, 'manager',     'Manager',       2, true),
+    (v_facility_id, 'staff',       'Staff',         3, true)
   on conflict (facility_id, key) do nothing;
 
   -- Seed scheduling defaults (settings + baseline compliance rules). Idempotent.
@@ -736,7 +734,7 @@ $_$;
 -- Name: FUNCTION create_facility_with_roles(p_name text, p_slug text, p_timezone text, p_address text, p_zip_code text, p_phone text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.create_facility_with_roles(p_name text, p_slug text, p_timezone text, p_address text, p_zip_code text, p_phone text) IS 'Atomically creates a facility, seeds its six canonical system roles, default scheduling config, and the standard daily-report checklist catalog. Restricted to platform super_admins. Returns the new facility UUID.';
+COMMENT ON FUNCTION public.create_facility_with_roles(p_name text, p_slug text, p_timezone text, p_address text, p_zip_code text, p_phone text) IS 'Atomically creates a facility, seeds its four canonical system roles, default scheduling config, and the standard daily-report checklist catalog. Restricted to platform super_admins. Returns the new facility UUID.';
 
 
 --
@@ -5588,12 +5586,10 @@ CREATE FUNCTION public.seed_default_roles_for_facility(p_facility_id uuid) RETUR
 begin
   insert into public.roles (facility_id, key, display_name, hierarchy_level, is_system)
   values
-    (p_facility_id, 'super_admin', 'Super Admin',     0, true),
-    (p_facility_id, 'admin',       'Administrator',   1, true),
-    (p_facility_id, 'gm',          'General Manager', 2, true),
-    (p_facility_id, 'manager',     'Manager',         3, true),
-    (p_facility_id, 'supervisor',  'Supervisor',      4, true),
-    (p_facility_id, 'staff',       'Staff',           5, true)
+    (p_facility_id, 'super_admin', 'Super Admin',   0, true),
+    (p_facility_id, 'admin',       'Administrator', 1, true),
+    (p_facility_id, 'manager',     'Manager',       2, true),
+    (p_facility_id, 'staff',       'Staff',         3, true)
   on conflict (facility_id, key) do nothing;
 end;
 $$;
@@ -5603,7 +5599,7 @@ $$;
 -- Name: FUNCTION seed_default_roles_for_facility(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_roles_for_facility(p_facility_id uuid) IS 'Seeds the six canonical system roles for a newly-created facility. Idempotent.';
+COMMENT ON FUNCTION public.seed_default_roles_for_facility(p_facility_id uuid) IS 'Seeds the four canonical system roles for a newly-created facility. Idempotent.';
 
 
 --
@@ -9467,7 +9463,8 @@ CREATE TABLE public.roles (
     is_active boolean DEFAULT true NOT NULL,
     deactivated_at timestamp with time zone,
     description text,
-    CONSTRAINT roles_hierarchy_nonneg CHECK ((hierarchy_level >= 0))
+    CONSTRAINT roles_hierarchy_nonneg CHECK ((hierarchy_level >= 0)),
+    CONSTRAINT roles_key_not_retired CHECK ((key <> ALL (ARRAY['gm'::text, 'supervisor'::text])))
 );
 
 
@@ -17282,7 +17279,7 @@ CREATE POLICY communication_recipients_insert ON public.communication_recipients
 -- Name: communication_recipients communication_recipients_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY communication_recipients_select ON public.communication_recipients FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.has_module_admin_access('communications'::text) OR ((facility_id = public.current_facility_id()) AND ((employee_id = public.current_employee_id()) OR (EXISTS ( SELECT 1
+CREATE POLICY communication_recipients_select ON public.communication_recipients FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('communications'::text) OR (employee_id = public.current_employee_id()) OR (EXISTS ( SELECT 1
    FROM public.communication_messages m
   WHERE ((m.id = communication_recipients.message_id) AND (m.sender_employee_id = public.current_employee_id()))))))));
 

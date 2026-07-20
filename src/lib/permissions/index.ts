@@ -16,6 +16,7 @@ export {
   MODULE_NAMES,
   MODULE_LABELS,
   emptyMatrix,
+  isAdminConsoleGrant,
   matrixFromRows,
   presetMatrix,
   type UserAction,

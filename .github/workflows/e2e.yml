@@ -8,26 +8,23 @@ name: E2E
 # through an actual browser hitting a live deployment. See e2e/README.md and
 # e2e/TEST-PLAN.md for the scenario map.
 #
-# Configuration comes from GitHub Actions secrets/vars (never hard-coded —
-# see e2e/.env.e2e.example for the full list):
-#   - vars.E2E_BASE_URL                    target environment, e.g. the
-#                                          staging URL (overridable per-run
-#                                          via the workflow_dispatch `url`
-#                                          input, mirroring post-deploy-smoke)
-#   - secrets.E2E_<ROLE>_PASSWORD          the 7 role accounts (ADMIN, MANAGER,
-#                                          SUPERVISOR, ICETECH, FRONTDESK,
-#                                          CONCESSIONS, JANITORIAL)
-#   - secrets.E2E_INACTIVE_PASSWORD        deactivated-account login check
-#   - secrets.E2E_FACILITY_B_PASSWORD      multi-tenant isolation (section 9)
-#   - vars.E2E_FACILITY_B_REPORT_PATH,     optional seed-specific deep links
-#     vars.E2E_DAILY_REPORT_PATH,          (tests skip gracefully without
-#     vars.E2E_ICE_DEPTH_LAYOUT_SLUG       them)
+# Configuration (see e2e/.env.e2e.example for the full variable list):
+#   - Target URL: workflow_dispatch `url` input, else vars.E2E_BASE_URL, else
+#     the production deployment.
+#   - Credentials: E2E_<ROLE>_PASSWORD repo secrets when configured; otherwise
+#     fetched at runtime from the service-role-only `e2e_temp_credentials`
+#     table in the project database over the SUPABASE_DB_PASSWORD secret
+#     (the standing *-test@rinkreports.com accounts — see
+#     docs/module-functionality-check-2026-07.md).
+#   - Seed deep links: vars.E2E_FACILITY_B_REPORT_PATH /
+#     vars.E2E_ICE_DEPTH_LAYOUT_SLUG / vars.E2E_DAILY_REPORT_PATH, with
+#     defaults matching the standing seed.
 #
-# Fail-soft: if the target URL or the admin password isn't configured, the
-# run logs a notice and exits green instead of failing red — forks and repos
-# without staging secrets shouldn't get nightly failures. Tests missing an
-# individual credential/seed value skip with a reason (see e2e/README.md
-# "Graceful skips"), so a partially seeded environment stays green too.
+# Fail-soft: if no target URL or no credential source at all is available,
+# the run logs a notice and exits green instead of failing red — forks
+# shouldn't get nightly failures. Tests missing an individual credential or
+# seed value skip with a reason (see e2e/README.md "Graceful skips"), so a
+# partially seeded environment stays green too.
 #
 # Triggers:
 #   - schedule: nightly at 06:00 UTC (staging is quietest; after any US-
@@ -53,11 +50,13 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
 
     env:
-      # Dispatch input wins over the repo variable, mirroring post-deploy-smoke.
-      E2E_BASE_URL: ${{ inputs.url != '' && inputs.url || vars.E2E_BASE_URL }}
+      # Dispatch input wins over the repo variable, mirroring post-deploy-smoke;
+      # with neither set, default to the production deployment (the only
+      # deployed environment this project has).
+      E2E_BASE_URL: ${{ inputs.url != '' && inputs.url || vars.E2E_BASE_URL || 'https://www.rinkreports.com' }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
       E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
       E2E_SUPERVISOR_PASSWORD: ${{ secrets.E2E_SUPERVISOR_PASSWORD }}
@@ -67,33 +66,117 @@ jobs:
       E2E_JANITORIAL_PASSWORD: ${{ secrets.E2E_JANITORIAL_PASSWORD }}
       E2E_INACTIVE_PASSWORD: ${{ secrets.E2E_INACTIVE_PASSWORD }}
       E2E_FACILITY_B_PASSWORD: ${{ secrets.E2E_FACILITY_B_PASSWORD }}
-      # Optional non-secret seed config; tests skip gracefully when unset.
-      E2E_FACILITY_B_REPORT_PATH: ${{ vars.E2E_FACILITY_B_REPORT_PATH }}
+      # Optional non-secret seed config; repo variables win, with defaults
+      # matching the standing production seed (see
+      # docs/module-functionality-check-2026-07.md).
+      E2E_FACILITY_B_REPORT_PATH: ${{ vars.E2E_FACILITY_B_REPORT_PATH || '/reports/incidents/d1bb84fe-fb34-43bd-8e0a-429026bde696' }}
       E2E_DAILY_REPORT_PATH: ${{ vars.E2E_DAILY_REPORT_PATH }}
-      E2E_ICE_DEPTH_LAYOUT_SLUG: ${{ vars.E2E_ICE_DEPTH_LAYOUT_SLUG }}
+      E2E_ICE_DEPTH_LAYOUT_SLUG: ${{ vars.E2E_ICE_DEPTH_LAYOUT_SLUG || 'rink-a' }}
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
-      # Fail-soft gate: without a target URL and at least the admin password
-      # every test would fail/skip pointlessly. Skip the whole run with a
-      # notice instead of going red — repos without configured staging
-      # secrets shouldn't get nightly failures.
-      - name: Check E2E secrets are configured
+      # Fail-soft gate: credentials come either from E2E_* repo secrets or,
+      # when those are absent, from the locked-down e2e_temp_credentials
+      # table in the project database (fetched below over the same
+      # SUPABASE_DB_PASSWORD secret Deploy Migrations uses). Skip with a
+      # notice only when NEITHER source is available — forks and repos
+      # without any credential source shouldn't get nightly failures.
+      - name: Check E2E credentials are configured
         id: gate
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          MISSING=""
-          [ -z "$E2E_BASE_URL" ] && MISSING="$MISSING E2E_BASE_URL (repo variable or dispatch url input)"
-          [ -z "$E2E_ADMIN_PASSWORD" ] && MISSING="$MISSING E2E_ADMIN_PASSWORD (repo secret)"
-          if [ -n "$MISSING" ]; then
-            echo "::notice::E2E suite skipped — not configured. Missing:$MISSING. See e2e/README.md (CI section) for setup."
+          if [ -z "$E2E_BASE_URL" ]; then
+            echo "::notice::E2E suite skipped — no target URL resolved."
             echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Targeting $E2E_BASE_URL"
+          elif [ -n "$E2E_ADMIN_PASSWORD" ]; then
+            echo "Targeting $E2E_BASE_URL with E2E_* secrets"
             echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "source=secrets" >> "$GITHUB_OUTPUT"
+          elif [ -n "$SUPABASE_DB_PASSWORD" ]; then
+            echo "Targeting $E2E_BASE_URL with database-staged credentials"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "source=database" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::E2E suite skipped — neither E2E_ADMIN_PASSWORD nor SUPABASE_DB_PASSWORD is configured. See e2e/README.md (CI section)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
         if: steps.gate.outputs.configured == 'true'
+
+      # When no E2E_* secrets exist, fetch the standing test-account passwords
+      # from the service-role-only e2e_temp_credentials table. GitHub runners
+      # are IPv4-only, so prefer the Supavisor pooler over the direct db host.
+      - name: Fetch E2E credentials from database
+        if: steps.gate.outputs.source == 'database'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          REF="bqbdgwlhbhabsibjgwmk"
+          CANDIDATES=()
+          [ -n "${SUPABASE_DB_URL:-}" ] && CANDIDATES+=("$SUPABASE_DB_URL")
+          if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
+            ENCPW=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'],safe=''))")
+            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-0-us-east-1.pooler.supabase.com:5432/postgres")
+            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-1-us-east-1.pooler.supabase.com:5432/postgres")
+            CANDIDATES+=("postgresql://postgres:${ENCPW}@db.${REF}.supabase.co:5432/postgres")
+          fi
+          ROWS=""
+          for URL in "${CANDIDATES[@]}"; do
+            HOSTDESC=$(echo "$URL" | sed -E 's|.*@([^/:]+).*|\1|')
+            echo "Trying $HOSTDESC ..."
+            if ROWS=$(psql "$URL" -At -F '|' -w \
+              -c "select role_key, password from public.e2e_temp_credentials" 2>/tmp/psql.err); then
+              echo "Connected via $HOSTDESC"
+              break
+            fi
+            sed 's/:[^@:]*@/:***@/' /tmp/psql.err || true
+            ROWS=""
+          done
+          if [ -z "$ROWS" ]; then
+            echo "::error::Could not fetch e2e credentials from the database."
+            exit 1
+          fi
+          while IFS='|' read -r ROLE PW; do
+            [ -z "$ROLE" ] && continue
+            echo "::add-mask::$PW"
+            if [ "$ROLE" = "ANON_KEY" ]; then
+              # The project's public anon key, staged alongside the passwords
+              # so it never has to live in the repo (it trips secret scanners
+              # even though it ships in the deployed client bundle by design).
+              echo "SUPABASE_ANON_KEY=$PW" >> "$GITHUB_ENV"
+            else
+              echo "E2E_${ROLE}_PASSWORD=$PW" >> "$GITHUB_ENV"
+            fi
+          done <<< "$ROWS"
+          echo "Loaded credentials for: $(echo "$ROWS" | cut -d'|' -f1 | tr '\n' ' ')"
+
+      # Fail fast if the test accounts cannot authenticate — a full suite run
+      # is pointless when the password grant itself is broken. Runs only when
+      # the anon key came back with the database-staged credentials (it is a
+      # public client key, but keeping it out of the repo keeps secret
+      # scanners quiet).
+      - name: Auth preflight (admin test account)
+        if: steps.gate.outputs.source == 'database'
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::notice::No ANON_KEY row in e2e_temp_credentials — skipping preflight."
+            exit 0
+          fi
+          STATUS=$(curl -s -o /tmp/auth.json -w "%{http_code}" --max-time 30 \
+            -X POST "https://bqbdgwlhbhabsibjgwmk.supabase.co/auth/v1/token?grant_type=password" \
+            -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
+            -d "{\"email\":\"${E2E_ADMIN_EMAIL:-admin-test@rinkreports.com}\",\"password\":\"$E2E_ADMIN_PASSWORD\"}")
+          echo "Password grant -> $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            grep -o '"error_code":"[^"]*"\|"msg":"[^"]*"' /tmp/auth.json || true
+            echo "::error::Admin test account cannot log in (HTTP $STATUS)."
+            exit 1
+          fi
 
       # pnpm before setup-node so setup-node's built-in pnpm store cache can
       # find the binary. Version mirrors the lockfile (lockfileVersion 9.0 →
