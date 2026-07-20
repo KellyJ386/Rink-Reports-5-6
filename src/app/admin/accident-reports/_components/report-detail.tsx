@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { BodyDiagram } from "@/components/staff/body-diagram/lazy"
 import {
   EMPTY_BODY_SELECTIONS,
@@ -38,15 +39,6 @@ const NOTE_INITIAL: ActionState = { ok: null }
 type Props = {
   detail: AccidentReportDetail
   backHref: string
-}
-
-function fmt(ts: string | null | undefined): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
 }
 
 function buildBodySelections(
@@ -135,7 +127,7 @@ export function ReportDetail({ detail, backHref }: Props) {
           <div className="flex flex-col gap-1">
             <CardTitle>Accident report</CardTitle>
             <p className="text-muted-foreground text-sm">
-              Submitted {fmt(report.submitted_at)} by{" "}
+              Submitted <LocalDateTime iso={report.submitted_at} /> by{" "}
               {employee
                 ? `${employee.first_name} ${employee.last_name}`
                 : "Unknown"}
@@ -163,8 +155,12 @@ export function ReportDetail({ detail, backHref }: Props) {
                 ? "—"
                 : `${report.injured_person_age}`}
             </Field>
-            <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
-            <Field label="Submitted at">{fmt(report.submitted_at)}</Field>
+            <Field label="Occurred at">
+              <LocalDateTime iso={report.occurred_at} />
+            </Field>
+            <Field label="Submitted at">
+              <LocalDateTime iso={report.submitted_at} />
+            </Field>
             <Field label="Severity">
               {severity ? (
                 <span
@@ -200,7 +196,7 @@ export function ReportDetail({ detail, backHref }: Props) {
               )}
             </Field>
             <Field label="W/C acknowledged at">
-              {fmt(report.workers_comp_acknowledged_at)}
+              <LocalDateTime iso={report.workers_comp_acknowledged_at} />
             </Field>
           </dl>
           <Field label="Description">
@@ -297,7 +293,7 @@ export function ReportDetail({ detail, backHref }: Props) {
                         : "Admin"}
                     </span>
                     <span className="text-muted-foreground">
-                      {fmt(n.created_at)}
+                      <LocalDateTime iso={n.created_at} />
                     </span>
                   </div>
                   <p className="text-sm whitespace-pre-wrap">{n.body}</p>
@@ -380,7 +376,7 @@ function ChangeLogItem({
               : "System"}
           </span>
         </span>
-        <span className="text-muted-foreground">{fmt(entry.created_at)}</span>
+        <span className="text-muted-foreground"><LocalDateTime iso={entry.created_at} /></span>
       </div>
       {hasDiff && (
         <div>

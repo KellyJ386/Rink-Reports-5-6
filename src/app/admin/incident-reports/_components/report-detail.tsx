@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { addFollowupNote, setReportStatus } from "../actions"
 import type { ActionState, IncidentReportDetail, IncidentStatus } from "../types"
@@ -31,15 +32,6 @@ const NOTE_INITIAL: ActionState = { ok: null }
 type Props = {
   detail: IncidentReportDetail
   backHref: string
-}
-
-function fmt(ts: string | null): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
 }
 
 export function ReportDetail({ detail, backHref }: Props) {
@@ -77,7 +69,7 @@ export function ReportDetail({ detail, backHref }: Props) {
               <StatusBadge status={report.status} />
             </div>
             <p className="text-muted-foreground text-sm">
-              Submitted {fmt(report.submitted_at)} by{" "}
+              Submitted <LocalDateTime iso={report.submitted_at} /> by{" "}
               {employee
                 ? `${employee.first_name} ${employee.last_name}`
                 : (report.reporter_name ?? "Unknown")}
@@ -151,7 +143,9 @@ export function ReportDetail({ detail, backHref }: Props) {
                 "—"
               )}
             </Field>
-            <Field label="Occurred at">{fmt(report.occurred_at)}</Field>
+            <Field label="Occurred at">
+              <LocalDateTime iso={report.occurred_at} />
+            </Field>
             <Field label="Reporter name">{report.reporter_name}</Field>
             <Field label="Reporter phone">
               {report.reporter_phone || "—"}
@@ -295,7 +289,7 @@ export function ReportDetail({ detail, backHref }: Props) {
                         : "Admin"}
                     </span>
                     <span className="text-muted-foreground">
-                      {fmt(n.created_at)}
+                      <LocalDateTime iso={n.created_at} />
                     </span>
                   </div>
                   <p className="text-sm whitespace-pre-wrap">{n.body}</p>
@@ -360,7 +354,7 @@ export function ReportDetail({ detail, backHref }: Props) {
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-medium">{c.action}</span>
                     <span className="text-muted-foreground">
-                      {fmt(c.created_at)}
+                      <LocalDateTime iso={c.created_at} />
                     </span>
                   </div>
                   <span className="text-muted-foreground text-xs">
@@ -426,7 +420,9 @@ function TimestampPill({
       <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
         {label}
       </span>
-      <span className="text-foreground text-xs">{ts ? fmt(ts) : "—"}</span>
+      <span className="text-foreground text-xs">
+        <LocalDateTime iso={ts} />
+      </span>
     </div>
   )
 }

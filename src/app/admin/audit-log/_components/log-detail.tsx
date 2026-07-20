@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import type { AuditLogEntry } from "../types"
 import { ACTION_LABELS, ENTITY_TYPE_LABELS } from "../types"
@@ -67,7 +68,7 @@ export function LogDetail({ entry, backHref }: Props) {
             {actionLabel} · {entityLabel}
           </CardTitle>
           <CardDescription>
-            {new Date(entry.created_at).toLocaleString()} · {actorName}
+<LocalDateTime iso={entry.created_at} /> · {actorName}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 text-sm">

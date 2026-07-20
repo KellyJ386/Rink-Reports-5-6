@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000182_fix_communication_recipients_cross_tenant_select.sql
+-- 00000000000189_fix_communication_recipients_cross_tenant_select.sql
 --
 -- Cross-tenant isolation fix for communication_recipients SELECT.
 --

@@ -40,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Callout } from "@/components/ui/callout"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
+import { useHydrated } from "@/components/app/local-datetime"
 
 import { submitIncidentReport } from "../actions"
 import type { SubmissionFormState } from "../_lib/submit"
@@ -116,10 +117,16 @@ export function SubmissionForm({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [clientError, setClientError] = useState<string | null>(null)
 
-  const defaultOccurredAt = useMemo(() => nowForDateTimeLocal(), [])
-  const [occurredAt, setOccurredAt] = useState(
-    initial?.occurredAtLocal ?? defaultOccurredAt,
+  // The datetime-local "now" default is browser-local; computing it during SSR
+  // would mismatch the UTC server (React #418). So the value is the server value
+  // (edit mode) or "" until hydrated, then the client-local "now"; once the user
+  // types their own value (occurredAtInput) that wins.
+  const hydrated = useHydrated()
+  const [occurredAtInput, setOccurredAtInput] = useState<string | null>(
+    initial?.occurredAtLocal ?? null,
   )
+  const occurredAt =
+    occurredAtInput ?? (hydrated ? nowForDateTimeLocal() : "")
   const [severityLevelId, setSeverityLevelId] = useState(
     initial?.severityLevelId ?? "",
   )
@@ -289,7 +296,7 @@ export function SubmissionForm({
   }
 
   function resetForNextOfflineEntry() {
-    setOccurredAt(nowForDateTimeLocal())
+    setOccurredAtInput(nowForDateTimeLocal())
     setSeverityLevelId("")
     setIncidentTypeId("")
     setActivityValue("")
@@ -434,7 +441,7 @@ export function SubmissionForm({
                 aria-describedby={state.fieldErrors?.occurred_at ? "occurred_at-error" : undefined}
                 type="datetime-local"
                 value={occurredAt}
-                onChange={(e) => setOccurredAt(e.target.value)}
+                onChange={(e) => setOccurredAtInput(e.target.value)}
                 className="h-12 text-base"
               />
               <FieldError id="occurred_at-error" message={state.fieldErrors?.occurred_at} />

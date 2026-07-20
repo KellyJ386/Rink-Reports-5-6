@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { MODULE_ACCENT_VAR, moduleKeyFromDashboard } from "@/components/ui/module-theme"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { cn } from "@/lib/utils"
 
 import {
@@ -60,15 +61,6 @@ type Props = {
   alertDetail: AlertDetailData | null
   messages: MessageListItem[]
   params: InboxParams
-}
-
-function fmt(ts: string | null | undefined): string {
-  if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
 }
 
 function ageString(ts: string): string {
@@ -482,7 +474,7 @@ function MessagesList({ messages }: { messages: MessageListItem[] }) {
           {messages.map((m) => (
             <tr key={m.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle">
-                {fmt(m.sent_at)}
+                <LocalDateTime iso={m.sent_at} />
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {nameOf(m.sender)}
@@ -628,7 +620,7 @@ function AlertDrilldown({
           </div>
           <CardTitle className="mt-3">{a.title}</CardTitle>
           <CardDescription>
-            Created {fmt(a.created_at)} ({ageString(a.created_at)})
+            Created <LocalDateTime iso={a.created_at} /> ({ageString(a.created_at)})
             {detail.created_by ? ` by ${nameOf(detail.created_by)}` : ""}
           </CardDescription>
         </CardHeader>
@@ -665,7 +657,7 @@ function AlertDrilldown({
                   Resolved
                 </dt>
                 <dd>
-                  {fmt(a.resolved_at)}
+                  <LocalDateTime iso={a.resolved_at} />
                   {detail.resolved_by
                     ? ` by ${nameOf(detail.resolved_by)}`
                     : ""}
@@ -695,7 +687,7 @@ function AlertDrilldown({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{nameOf(ack.employee)}</span>
                     <span className="text-muted-foreground text-xs">
-                      {fmt(ack.acknowledged_at)}
+                      <LocalDateTime iso={ack.acknowledged_at} />
                     </span>
                   </div>
                   {ack.notes && (
