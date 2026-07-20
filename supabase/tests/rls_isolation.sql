@@ -4666,7 +4666,7 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- SCHED-188: recurring series facility fence (migration 188).
+-- SCHED-188: recurring series facility fence (migration 190, formerly numbered 188).
 --
 -- Migration 15's recurring_parent_id was a bare single-column self-FK: it
 -- only checked that the parent id existed SOMEWHERE in schedule_shifts, not
