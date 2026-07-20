@@ -7,6 +7,7 @@ import {
   dateToDecimalHour,
   fmtHour,
   hoursToY,
+  layoutOverlappingSpans,
   snapHour,
   yToHour,
 } from "./grid-geometry"
@@ -95,6 +96,71 @@ describe("buildCoverageGrid", () => {
   it("ignores out-of-range day indices", () => {
     const grid = buildCoverageGrid([{ day: 9, s: 6, e: 8 }], 6, 2)
     expect(grid.every((row) => row.every((c) => c === 0))).toBe(true)
+  })
+})
+
+describe("layoutOverlappingSpans", () => {
+  it("gives a lone span full width", () => {
+    const slots = layoutOverlappingSpans([{ id: "a", s: 9, e: 17 }])
+    expect(slots.get("a")).toEqual({ col: 0, cols: 1 })
+  })
+
+  it("splits two overlapping spans into two columns", () => {
+    const slots = layoutOverlappingSpans([
+      { id: "a", s: 9, e: 17 },
+      { id: "b", s: 10, e: 14 },
+    ])
+    expect(slots.get("a")).toEqual({ col: 0, cols: 2 })
+    expect(slots.get("b")).toEqual({ col: 1, cols: 2 })
+  })
+
+  it("splits three concurrent spans into three columns", () => {
+    const slots = layoutOverlappingSpans([
+      { id: "a", s: 8, e: 16 },
+      { id: "b", s: 8, e: 16 },
+      { id: "c", s: 9, e: 12 },
+    ])
+    const cols = ["a", "b", "c"].map((id) => slots.get(id)!)
+    expect(cols.every((s) => s.cols === 3)).toBe(true)
+    expect(new Set(cols.map((s) => s.col))).toEqual(new Set([0, 1, 2]))
+  })
+
+  it("does not treat spans that touch end-to-start as overlapping", () => {
+    const slots = layoutOverlappingSpans([
+      { id: "a", s: 6, e: 12 },
+      { id: "b", s: 12, e: 18 },
+    ])
+    expect(slots.get("a")).toEqual({ col: 0, cols: 1 })
+    expect(slots.get("b")).toEqual({ col: 0, cols: 1 })
+  })
+
+  it("keeps separate clusters independent within one day", () => {
+    const slots = layoutOverlappingSpans([
+      { id: "a", s: 6, e: 9 },
+      { id: "b", s: 7, e: 10 },
+      { id: "c", s: 14, e: 18 },
+    ])
+    expect(slots.get("a")!.cols).toBe(2)
+    expect(slots.get("b")!.cols).toBe(2)
+    // The afternoon shift never overlaps the morning pair → full width.
+    expect(slots.get("c")).toEqual({ col: 0, cols: 1 })
+  })
+
+  it("reuses a freed column within a cluster (chain overlap)", () => {
+    // a spans the whole cluster; b ends before c starts, so b and c share the
+    // second column and the cluster is 2 wide, not 3.
+    const slots = layoutOverlappingSpans([
+      { id: "a", s: 8, e: 16 },
+      { id: "b", s: 8, e: 10 },
+      { id: "c", s: 11, e: 15 },
+    ])
+    expect(slots.get("a")).toEqual({ col: 0, cols: 2 })
+    expect(slots.get("b")).toEqual({ col: 1, cols: 2 })
+    expect(slots.get("c")).toEqual({ col: 1, cols: 2 })
+  })
+
+  it("handles an empty list", () => {
+    expect(layoutOverlappingSpans([]).size).toBe(0)
   })
 })
 

@@ -25,7 +25,9 @@ import {
   clampHour,
   dateToDecimalHour,
   fmtHour,
+  layoutOverlappingSpans,
   yToHour,
+  type SpanSlot,
 } from "../_lib/grid-geometry"
 import {
   applyGridDelta,
@@ -456,6 +458,22 @@ export function WeekGrid(props: WeekGridProps) {
 
   const bodyHeight = hourCount * rowH
 
+  // Display geometry with any in-flight pointer-drag preview applied, plus a
+  // side-by-side slot per event so time-overlapping shifts split the day
+  // column instead of stacking. Derived on every render (not memoized) because
+  // it depends on the live drag preview — this keeps the layout reflowing as a
+  // block is dragged into or out of an overlap.
+  const views = placed.map((p) => ({ p, view: previewFor(p) }))
+  const slotByEventId = new Map<string, SpanSlot>()
+  for (let di = 0; di < days.length; di++) {
+    const daySlots = layoutOverlappingSpans(
+      views
+        .filter((v) => v.view.dayIndex === di)
+        .map((v) => ({ id: v.p.ev.id, s: v.view.s, e: v.view.e })),
+    )
+    for (const [id, slot] of daySlots) slotByEventId.set(id, slot)
+  }
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-elev-1)]">
       {/* Day header */}
@@ -593,8 +611,7 @@ export function WeekGrid(props: WeekGridProps) {
           })}
 
           {/* Shift blocks — absolute overlay inside the body (excludes header). */}
-          {placed.map((p) => {
-            const view = previewFor(p)
+          {views.map(({ p, view }) => {
             const s = clampHour(view.s, hourStart, hourEnd)
             const e = clampHour(view.e, hourStart, hourEnd + 1)
             const { top, height } = blockRect(s, e, hourStart, rowH)
@@ -603,8 +620,14 @@ export function WeekGrid(props: WeekGridProps) {
             const isSel = selectedId === p.ev.id
             const isPointerDragging =
               (drag?.kind === "move" || drag?.kind === "resize") && drag.id === p.ev.id
-            const frac = view.dayIndex / days.length
             const widthFrac = 1 / days.length
+            // Sub-column slot: overlapping shifts split the day column equally.
+            const slot = slotByEventId.get(p.ev.id) ?? { col: 0, cols: 1 }
+            const subFrac = widthFrac / slot.cols
+            const frac = view.dayIndex / days.length + subFrac * slot.col
+            // 4px inset at the column edges, 2px gap between sub-columns.
+            const padL = slot.col === 0 ? 4 : 2
+            const padR = slot.col === slot.cols - 1 ? 4 : 2
             const showTime = height >= 32
             const showRole = height >= 52
             const who = emp ? emp.first_name : "Open"
@@ -623,8 +646,8 @@ export function WeekGrid(props: WeekGridProps) {
                     : `${who} shift, ${fmtHour(s)} to ${fmtHour(e)}. Press space to move, arrow keys to reposition.`
                 }
                 style={{
-                  left: `calc(${GUTTER}px + (100% - ${GUTTER}px) * ${frac} + 4px)`,
-                  width: `calc((100% - ${GUTTER}px) * ${widthFrac} - 8px)`,
+                  left: `calc(${GUTTER}px + (100% - ${GUTTER}px) * ${frac} + ${padL}px)`,
+                  width: `calc((100% - ${GUTTER}px) * ${subFrac} - ${padL + padR}px)`,
                   top,
                   height,
                   background: col.bg,
