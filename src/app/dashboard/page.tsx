@@ -36,6 +36,7 @@ type ModuleKey =
   | "communications"
   | "scheduling"
   | "facility_paperwork"
+  | "dasher_boards"
 
 // Each module references a CSS var defined in globals.css (--module-*).
 // The var carries light + dark values so tiles auto-adapt.
@@ -50,6 +51,7 @@ const MODULE_ACCENT: Record<ModuleKey, string> = {
   communications:   "--module-comms",
   scheduling:       "--module-scheduling",
   facility_paperwork: "--module-paperwork",
+  dasher_boards:    "--module-dasher",
 }
 
 const MODULE_ICONS: Record<ModuleKey, string> = {
@@ -63,6 +65,8 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   communications:   '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   scheduling:       '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>',
   facility_paperwork: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  // lucide "fence" — matches the module's sidebar/admin nav icon.
+  dasher_boards:    '<path d="M4 3 2 5v15c0 .6.4 1 1 1h2c.6 0 1-.4 1-1V5Z"/><path d="M6 8h4"/><path d="M6 18h4"/><path d="m12 3-2 2v15c0 .6.4 1 1 1h2c.6 0 1-.4 1-1V5Z"/><path d="M14 8h4"/><path d="M14 18h4"/><path d="m20 3-2 2v15c0 .6.4 1 1 1h2c.6 0 1-.4 1-1V5Z"/>',
 }
 
 const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
@@ -76,6 +80,7 @@ const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
   communications:   { title: "Communications",   href: "/reports/communications" },
   scheduling:       { title: "Scheduling",       href: "/reports/scheduling" },
   facility_paperwork: { title: "Facility Paperwork", href: "/reports/facility-paperwork" },
+  dasher_boards:    { title: "Dasher Boards",    href: "/reports/dasher-boards" },
 }
 
 function isKnownModuleKey(key: string): key is ModuleKey {

@@ -24,6 +24,7 @@ export type ModuleKey =
   | "comms"
   | "scheduling"
   | "paperwork"
+  | "dasher"
 
 /** `text-module-*` — for eyebrows, headings, tinted icons. */
 export const MODULE_TEXT: Record<ModuleKey, string> = {
@@ -37,6 +38,7 @@ export const MODULE_TEXT: Record<ModuleKey, string> = {
   comms: "text-module-comms",
   scheduling: "text-module-scheduling",
   paperwork: "text-module-paperwork",
+  dasher: "text-module-dasher",
 }
 
 /** `border-module-*` — full-border accent color. */
@@ -51,6 +53,7 @@ export const MODULE_BORDER: Record<ModuleKey, string> = {
   comms: "border-module-comms",
   scheduling: "border-module-scheduling",
   paperwork: "border-module-paperwork",
+  dasher: "border-module-dasher",
 }
 
 /** `border-l-module-*` — left-edge-only accent color (pairs with `border-l-4`). */
@@ -65,6 +68,7 @@ export const MODULE_BORDER_L: Record<ModuleKey, string> = {
   comms: "border-l-module-comms",
   scheduling: "border-l-module-scheduling",
   paperwork: "border-l-module-paperwork",
+  dasher: "border-l-module-dasher",
 }
 
 /** `bg-module-*` — solid fills (e.g. icon badges where a utility is preferred). */
@@ -79,6 +83,7 @@ export const MODULE_BG: Record<ModuleKey, string> = {
   comms: "bg-module-comms",
   scheduling: "bg-module-scheduling",
   paperwork: "bg-module-paperwork",
+  dasher: "bg-module-dasher",
 }
 
 /**
@@ -97,6 +102,7 @@ export const MODULE_ACCENT_VAR: Record<ModuleKey, string> = {
   comms: "--module-comms",
   scheduling: "--module-scheduling",
   paperwork: "--module-paperwork",
+  dasher: "--module-dasher",
 }
 
 /**
@@ -118,6 +124,8 @@ export function moduleKeyFromDashboard(name: string): ModuleKey | undefined {
       return "air"
     case "ice_operations":
       return "ice-ops"
+    case "dasher_boards":
+      return "dasher"
     case "ice_depth":
       return "ice-depth"
     case "communications":
