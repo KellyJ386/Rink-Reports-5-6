@@ -363,6 +363,7 @@ export function ConditionMap(props: ConditionMapProps) {
               asset_type: a.asset_type as "board_panel" | "door",
             }))}
             direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
+            anchorOffsetFraction={rink.perimeter_anchor_offset}
             glassByParent={glassByParent}
             conditionByAssetId={conditionByAssetId}
             selectedAssetId={selectedAssetId}

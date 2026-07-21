@@ -152,6 +152,7 @@ export default async function DasherBoardsPage() {
                   direction={
                     rink.perimeter_direction as "clockwise" | "counterclockwise"
                   }
+                  anchorOffsetFraction={rink.perimeter_anchor_offset}
                   conditionByAssetId={conditionByAssetId}
                 />
               )}
