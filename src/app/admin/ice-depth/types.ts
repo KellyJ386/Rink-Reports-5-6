@@ -3,6 +3,7 @@
 // top.
 
 import type { Tables } from "@/types/database"
+import type { RinkOverlays } from "@/lib/ice-depth/overlay-shared"
 
 export type SettingsRow = Tables<"ice_depth_settings">
 export type RinkRow = Tables<"ice_depth_rinks">
@@ -11,6 +12,9 @@ export type PointRow = Tables<"ice_depth_points">
 export type SessionRow = Tables<"ice_depth_sessions">
 export type MeasurementRow = Tables<"ice_depth_measurements">
 export type FollowupNoteRow = Tables<"ice_depth_followup_notes">
+export type DoorTypeRow = Tables<"facility_door_types">
+export type DoorMarkerRow = Tables<"facility_door_markers">
+export type RinkDiagramConfigRow = Tables<"facility_rink_diagram_config">
 
 export type EmployeeLite = {
   id: string
@@ -38,10 +42,17 @@ export function isAlertOn(v: string): v is AlertOn {
 
 export type ReadingSeverity = "low" | "ok" | "high"
 
-export type Tab = "rinks" | "layouts" | "history" | "analytics" | "settings"
+export type Tab =
+  | "rinks"
+  | "layouts"
+  | "overlays"
+  | "history"
+  | "analytics"
+  | "settings"
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "rinks", label: "Rinks" },
   { key: "layouts", label: "Diagrams" },
+  { key: "overlays", label: "Overlays" },
   { key: "history", label: "History" },
   { key: "analytics", label: "Analytics" },
   { key: "settings", label: "Settings" },
@@ -84,6 +95,16 @@ export type LayoutDetail = {
   points: PointRow[]
 }
 
+// ---- Overlays tab composite ----
+
+export type OverlaysData = {
+  doorTypes: DoorTypeRow[]
+  markers: DoorMarkerRow[]
+  config: RinkDiagramConfigRow | null
+  /** Signed URL for the configured logo (also set while hidden, for preview). */
+  logoUrl: string | null
+}
+
 // ---- History tab composite ----
 
 export type SessionListItem = SessionRow & {
@@ -99,6 +120,8 @@ export type SessionDetailData = {
   measurements: MeasurementRow[]
   notes: Array<FollowupNoteRow & { author: EmployeeLite | null }>
   settings: SettingsRow | null
+  /** Facility-level diagram overlays (door markers + logo). Read-only. */
+  overlays: RinkOverlays
 }
 
 // ---- History tab params ----

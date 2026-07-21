@@ -5,8 +5,14 @@ import { Check, ChevronLeft, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { USARink } from "@/components/ice-depth/usa-rink"
 import { rinkCoords, type RinkPointSpec } from "@/components/ice-depth/rink-geometry"
+import {
+  DoorMarkerLegend,
+  RinkOverlayGroup,
+} from "@/components/ice-depth/rink-overlays"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { getRinkOverlays } from "@/lib/ice-depth/overlays"
+import type { RinkOverlays } from "@/lib/ice-depth/overlay-shared"
 import { PrintDiagramButton } from "./_components/print-diagram-button"
 import { SendReportButton } from "./_components/send-report-button"
 
@@ -144,7 +150,7 @@ async function loadDonePageData(
       }
     }
 
-    const [measurementsResult, facilityResult] = await Promise.all([
+    const [measurementsResult, facilityResult, overlays] = await Promise.all([
       supabase
         .from("ice_depth_measurements")
         .select(
@@ -157,6 +163,9 @@ async function loadDonePageData(
         .select("timezone")
         .eq("id", session.facility_id)
         .maybeSingle(),
+      // Facility-level diagram overlays — same on every report, independent
+      // of this session's state.
+      getRinkOverlays(supabase, session.facility_id),
     ])
 
     if (measurementsResult.error) {
@@ -217,6 +226,7 @@ async function loadDonePageData(
         tz,
         unit,
         rinkPoints,
+        overlays,
         totalOk,
         totalLow,
         totalHigh,
@@ -300,6 +310,7 @@ type DonePageBodyProps = {
   tz: string | null
   unit: string | null
   rinkPoints: RinkPointSpec[]
+  overlays: RinkOverlays
   totalOk: number
   totalLow: number
   totalHigh: number
@@ -311,6 +322,7 @@ function DonePageBody({
   measurements,
   tz,
   rinkPoints,
+  overlays,
   totalOk,
   totalLow,
   totalHigh,
@@ -446,7 +458,15 @@ function DonePageBody({
                 borderRadius: 12,
                 border: "1px solid var(--border)",
               }}
-            />
+            >
+              <RinkOverlayGroup overlays={overlays} />
+            </USARink>
+            {overlays.markers.length > 0 && (
+              <DoorMarkerLegend
+                markers={overlays.markers}
+                className="mt-2 justify-center"
+              />
+            )}
           </div>
         )}
 

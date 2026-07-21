@@ -19,7 +19,13 @@ import {
   PdfRinkDiagram,
   rinkCoords,
   type DiagramPoint,
+  type PdfRinkOverlays,
 } from "../_components/rink-diagram"
+import { RINK_H, RINK_W } from "@/components/ice-depth/rink-geometry"
+import {
+  DOOR_MARKER_DEFAULT_COLOR,
+  logoBox,
+} from "@/lib/ice-depth/overlay-shared"
 import type { ModulePdfResult } from "../registry"
 
 // -----------------------------------------------------------------------------
@@ -55,6 +61,96 @@ type IceDepthRecord = {
   logo_url: string | null
   submitter: { first_name: string; last_name: string } | null
   points: LayoutPoint[]
+  overlays: PdfRinkOverlays
+}
+
+/**
+ * Facility-level diagram overlays (door markers + logo watermark), projected
+ * into viewBox coordinates for the PDF renderer. Reference geography — the
+ * same on every report, independent of the session being rendered.
+ */
+async function fetchRinkOverlays(
+  sb: SupabaseClient,
+  facilityId: string,
+): Promise<PdfRinkOverlays> {
+  const [typesRes, markersRes, configRes] = await Promise.all([
+    sb
+      .from("facility_door_types")
+      .select("id, name, color, is_active")
+      .eq("facility_id", facilityId),
+    sb
+      .from("facility_door_markers")
+      .select("door_type_id, position_x, position_y")
+      .eq("facility_id", facilityId),
+    sb
+      .from("facility_rink_diagram_config")
+      .select(
+        "logo_storage_path, logo_position_x, logo_position_y, logo_scale, logo_rotation, logo_opacity, logo_visible",
+      )
+      .eq("facility_id", facilityId)
+      .maybeSingle(),
+  ])
+
+  const typeById = new Map(
+    ((typesRes.data ?? []) as Array<{
+      id: string
+      color: string | null
+      is_active: boolean
+    }>).map((t) => [t.id, t]),
+  )
+
+  const markers = (
+    (markersRes.data ?? []) as Array<{
+      door_type_id: string
+      position_x: number
+      position_y: number
+    }>
+  ).flatMap((m) => {
+    const type = typeById.get(m.door_type_id)
+    if (!type || !type.is_active) return []
+    const { cx, cy } = rinkCoords(m.position_x, m.position_y)
+    return [{ cx, cy, color: type.color ?? DOOR_MARKER_DEFAULT_COLOR }]
+  })
+
+  const config = configRes.data as {
+    logo_storage_path: string | null
+    logo_position_x: number
+    logo_position_y: number
+    logo_scale: number
+    logo_rotation: number
+    logo_opacity: number
+    logo_visible: boolean
+  } | null
+
+  let logo: PdfRinkOverlays["logo"] = null
+  if (config?.logo_visible && config.logo_storage_path) {
+    const { data: signed } = await sb.storage
+      .from("rink-logos")
+      .createSignedUrl(config.logo_storage_path, 60 * 60)
+    if (signed?.signedUrl) {
+      const box = logoBox(
+        {
+          position_x: config.logo_position_x,
+          position_y: config.logo_position_y,
+          scale: config.logo_scale,
+        },
+        RINK_W,
+        RINK_H,
+      )
+      logo = {
+        url: signed.signedUrl,
+        x: box.x,
+        y: box.y,
+        size: box.size,
+        cx: box.cx,
+        cy: box.cy,
+        rotation: config.logo_rotation,
+        opacity: config.logo_opacity,
+      }
+    }
+  }
+
+  return { markers, logo }
 }
 
 async function fetchIceDepthRecord(
@@ -188,6 +284,8 @@ async function fetchIceDepthRecord(
     }))
   }
 
+  const overlays = await fetchRinkOverlays(sb, row.facility_id)
+
   return {
     id: row.id,
     facility_id: row.facility_id,
@@ -210,6 +308,7 @@ async function fetchIceDepthRecord(
     logo_url,
     submitter,
     points,
+    overlays,
   }
 }
 
@@ -441,6 +540,7 @@ function IceDepthPdf({
                 unit={r.unit}
                 logoUrl={r.logo_url}
                 width={200}
+                overlays={r.overlays}
               />
               <View style={styles.legendRow}>
                 <View style={styles.legendItem}>

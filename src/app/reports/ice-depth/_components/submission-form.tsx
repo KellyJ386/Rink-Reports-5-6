@@ -22,6 +22,11 @@ import {
   rinkCoords,
   type RinkPointSpec,
 } from "@/components/ice-depth/usa-rink"
+import {
+  DoorMarkerLegend,
+  RinkOverlayGroup,
+} from "@/components/ice-depth/rink-overlays"
+import type { RinkOverlays } from "@/lib/ice-depth/overlay-shared"
 import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
@@ -41,7 +46,11 @@ type Props = {
   layout: LayoutForForm
   points: PointForForm[]
   settings: SettingsForForm
+  /** Facility-level diagram overlays (door markers + logo). Read-only here. */
+  overlays?: RinkOverlays
 }
+
+const EMPTY_OVERLAYS: RinkOverlays = { markers: [], logo: null }
 
 type Phase = "measure" | "review"
 
@@ -80,7 +89,12 @@ function severityFor(
 
 // ── Main form component ───────────────────────────────────────────────────────
 
-export function SubmissionForm({ layout, points, settings }: Props) {
+export function SubmissionForm({
+  layout,
+  points,
+  settings,
+  overlays = EMPTY_OVERLAYS,
+}: Props) {
   const [state, formAction] = useActionState(submitIceDepthSession, initialState)
 
   const { isOnline } = useSyncQueue()
@@ -337,6 +351,7 @@ export function SubmissionForm({ layout, points, settings }: Props) {
     return (
       <ReviewPhase
         layout={layout}
+        overlays={overlays}
         sortedPoints={sortedPoints}
         committedValues={committedValues}
         settings={settings}
@@ -466,7 +481,9 @@ export function SubmissionForm({ layout, points, settings }: Props) {
             className="h-full w-full"
             showValues
             logoUrl={layout.logo_url}
-          />
+          >
+            <RinkOverlayGroup overlays={overlays} />
+          </USARink>
         </div>
 
         {/* Anchored input popover over the active point.
@@ -686,6 +703,14 @@ export function SubmissionForm({ layout, points, settings }: Props) {
         )}
       </div>
 
+      {/* Door-marker legend (tooltips are useless on touch) */}
+      {overlays.markers.length > 0 && (
+        <DoorMarkerLegend
+          markers={overlays.markers}
+          className="mt-2 justify-center"
+        />
+      )}
+
       {/* Helper text */}
       <p
         style={{
@@ -843,6 +868,7 @@ function CaliperHelp({ unit }: { unit: string }) {
 
 interface ReviewPhaseProps {
   layout: LayoutForForm
+  overlays: RinkOverlays
   sortedPoints: PointForForm[]
   committedValues: Record<string, string>
   settings: SettingsForForm
@@ -861,6 +887,7 @@ interface ReviewPhaseProps {
 
 function ReviewPhase({
   layout,
+  overlays,
   sortedPoints,
   committedValues,
   settings,
@@ -974,7 +1001,9 @@ function ReviewPhase({
               showValues
               className="rounded-lg border"
               logoUrl={layout.logo_url}
-            />
+            >
+              <RinkOverlayGroup overlays={overlays} />
+            </USARink>
           </div>
 
           {/* Stats */}

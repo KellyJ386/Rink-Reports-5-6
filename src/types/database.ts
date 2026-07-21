@@ -3466,6 +3466,125 @@ export type Database = {
           },
         ]
       }
+      facility_door_markers: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          door_type_id: string
+          facility_id: string
+          id: string
+          label: string | null
+          position_x: number
+          position_y: number
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          door_type_id: string
+          facility_id: string
+          id?: string
+          label?: string | null
+          position_x: number
+          position_y: number
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          door_type_id?: string
+          facility_id?: string
+          id?: string
+          label?: string | null
+          position_x?: number
+          position_y?: number
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_door_markers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_door_markers_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_door_markers_type_same_facility_fkey"
+            columns: ["door_type_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_door_types"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "facility_door_markers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_door_types: {
+        Row: {
+          color: string | null
+          created_at: string
+          created_by: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_door_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_door_types_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facility_dropdown_options: {
         Row: {
           color: string | null
@@ -3547,6 +3666,66 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_rink_diagram_config: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          logo_opacity: number
+          logo_position_x: number
+          logo_position_y: number
+          logo_rotation: number
+          logo_scale: number
+          logo_storage_path: string | null
+          logo_visible: boolean
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          logo_opacity?: number
+          logo_position_x?: number
+          logo_position_y?: number
+          logo_rotation?: number
+          logo_scale?: number
+          logo_storage_path?: string | null
+          logo_visible?: boolean
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          logo_opacity?: number
+          logo_position_x?: number
+          logo_position_y?: number
+          logo_rotation?: number
+          logo_scale?: number
+          logo_storage_path?: string | null
+          logo_visible?: boolean
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_rink_diagram_config_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_rink_diagram_config_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
             referencedColumns: ["id"]
           },
         ]
@@ -7740,6 +7919,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_dasher_boards_config: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_door_types: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
