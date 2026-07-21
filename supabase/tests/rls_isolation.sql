@@ -5098,6 +5098,29 @@ select pg_temp.expect_error(
      where id = 'dabb000b-0000-4000-8000-000000000001'$$,
   'DB23: board_panel rows reject glass spec writes (check constraint)');
 
+-- SECURITY INVOKER RPCs (migration 195): the caller's RLS gates apply inside.
+-- An EMPTY rink in alice's facility isolates the RLS insert gate — on a
+-- populated rink the RPC would reject for the wrong reason (assets exist).
+insert into public.dasher_boards_rinks (id, facility_id, name, slug) values
+  ('dab0000c-0000-4000-8000-00000000000c',
+   '11111111-1111-1111-1111-111111111111', 'Rink A2', 'rink-a2');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.dasher_boards_generate_perimeter(
+      'dab0000c-0000-4000-8000-00000000000c', 5)$$,
+  'DB24: alice (no admin grant) CANNOT generate a perimeter via the RPC');
+
+select pg_temp.expect_count(
+  $$select public.dasher_boards_shift_positions(
+      'dab0000a-0000-4000-8000-00000000000a', 1, 1)$$,
+  0, 'DB25: alice (no admin grant) shift RPC is a 0-row no-op under RLS');
+
+set local role postgres;
+
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------

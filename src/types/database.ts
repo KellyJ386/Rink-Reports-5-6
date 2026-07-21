@@ -7472,9 +7472,17 @@ export type Database = {
         Args: { p_area_id: string; p_date: string }
         Returns: boolean
       }
+      dasher_boards_generate_perimeter: {
+        Args: { p_count: number; p_rink_id: string }
+        Returns: number
+      }
       dasher_boards_guard_exempt: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      dasher_boards_shift_positions: {
+        Args: { p_delta: number; p_from: number; p_rink_id: string }
+        Returns: number
       }
       deactivate_role: {
         Args: { p_force?: boolean; p_role_id: string }
