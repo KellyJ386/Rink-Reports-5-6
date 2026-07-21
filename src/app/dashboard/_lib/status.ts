@@ -193,6 +193,24 @@ async function accidentsStatus(
 }
 
 /**
+ * Dasher Boards: open severity-A (safety-critical) perimeter issues. B/C
+ * issues are routine carry-forward work and don't warrant a red bubble.
+ */
+async function dasherBoardsStatus(
+  supabase: Client,
+  facilityId: string,
+): Promise<ModuleStatus | null> {
+  const { count } = await supabase
+    .from("dasher_boards_issues")
+    .select("id", { count: "exact", head: true })
+    .eq("facility_id", facilityId)
+    .eq("severity", "a")
+    .is("resolved_at", null)
+  const n = count ?? 0
+  return n > 0 ? { state: "red", count: n } : null
+}
+
+/**
  * Build the dashboard status map for a facility. `facilityId` MUST be a
  * server-resolved value (never client-supplied). Returns `{}` on a missing
  * facility or wholesale failure so the dashboard degrades to "no bubbles"
@@ -214,6 +232,7 @@ export async function getDashboardModuleStatus(
     incident_reports,
     accident_reports,
     communications,
+    dasher_boards,
   ] = await Promise.all([
     settle(() => refrigerationStatus(supabase, facilityId)),
     settle(() => airQualityStatus(supabase, facilityId)),
@@ -222,6 +241,7 @@ export async function getDashboardModuleStatus(
     settle(() => incidentsStatus(supabase, facilityId)),
     settle(() => accidentsStatus(supabase, facilityId)),
     settle(() => communicationsStatus(facilityId)),
+    settle(() => dasherBoardsStatus(supabase, facilityId)),
   ])
 
   const map: DashboardStatusMap = {}
@@ -232,5 +252,6 @@ export async function getDashboardModuleStatus(
   if (incident_reports) map.incident_reports = incident_reports
   if (accident_reports) map.accident_reports = accident_reports
   if (communications) map.communications = communications
+  if (dasher_boards) map.dasher_boards = dasher_boards
   return map
 }
