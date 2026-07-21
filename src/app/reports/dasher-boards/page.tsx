@@ -143,7 +143,7 @@ export default async function DasherBoardsPage() {
                 </p>
               ) : (
                 <RinkPerimeter
-                  className="mx-auto w-full max-w-sm"
+                  className="w-full"
                   positioned={positioned.map((a) => ({
                     id: a.id,
                     label: a.label,

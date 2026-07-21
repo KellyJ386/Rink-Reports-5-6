@@ -232,16 +232,16 @@ export function RinkPerimeter({
                   <circle
                     cx={seg.labelAnchor.x}
                     cy={seg.labelAnchor.y}
-                    r={7}
+                    r={9}
                     fill={condition === "alert" ? ALERT_COLOR : WARN_COLOR}
                     stroke="#FFFFFF"
                     strokeWidth={1.25}
                   />
                   <text
                     x={seg.labelAnchor.x}
-                    y={seg.labelAnchor.y + 3.2}
+                    y={seg.labelAnchor.y + 3.8}
                     textAnchor="middle"
-                    fontSize={9}
+                    fontSize={11}
                     fontWeight={800}
                     fill={condition === "alert" ? "#FFFFFF" : "#002244"}
                   >
@@ -253,9 +253,10 @@ export function RinkPerimeter({
               {showLabels && !condition && (
                 <text
                   x={seg.labelAnchor.x}
-                  y={seg.labelAnchor.y + 2.6}
+                  y={seg.labelAnchor.y + 3.6}
                   textAnchor="middle"
-                  fontSize={7.5}
+                  fontSize={10.5}
+                  fontWeight={600}
                   className="fill-muted-foreground font-mono"
                   pointerEvents="none"
                 >
@@ -272,9 +273,9 @@ export function RinkPerimeter({
           <circle cx={190} cy={70} r={2.5} fill="#8A92A0" />
           <text
             x={190}
-            y={48}
+            y={44}
             textAnchor="middle"
-            fontSize={7}
+            fontSize={9}
             className="fill-muted-foreground font-mono"
           >
             {`pos 1 ${direction === "clockwise" ? "→" : "←"}`}

@@ -132,7 +132,7 @@ export type PerimeterSegment = {
 
 const JOINT_GAP = 2 // arc-length gap at each joint so segments read as panels
 const SAMPLE_STEP = 4 // boundary sampling resolution for path polylines
-const LABEL_OFFSET = 13 // outward label distance
+const LABEL_OFFSET = 16 // outward label distance (sized for the larger label type)
 const GLASS_INSET = -7 // glass overlay sits just inside the boards
 
 function spanPath(s0: number, s1: number, offset: number): string {

@@ -356,7 +356,7 @@ export function ConditionMap(props: ConditionMapProps) {
         </CardHeader>
         <CardContent>
           <RinkPerimeter
-            className="mx-auto w-full max-w-md"
+            className="w-full"
             positioned={positioned.map((a) => ({
               id: a.id,
               label: a.label,
