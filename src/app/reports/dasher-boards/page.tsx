@@ -1,5 +1,6 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Fence } from "lucide-react"
+import { ChevronRight, Fence } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -100,7 +101,15 @@ export default async function DasherBoardsPage() {
           <Card key={rink.id} className="gap-4 py-5">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle>{rink.name}</CardTitle>
+                <CardTitle>
+                  <Link
+                    href={`/reports/dasher-boards/${encodeURIComponent(rink.slug)}`}
+                    className="flex items-center gap-1 hover:underline"
+                  >
+                    {rink.name}
+                    <ChevronRight className="size-4" aria-hidden="true" />
+                  </Link>
+                </CardTitle>
                 <div className="flex flex-wrap gap-1.5">
                   {status && status.openCounts.a > 0 && (
                     <Badge variant="destructive">{status.openCounts.a} A</Badge>
