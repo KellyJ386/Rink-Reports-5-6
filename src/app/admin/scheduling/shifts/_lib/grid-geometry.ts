@@ -86,3 +86,52 @@ export function buildCoverageGrid(
 export function dateToDecimalHour(d: Date): number {
   return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600
 }
+
+export type LayoutSpan = { id: string; s: number; e: number }
+/** Column slot for one span: render at `col` of `cols` equal sub-columns. */
+export type SpanSlot = { col: number; cols: number }
+
+/**
+ * Classic calendar overlap layout for one day column. Spans that overlap in
+ * time are grouped into clusters (maximal chains of transitively-overlapping
+ * spans); within a cluster each span takes the first free sub-column, and every
+ * span in the cluster is divided by the cluster's total column count so
+ * concurrent shifts render side by side instead of stacking. Spans that touch
+ * end-to-start (e === next.s) do NOT overlap. A lone span gets {col: 0, cols: 1}
+ * (full width).
+ */
+export function layoutOverlappingSpans(
+  spans: LayoutSpan[],
+): Map<string, SpanSlot> {
+  const out = new Map<string, SpanSlot>()
+  // Start ascending; longer spans first on ties so they claim left columns.
+  const sorted = [...spans].sort(
+    (a, b) => a.s - b.s || b.e - a.e || a.id.localeCompare(b.id),
+  )
+
+  let cluster: { id: string; col: number }[] = []
+  let colEnds: number[] = [] // per-column latest end within the cluster
+  let clusterEnd = -Infinity
+
+  const flush = () => {
+    for (const m of cluster) out.set(m.id, { col: m.col, cols: colEnds.length })
+    cluster = []
+    colEnds = []
+    clusterEnd = -Infinity
+  }
+
+  for (const sp of sorted) {
+    if (sp.s >= clusterEnd) flush()
+    let col = colEnds.findIndex((end) => end <= sp.s)
+    if (col === -1) {
+      col = colEnds.length
+      colEnds.push(sp.e)
+    } else {
+      colEnds[col] = sp.e
+    }
+    cluster.push({ id: sp.id, col })
+    clusterEnd = Math.max(clusterEnd, sp.e)
+  }
+  flush()
+  return out
+}
