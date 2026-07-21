@@ -4816,6 +4816,289 @@ select pg_temp.expect_ok(
   'FRS6: custom role keys are still accepted');
 
 -- ---------------------------------------------------------------------------
+-- Dasher Boards (module #11): facility isolation, permission tiers, and the
+-- completed-walk immutability lock (migrations 191–194).
+--
+-- The lock is asserted at BOTH layers (the Employee Scheduling lesson):
+--   * RLS: an authenticated caller's UPDATE on a completed walk matches 0 rows.
+--   * Trigger: even a BYPASSRLS role (direct SQL) gets an exception.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- The fixture facilities were inserted AFTER migration 194 applied, so the
+-- facilities AFTER INSERT trigger must have seeded the module's config.
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_subtypes
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and asset_type = 'door'$$,
+  4, 'DB0a: facilities trigger seeded 4 door subtypes for a new facility');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_issue_categories
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  20, 'DB0b: facilities trigger seeded 20 issue categories for a new facility');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_modules
+    where module_key = 'dasher_boards'
+      and facility_id in ('11111111-1111-1111-1111-111111111111',
+                          '22222222-2222-2222-2222-222222222222')$$,
+  2, 'DB0c: dasher_boards is enabled in facility_modules for new facilities');
+
+-- Rinks, assets, checklist items, and walks in both facilities.
+insert into public.dasher_boards_rinks (id, facility_id, name, slug) values
+  ('dab0000a-0000-4000-8000-00000000000a',
+   '11111111-1111-1111-1111-111111111111', 'Rink A', 'rink-a'),
+  ('dab0000b-0000-4000-8000-00000000000b',
+   '22222222-2222-2222-2222-222222222222', 'Rink B', 'rink-b');
+
+insert into public.dasher_boards_assets
+  (id, facility_id, rink_id, asset_type, label, sequence_position) values
+  ('dabb000a-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'B1', 1),
+  ('dabb000b-0000-4000-8000-000000000001',
+   '22222222-2222-2222-2222-222222222222',
+   'dab0000b-0000-4000-8000-00000000000b', 'board_panel', 'B1', 1);
+
+insert into public.dasher_boards_assets
+  (id, facility_id, rink_id, asset_type, label, parent_board_id) values
+  ('dabb000a-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'glass_panel', 'G1',
+   'dabb000a-0000-4000-8000-000000000001');
+
+insert into public.dasher_boards_checklist_items
+  (id, facility_id, rink_id, label, cadence) values
+  ('dabc000a-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'Weekly torque check', 'weekly'),
+  ('dabc000b-0000-4000-8000-000000000001',
+   '22222222-2222-2222-2222-222222222222',
+   'dab0000b-0000-4000-8000-00000000000b', 'Weekly torque check', 'weekly');
+
+-- Bob's open issue in facility B (the cross-facility read target).
+insert into public.dasher_boards_issues
+  (id, facility_id, rink_id, asset_id, description, severity, reported_by) values
+  ('dabb000b-0000-4000-8000-000000000010',
+   '22222222-2222-2222-2222-222222222222',
+   'dab0000b-0000-4000-8000-00000000000b',
+   'dabb000b-0000-4000-8000-000000000001',
+   'Cracked facing', 'b', 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+
+-- Walks: alice has one OPEN and one COMPLETED walk on rink A; bob has a
+-- completed walk on rink B.
+insert into public.dasher_boards_inspections
+  (id, facility_id, rink_id, inspector_id, started_at, completed_at) values
+  ('dabd000a-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', now() - interval '1 hour', null),
+  ('dabd000a-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() - interval '1 day', now() - interval '23 hours'),
+  ('dabd000b-0000-4000-8000-000000000001',
+   '22222222-2222-2222-2222-222222222222',
+   'dab0000b-0000-4000-8000-00000000000b',
+   'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   now() - interval '1 day', now() - interval '23 hours');
+
+-- Alice: view + submit on dasher_boards (deliberately NOT edit, NOT admin).
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+select
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+  '11111111-1111-1111-1111-111111111111'::uuid,
+  'dasher_boards', a::public.user_action, true
+from unnest(array['view', 'submit']) as a
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- Impersonate Alice (staff-tier: view+submit).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_rinks
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'DB1: alice CAN read her own facility''s dasher rinks');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_rinks
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DB2: alice CANNOT read facility B''s dasher rinks');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DB3: alice CANNOT read facility B''s perimeter assets');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_issues
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DB4: alice CANNOT read facility B''s issues');
+
+select pg_temp.expect_count(
+  $$select (case when public.has_module_submit_access('dasher_boards') then 1 else 0 end)
+        + (case when public.has_module_edit_access('dasher_boards') then 0 else 10 end)
+        + (case when public.has_module_admin_access('dasher_boards') then 0 else 100 end)$$,
+  111, 'DB5: helper tiers — alice has submit but NOT edit and NOT admin');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_rinks (facility_id, name, slug)
+    values ('11111111-1111-1111-1111-111111111111', 'Rogue Rink', 'rogue-rink')$$,
+  'DB6: alice (no admin grant) CANNOT create a rink');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_assets
+         set label = 'HACKED'
+       where id = 'dabb000a-0000-4000-8000-000000000001'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB7: alice (no admin grant) CANNOT edit perimeter assets (0 rows match)');
+
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_issues
+      (id, facility_id, rink_id, asset_id, description, severity, reported_by)
+    values
+      ('dabb000a-0000-4000-8000-000000000020',
+       '11111111-1111-1111-1111-111111111111',
+       'dab0000a-0000-4000-8000-00000000000a',
+       'dabb000a-0000-4000-8000-000000000001',
+       'Loose kickplate', 'b', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DB8: alice (submit grant) CAN report an issue as herself');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, asset_id, description, severity, reported_by)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'dab0000a-0000-4000-8000-00000000000a',
+       'dabb000a-0000-4000-8000-000000000001',
+       'Spoofed reporter', 'b', 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')$$,
+  'DB9: alice CANNOT report an issue as someone else');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, asset_id, description, severity, reported_by)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'dab0000a-0000-4000-8000-00000000000a',
+       'dabb000a-0000-4000-8000-000000000001',
+       'Severity A no supervisor', 'a', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DB10: a severity-A issue without a supervisor is rejected (check constraint)');
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_issues
+       set description = 'Loose kickplate (left corner)'
+     where id = 'dabb000a-0000-4000-8000-000000000020'$$,
+  'DB11: alice CAN edit the description of her own unresolved issue');
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_issues
+       set supervisor_ack_at = now()
+     where id = 'dabb000a-0000-4000-8000-000000000020'$$,
+  'DB12: alice (no edit grant) CANNOT acknowledge — ack fields are guarded');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_inspections
+         set notes = 'tampered'
+       where id = 'dabd000a-0000-4000-8000-000000000002'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB13: RLS layer — alice''s UPDATE on her COMPLETED walk matches 0 rows');
+
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_checklist_responses
+      (facility_id, inspection_id, item_id, status)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'dabd000a-0000-4000-8000-000000000001',
+       'dabc000a-0000-4000-8000-000000000001', 'pass')$$,
+  'DB14: alice CAN answer a checklist item on her OPEN walk');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_checklist_responses
+      (facility_id, inspection_id, item_id, status)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'dabd000a-0000-4000-8000-000000000002',
+       'dabc000a-0000-4000-8000-000000000001', 'pass')$$,
+  'DB15: alice CANNOT answer against her COMPLETED walk');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections (facility_id, rink_id, inspector_id)
+    values ('22222222-2222-2222-2222-222222222222',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DB16: alice CANNOT start a walk on facility B''s rink');
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_inspections
+       set completed_at = now()
+     where id = 'dabd000a-0000-4000-8000-000000000001'$$,
+  'DB17: alice CAN complete her own open walk');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_inspections
+         set completed_at = null
+       where id = 'dabd000a-0000-4000-8000-000000000001'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB18: RLS layer — the just-completed walk cannot be re-opened by alice');
+
+-- Trigger layer: even a BYPASSRLS role issuing direct SQL is rejected.
+set local role postgres;
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_inspections
+       set notes = 'tampered via direct SQL'
+     where id = 'dabd000b-0000-4000-8000-000000000001'$$,
+  'DB19: trigger layer — direct-SQL UPDATE of a completed walk raises');
+
+select pg_temp.expect_error(
+  $$delete from public.dasher_boards_inspections
+     where id = 'dabd000b-0000-4000-8000-000000000001'$$,
+  'DB20: trigger layer — direct-SQL DELETE of a completed walk raises');
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_checklist_responses
+       set status = 'flag'
+     where inspection_id = 'dabd000a-0000-4000-8000-000000000001'$$,
+  'DB21: trigger layer — responses under a completed walk are immutable');
+
+-- Label permanence: relabel retires the old label forever.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set label = 'B1X'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DB22a: relabeling an asset succeeds (admin-tier operation)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_retired_labels
+    where rink_id = 'dab0000a-0000-4000-8000-00000000000a'
+      and label = 'B1'$$,
+  1, 'DB22b: the old label was auto-recorded as retired');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_assets
+      (facility_id, rink_id, asset_type, label, sequence_position)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'B1', 2)$$,
+  'DB22c: a retired label can never be reused on the rink');
+
+-- Glass-spec integrity: board panels reject spec writes at the constraint layer.
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set glass_width_in = 48
+     where id = 'dabb000b-0000-4000-8000-000000000001'$$,
+  'DB23: board_panel rows reject glass spec writes (check constraint)');
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
