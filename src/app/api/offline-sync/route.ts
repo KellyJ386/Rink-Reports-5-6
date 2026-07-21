@@ -25,6 +25,7 @@ import {
 import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
 import { handleAccidentReplay } from "@/app/reports/accidents/_lib/offline"
 import { handleDailyReplay } from "@/app/reports/daily/_lib/offline"
+import { handleDasherBoardsReplay } from "@/app/reports/dasher-boards/_lib/offline"
 import { handleIceDepthReplay } from "@/app/reports/ice-depth/_lib/offline"
 import { handleIceOperationsReplay } from "@/app/reports/ice-operations/_lib/offline"
 import { handleMessageReplay } from "@/app/reports/communications/_lib/offline"
@@ -205,6 +206,18 @@ export async function POST(request: NextRequest) {
 
   if (moduleKey === "ice_operations") {
     return handleIceOperationsReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "dasher_boards") {
+    return handleDasherBoardsReplay({
       supabase,
       localId,
       action,

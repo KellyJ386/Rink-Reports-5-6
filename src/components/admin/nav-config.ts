@@ -6,6 +6,7 @@ import {
   Calendar,
   Crown,
   Database,
+  Fence,
   FileDown,
   FileText,
   FolderOpen,
@@ -59,6 +60,11 @@ export const adminNavGroups: AdminNavGroup[] = [
         label: "Ice Operations Admin",
         href: "/admin/ice-operations",
         icon: Wrench,
+      },
+      {
+        label: "Dasher Boards Admin",
+        href: "/admin/dasher-boards",
+        icon: Fence,
       },
       {
         label: "Incident Reports Admin",

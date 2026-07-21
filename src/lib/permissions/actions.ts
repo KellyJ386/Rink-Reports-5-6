@@ -31,6 +31,7 @@ export const MODULE_NAMES = [
   "air_quality",
   "scheduling",
   "communications",
+  "dasher_boards",
   "admin",
 ] as const
 
@@ -46,6 +47,7 @@ export const MODULE_LABELS: Record<ModuleName, string> = {
   air_quality: "Air Quality",
   scheduling: "Employee Scheduling",
   communications: "Communications",
+  dasher_boards: "Dasher Boards",
   admin: "Admin",
 }
 

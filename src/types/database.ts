@@ -2216,6 +2216,625 @@ export type Database = {
           },
         ]
       }
+      dasher_boards_asset_events: {
+        Row: {
+          asset_id: string
+          created_at: string
+          detail: Json | null
+          employee_id: string | null
+          event_type: string
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          detail?: Json | null
+          employee_id?: string | null
+          event_type: string
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          detail?: Json | null
+          employee_id?: string | null
+          event_type?: string
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_asset_events_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_asset_events_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_asset_events_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_asset_subtypes: {
+        Row: {
+          asset_type: string
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          asset_type: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          asset_type?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_asset_subtypes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_assets: {
+        Row: {
+          asset_type: string
+          created_at: string
+          facility_id: string
+          glass_height_in: number | null
+          glass_material: string | null
+          glass_thickness_in: number | null
+          glass_width_in: number | null
+          id: string
+          is_active: boolean
+          label: string
+          parent_board_id: string | null
+          rink_id: string
+          sequence_position: number | null
+          spec_notes: string | null
+          subtype_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          asset_type: string
+          created_at?: string
+          facility_id: string
+          glass_height_in?: number | null
+          glass_material?: string | null
+          glass_thickness_in?: number | null
+          glass_width_in?: number | null
+          id?: string
+          is_active?: boolean
+          label: string
+          parent_board_id?: string | null
+          rink_id: string
+          sequence_position?: number | null
+          spec_notes?: string | null
+          subtype_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          asset_type?: string
+          created_at?: string
+          facility_id?: string
+          glass_height_in?: number | null
+          glass_material?: string | null
+          glass_thickness_in?: number | null
+          glass_width_in?: number | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          parent_board_id?: string | null
+          rink_id?: string
+          sequence_position?: number | null
+          spec_notes?: string | null
+          subtype_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_assets_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_assets_parent_board_id_fkey"
+            columns: ["parent_board_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_assets_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_assets_subtype_id_fkey"
+            columns: ["subtype_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_asset_subtypes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_checklist_items: {
+        Row: {
+          cadence: string
+          created_at: string
+          due_month: number | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string
+          rink_id: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          cadence: string
+          created_at?: string
+          due_month?: number | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label: string
+          rink_id: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          cadence?: string
+          created_at?: string
+          due_month?: number | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          rink_id?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_checklist_items_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_checklist_items_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_checklist_responses: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          inspection_id: string
+          item_id: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          inspection_id: string
+          item_id: string
+          status: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          inspection_id?: string
+          item_id?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_checklist_responses_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_checklist_responses_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_inspections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_checklist_responses_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_checklist_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_inspections: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          inspector_id: string | null
+          notes: string | null
+          rink_id: string
+          started_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          inspector_id?: string | null
+          notes?: string | null
+          rink_id: string
+          started_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          inspector_id?: string | null
+          notes?: string | null
+          rink_id?: string
+          started_at?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_inspections_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_inspections_inspector_id_fkey"
+            columns: ["inspector_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_inspections_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_issue_categories: {
+        Row: {
+          asset_type: string
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          asset_type: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          asset_type?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_issue_categories_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_issues: {
+        Row: {
+          action_taken: string | null
+          asset_id: string | null
+          category_id: string | null
+          checklist_item_id: string | null
+          created_at: string
+          description: string
+          facility_id: string
+          id: string
+          inspection_id: string | null
+          reported_by: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          rink_id: string
+          severity: string
+          supervisor_ack_at: string | null
+          supervisor_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          action_taken?: string | null
+          asset_id?: string | null
+          category_id?: string | null
+          checklist_item_id?: string | null
+          created_at?: string
+          description: string
+          facility_id: string
+          id?: string
+          inspection_id?: string | null
+          reported_by?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          rink_id: string
+          severity: string
+          supervisor_ack_at?: string | null
+          supervisor_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          action_taken?: string | null
+          asset_id?: string | null
+          category_id?: string | null
+          checklist_item_id?: string | null
+          created_at?: string
+          description?: string
+          facility_id?: string
+          id?: string
+          inspection_id?: string | null
+          reported_by?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          rink_id?: string
+          severity?: string
+          supervisor_ack_at?: string | null
+          supervisor_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_issues_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_issue_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_checklist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_inspections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_supervisor_id_fkey"
+            columns: ["supervisor_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_retired_labels: {
+        Row: {
+          asset_id: string | null
+          facility_id: string
+          id: string
+          label: string
+          retired_at: string
+          rink_id: string
+        }
+        Insert: {
+          asset_id?: string | null
+          facility_id: string
+          id?: string
+          label: string
+          retired_at?: string
+          rink_id: string
+        }
+        Update: {
+          asset_id?: string | null
+          facility_id?: string
+          id?: string
+          label?: string
+          retired_at?: string
+          rink_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_retired_labels_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_retired_labels_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_retired_labels_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_rinks: {
+        Row: {
+          created_at: string
+          custom_length_ft: number | null
+          custom_width_ft: number | null
+          facility_id: string
+          id: string
+          inspection_weekday: number
+          is_active: boolean
+          is_default: boolean
+          name: string
+          perimeter_anchor_label: string | null
+          perimeter_direction: string
+          rink_template: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          custom_length_ft?: number | null
+          custom_width_ft?: number | null
+          facility_id: string
+          id?: string
+          inspection_weekday?: number
+          is_active?: boolean
+          is_default?: boolean
+          name: string
+          perimeter_anchor_label?: string | null
+          perimeter_direction?: string
+          rink_template?: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          custom_length_ft?: number | null
+          custom_width_ft?: number | null
+          facility_id?: string
+          id?: string
+          inspection_weekday?: number
+          is_active?: boolean
+          is_default?: boolean
+          name?: string
+          perimeter_anchor_label?: string | null
+          perimeter_direction?: string
+          rink_template?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_rinks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
           color: string | null
@@ -6849,6 +7468,18 @@ export type Database = {
         Args: { p_area_id: string; p_date: string }
         Returns: boolean
       }
+      dasher_boards_generate_perimeter: {
+        Args: { p_count: number; p_rink_id: string }
+        Returns: number
+      }
+      dasher_boards_guard_exempt: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      dasher_boards_shift_positions: {
+        Args: { p_delta: number; p_from: number; p_rink_id: string }
+        Returns: number
+      }
       deactivate_role: {
         Args: { p_force?: boolean; p_role_id: string }
         Returns: {
@@ -6929,6 +7560,10 @@ export type Database = {
         Returns: boolean
       }
       has_module_edit_access: {
+        Args: { p_module_key: string }
+        Returns: boolean
+      }
+      has_module_submit_access: {
         Args: { p_module_key: string }
         Returns: boolean
       }
@@ -7101,6 +7736,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_daily_report_checklists: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_dasher_boards_config: {
         Args: { p_facility_id: string }
         Returns: undefined
       }
