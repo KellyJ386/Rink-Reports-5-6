@@ -392,7 +392,15 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('manager','facility_paperwork','admin'::public.user_action),
       ('supervisor','facility_paperwork','view'::public.user_action),
       ('staff','facility_paperwork','view'::public.user_action),
-      ('driver','facility_paperwork','view'::public.user_action)
+      ('driver','facility_paperwork','view'::public.user_action),
+      -- dasher_boards (added migration 193; manager deliberately edit, not admin)
+      ('super_admin','dasher_boards','admin'::public.user_action),
+      ('admin','dasher_boards','admin'::public.user_action),
+      ('gm','dasher_boards','admin'::public.user_action),
+      ('manager','dasher_boards','edit'::public.user_action),
+      ('supervisor','dasher_boards','edit'::public.user_action),
+      ('staff','dasher_boards','submit'::public.user_action),
+      ('driver','dasher_boards','submit'::public.user_action)
   ),
   action_levels(action, lvl) as (
     values
@@ -412,7 +420,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. facility_paperwork added in migration 175; dasher_boards in migration 193; full matrix restated in 198 after 193 clobbered the 175 rows.';
 
 
 --
@@ -1041,6 +1049,357 @@ $$;
 --
 
 COMMENT ON FUNCTION public.daily_report_submissions_stamp_business_date() IS 'BEFORE INSERT: fills daily_report_submissions.business_date from the facility timezone when the client omitted it, so the assignment-routing RLS (which keys on business_date) cannot be bypassed by a crafted NULL-date insert.';
+
+
+--
+-- Name: dasher_boards_assets_label_check(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_assets_label_check() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if tg_op = 'UPDATE' and new.label = old.label then
+    return new;
+  end if;
+
+  if exists (
+    select 1 from public.dasher_boards_retired_labels rl
+     where rl.rink_id = new.rink_id
+       and rl.label   = new.label
+  ) then
+    raise exception 'dasher_boards: label "%" was retired on this rink and can never be reused', new.label;
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_assets_retire_old_label(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_assets_retire_old_label() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.label is distinct from old.label then
+    insert into public.dasher_boards_retired_labels (facility_id, rink_id, label, asset_id)
+    values (old.facility_id, old.rink_id, old.label, old.id)
+    on conflict (rink_id, label) do nothing;
+  end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_assets_retire_on_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_assets_retire_on_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  insert into public.dasher_boards_retired_labels (facility_id, rink_id, label)
+  values (old.facility_id, old.rink_id, old.label)
+  on conflict (rink_id, label) do nothing;
+  return old;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_assets_retire_on_delete(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_assets_retire_on_delete() IS 'Labels are permanent identity even across hard deletes: a deleted asset''s label lands in dasher_boards_retired_labels (asset_id null — the row is gone) so nextLabel/label_check can never reissue it.';
+
+
+--
+-- Name: dasher_boards_checklist_responses_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_checklist_responses_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_inspection_id uuid;
+  v_completed_at  timestamptz;
+begin
+  if public.dasher_boards_guard_exempt() then
+    return coalesce(new, old);
+  end if;
+
+  v_inspection_id := case when tg_op = 'INSERT' then new.inspection_id else old.inspection_id end;
+
+  select i.completed_at into v_completed_at
+    from public.dasher_boards_inspections i
+   where i.id = v_inspection_id;
+
+  if v_completed_at is not null then
+    raise exception 'dasher_boards: responses are immutable once the inspection is completed';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if new.inspection_id is distinct from old.inspection_id
+       or new.item_id     is distinct from old.item_id
+       or new.facility_id is distinct from old.facility_id
+    then
+      raise exception 'dasher_boards: response linkage columns are immutable';
+    end if;
+    return new;
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_generate_perimeter(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_generate_perimeter(p_rink_id uuid, p_count integer) RETURNS integer
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $_$
+declare
+  v_facility_id uuid;
+  v_existing    int;
+  v_board_id    uuid;
+  v_b_start     int;
+  v_g_start     int;
+  i             int;
+begin
+  if p_count is null or p_count < 1 or p_count > 500 then
+    raise exception 'dasher_boards: position count must be between 1 and 500';
+  end if;
+
+  select facility_id into v_facility_id
+    from public.dasher_boards_rinks
+   where id = p_rink_id;
+  if v_facility_id is null then
+    raise exception 'dasher_boards: rink not found';
+  end if;
+
+  select count(*) into v_existing
+    from public.dasher_boards_assets
+   where rink_id = p_rink_id;
+  if v_existing > 0 then
+    raise exception 'dasher_boards: rink already has perimeter assets; use the granular editor instead';
+  end if;
+
+  -- Never reuse a number: continue past every B/G ever used on this rink
+  -- (retired labels included — a cleared rink regenerates at B<max+1>..).
+  select coalesce(max((substring(label from '^B(\d+)$'))::int), 0)
+    into v_b_start
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^B\d+$';
+  select coalesce(max((substring(label from '^G(\d+)$'))::int), 0)
+    into v_g_start
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^G\d+$';
+
+  for i in 1..p_count loop
+    insert into public.dasher_boards_assets
+      (facility_id, rink_id, asset_type, label, sequence_position)
+    values
+      (v_facility_id, p_rink_id, 'board_panel', 'B' || (v_b_start + i), i)
+    returning id into v_board_id;
+
+    insert into public.dasher_boards_assets
+      (facility_id, rink_id, asset_type, label, parent_board_id)
+    values
+      (v_facility_id, p_rink_id, 'glass_panel', 'G' || (v_g_start + i), v_board_id);
+  end loop;
+
+  return p_count;
+end;
+$_$;
+
+
+--
+-- Name: FUNCTION dasher_boards_generate_perimeter(p_rink_id uuid, p_count integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_generate_perimeter(p_rink_id uuid, p_count integer) IS 'Atomically creates p_count uniform board panels (B1..Bn at positions 1..n) each with a 1:1 glass row (G1..Gn). Rejects when the rink already has assets — post-generation edits go through the granular editor. SECURITY INVOKER: RLS admin gates apply to the caller.';
+
+
+--
+-- Name: dasher_boards_guard_exempt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_guard_exempt() RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select
+    public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
+    or coalesce(current_setting('rr.dasher_boards_guard_bypass', true), '') = 'on';
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_guard_exempt(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_guard_exempt() IS 'True when Dasher Boards guard triggers should stand down: super admin, service-role backend, or the governed rr.dasher_boards_guard_bypass setting (same escape-hatch pattern as rr.publish_lock_bypass, migration 148).';
+
+
+--
+-- Name: dasher_boards_inspections_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_inspections_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if public.dasher_boards_guard_exempt() then
+    return coalesce(new, old);
+  end if;
+
+  -- Once signed off, the walk record is immutable — including un-completing it.
+  if old.completed_at is not null then
+    raise exception 'dasher_boards: completed inspections are immutable';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if new.id            is distinct from old.id
+       or new.facility_id  is distinct from old.facility_id
+       or new.rink_id      is distinct from old.rink_id
+       or new.inspector_id is distinct from old.inspector_id
+       or new.started_at   is distinct from old.started_at
+       or new.created_at   is distinct from old.created_at
+    then
+      raise exception 'dasher_boards: inspection identity columns are immutable';
+    end if;
+    return new;
+  end if;
+
+  return old; -- DELETE of an open walk (RLS already limits to super_admin)
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_issues_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_issues_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_is_admin bool;
+  v_is_edit  bool;
+begin
+  if public.dasher_boards_guard_exempt() then
+    return new;
+  end if;
+
+  -- Resolved issues are immutable (carry-forward record).
+  if old.resolved_at is not null then
+    raise exception 'dasher_boards: resolved issues are immutable';
+  end if;
+
+  -- Identity / linkage columns are frozen for all non-exempt callers.
+  if new.id                is distinct from old.id
+     or new.facility_id       is distinct from old.facility_id
+     or new.rink_id           is distinct from old.rink_id
+     or new.asset_id          is distinct from old.asset_id
+     or new.checklist_item_id is distinct from old.checklist_item_id
+     or new.reported_by       is distinct from old.reported_by
+     or new.inspection_id     is distinct from old.inspection_id
+     or new.created_at        is distinct from old.created_at
+  then
+    raise exception 'dasher_boards: issue identity/linkage columns are immutable';
+  end if;
+
+  v_is_admin := public.has_module_admin_access('dasher_boards');
+  v_is_edit  := public.has_module_edit_access('dasher_boards');
+
+  if v_is_admin then
+    -- Admins may correct report fields and perform ack/resolve; nothing more
+    -- to police (linkage already frozen above).
+    return new;
+  end if;
+
+  if v_is_edit then
+    -- Supervisors (edit grant): ack / resolve / action_taken / supervisor
+    -- reassignment only. Report content stays the reporter's.
+    if new.description is distinct from old.description
+       or new.category_id is distinct from old.category_id
+       or new.severity    is distinct from old.severity
+    then
+      raise exception 'dasher_boards: edit grant may only change ack/resolution fields';
+    end if;
+    return new;
+  end if;
+
+  -- Reporter path (RLS already restricted to own unresolved rows):
+  -- description/category only.
+  if new.severity          is distinct from old.severity
+     or new.action_taken      is distinct from old.action_taken
+     or new.supervisor_id     is distinct from old.supervisor_id
+     or new.supervisor_ack_at is distinct from old.supervisor_ack_at
+     or new.resolved_by       is distinct from old.resolved_by
+     or new.resolved_at       is distinct from old.resolved_at
+  then
+    raise exception 'dasher_boards: reporters may only edit description/category on their own unresolved issues';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_shift_positions(uuid, integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_shift_positions(p_rink_id uuid, p_from integer, p_delta integer) RETURNS integer
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_count int;
+begin
+  if p_delta is null or p_delta not in (-1, 1) then
+    raise exception 'dasher_boards: shift delta must be -1 or 1';
+  end if;
+
+  -- Negative flip: matched rows first move to distinct negative positions,
+  -- then flip back positive with the delta applied — one transaction, no
+  -- transient duplicates against untouched rows.
+  update public.dasher_boards_assets
+     set sequence_position = -(sequence_position + p_delta)
+   where rink_id = p_rink_id
+     and sequence_position >= p_from;
+  get diagnostics v_count = row_count;
+
+  update public.dasher_boards_assets
+     set sequence_position = -sequence_position
+   where rink_id = p_rink_id
+     and sequence_position < 0;
+
+  return v_count;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_shift_positions(p_rink_id uuid, p_from integer, p_delta integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_shift_positions(p_rink_id uuid, p_from integer, p_delta integer) IS 'Shifts sequence_position by ±1 for every asset at position >= p_from on the rink (open/close a gap for insertAsset/removeAsset). Two-step negative flip keeps the partial unique index happy mid-shift. SECURITY INVOKER: a caller without the module admin grant updates 0 rows.';
 
 
 --
@@ -1984,7 +2343,39 @@ $$;
 -- Name: FUNCTION has_module_edit_access(p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.has_module_edit_access(p_module_key text) IS 'True if super admin OR the current user has an enabled `edit` grant on the named module at their current facility (public.user_permissions). The elevated-but-not-admin tier used by daily-report assignment routing (assign/reassign + visibility bypass).';
+COMMENT ON FUNCTION public.has_module_edit_access(p_module_key text) IS 'True if super admin OR the current user has an enabled `edit` grant on the named module at their current facility (public.user_permissions). The elevated-but-not-admin tier: daily-report assignment routing (assign/reassign + visibility bypass) and Dasher Boards ack/resolve.';
+
+
+--
+-- Name: has_module_submit_access(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.has_module_submit_access(p_module_key text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select
+    p_module_key is not null
+    and (
+      public.is_super_admin()
+      or exists (
+        select 1
+          from public.user_permissions up
+         where up.user_id     = auth.uid()
+           and up.facility_id = public.current_facility_id()
+           and up.module_name = p_module_key
+           and up.action      = 'submit'::public.user_action
+           and up.enabled     = true
+      )
+    );
+$$;
+
+
+--
+-- Name: FUNCTION has_module_submit_access(p_module_key text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.has_module_submit_access(p_module_key text) IS 'True if super admin OR the current user has an enabled `submit` grant on the named module at their current facility (public.user_permissions). Module-level sibling of has_area_submit_access; introduced for Dasher Boards (migration 192).';
 
 
 --
@@ -5248,6 +5639,77 @@ COMMENT ON FUNCTION public.seed_default_daily_report_checklists(p_facility_id uu
 
 
 --
+-- Name: seed_default_dasher_boards_config(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.seed_default_dasher_boards_config(p_facility_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  -- Door subtypes.
+  insert into public.dasher_boards_asset_subtypes (facility_id, asset_type, label, sort_order)
+  select p_facility_id, 'door', s.label, s.sort_order
+  from (values
+    ('Bench', 0),
+    ('Scoreboard', 1),
+    ('Public Skate', 2),
+    ('Zamboni', 3)
+  ) as s(label, sort_order)
+  on conflict (facility_id, asset_type, label) do nothing;
+
+  -- Issue categories: board panels.
+  insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
+  select p_facility_id, 'board_panel', c.label, c.sort_order
+  from (values
+    ('Facing damage', 0),
+    ('Protruding/missing fastener', 1),
+    ('Panel joint misalignment', 2),
+    ('Kickplate damage', 3),
+    ('Caprail damage', 4),
+    ('Resurfacer impact', 5),
+    ('Other', 6)
+  ) as c(label, sort_order)
+  on conflict (facility_id, asset_type, label) do nothing;
+
+  -- Issue categories: glass panels.
+  insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
+  select p_facility_id, 'glass_panel', c.label, c.sort_order
+  from (values
+    ('Crack', 0),
+    ('Chip/sharp edge', 1),
+    ('Not seated/rattle', 2),
+    ('Crazing at clamp', 3),
+    ('Gasket damaged/missing', 4),
+    ('Other', 5)
+  ) as c(label, sort_order)
+  on conflict (facility_id, asset_type, label) do nothing;
+
+  -- Issue categories: doors.
+  insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
+  select p_facility_id, 'door', c.label, c.sort_order
+  from (values
+    ('Latch not holding', 0),
+    ('Hinge/sag', 1),
+    ('Not flush with board line', 2),
+    ('Threshold damage', 3),
+    ('Door glass damage', 4),
+    ('Hardware protruding ice-side', 5),
+    ('Other', 6)
+  ) as c(label, sort_order)
+  on conflict (facility_id, asset_type, label) do nothing;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION seed_default_dasher_boards_config(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.seed_default_dasher_boards_config(p_facility_id uuid) IS 'Seeds Dasher Boards door subtypes and per-asset-type issue categories for a facility. Idempotent (on conflict do nothing). Internal-only execute, mirroring seed_default_facility_modules.';
+
+
+--
 -- Name: seed_default_facility_air_quality_config(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5353,7 +5815,8 @@ begin
     ('accident_reports'),
     ('scheduling'),
     ('communications'),
-    ('facility_paperwork')
+    ('facility_paperwork'),
+    ('dasher_boards')
   ) as m(k)
   on conflict (facility_id, module_key) do nothing;
 end;
@@ -5364,7 +5827,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled. Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. dasher_boards as of migration 193). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --
@@ -5980,6 +6443,21 @@ $$;
 --
 
 COMMENT ON FUNCTION public.submit_incident_report(p_facility_id uuid, p_employee_id uuid, p_severity_level_id uuid, p_incident_type_id uuid, p_activity_id uuid, p_activity_other text, p_location_other text, p_immediate_actions text, p_occurred_at timestamp with time zone, p_reporter_name text, p_reporter_phone text, p_description text, p_ambulance_flag boolean, p_persons_involved integer, p_follow_up_required boolean, p_space_ids uuid[], p_witnesses jsonb) IS 'Atomic incident submission: report + spaces + witnesses + change log in one transaction. SECURITY INVOKER — RLS (008/103/104) still gates every write, so this grants no authority beyond the equivalent row-by-row inserts.';
+
+
+--
+-- Name: tg_seed_dasher_boards_config(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.tg_seed_dasher_boards_config() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.seed_default_dasher_boards_config(new.id);
+  return new;
+end;
+$$;
 
 
 --
@@ -7425,6 +7903,310 @@ CREATE TABLE public.daily_report_templates (
 --
 
 COMMENT ON TABLE public.daily_report_templates IS 'Daily Reports: templates within an area; group of checklist items.';
+
+
+--
+-- Name: dasher_boards_asset_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_asset_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    asset_id uuid NOT NULL,
+    event_type text NOT NULL,
+    detail jsonb,
+    employee_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT dasher_boards_asset_events_event_type_check CHECK ((event_type = ANY (ARRAY['created'::text, 'converted_to_door'::text, 'converted_to_board'::text, 'relabeled'::text, 'deactivated'::text, 'reactivated'::text, 'glass_toggled'::text, 'spec_updated'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_asset_events; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_asset_events IS 'Dasher Boards: append-only audit trail for asset lifecycle changes (conversions, relabels, glass toggles, spec edits). No UPDATE/DELETE policies — append-only like ice_depth_followup_notes.';
+
+
+--
+-- Name: dasher_boards_asset_subtypes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_asset_subtypes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    asset_type text NOT NULL,
+    label text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_asset_subtypes_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_asset_subtypes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_asset_subtypes IS 'Dasher Boards: admin-managed asset subtypes (e.g. door subtypes: Bench, Scoreboard, Public Skate, Zamboni). Keyed by asset_type so the same table can serve other types later; v1 only assigns subtypes to doors.';
+
+
+--
+-- Name: dasher_boards_assets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_assets (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    asset_type text NOT NULL,
+    subtype_id uuid,
+    label text NOT NULL,
+    sequence_position integer,
+    parent_board_id uuid,
+    is_active boolean DEFAULT true NOT NULL,
+    glass_width_in numeric,
+    glass_height_in numeric,
+    glass_thickness_in numeric,
+    glass_material text,
+    spec_notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_assets_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text]))),
+    CONSTRAINT dasher_boards_assets_board_no_glass_spec CHECK (((asset_type <> 'board_panel'::text) OR ((glass_width_in IS NULL) AND (glass_height_in IS NULL) AND (glass_thickness_in IS NULL) AND (glass_material IS NULL) AND (spec_notes IS NULL)))),
+    CONSTRAINT dasher_boards_assets_glass_height_in_check CHECK ((glass_height_in > (0)::numeric)),
+    CONSTRAINT dasher_boards_assets_glass_material_check CHECK ((glass_material = ANY (ARRAY['tempered'::text, 'acrylic'::text, 'polycarbonate'::text]))),
+    CONSTRAINT dasher_boards_assets_glass_thickness_in_check CHECK ((glass_thickness_in > (0)::numeric)),
+    CONSTRAINT dasher_boards_assets_glass_width_in_check CHECK ((glass_width_in > (0)::numeric)),
+    CONSTRAINT dasher_boards_assets_position_shape CHECK ((((asset_type = ANY (ARRAY['board_panel'::text, 'door'::text])) AND (parent_board_id IS NULL) AND ((sequence_position IS NOT NULL) OR (is_active = false))) OR ((asset_type = 'glass_panel'::text) AND (parent_board_id IS NOT NULL) AND (sequence_position IS NULL)))),
+    CONSTRAINT dasher_boards_assets_subtype_door_only CHECK (((subtype_id IS NULL) OR (asset_type = 'door'::text)))
+);
+
+
+--
+-- Name: TABLE dasher_boards_assets; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_assets IS 'Dasher Boards: every physical asset around the perimeter. label (B12/G12/D3) is permanent identity — issue history follows it forever; sequence_position is drawing order and may shift on insert/remove, but existing assets are NEVER relabeled. Glass rows map 1:1 to a parent board position and can be deactivated (no shielding, or a door occupies the position). Retired labels are recorded in dasher_boards_retired_labels and never reused (enforced by trigger, migration 192).';
+
+
+--
+-- Name: COLUMN dasher_boards_assets.glass_thickness_in; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.glass_thickness_in IS 'Decimal inches (e.g. 0.625 for 5/8"). Displayed as the nearest common fraction in the UI.';
+
+
+--
+-- Name: CONSTRAINT dasher_boards_assets_position_shape ON dasher_boards_assets; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT dasher_boards_assets_position_shape ON public.dasher_boards_assets IS 'Active boards/doors are positioned; retired (is_active=false) ones float with a null position so the sequence gap can close without renumbering labels. Glass rows always ride their parent board.';
+
+
+--
+-- Name: dasher_boards_checklist_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_checklist_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    label text NOT NULL,
+    cadence text NOT NULL,
+    due_month integer,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_checklist_items_cadence_check CHECK ((cadence = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text, 'yearly'::text]))),
+    CONSTRAINT dasher_boards_checklist_items_due_month_check CHECK (((due_month >= 1) AND (due_month <= 12))),
+    CONSTRAINT dasher_boards_checklist_items_due_month_iff_yearly CHECK ((((cadence = 'yearly'::text) AND (due_month IS NOT NULL)) OR ((cadence <> 'yearly'::text) AND (due_month IS NULL))))
+);
+
+
+--
+-- Name: TABLE dasher_boards_checklist_items; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_checklist_items IS 'Dasher Boards: admin-managed cadenced inspection checklist items. Due items surface when a walk starts; walk completion requires all due items answered. Flagged items create issues in the same pipeline as spatial issues (no diagram dot). The daily cadence ships unseeded by design — the spatial exception model carries daily.';
+
+
+--
+-- Name: dasher_boards_checklist_responses; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_checklist_responses (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    inspection_id uuid NOT NULL,
+    item_id uuid NOT NULL,
+    status text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_checklist_responses_status_check CHECK ((status = ANY (ARRAY['pass'::text, 'flag'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_checklist_responses; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_checklist_responses IS 'Dasher Boards: one pass/flag answer per due checklist item per walk. Immutable once the parent inspection is completed — same policy treatment as the inspection row itself (guard trigger, migration 192).';
+
+
+--
+-- Name: dasher_boards_inspections; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_inspections (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    inspector_id uuid,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone
+);
+
+
+--
+-- Name: TABLE dasher_boards_inspections; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_inspections IS 'Dasher Boards: one row per perimeter walk. A completed inspection (completed_at set) with zero linked issues means "walked, all clear" — untapped assets are implicitly OK, attested by this record. Once completed_at is set the row is IMMUTABLE — enforced by RLS policy AND a guard trigger (migration 192), not just app code.';
+
+
+--
+-- Name: dasher_boards_issue_categories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_issue_categories (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    asset_type text NOT NULL,
+    label text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_issue_categories_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_issue_categories; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_issue_categories IS 'Dasher Boards: admin-managed issue category quick-picks, per asset type (seeded per facility by seed_default_dasher_boards_config).';
+
+
+--
+-- Name: dasher_boards_issues; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_issues (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    asset_id uuid,
+    checklist_item_id uuid,
+    category_id uuid,
+    description text NOT NULL,
+    severity text NOT NULL,
+    action_taken text,
+    reported_by uuid,
+    inspection_id uuid,
+    supervisor_id uuid,
+    supervisor_ack_at timestamp with time zone,
+    resolved_by uuid,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_issues_a_requires_supervisor CHECK (((severity <> 'a'::text) OR ((supervisor_id IS NOT NULL) AND (action_taken IS NOT NULL)))),
+    CONSTRAINT dasher_boards_issues_category_spatial_only CHECK (((asset_id IS NOT NULL) OR (category_id IS NULL))),
+    CONSTRAINT dasher_boards_issues_one_target CHECK ((num_nonnulls(asset_id, checklist_item_id) = 1)),
+    CONSTRAINT dasher_boards_issues_severity_check CHECK ((severity = ANY (ARRAY['a'::text, 'b'::text, 'c'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_issues; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_issues IS 'Dasher Boards: condition issues. Spatial issues target an asset (with category); checklist-flag issues target a cadenced item (no category, no diagram dot). Open issues (resolved_at null) color the diagram and carry forward across days. Severity a requires a supervisor and supervisor acknowledgment before the walk that logged it can complete. Resolved issues are immutable; ack/resolution fields are writable only by edit-level grants (guard trigger, migration 192).';
+
+
+--
+-- Name: CONSTRAINT dasher_boards_issues_a_requires_supervisor ON dasher_boards_issues; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT dasher_boards_issues_a_requires_supervisor ON public.dasher_boards_issues IS 'Severity-A issues always name a supervisor AND record the action taken (both were previously only app-enforced for action_taken).';
+
+
+--
+-- Name: dasher_boards_retired_labels; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_retired_labels (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    label text NOT NULL,
+    asset_id uuid,
+    retired_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE dasher_boards_retired_labels; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_retired_labels IS 'Dasher Boards: append-only record of labels retired by conversion/relabel (e.g. B12 becomes D5 -> B12 is retired). A trigger on dasher_boards_assets auto-records the old label on every label change and rejects any insert/relabel that would resurrect a retired label.';
+
+
+--
+-- Name: dasher_boards_rinks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_rinks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    rink_template text DEFAULT 'nhl_200x85'::text NOT NULL,
+    custom_length_ft numeric,
+    custom_width_ft numeric,
+    perimeter_anchor_label text,
+    perimeter_direction text DEFAULT 'clockwise'::text NOT NULL,
+    inspection_weekday integer DEFAULT 1 NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    is_default boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_rinks_custom_dims CHECK ((((rink_template = 'custom'::text) AND (custom_length_ft > (0)::numeric) AND (custom_width_ft > (0)::numeric)) OR ((rink_template <> 'custom'::text) AND (custom_length_ft IS NULL) AND (custom_width_ft IS NULL)))),
+    CONSTRAINT dasher_boards_rinks_inspection_weekday_check CHECK (((inspection_weekday >= 0) AND (inspection_weekday <= 6))),
+    CONSTRAINT dasher_boards_rinks_perimeter_direction_check CHECK ((perimeter_direction = ANY (ARRAY['clockwise'::text, 'counterclockwise'::text]))),
+    CONSTRAINT dasher_boards_rinks_rink_template_check CHECK ((rink_template = ANY (ARRAY['nhl_200x85'::text, 'olympic_200x100'::text, 'custom'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_rinks; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_rinks IS 'Dasher Boards: physical sheets of ice within a facility, each owning one ordered perimeter of assets. perimeter_anchor_label names where sequence position 1 starts (e.g. "Zamboni gate"); perimeter_direction is the drawing order around the boundary. inspection_weekday (0=Sun..6=Sat) is the day weekly checklist items come due.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.inspection_weekday; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.inspection_weekday IS '0=Sunday .. 6=Saturday (JS Date.getDay convention). Weekly checklist items come due on this weekday. Default Monday.';
 
 
 --
@@ -10068,7 +10850,7 @@ CREATE TABLE public.user_permissions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     source text DEFAULT 'role_default'::text NOT NULL,
-    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'admin'::text]))),
+    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'admin'::text]))),
     CONSTRAINT user_permissions_source_check CHECK ((source = ANY (ARRAY['role_default'::text, 'manual_override'::text])))
 );
 
@@ -10510,6 +11292,142 @@ ALTER TABLE ONLY public.daily_report_submissions
 
 ALTER TABLE ONLY public.daily_report_templates
     ADD CONSTRAINT daily_report_templates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_asset_events dasher_boards_asset_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_events
+    ADD CONSTRAINT dasher_boards_asset_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_subtypes
+    ADD CONSTRAINT dasher_boards_asset_subtypes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_subtypes
+    ADD CONSTRAINT dasher_boards_asset_subtypes_uniq UNIQUE (facility_id, asset_type, label);
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_rink_label_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_rink_label_uniq UNIQUE (rink_id, label);
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_items
+    ADD CONSTRAINT dasher_boards_checklist_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_rink_label_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_items
+    ADD CONSTRAINT dasher_boards_checklist_items_rink_label_uniq UNIQUE (rink_id, label);
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_responses
+    ADD CONSTRAINT dasher_boards_checklist_responses_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_responses
+    ADD CONSTRAINT dasher_boards_checklist_responses_uniq UNIQUE (inspection_id, item_id);
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_inspections
+    ADD CONSTRAINT dasher_boards_inspections_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issue_categories
+    ADD CONSTRAINT dasher_boards_issue_categories_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issue_categories
+    ADD CONSTRAINT dasher_boards_issue_categories_uniq UNIQUE (facility_id, asset_type, label);
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_retired_labels
+    ADD CONSTRAINT dasher_boards_retired_labels_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_retired_labels
+    ADD CONSTRAINT dasher_boards_retired_labels_uniq UNIQUE (rink_id, label);
+
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_rinks
+    ADD CONSTRAINT dasher_boards_rinks_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_rinks
+    ADD CONSTRAINT dasher_boards_rinks_pkey PRIMARY KEY (id);
 
 
 --
@@ -12117,6 +13035,125 @@ CREATE INDEX idx_daily_report_templates_facility_area ON public.daily_report_tem
 
 
 --
+-- Name: idx_dasher_boards_asset_events_asset_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_asset_events_asset_created ON public.dasher_boards_asset_events USING btree (asset_id, created_at);
+
+
+--
+-- Name: idx_dasher_boards_assets_one_glass_per_board; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_assets_one_glass_per_board ON public.dasher_boards_assets USING btree (parent_board_id) WHERE (asset_type = 'glass_panel'::text);
+
+
+--
+-- Name: idx_dasher_boards_assets_rink_position_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_assets_rink_position_uniq ON public.dasher_boards_assets USING btree (rink_id, sequence_position) WHERE (sequence_position IS NOT NULL);
+
+
+--
+-- Name: idx_dasher_boards_assets_rink_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_assets_rink_type ON public.dasher_boards_assets USING btree (rink_id, asset_type, is_active);
+
+
+--
+-- Name: idx_dasher_boards_checklist_items_rink_active_sort; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_checklist_items_rink_active_sort ON public.dasher_boards_checklist_items USING btree (rink_id, is_active, sort_order);
+
+
+--
+-- Name: idx_dasher_boards_checklist_responses_item; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_checklist_responses_item ON public.dasher_boards_checklist_responses USING btree (item_id);
+
+
+--
+-- Name: idx_dasher_boards_inspections_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_inspections_facility ON public.dasher_boards_inspections USING btree (facility_id);
+
+
+--
+-- Name: idx_dasher_boards_inspections_one_open_per_inspector; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_inspections_one_open_per_inspector ON public.dasher_boards_inspections USING btree (rink_id, inspector_id) WHERE (completed_at IS NULL);
+
+
+--
+-- Name: idx_dasher_boards_inspections_rink_completed; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_inspections_rink_completed ON public.dasher_boards_inspections USING btree (rink_id, completed_at DESC);
+
+
+--
+-- Name: idx_dasher_boards_issues_asset_open; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_issues_asset_open ON public.dasher_boards_issues USING btree (asset_id) WHERE (resolved_at IS NULL);
+
+
+--
+-- Name: idx_dasher_boards_issues_checklist_item; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_issues_checklist_item ON public.dasher_boards_issues USING btree (checklist_item_id);
+
+
+--
+-- Name: idx_dasher_boards_issues_facility_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_issues_facility_created ON public.dasher_boards_issues USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: idx_dasher_boards_issues_inspection; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_issues_inspection ON public.dasher_boards_issues USING btree (inspection_id);
+
+
+--
+-- Name: idx_dasher_boards_issues_rink_open; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_issues_rink_open ON public.dasher_boards_issues USING btree (rink_id, severity) WHERE (resolved_at IS NULL);
+
+
+--
+-- Name: idx_dasher_boards_retired_labels_rink; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_retired_labels_rink ON public.dasher_boards_retired_labels USING btree (rink_id);
+
+
+--
+-- Name: idx_dasher_boards_rinks_facility_active_sort; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_rinks_facility_active_sort ON public.dasher_boards_rinks USING btree (facility_id, is_active, sort_order);
+
+
+--
+-- Name: idx_dasher_boards_rinks_one_default_per_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_rinks_one_default_per_facility ON public.dasher_boards_rinks USING btree (facility_id) WHERE is_default;
+
+
+--
 -- Name: idx_departments_facility_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13377,6 +14414,13 @@ CREATE TRIGGER facilities_seed_air_quality_config AFTER INSERT ON public.facilit
 
 
 --
+-- Name: facilities facilities_seed_dasher_boards; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER facilities_seed_dasher_boards AFTER INSERT ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.tg_seed_dasher_boards_config();
+
+
+--
 -- Name: facilities facilities_seed_modules; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -13752,6 +14796,104 @@ CREATE TRIGGER trg_daily_report_submissions_updated_at BEFORE UPDATE ON public.d
 --
 
 CREATE TRIGGER trg_daily_report_templates_updated_at BEFORE UPDATE ON public.daily_report_templates FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_asset_subtypes trg_dasher_boards_asset_subtypes_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_asset_subtypes_updated_at BEFORE UPDATE ON public.dasher_boards_asset_subtypes FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_assets trg_dasher_boards_assets_label_check; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_label_check BEFORE INSERT OR UPDATE OF label ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_assets_label_check();
+
+
+--
+-- Name: dasher_boards_assets trg_dasher_boards_assets_retire_old_label; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_retire_old_label AFTER UPDATE OF label ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_assets_retire_old_label();
+
+
+--
+-- Name: dasher_boards_assets trg_dasher_boards_assets_retire_on_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_retire_on_delete AFTER DELETE ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_assets_retire_on_delete();
+
+
+--
+-- Name: dasher_boards_assets trg_dasher_boards_assets_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_updated_at BEFORE UPDATE ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_checklist_items trg_dasher_boards_checklist_items_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_checklist_items_updated_at BEFORE UPDATE ON public.dasher_boards_checklist_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_checklist_responses trg_dasher_boards_checklist_responses_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_checklist_responses_guard BEFORE INSERT OR DELETE OR UPDATE ON public.dasher_boards_checklist_responses FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_checklist_responses_guard();
+
+
+--
+-- Name: dasher_boards_checklist_responses trg_dasher_boards_checklist_responses_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_checklist_responses_updated_at BEFORE UPDATE ON public.dasher_boards_checklist_responses FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_inspections trg_dasher_boards_inspections_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_inspections_guard BEFORE DELETE OR UPDATE ON public.dasher_boards_inspections FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_inspections_guard();
+
+
+--
+-- Name: dasher_boards_inspections trg_dasher_boards_inspections_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_inspections_updated_at BEFORE UPDATE ON public.dasher_boards_inspections FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_issue_categories trg_dasher_boards_issue_categories_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_issue_categories_updated_at BEFORE UPDATE ON public.dasher_boards_issue_categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_issues trg_dasher_boards_issues_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_issues_guard BEFORE UPDATE ON public.dasher_boards_issues FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_issues_guard();
+
+
+--
+-- Name: dasher_boards_issues trg_dasher_boards_issues_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_issues_updated_at BEFORE UPDATE ON public.dasher_boards_issues FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_rinks trg_dasher_boards_rinks_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_rinks_updated_at BEFORE UPDATE ON public.dasher_boards_rinks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -15018,6 +16160,246 @@ ALTER TABLE ONLY public.daily_report_templates
 
 ALTER TABLE ONLY public.daily_report_templates
     ADD CONSTRAINT daily_report_templates_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_asset_events dasher_boards_asset_events_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_events
+    ADD CONSTRAINT dasher_boards_asset_events_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.dasher_boards_assets(id) ON DELETE CASCADE;
+
+
+--
+-- Name: dasher_boards_asset_events dasher_boards_asset_events_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_events
+    ADD CONSTRAINT dasher_boards_asset_events_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_asset_events dasher_boards_asset_events_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_events
+    ADD CONSTRAINT dasher_boards_asset_events_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_subtypes
+    ADD CONSTRAINT dasher_boards_asset_subtypes_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_parent_board_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_parent_board_id_fkey FOREIGN KEY (parent_board_id) REFERENCES public.dasher_boards_assets(id) ON DELETE CASCADE;
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_subtype_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_subtype_id_fkey FOREIGN KEY (subtype_id) REFERENCES public.dasher_boards_asset_subtypes(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_items
+    ADD CONSTRAINT dasher_boards_checklist_items_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_items
+    ADD CONSTRAINT dasher_boards_checklist_items_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_responses
+    ADD CONSTRAINT dasher_boards_checklist_responses_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_inspection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_responses
+    ADD CONSTRAINT dasher_boards_checklist_responses_inspection_id_fkey FOREIGN KEY (inspection_id) REFERENCES public.dasher_boards_inspections(id) ON DELETE CASCADE;
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_checklist_responses
+    ADD CONSTRAINT dasher_boards_checklist_responses_item_id_fkey FOREIGN KEY (item_id) REFERENCES public.dasher_boards_checklist_items(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_inspections
+    ADD CONSTRAINT dasher_boards_inspections_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_inspector_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_inspections
+    ADD CONSTRAINT dasher_boards_inspections_inspector_id_fkey FOREIGN KEY (inspector_id) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_inspections
+    ADD CONSTRAINT dasher_boards_inspections_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issue_categories
+    ADD CONSTRAINT dasher_boards_issue_categories_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.dasher_boards_assets(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.dasher_boards_issue_categories(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_checklist_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_checklist_item_id_fkey FOREIGN KEY (checklist_item_id) REFERENCES public.dasher_boards_checklist_items(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_inspection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_inspection_id_fkey FOREIGN KEY (inspection_id) REFERENCES public.dasher_boards_inspections(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_reported_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_reported_by_fkey FOREIGN KEY (reported_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_resolved_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_supervisor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_issues
+    ADD CONSTRAINT dasher_boards_issues_supervisor_id_fkey FOREIGN KEY (supervisor_id) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_retired_labels
+    ADD CONSTRAINT dasher_boards_retired_labels_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.dasher_boards_assets(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_retired_labels
+    ADD CONSTRAINT dasher_boards_retired_labels_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_retired_labels
+    ADD CONSTRAINT dasher_boards_retired_labels_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_rinks
+    ADD CONSTRAINT dasher_boards_rinks_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
 
 
 --
@@ -17708,6 +19090,322 @@ CREATE POLICY daily_report_templates_select ON public.daily_report_templates FOR
 --
 
 CREATE POLICY daily_report_templates_update ON public.daily_report_templates FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: dasher_boards_asset_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_asset_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_asset_events dasher_boards_asset_events_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_events_insert ON public.dasher_boards_asset_events FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_asset_events dasher_boards_asset_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_events_select ON public.dasher_boards_asset_events FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_asset_subtypes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_asset_subtypes ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_subtypes_delete ON public.dasher_boards_asset_subtypes FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_subtypes_insert ON public.dasher_boards_asset_subtypes FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_subtypes_select ON public.dasher_boards_asset_subtypes FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_asset_subtypes dasher_boards_asset_subtypes_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_subtypes_update ON public.dasher_boards_asset_subtypes FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_assets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_assets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_assets_delete ON public.dasher_boards_assets FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_assets_insert ON public.dasher_boards_assets FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_assets_select ON public.dasher_boards_assets FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_assets dasher_boards_assets_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_assets_update ON public.dasher_boards_assets FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_checklist_items; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_checklist_items ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_items_delete ON public.dasher_boards_checklist_items FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_items_insert ON public.dasher_boards_checklist_items FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_items_select ON public.dasher_boards_checklist_items FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_checklist_items dasher_boards_checklist_items_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_items_update ON public.dasher_boards_checklist_items FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_checklist_responses; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_checklist_responses ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_responses_delete ON public.dasher_boards_checklist_responses FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_responses_insert ON public.dasher_boards_checklist_responses FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('dasher_boards'::text) AND (EXISTS ( SELECT 1
+   FROM public.dasher_boards_inspections i
+  WHERE ((i.id = dasher_boards_checklist_responses.inspection_id) AND (i.inspector_id = public.current_employee_id()) AND (i.completed_at IS NULL)))))));
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_responses_select ON public.dasher_boards_checklist_responses FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_checklist_responses dasher_boards_checklist_responses_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_checklist_responses_update ON public.dasher_boards_checklist_responses FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('dasher_boards'::text) AND (EXISTS ( SELECT 1
+   FROM public.dasher_boards_inspections i
+  WHERE ((i.id = dasher_boards_checklist_responses.inspection_id) AND (i.inspector_id = public.current_employee_id()) AND (i.completed_at IS NULL))))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: dasher_boards_inspections; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_inspections ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_inspections_delete ON public.dasher_boards_inspections FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_inspections_insert ON public.dasher_boards_inspections FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('dasher_boards'::text) AND (inspector_id = public.current_employee_id()) AND (completed_at IS NULL))));
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_inspections_select ON public.dasher_boards_inspections FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_inspections dasher_boards_inspections_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_inspections_update ON public.dasher_boards_inspections FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (completed_at IS NULL) AND (inspector_id = public.current_employee_id()) AND public.has_module_submit_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: dasher_boards_issue_categories; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_issue_categories ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issue_categories_delete ON public.dasher_boards_issue_categories FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issue_categories_insert ON public.dasher_boards_issue_categories FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issue_categories_select ON public.dasher_boards_issue_categories FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_issue_categories dasher_boards_issue_categories_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issue_categories_update ON public.dasher_boards_issue_categories FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_issues; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_issues ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issues_delete ON public.dasher_boards_issues FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issues_insert ON public.dasher_boards_issues FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('dasher_boards'::text) AND (reported_by = public.current_employee_id()))));
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issues_select ON public.dasher_boards_issues FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_issues dasher_boards_issues_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_issues_update ON public.dasher_boards_issues FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_edit_access('dasher_boards'::text) OR public.has_module_admin_access('dasher_boards'::text) OR ((reported_by = public.current_employee_id()) AND (resolved_at IS NULL) AND public.has_module_submit_access('dasher_boards'::text)))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: dasher_boards_retired_labels; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_retired_labels ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_retired_labels_insert ON public.dasher_boards_retired_labels FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_retired_labels dasher_boards_retired_labels_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_retired_labels_select ON public.dasher_boards_retired_labels FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_rinks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_rinks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_rinks_delete ON public.dasher_boards_rinks FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_rinks_insert ON public.dasher_boards_rinks FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_rinks_select ON public.dasher_boards_rinks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_rinks dasher_boards_rinks_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_rinks_update ON public.dasher_boards_rinks FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
 
 
 --
