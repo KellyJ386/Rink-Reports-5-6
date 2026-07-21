@@ -148,7 +148,7 @@ export function PerimeterTab({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="mx-auto w-full max-w-md">
+            <div className="w-full">
               <RinkPerimeter
                 positioned={positioned.map((a) => ({
                   id: a.id,
