@@ -113,7 +113,11 @@ function EndZoneFaceoffCircle({ fx, fy }: { fx: number; fy: number }) {
   )
 }
 
-function RinkMarkings() {
+// Exported for the Dasher Boards perimeter diagram (RinkPerimeter), which
+// renders the SAME ice surface with its board ring around it — one source for
+// the rink art keeps the two modules visually in sync. Behavior here is
+// unchanged: this is the exact markup USARink has always rendered.
+export function RinkMarkings() {
   return (
     <>
       <defs>
