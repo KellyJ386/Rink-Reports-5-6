@@ -190,16 +190,59 @@ function formatDepth(v: number, unit: "inches" | "mm"): string {
   return v.toFixed(0)
 }
 
+// Facility-level diagram overlays, pre-projected into viewBox coordinates by
+// the template (which owns data access). Door markers render between the rink
+// markings and the point chips; the logo watermark renders below both.
+export type PdfRinkOverlays = {
+  markers: Array<{ cx: number; cy: number; color: string }>
+  logo: {
+    url: string
+    /** Bounding box + center in viewBox units (see logoBox in overlay-shared). */
+    x: number
+    y: number
+    size: number
+    cx: number
+    cy: number
+    rotation: number
+    opacity: number
+  } | null
+}
+
+const MARKER_R = 8
+
+function PdfDoorMarker({ cx, cy, color }: { cx: number; cy: number; color: string }) {
+  return (
+    <G>
+      <Path
+        d={`M ${cx} ${cy - MARKER_R} L ${cx + MARKER_R} ${cy} L ${cx} ${cy + MARKER_R} L ${cx - MARKER_R} ${cy} Z`}
+        fill={color}
+        stroke="#ffffff"
+        strokeWidth={1.5}
+      />
+      <Line
+        x1={cx - MARKER_R * 0.45}
+        y1={cy}
+        x2={cx + MARKER_R * 0.45}
+        y2={cy}
+        stroke="#ffffff"
+        strokeWidth={1.5}
+      />
+    </G>
+  )
+}
+
 export function PdfRinkDiagram({
   points,
   unit,
   logoUrl,
   width,
+  overlays,
 }: {
   points: DiagramPoint[]
   unit: "inches" | "mm"
   logoUrl: string | null
   width: number
+  overlays?: PdfRinkOverlays
 }) {
   const height = (width * RINK_H) / RINK_W
   const scale = width / RINK_W
@@ -207,15 +250,51 @@ export function PdfRinkDiagram({
   const logoSize = 60 * scale
   const logoLeft = CENTER_X * scale - logoSize / 2
   const logoTop = CENTER_Y * scale - logoSize / 2
+  const watermark = overlays?.logo ?? null
 
   return (
     <View style={{ width, height, position: "relative" }}>
+      {/* Layer 1: rink markings only, so the watermark can sit ABOVE the ice
+          surface fill but BELOW markers and point chips (react-pdf can't nest
+          an Image inside Svg, hence the layered composition). */}
       <Svg
         width={width}
         height={height}
         viewBox={`0 0 ${RINK_W} ${RINK_H}`}
       >
         <RinkMarkings />
+      </Svg>
+
+      {/* Layer 2: facility logo watermark (never obscures data). */}
+      {watermark ? (
+        // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf Image, not HTML img
+        <Image
+          src={watermark.url}
+          style={{
+            position: "absolute",
+            left: watermark.x * scale,
+            top: watermark.y * scale,
+            width: watermark.size * scale,
+            height: watermark.size * scale,
+            opacity: watermark.opacity,
+            objectFit: "contain",
+            transform: watermark.rotation
+              ? `rotate(${watermark.rotation}deg)`
+              : undefined,
+          }}
+        />
+      ) : null}
+
+      {/* Layer 3: door markers, then measurement point chips on top. */}
+      <Svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${RINK_W} ${RINK_H}`}
+        style={{ position: "absolute", left: 0, top: 0 }}
+      >
+        {(overlays?.markers ?? []).map((m, i) => (
+          <PdfDoorMarker key={`door-${i}`} cx={m.cx} cy={m.cy} color={m.color} />
+        ))}
 
         {points.map((p, i) => {
           const m = p.measurement

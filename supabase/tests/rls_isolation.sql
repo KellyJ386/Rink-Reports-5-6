@@ -5179,6 +5179,241 @@ select pg_temp.expect_count(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- OVR: rink-diagram overlays (migration 199).
+--
+-- Door markers + center-ice logo config are facility-level ice_depth
+-- configuration: any enabled ice_depth grant may READ (own facility only);
+-- only module admins may WRITE. This section is the standing regression probe
+-- required by the feature spec (same authorization-at-UI-only failure class
+-- as the scheduling publish-lock bypass): a plain staff session must be
+-- unable to write door types / markers / config or touch the rink-logos
+-- storage bucket, via ANY direct call path.
+--
+-- Personas: alice = staff (ice_depth view+submit, NO admin). mona gains an
+-- ice_depth admin grant HERE for the positive write assertions (her earlier
+-- sections don't depend on her lacking it).
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- The facilities AFTER INSERT trigger must have auto-seeded the four standard
+-- door types for both fixture facilities.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_types
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  4, 'OVR: facility A auto-seeded 4 standard door types on creation');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  4, 'OVR: facility B auto-seeded 4 standard door types on creation');
+
+-- Fixture: one marker + one config row per facility (as postgres/BYPASSRLS),
+-- plus one rink-logos storage object per facility for the read-scoping check.
+insert into public.facility_door_markers
+  (id, facility_id, door_type_id, label, position_x, position_y)
+values
+  ('aaaa1111-0d01-aaaa-aaaa-aaaa11110061',
+   '11111111-1111-1111-1111-111111111111',
+   (select id from public.facility_door_types
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and name = 'Zamboni Door'),
+   'West Zamboni', 0.2, 0.1),
+  ('bbbb2222-0d01-bbbb-bbbb-bbbb22220061',
+   '22222222-2222-2222-2222-222222222222',
+   (select id from public.facility_door_types
+     where facility_id = '22222222-2222-2222-2222-222222222222'
+       and name = 'Zamboni Door'),
+   'B Zamboni', 0.8, 0.9)
+on conflict (id) do nothing;
+
+insert into public.facility_rink_diagram_config (facility_id, logo_storage_path)
+values
+  ('11111111-1111-1111-1111-111111111111',
+   '11111111-1111-1111-1111-111111111111/rink-logo-a.png'),
+  ('22222222-2222-2222-2222-222222222222',
+   '22222222-2222-2222-2222-222222222222/rink-logo-b.png')
+on conflict (facility_id) do nothing;
+
+insert into storage.objects (bucket_id, name)
+select 'rink-logos', v.name
+from (values
+  ('11111111-1111-1111-1111-111111111111/rink-logo-a.png'),
+  ('22222222-2222-2222-2222-222222222222/rink-logo-b.png')
+) as v(name)
+where not exists (
+  select 1 from storage.objects o
+   where o.bucket_id = 'rink-logos' and o.name = v.name
+);
+
+-- Composite FK (door_type_id, facility_id): a marker can never reference a
+-- door type belonging to another facility, even via a BYPASSRLS writer.
+select pg_temp.expect_error(
+  $$insert into public.facility_door_markers
+      (facility_id, door_type_id, position_x, position_y)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       (select id from public.facility_door_types
+         where facility_id = '22222222-2222-2222-2222-222222222222'
+           and name = 'Access Door'),
+       0.5, 0.5)$$,
+  'OVR: composite FK rejects a marker pointing at a foreign facility''s door type');
+
+-- ---- alice (staff: view+submit, NO admin) ----------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Reads: own facility visible (report overlays render for staff)...
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_types
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  4, 'OVR: staff alice CAN SELECT her own facility''s door types');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_markers
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'OVR: staff alice CAN SELECT her own facility''s door markers');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_rink_diagram_config
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'OVR: staff alice CAN SELECT her own facility''s diagram config');
+
+-- ...foreign facility invisible.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_types
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'OVR: alice CANNOT SELECT facility-B door types');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_markers
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'OVR: alice CANNOT SELECT facility-B door markers');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_rink_diagram_config
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'OVR: alice CANNOT SELECT facility-B diagram config');
+
+-- Writes: every path denied for staff — INSERTs raise...
+select pg_temp.expect_error(
+  $$insert into public.facility_door_types (facility_id, name)
+    values ('11111111-1111-1111-1111-111111111111', 'Evil Door')$$,
+  'OVR: staff alice CANNOT INSERT a door type (own facility)');
+select pg_temp.expect_error(
+  $$insert into public.facility_door_markers
+      (facility_id, door_type_id, position_x, position_y)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       (select id from public.facility_door_types
+         where facility_id = '11111111-1111-1111-1111-111111111111'
+           and name = 'Access Door'),
+       0.5, 0.5)$$,
+  'OVR: staff alice CANNOT INSERT a door marker (own facility)');
+select pg_temp.expect_error(
+  $$insert into public.facility_rink_diagram_config (facility_id)
+    values ('11111111-1111-1111-1111-111111111111')$$,
+  'OVR: staff alice CANNOT INSERT diagram config');
+
+-- ...UPDATE / DELETE silently match zero rows.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.facility_door_markers set label = 'hacked'
+      where id = 'aaaa1111-0d01-aaaa-aaaa-aaaa11110061'
+      returning 1)
+    select count(*) from u$$,
+  0, 'OVR: staff alice UPDATE of a door marker matches 0 rows');
+select pg_temp.expect_count(
+  $$with u as (
+      update public.facility_rink_diagram_config set logo_visible = false
+      where facility_id = '11111111-1111-1111-1111-111111111111'
+      returning 1)
+    select count(*) from u$$,
+  0, 'OVR: staff alice UPDATE of diagram config matches 0 rows');
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.facility_door_markers
+      where id = 'aaaa1111-0d01-aaaa-aaaa-aaaa11110061'
+      returning 1)
+    select count(*) from d$$,
+  0, 'OVR: staff alice DELETE of a door marker matches 0 rows');
+
+-- Storage: reads are path-scoped to the caller's facility; writes are
+-- service-role only (staff cannot upload/overwrite the logo object).
+select pg_temp.expect_count(
+  $$select count(*) from storage.objects
+    where bucket_id = 'rink-logos'
+      and name = '11111111-1111-1111-1111-111111111111/rink-logo-a.png'$$,
+  1, 'OVR: alice CAN read her own facility''s rink-logo object row');
+select pg_temp.expect_count(
+  $$select count(*) from storage.objects
+    where bucket_id = 'rink-logos'
+      and name = '22222222-2222-2222-2222-222222222222/rink-logo-b.png'$$,
+  0, 'OVR: alice CANNOT read facility-B''s rink-logo object row');
+select pg_temp.expect_error(
+  $$insert into storage.objects (bucket_id, name)
+    values ('rink-logos',
+            '11111111-1111-1111-1111-111111111111/evil.png')$$,
+  'OVR: staff alice CANNOT INSERT into the rink-logos bucket');
+select pg_temp.expect_count(
+  $$with d as (
+      delete from storage.objects
+      where bucket_id = 'rink-logos'
+        and name = '11111111-1111-1111-1111-111111111111/rink-logo-a.png'
+      returning 1)
+    select count(*) from d$$,
+  0, 'OVR: staff alice DELETE of a rink-logo object matches 0 rows');
+
+-- Seed helper is internal-only (service_role); no client role may call it.
+select pg_temp.expect_error(
+  $$select public.seed_default_door_types('11111111-1111-1111-1111-111111111111')$$,
+  'OVR: authenticated CANNOT execute seed_default_door_types');
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.seed_default_door_types('11111111-1111-1111-1111-111111111111')$$,
+  'OVR: anon CANNOT execute seed_default_door_types');
+
+-- ---- mona (module admin): the write gate opens with the admin grant --------
+set local role postgres;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '11111111-1111-1111-1111-111111111111',
+        'ice_depth', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$with i as (
+      insert into public.facility_door_markers
+        (facility_id, door_type_id, position_x, position_y)
+      values
+        ('11111111-1111-1111-1111-111111111111',
+         (select id from public.facility_door_types
+           where facility_id = '11111111-1111-1111-1111-111111111111'
+             and name = 'Player Gate'),
+         0.4, 0.6)
+      returning 1)
+    select count(*) from i$$,
+  1, 'OVR: module-admin mona CAN INSERT a door marker in her facility');
+select pg_temp.expect_count(
+  $$with u as (
+      update public.facility_rink_diagram_config set logo_opacity = 0.2
+      where facility_id = '11111111-1111-1111-1111-111111111111'
+      returning 1)
+    select count(*) from u$$,
+  1, 'OVR: module-admin mona CAN UPDATE diagram config in her facility');
+select pg_temp.expect_error(
+  $$insert into public.facility_door_markers
+      (facility_id, door_type_id, position_x, position_y)
+    values
+      ('22222222-2222-2222-2222-222222222222',
+       (select id from public.facility_door_types
+         where facility_id = '22222222-2222-2222-2222-222222222222'
+           and name = 'Player Gate'),
+       0.4, 0.6)$$,
+  'OVR: module-admin mona CANNOT INSERT a door marker into facility B');
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

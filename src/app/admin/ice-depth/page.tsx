@@ -13,6 +13,7 @@ import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { getRinkLogoSignedUrl, getRinkOverlays } from "@/lib/ice-depth/overlays"
 import { clampShow, nextShow } from "@/lib/pagination"
 
 import { AnalyticsTab } from "./_components/analytics-tab"
@@ -25,10 +26,13 @@ import {
   type AnalyticsSession,
 } from "./_lib/analytics"
 import { LayoutsTab } from "./_components/layouts-tab"
+import { OverlaysTab } from "./_components/overlays-tab"
 import { RinksTab } from "./_components/rinks-tab"
 import { SeedDefaultsCard } from "./_components/seed-defaults-card"
 import { SettingsTab } from "./_components/settings-tab"
 import type {
+  DoorMarkerRow,
+  DoorTypeRow,
   EmployeeLite,
   FollowupNoteRow,
   HistoryParams,
@@ -37,6 +41,7 @@ import type {
   LayoutWithPointCount,
   MeasurementRow,
   PointRow,
+  RinkDiagramConfigRow,
   RinkOption,
   RinkRow,
   RinkWithLayoutCount,
@@ -124,6 +129,7 @@ export default async function IceDepthAdminPage({
       {tab === "layouts" && (
         <LayoutsTabLoader facilityId={facilityId} params={params} />
       )}
+      {tab === "overlays" && <OverlaysTabLoader facilityId={facilityId} />}
       {tab === "history" && (
         <HistoryTabLoader
           facilityId={facilityId}
@@ -248,6 +254,46 @@ async function LayoutsTabLoader({
       activeLayout={activeLayout}
       activeLayoutId={params.layout ?? null}
       backHref={backHref}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Overlays tab (facility-level door markers + center-ice logo watermark)
+// ---------------------------------------------------------------------------
+
+async function OverlaysTabLoader({ facilityId }: { facilityId: string }) {
+  const supabase = await createClient()
+  const [typesRes, markersRes, configRes] = await Promise.all([
+    supabase
+      .from("facility_door_types")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("facility_door_markers")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("facility_rink_diagram_config")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .maybeSingle(),
+  ])
+  const config = (configRes.data ?? null) as RinkDiagramConfigRow | null
+  // Signed even while hidden so the editor can preview before re-enabling.
+  const logoUrl = await getRinkLogoSignedUrl(
+    supabase,
+    config?.logo_storage_path ?? null,
+  )
+  return (
+    <OverlaysTab
+      doorTypes={(typesRes.data ?? []) as DoorTypeRow[]}
+      markers={(markersRes.data ?? []) as DoorMarkerRow[]}
+      config={config}
+      logoUrl={logoUrl}
     />
   )
 }
@@ -394,7 +440,7 @@ async function HistoryTabLoader({
     }
     if (session) {
       const sessionLayout = layoutById.get(session.layout_id) ?? null
-      const [pointsRes, measRes, notesRes, reporterRes, settingsRes] =
+      const [pointsRes, measRes, notesRes, reporterRes, settingsRes, overlays] =
         await Promise.all([
           sessionLayout
             ? supabase
@@ -424,6 +470,7 @@ async function HistoryTabLoader({
             .select("*")
             .eq("facility_id", facilityId)
             .maybeSingle(),
+          getRinkOverlays(supabase, facilityId),
         ])
       const points = (pointsRes.data ?? []) as PointRow[]
       const measurements = (measRes.data ?? []) as MeasurementRow[]
@@ -456,6 +503,7 @@ async function HistoryTabLoader({
           author: n.employee_id ? (authorById.get(n.employee_id) ?? null) : null,
         })),
         settings: (settingsRes.data ?? null) as SettingsRow | null,
+        overlays,
       }
     }
   }

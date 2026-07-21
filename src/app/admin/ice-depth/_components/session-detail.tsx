@@ -7,6 +7,10 @@ import { toast } from "sonner"
 
 import { USARink, rinkCoords, type RinkPointSpec } from "@/components/ice-depth/usa-rink"
 import {
+  DoorMarkerLegend,
+  RinkOverlayGroup,
+} from "@/components/ice-depth/rink-overlays"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -186,8 +190,11 @@ export function SessionDetail({ detail, backHref, canDelete, timezone }: Props) 
                 showValues
                 className="rounded-xl border"
                 logoUrl={detail.layout?.logo_url ?? null}
-              />
+              >
+                <RinkOverlayGroup overlays={detail.overlays} />
+              </USARink>
             </div>
+            <DoorMarkerLegend markers={detail.overlays.markers} />
             <p className="text-muted-foreground text-xs">
               Colors come from session-snapshot severities. Changing the
               facility settings does not reclassify history.

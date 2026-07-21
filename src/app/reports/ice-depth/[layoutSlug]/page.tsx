@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { getRinkOverlays } from "@/lib/ice-depth/overlays"
 import { currentUserCan } from "@/lib/permissions/check"
 
 import { DiagramNav } from "../_components/diagram-nav"
@@ -88,8 +89,13 @@ export default async function IceDepthLayoutSubmissionPage({
     notFound()
   }
 
-  const [{ data: pointsRaw }, { data: settingsRaw }, { data: rinksRaw }, { data: siblingsRaw }] =
-    await Promise.all([
+  const [
+    { data: pointsRaw },
+    { data: settingsRaw },
+    { data: rinksRaw },
+    { data: siblingsRaw },
+    overlays,
+  ] = await Promise.all([
       supabase
         .from("ice_depth_points")
         .select(
@@ -118,6 +124,9 @@ export default async function IceDepthLayoutSubmissionPage({
         .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true }),
+      // Facility-level diagram overlays (door markers + logo watermark) —
+      // read-only reference geography, identical on every report.
+      getRinkOverlays(supabase, employeeRow.facility_id),
     ])
 
   const points: PointForForm[] = (pointsRaw ?? []).map((p) => ({
@@ -230,6 +239,7 @@ export default async function IceDepthLayoutSubmissionPage({
           layout={layoutForForm}
           points={points}
           settings={settings}
+          overlays={overlays}
         />
       </div>
     </div>
