@@ -315,7 +315,12 @@ function SelectedAssetPanel({
             pos {asset.sequence_position}
           </span>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClear}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClear}
+          aria-label="Clear selection"
+        >
           ✕
         </Button>
       </div>

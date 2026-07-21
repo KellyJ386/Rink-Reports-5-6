@@ -150,15 +150,20 @@ export async function handleDasherBoardsReplay({
       }
       // The three sign-off gates run HERE, at replay time — an offline
       // sign-off that fails them (e.g. an unacked severity-A issue) parks as
-      // failed rather than forging the attestation. The failure is permanent
-      // for the queue (the user resolves it online), hence 422 below.
+      // failed rather than forging the attestation. ONLY gate/terminal
+      // failures are permanent; a transient DB error keeps its retries.
       const r = await completeInspection(supabase, {
         employeeId,
         facilityId,
         inspectionId,
         notes: notes.length > 0 ? notes : null,
       })
-      return r.ok ? { ok: true } : { ...r, permanent: true }
+      if (r.ok) return { ok: true }
+      const gateFailure =
+        /severity-A|due checklist item|flagged checklist item|already signed off|Walk not found/.test(
+          r.error,
+        )
+      return { ...r, permanent: gateFailure }
     }
   } else {
     return NextResponse.json(

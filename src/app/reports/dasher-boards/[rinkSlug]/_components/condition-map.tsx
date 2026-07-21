@@ -168,6 +168,16 @@ export function ConditionMap(props: ConditionMapProps) {
   const [cacheSavedAt, setCacheSavedAt] = useState<number | null>(null)
   const [walkPending, startWalkTransition] = useTransition()
 
+  // Walk-scoped state must not leak into the NEXT walk (complete one, start
+  // another in the same session): re-seed when the server walk id changes.
+  const [seenWalkId, setSeenWalkId] = useState(walk?.id ?? null)
+  if ((walk?.id ?? null) !== seenWalkId) {
+    setSeenWalkId(walk?.id ?? null)
+    setResponses(walkResponses)
+    setLocallyLinkedItems([])
+    setOfflineWalk(false)
+  }
+
   // Stale-data indicator: remember when this rink's data last rendered live.
   useEffect(() => {
     if (online) {
@@ -217,7 +227,10 @@ export function ConditionMap(props: ConditionMapProps) {
 
   function completeWalk(notes: string) {
     startWalkTransition(async () => {
-      if (!online) {
+      // No server walk id yet (started offline, not yet synced — even if the
+      // device is back online, the queue may not have flushed): queue the
+      // sign-off too. FIFO replay lands it after start_walk.
+      if (!online || !walk) {
         const ok = enqueueSubmission({
           localId: genLocalId(),
           moduleKey: "dasher_boards",
@@ -227,14 +240,15 @@ export function ConditionMap(props: ConditionMapProps) {
         if (ok) {
           setOfflineWalk(false)
           toast.success(
-            "Sign-off queued. It is validated when you reconnect — unacknowledged severity-A issues or unanswered due items will reject it.",
+            "Sign-off queued. It is validated when it syncs — unacknowledged severity-A issues or unanswered due items will reject it.",
           )
+          if (online) router.refresh()
         } else {
           toast.error("Offline queue unavailable.")
         }
         return
       }
-      const r = await completeWalkAction(walk!.id, notes)
+      const r = await completeWalkAction(walk.id, notes)
       if (!r.ok) toast.error(r.error)
       else {
         toast.success("Walk signed off. Untapped assets are attested OK.")
@@ -246,21 +260,22 @@ export function ConditionMap(props: ConditionMapProps) {
   function answerItem(item: ChecklistItemRow, status: "pass" | "flag") {
     setResponses((cur) => ({ ...cur, [item.id]: status }))
     const persist = async () => {
-      if (!online) {
-        enqueueSubmission({
+      // Queue whenever there is no server walk id yet — otherwise an answer
+      // given in the online-but-unsynced-walk window would be silently lost.
+      if (!online || !walk) {
+        const ok = enqueueSubmission({
           localId: genLocalId(),
           moduleKey: "dasher_boards",
           action: "save_responses",
           payload: { rinkId: rink.id, responses: [{ itemId: item.id, status }] },
         })
+        if (!ok) toast.error("Offline queue unavailable — answer not saved.")
         return
       }
-      if (walk) {
-        const r = await saveChecklistResponsesAction(walk.id, [
-          { itemId: item.id, status },
-        ])
-        if (!r.ok) toast.error(r.error)
-      }
+      const r = await saveChecklistResponsesAction(walk.id, [
+        { itemId: item.id, status },
+      ])
+      if (!r.ok) toast.error(r.error)
     }
     void persist()
     if (status === "flag" && !linkedItems.has(item.id)) {
@@ -561,9 +576,15 @@ function AssetSheet({
             </SheetHeader>
 
             <div className="flex flex-col gap-4">
-              {/* Replacement spec — first thing on screen when glass breaks. */}
+              {/* Replacement spec — first thing on screen when glass breaks.
+                  Re-keyed by target identity AND type so a board→door
+                  conversion with the sheet open never edits stale fields. */}
               {specTarget && (
-                <SpecBlock target={specTarget} canAdmin={can.admin} />
+                <SpecBlock
+                  key={`${specTarget.id}:${specTarget.asset_type}`}
+                  target={specTarget}
+                  canAdmin={can.admin}
+                />
               )}
 
               {/* Door marking — module admins only (post-launch corrections). */}
@@ -587,9 +608,11 @@ function AssetSheet({
                 </div>
               )}
 
-              {/* Report issue */}
+              {/* Report issue — re-keyed by dialog target so form state never
+                  survives a switch to a different asset/item. */}
               {can.submit && (
                 <ReportIssueForm
+                  key={asset?.id ?? item?.id ?? "none"}
                   asset={asset}
                   glassChild={glassChild}
                   item={item}
@@ -759,8 +782,10 @@ function DoorToggle({
   return (
     <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
       <div className="flex items-center justify-between">
-        <Label>This is a door</Label>
+        <Label htmlFor="db-door-toggle">This is a door</Label>
         <Switch
+          id="db-door-toggle"
+          aria-label="This is a door"
           checked={isDoor}
           disabled={pending}
           onCheckedChange={(v) => {
@@ -1013,7 +1038,7 @@ function ReportIssueForm({
         onChange={(e) => setDescription(e.target.value)}
         rows={2}
       />
-      <div className="flex gap-2" role="radiogroup" aria-label="Severity">
+      <div className="flex gap-2" role="group" aria-label="Severity">
         {(["a", "b", "c"] as const).map((s) => (
           <Button
             key={s}

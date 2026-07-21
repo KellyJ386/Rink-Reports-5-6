@@ -5098,6 +5098,63 @@ select pg_temp.expect_error(
      where id = 'dabb000b-0000-4000-8000-000000000001'$$,
   'DB23: board_panel rows reject glass spec writes (check constraint)');
 
+-- Hardening (migration 197): hard deletes retire labels too.
+insert into public.dasher_boards_assets
+  (id, facility_id, rink_id, asset_type, label, sequence_position) values
+  ('dabb000a-0000-4000-8000-000000000077',
+   '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'B77', 77);
+delete from public.dasher_boards_assets
+  where id = 'dabb000a-0000-4000-8000-000000000077';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_retired_labels
+    where rink_id = 'dab0000a-0000-4000-8000-00000000000a' and label = 'B77'$$,
+  1, 'DB26a: a hard-deleted asset''s label is auto-retired');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_assets
+      (facility_id, rink_id, asset_type, label, sequence_position)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'B77', 78)$$,
+  'DB26b: a hard-deleted label can never be reused');
+
+-- Hardening (migration 197): severity A requires action_taken AND supervisor.
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, asset_id, description, severity, reported_by, supervisor_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a',
+            'dabb000a-0000-4000-8000-000000000001',
+            'A with supervisor but no action taken', 'a',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DB27: severity A without action_taken is rejected (check constraint)');
+
+-- Hardening (migration 197): a reporter whose submit grant is revoked can no
+-- longer edit their own open issues.
+update public.user_permissions set enabled = false
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+   and module_name = 'dasher_boards' and action = 'submit';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_issues
+         set description = 'edited after revocation'
+       where id = 'dabb000a-0000-4000-8000-000000000020'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB28: revoked reporter CANNOT edit their own open issue (0 rows)');
+
+set local role postgres;
+update public.user_permissions set enabled = true
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+   and module_name = 'dasher_boards' and action = 'submit';
+
 -- SECURITY INVOKER RPCs (migration 195): the caller's RLS gates apply inside.
 -- An EMPTY rink in alice's facility isolates the RLS insert gate — on a
 -- populated rink the RPC would reject for the wrong reason (assets exist).

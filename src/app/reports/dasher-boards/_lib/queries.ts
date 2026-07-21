@@ -62,12 +62,26 @@ export async function getRinkPerimeter(
     .is("resolved_at", null)
     .not("asset_id", "is", null)
 
+  // Glass rows have no segment of their own — an open issue on G12 must color
+  // the B12 position on the diagram. Attribute glass issues to BOTH the glass
+  // row (its own open_count in the dialog) and its parent board (the segment).
+  const glassParent = new Map<string, string>()
+  for (const a of assets) {
+    if (a.asset_type === "glass_panel" && a.parent_board_id) {
+      glassParent.set(a.id, a.parent_board_id)
+    }
+  }
   const rollup = new Map<string, IssueSeverity[]>()
+  const push = (assetId: string, severity: IssueSeverity) => {
+    const list = rollup.get(assetId) ?? []
+    list.push(severity)
+    rollup.set(assetId, list)
+  }
   for (const row of openIssues ?? []) {
     if (!row.asset_id) continue
-    const list = rollup.get(row.asset_id) ?? []
-    list.push(row.severity as IssueSeverity)
-    rollup.set(row.asset_id, list)
+    push(row.asset_id, row.severity as IssueSeverity)
+    const parentId = glassParent.get(row.asset_id)
+    if (parentId) push(parentId, row.severity as IssueSeverity)
   }
 
   return {

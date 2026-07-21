@@ -393,11 +393,14 @@ export async function convertAssetToDoor(
     }
 
     // The door owns its glass now; park the position's separate glass row.
+    // Only ACTIVE glass parks — a row the admin already turned off (no
+    // shielding) stays off, and its state is not misattributed to the door.
     const { data: glassRows, error: glassErr } = await ctx.supabase
       .from("dasher_boards_assets")
       .update({ is_active: false })
       .eq("parent_board_id", assetId)
       .eq("asset_type", "glass_panel")
+      .eq("is_active", true)
       .select("id")
     if (glassErr) {
       logServerError("admin/dasher-boards/convertAssetToDoor:glass", glassErr)
@@ -537,14 +540,41 @@ export async function convertDoorToBoard(assetId: string): Promise<SimpleResult>
       return { ok: false, error: dbError(error, "Failed to convert to a board.") }
     }
 
-    const { data: glassRows, error: glassErr } = await ctx.supabase
+    // Restore ONLY glass this position's door conversion parked — a row the
+    // admin deactivated manually (before or since) stays off. The park event's
+    // reason is the marker.
+    const { data: parkedGlass } = await ctx.supabase
       .from("dasher_boards_assets")
-      .update({ is_active: true })
+      .select("id")
       .eq("parent_board_id", assetId)
       .eq("asset_type", "glass_panel")
-      .select("id")
-    if (glassErr) {
-      logServerError("admin/dasher-boards/convertDoorToBoard:glass", glassErr)
+      .eq("is_active", false)
+      .maybeSingle()
+    let glassRows: Array<{ id: string }> = []
+    if (parkedGlass) {
+      const { data: lastPark } = await ctx.supabase
+        .from("dasher_boards_asset_events")
+        .select("detail")
+        .eq("asset_id", parkedGlass.id)
+        .eq("event_type", "deactivated")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const reason =
+        lastPark?.detail && typeof lastPark.detail === "object"
+          ? (lastPark.detail as { reason?: string }).reason
+          : undefined
+      if (reason === "parent_converted_to_door") {
+        const { data: restored, error: glassErr } = await ctx.supabase
+          .from("dasher_boards_assets")
+          .update({ is_active: true })
+          .eq("id", parkedGlass.id)
+          .select("id")
+        if (glassErr) {
+          logServerError("admin/dasher-boards/convertDoorToBoard:glass", glassErr)
+        }
+        glassRows = restored ?? []
+      }
     }
 
     await recordAssetEvents(ctx, [
@@ -608,6 +638,18 @@ export async function insertAsset(
       .maybeSingle()
     if (!rink) return { ok: false, error: "Rink not found." }
 
+    if (assetType === "door" && subtypeId) {
+      const { data: subtype } = await ctx.supabase
+        .from("dasher_boards_asset_subtypes")
+        .select("id, asset_type, is_active")
+        .eq("id", subtypeId)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle()
+      if (!subtype || subtype.asset_type !== "door" || !subtype.is_active) {
+        return { ok: false, error: "Invalid door subtype." }
+      }
+    }
+
     const { error: shiftErr } = await ctx.supabase.rpc(
       "dasher_boards_shift_positions",
       { p_rink_id: rinkId, p_from: after + 1, p_delta: 1 },
@@ -645,7 +687,9 @@ export async function insertAsset(
       { assetId: inserted.id, eventType: "created", detail: { label, position: after + 1 } },
     ]
 
-    // New board positions get the 1:1 glass row by default.
+    // New board positions get the 1:1 glass row — it is NOT optional. If the
+    // glass insert fails, unwind the board insert and close the gap so the
+    // rink never carries a board position with no glass row.
     if (assetType === "board_panel") {
       const glassLabel = nextLabel("glass_panel", [...labels.live, label], labels.retired)
       const { data: glass, error: glassErr } = await ctx.supabase
@@ -659,15 +703,27 @@ export async function insertAsset(
         })
         .select("id")
         .single()
-      if (glassErr) {
+      if (glassErr || !glass) {
         logServerError("admin/dasher-boards/insertAsset:glass", glassErr)
-      } else if (glass) {
-        events.push({
-          assetId: glass.id,
-          eventType: "created",
-          detail: { label: glassLabel, parent_board_id: inserted.id },
+        await ctx.supabase
+          .from("dasher_boards_assets")
+          .delete()
+          .eq("id", inserted.id)
+        await ctx.supabase.rpc("dasher_boards_shift_positions", {
+          p_rink_id: rinkId,
+          p_from: after + 2,
+          p_delta: -1,
         })
+        return {
+          ok: false,
+          error: dbError(glassErr, "Failed to create the position's glass row."),
+        }
       }
+      events.push({
+        assetId: glass.id,
+        eventType: "created",
+        detail: { label: glassLabel, parent_board_id: inserted.id },
+      })
     }
 
     await recordAssetEvents(ctx, events)
@@ -718,24 +774,42 @@ export async function removeAsset(assetId: string): Promise<SimpleResult> {
       .select("id", { count: "exact", head: true })
       .in("asset_id", targetIds)
 
+    // An asset with OPEN issues can't be removed — retiring it would strand
+    // issues no dialog can reach for acknowledge/resolve.
+    const { count: openCount } = await ctx.supabase
+      .from("dasher_boards_issues")
+      .select("id", { count: "exact", head: true })
+      .in("asset_id", targetIds)
+      .is("resolved_at", null)
+    if ((openCount ?? 0) > 0) {
+      return {
+        ok: false,
+        error: `Resolve the ${openCount} open issue(s) on ${asset.label} before removing it.`,
+      }
+    }
+
     const oldPosition = asset.sequence_position
 
     if ((issueCount ?? 0) > 0) {
       // Soft-retire: keep the row (and its label — permanently retired for
       // reuse purposes only when relabeled/converted; a retired-but-live row
-      // still holds its label under the rink's uniqueness).
+      // still holds its label under the rink's uniqueness). The glass child
+      // retires FIRST so a failure can't leave an active orphan glass row.
+      if (glassChild) {
+        const { error: glassErr } = await ctx.supabase
+          .from("dasher_boards_assets")
+          .update({ is_active: false })
+          .eq("id", glassChild.id)
+        if (glassErr) {
+          return { ok: false, error: dbError(glassErr, "Failed to retire the glass row.") }
+        }
+      }
       const { error } = await ctx.supabase
         .from("dasher_boards_assets")
         .update({ is_active: false, sequence_position: null })
         .eq("id", assetId)
       if (error) {
         return { ok: false, error: dbError(error, "Failed to retire the asset.") }
-      }
-      if (glassChild) {
-        await ctx.supabase
-          .from("dasher_boards_assets")
-          .update({ is_active: false })
-          .eq("id", glassChild.id)
       }
       await recordAssetEvents(ctx, [
         { assetId, eventType: "deactivated", detail: { label: asset.label, freed_position: oldPosition } },
@@ -823,6 +897,32 @@ export async function toggleGlass(
     const ctx = await resolveAdminContext()
     if (!ctx.ok) return ctx
     if (!isUuid(assetId)) return { ok: false, error: "Invalid asset." }
+
+    // A door position's glass stays parked — the door carries its own glass
+    // (product decision 1). Reactivation goes through convertDoorToBoard.
+    if (active) {
+      const { data: glassRow } = await ctx.supabase
+        .from("dasher_boards_assets")
+        .select("id, parent_board_id")
+        .eq("id", assetId)
+        .eq("facility_id", ctx.facilityId)
+        .eq("asset_type", "glass_panel")
+        .maybeSingle()
+      if (!glassRow) return { ok: false, error: "Glass panel not found." }
+      if (glassRow.parent_board_id) {
+        const { data: parent } = await ctx.supabase
+          .from("dasher_boards_assets")
+          .select("asset_type")
+          .eq("id", glassRow.parent_board_id)
+          .maybeSingle()
+        if (parent?.asset_type === "door") {
+          return {
+            ok: false,
+            error: "This position is a door — the door carries its glass. Convert it back to a board to restore the glass row.",
+          }
+        }
+      }
+    }
 
     const { data, error } = await ctx.supabase
       .from("dasher_boards_assets")
@@ -989,13 +1089,22 @@ export async function upsertSubtype(
       if (error) return { ok: false, error: dbError(error, "Failed to update subtype.") }
       if (!data || data.length === 0) return { ok: false, error: "Subtype not found." }
     } else {
+      // New rows go to the end of their scope (spaced so reorder has room).
+      const { data: maxRow } = await ctx.supabase
+        .from("dasher_boards_asset_subtypes")
+        .select("sort_order")
+        .eq("facility_id", ctx.facilityId)
+        .eq("asset_type", assetType)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle()
       const { error } = await ctx.supabase
         .from("dasher_boards_asset_subtypes")
         .insert({
           facility_id: ctx.facilityId,
           asset_type: assetType,
           label,
-          sort_order: sortOrder,
+          sort_order: (maxRow?.sort_order ?? 0) + 10,
         })
       if (error) return { ok: false, error: dbError(error, "Failed to create subtype.") }
     }
@@ -1042,13 +1151,21 @@ export async function upsertIssueCategory(
       if (error) return { ok: false, error: dbError(error, "Failed to update category.") }
       if (!data || data.length === 0) return { ok: false, error: "Category not found." }
     } else {
+      const { data: maxRow } = await ctx.supabase
+        .from("dasher_boards_issue_categories")
+        .select("sort_order")
+        .eq("facility_id", ctx.facilityId)
+        .eq("asset_type", assetType)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle()
       const { error } = await ctx.supabase
         .from("dasher_boards_issue_categories")
         .insert({
           facility_id: ctx.facilityId,
           asset_type: assetType,
           label,
-          sort_order: sortOrder,
+          sort_order: (maxRow?.sort_order ?? 0) + 10,
         })
       if (error) return { ok: false, error: dbError(error, "Failed to create category.") }
     }
@@ -1117,6 +1234,13 @@ export async function upsertChecklistItem(
         .eq("facility_id", ctx.facilityId)
         .maybeSingle()
       if (!rink) return { ok: false, error: "Rink not found." }
+      const { data: maxRow } = await ctx.supabase
+        .from("dasher_boards_checklist_items")
+        .select("sort_order")
+        .eq("rink_id", rinkId)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle()
       const { error } = await ctx.supabase
         .from("dasher_boards_checklist_items")
         .insert({
@@ -1125,7 +1249,7 @@ export async function upsertChecklistItem(
           label,
           cadence,
           due_month: cadence === "yearly" ? dueMonth : null,
-          sort_order: sortOrder,
+          sort_order: (maxRow?.sort_order ?? 0) + 10,
         })
       if (error) return { ok: false, error: dbError(error, "Failed to create item.") }
     }
@@ -1245,34 +1369,38 @@ export async function moveManagedRow(
       scopeVal = data.asset_type
     }
 
-    const neighborQuery = ctx.supabase
+    // Renumber-then-swap: a plain value swap is a no-op when sort_orders tie
+    // (which every batch-created row does), so materialize the current visual
+    // order (sort_order, then created_at, then id as the stable tiebreak the
+    // list UIs use), swap positions, and rewrite spaced sort_orders.
+    const { data: scopeRows, error: listErr } = await ctx.supabase
       .from(table)
-      .select("id, sort_order")
+      .select("id, sort_order, created_at")
       .eq("facility_id", ctx.facilityId)
-      .neq("id", id)
       .filter(scopeCol, "eq", scopeVal)
-    const { data: neighbor } = await (direction === -1
-      ? neighborQuery
-          .lte("sort_order", row.sort_order)
-          .order("sort_order", { ascending: false })
-      : neighborQuery
-          .gte("sort_order", row.sort_order)
-          .order("sort_order", { ascending: true })
-    )
-      .limit(1)
-      .maybeSingle()
-    if (!neighbor) return { ok: true } // already at the edge
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+    if (listErr || !scopeRows) {
+      return { ok: false, error: dbError(listErr, "Failed to reorder.") }
+    }
+    const idx = scopeRows.findIndex((r) => r.id === id)
+    if (idx === -1) return { ok: false, error: "Not found." }
+    const swapWith = idx + direction
+    if (swapWith < 0 || swapWith >= scopeRows.length) return { ok: true } // edge
 
-    const { error: e1 } = await ctx.supabase
-      .from(table)
-      .update({ sort_order: neighbor.sort_order })
-      .eq("id", id)
-    const { error: e2 } = await ctx.supabase
-      .from(table)
-      .update({ sort_order: row.sort_order })
-      .eq("id", neighbor.id)
-    if (e1 || e2) {
-      return { ok: false, error: dbError(e1 ?? e2, "Failed to reorder.") }
+    const order = [...scopeRows]
+    ;[order[idx], order[swapWith]] = [order[swapWith], order[idx]]
+    for (let i = 0; i < order.length; i++) {
+      const target = (i + 1) * 10
+      if (order[i].sort_order === target) continue
+      const { error: updErr } = await ctx.supabase
+        .from(table)
+        .update({ sort_order: target })
+        .eq("id", order[i].id)
+      if (updErr) {
+        return { ok: false, error: dbError(updErr, "Failed to reorder.") }
+      }
     }
     revalidateModule()
     return { ok: true }

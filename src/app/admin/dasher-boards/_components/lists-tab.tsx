@@ -181,14 +181,23 @@ function ManagedRow({
 
 function SubtypeForm({ subtype }: { subtype?: SubtypeRow }) {
   const [state, formAction, pending] = useActionState(upsertSubtype, NULL_STATE)
+  const [resetKey, setResetKey] = useState(0)
+  const [seenState, setSeenState] = useState<typeof state>(state)
+  if (state !== seenState) {
+    setSeenState(state)
+    if (state.ok === true && !subtype) setResetKey((k) => k + 1)
+  }
   useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Saved.")
+    if (state.ok === true) {
+      toast.success(state.message ?? "Saved.")
+    }
     if (state.ok === false) toast.error(state.error)
+     
   }, [state])
 
   return (
     <form
-      key={state.ok === true && !subtype ? "sub-ok" : "sub-form"}
+      key={resetKey}
       action={formAction}
       className="flex flex-wrap items-end gap-2"
     >
@@ -225,14 +234,23 @@ function CategoryForm({
     upsertIssueCategory,
     NULL_STATE,
   )
+  const [resetKey, setResetKey] = useState(0)
+  const [seenState, setSeenState] = useState<typeof state>(state)
+  if (state !== seenState) {
+    setSeenState(state)
+    if (state.ok === true && !category) setResetKey((k) => k + 1)
+  }
   useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Saved.")
+    if (state.ok === true) {
+      toast.success(state.message ?? "Saved.")
+    }
     if (state.ok === false) toast.error(state.error)
+     
   }, [state])
 
   return (
     <form
-      key={state.ok === true && !category ? "cat-ok" : "cat-form"}
+      key={resetKey}
       action={formAction}
       className="flex flex-wrap items-end gap-2"
     >

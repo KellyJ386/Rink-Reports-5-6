@@ -119,6 +119,11 @@ export async function persistIssueReport(
     if (!asset || asset.facility_id !== facilityId) {
       return { ok: false, error: "Asset not found." }
     }
+    if (!asset.is_active) {
+      // A retired asset has no diagram dot and no dialog — an issue landing
+      // on it would be unreachable for acknowledge/resolve.
+      return { ok: false, error: "This asset is retired; report the issue on its replacement." }
+    }
     rinkId = asset.rink_id
 
     // Spatial issues require a category quick-pick matching the asset type.
@@ -141,10 +146,10 @@ export async function persistIssueReport(
   } else {
     const { data: item } = await supabase
       .from("dasher_boards_checklist_items")
-      .select("id, rink_id, facility_id")
+      .select("id, rink_id, facility_id, is_active")
       .eq("id", input.checklistItemId!)
       .maybeSingle()
-    if (!item || item.facility_id !== facilityId) {
+    if (!item || item.facility_id !== facilityId || !item.is_active) {
       return { ok: false, error: "Checklist item not found." }
     }
     rinkId = item.rink_id

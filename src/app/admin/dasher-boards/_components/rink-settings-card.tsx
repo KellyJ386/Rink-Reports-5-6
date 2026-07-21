@@ -39,10 +39,19 @@ export function RinkSettingsCard({
   const action = mode === "create" ? createRink : updateRink
   const [state, formAction, pending] = useActionState(action, NULL_STATE)
   const [template, setTemplate] = useState(rink?.rink_template ?? "nhl_200x85")
+  const [resetKey, setResetKey] = useState(0)
+  const [seenState, setSeenState] = useState<typeof state>(state)
+  if (state !== seenState) {
+    setSeenState(state)
+    if (state.ok === true && mode === "create") setResetKey((k) => k + 1)
+  }
 
   useEffect(() => {
-    if (state.ok === true) toast.success(state.message ?? "Saved.")
+    if (state.ok === true) {
+      toast.success(state.message ?? "Saved.")
+    }
     if (state.ok === false) toast.error(state.error)
+     
   }, [state])
 
   return (
@@ -59,7 +68,7 @@ export function RinkSettingsCard({
       </CardHeader>
       <CardContent>
         <form
-          key={state.ok === true ? "rink-ok" : "rink-form"}
+          key={resetKey}
           action={formAction}
           className="grid gap-4 sm:grid-cols-2"
         >

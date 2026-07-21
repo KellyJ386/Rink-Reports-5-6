@@ -160,8 +160,11 @@ export default async function DasherBoardsAdminPage({
         activeHref={tabHref(tab, rinks.length > 1 ? selectedRink.id : undefined)}
       />
 
+      {/* Keyed by rink so switching rinks remounts every form with fresh
+          defaults (uncontrolled inputs otherwise show the previous rink). */}
       {tab === "perimeter" && (
         <PerimeterTab
+          key={selectedRink.id}
           rink={selectedRink}
           assets={assets}
           doorSubtypes={subtypes.filter(
@@ -169,7 +172,9 @@ export default async function DasherBoardsAdminPage({
           )}
         />
       )}
-      {tab === "checklist" && <ChecklistTab rink={selectedRink} items={items} />}
+      {tab === "checklist" && (
+        <ChecklistTab key={selectedRink.id} rink={selectedRink} items={items} />
+      )}
       {tab === "lists" && (
         <ListsTab subtypes={subtypes} categories={categories} />
       )}

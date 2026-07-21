@@ -190,6 +190,15 @@ function ItemForm({
     NULL_STATE,
   )
   const [cadence, setCadence] = useState(item?.cadence ?? "weekly")
+  // Counter, not a boolean flip: the create form must reset on EVERY
+  // successful submit, not just the first. Render-time state adjust (the
+  // set-state-in-effect rule forbids doing this inside the toast effect).
+  const [resetKey, setResetKey] = useState(0)
+  const [seenState, setSeenState] = useState<typeof state>(state)
+  if (state !== seenState) {
+    setSeenState(state)
+    if (state.ok === true && !item) setResetKey((k) => k + 1)
+  }
 
   useEffect(() => {
     if (state.ok === true) {
@@ -202,7 +211,7 @@ function ItemForm({
 
   return (
     <form
-      key={state.ok === true && !item ? "item-ok" : "item-form"}
+      key={resetKey}
       action={formAction}
       className="flex flex-wrap items-end gap-2"
     >

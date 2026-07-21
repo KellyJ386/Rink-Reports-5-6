@@ -161,14 +161,19 @@ export function RinkPerimeter({
                   }
                 : {})}
             >
-              {/* Enlarged transparent hit area (≥44px touch target). */}
+              {/* Enlarged transparent hit area. Butt caps so a segment's hit
+                  zone never extends past its own span and steals the
+                  neighbor's taps; 34 SVG units of stroke ≈ the full board
+                  band + margin at typical phone render widths. Keyboard
+                  selection (Tab + Enter) covers precision taps at high
+                  position counts, where per-segment width is physics-bound. */}
               {interactive && (
                 <path
                   d={seg.pathD}
                   fill="none"
                   stroke="transparent"
-                  strokeWidth={26}
-                  strokeLinecap="round"
+                  strokeWidth={34}
+                  strokeLinecap="butt"
                 />
               )}
               {/* Selection halo. */}
@@ -185,14 +190,17 @@ export function RinkPerimeter({
               {isDoor ? (
                 <>
                   {/* Door identity: a deliberate break in the board line —
-                      two stubs + a lime door leaf set slightly outward. */}
+                      two board-colored stubs (one at EACH end, via a
+                      normalized pathLength so the dash pattern spans the
+                      whole segment exactly once) + a lime door leaf. */}
                   <path
                     d={seg.pathD}
                     fill="none"
                     stroke={stroke}
                     strokeWidth={7}
                     strokeLinecap="round"
-                    strokeDasharray="6 100"
+                    pathLength={100}
+                    strokeDasharray="12 76"
                   />
                   <path
                     d={seg.pathD}
