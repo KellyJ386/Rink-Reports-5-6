@@ -45,6 +45,29 @@ export type GlassSpecInput = {
   notes: string | null
 }
 
+export type Tab = "perimeter" | "checklist" | "lists"
+export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
+  { key: "perimeter", label: "Perimeter" },
+  { key: "checklist", label: "Checklist" },
+  { key: "lists", label: "Lists" },
+]
+export function asTab(value: string | undefined): Tab {
+  const allowed = TABS.map((t) => t.key)
+  return (allowed as readonly string[]).includes(value ?? "")
+    ? (value as Tab)
+    : "perimeter"
+}
+
+export const WEEKDAY_LABELS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const
+
 export type ActionState =
   | { ok: true; message?: string }
   | { ok: false; error: string }

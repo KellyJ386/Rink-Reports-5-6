@@ -423,6 +423,75 @@ export async function convertAssetToDoor(
   }
 }
 
+/** Changes an existing door's subtype (post-conversion correction). */
+export async function setDoorSubtype(
+  assetId: string,
+  subtypeId: string | null,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(assetId)) return { ok: false, error: "Invalid asset." }
+    if (subtypeId !== null && !isUuid(subtypeId)) {
+      return { ok: false, error: "Invalid subtype." }
+    }
+    if (subtypeId) {
+      const { data: subtype } = await ctx.supabase
+        .from("dasher_boards_asset_subtypes")
+        .select("id, asset_type, is_active")
+        .eq("id", subtypeId)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle()
+      if (!subtype || subtype.asset_type !== "door" || !subtype.is_active) {
+        return { ok: false, error: "Invalid door subtype." }
+      }
+    }
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .update({ subtype_id: subtypeId })
+      .eq("id", assetId)
+      .eq("facility_id", ctx.facilityId)
+      .eq("asset_type", "door")
+      .select("id")
+    if (error) return { ok: false, error: dbError(error, "Failed to set subtype.") }
+    if (!data || data.length === 0) return { ok: false, error: "Door not found." }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setDoorSubtype", e)
+    return { ok: false, error: "Failed to set subtype." }
+  }
+}
+
+/** Sets the weekday (0=Sun..6=Sat) weekly checklist items come due. */
+export async function setRinkInspectionWeekday(
+  rinkId: string,
+  weekday: number,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    const day = Math.trunc(weekday)
+    if (day < 0 || day > 6) {
+      return { ok: false, error: "Weekday must be 0 (Sun) – 6 (Sat)." }
+    }
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .update({ inspection_weekday: day })
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) return { ok: false, error: dbError(error, "Failed to set the weekday.") }
+    if (!data || data.length === 0) return { ok: false, error: "Rink not found." }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setRinkInspectionWeekday", e)
+    return { ok: false, error: "Failed to set the weekday." }
+  }
+}
+
 /** Converts a door back to a board panel; restores the position's glass row. */
 export async function convertDoorToBoard(assetId: string): Promise<SimpleResult> {
   try {
