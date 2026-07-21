@@ -14,6 +14,8 @@
 
 import { useId, useMemo } from "react"
 
+import { RinkMarkings } from "@/components/ice-depth/usa-rink"
+
 import {
   buildPerimeterSegments,
   RINK_H,
@@ -91,21 +93,12 @@ export function RinkPerimeter({
         preserveAspectRatio="xMidYMid meet"
         aria-label="Rink perimeter diagram"
       >
-        {/* Ice surface — same footprint the boards wrap (matches USARink). */}
-        <rect
-          x="62.5"
-          y="70"
-          width="255"
-          height="600"
-          rx="84"
-          ry="84"
-          fill="#e8f4f8"
-          stroke="#c2d6e0"
-          strokeWidth="1"
-          pointerEvents="none"
-        />
-        <line x1="80" y1="370" x2="300" y2="370" stroke="#c8102e" strokeWidth="2.5" opacity="0.35" pointerEvents="none" />
-        <circle cx="190" cy="370" r="30" fill="none" stroke="#003087" strokeWidth="1.5" opacity="0.35" pointerEvents="none" />
+        {/* The SAME USA Hockey ice surface the Ice Depth diagram renders
+            (shared markup, imported) — the board ring wraps around it.
+            pointer-events off so markings never steal the segments' taps. */}
+        <g pointerEvents="none" aria-hidden="true">
+          <RinkMarkings />
+        </g>
 
         {/* Glass layer (inside the boards). */}
         {showGlassLayer &&
@@ -273,12 +266,13 @@ export function RinkPerimeter({
           )
         })}
 
-        {/* Anchor marker: where position 1 starts. */}
+        {/* Anchor marker: where position 1 starts (sits above the label ring
+            so it never collides with the top-edge asset labels). */}
         <g pointerEvents="none" aria-hidden="true">
           <circle cx={190} cy={70} r={2.5} fill="#8A92A0" />
           <text
             x={190}
-            y={58}
+            y={48}
             textAnchor="middle"
             fontSize={7}
             className="fill-muted-foreground font-mono"
