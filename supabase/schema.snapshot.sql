@@ -5710,6 +5710,35 @@ COMMENT ON FUNCTION public.seed_default_dasher_boards_config(p_facility_id uuid)
 
 
 --
+-- Name: seed_default_door_types(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.seed_default_door_types(p_facility_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  insert into public.facility_door_types (facility_id, name, sort_order)
+  select p_facility_id, s.name, s.sort_order
+  from (values
+    ('Zamboni Door',     0),
+    ('Access Door',      1),
+    ('Player Gate',      2),
+    ('Penalty Box Gate', 3)
+  ) as s(name, sort_order)
+  on conflict (facility_id, name) do nothing;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION seed_default_door_types(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.seed_default_door_types(p_facility_id uuid) IS 'Seeds the four standard rink door types (Zamboni Door, Access Door, Player Gate, Penalty Box Gate) for a facility. Idempotent. Seed only — rows stay editable in Admin. Internal-only execute, mirroring seed_default_dasher_boards_config.';
+
+
+--
 -- Name: seed_default_facility_air_quality_config(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6455,6 +6484,21 @@ CREATE FUNCTION public.tg_seed_dasher_boards_config() RETURNS trigger
     AS $$
 begin
   perform public.seed_default_dasher_boards_config(new.id);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: tg_seed_door_types(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.tg_seed_door_types() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.seed_default_door_types(new.id);
   return new;
 end;
 $$;
@@ -8188,6 +8232,8 @@ CREATE TABLE public.dasher_boards_rinks (
     is_default boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    perimeter_anchor_offset numeric DEFAULT 0 NOT NULL,
+    CONSTRAINT dasher_boards_rinks_anchor_offset_range CHECK (((perimeter_anchor_offset >= (0)::numeric) AND (perimeter_anchor_offset < (1)::numeric))),
     CONSTRAINT dasher_boards_rinks_custom_dims CHECK ((((rink_template = 'custom'::text) AND (custom_length_ft > (0)::numeric) AND (custom_width_ft > (0)::numeric)) OR ((rink_template <> 'custom'::text) AND (custom_length_ft IS NULL) AND (custom_width_ft IS NULL)))),
     CONSTRAINT dasher_boards_rinks_inspection_weekday_check CHECK (((inspection_weekday >= 0) AND (inspection_weekday <= 6))),
     CONSTRAINT dasher_boards_rinks_perimeter_direction_check CHECK ((perimeter_direction = ANY (ARRAY['clockwise'::text, 'counterclockwise'::text]))),
@@ -8207,6 +8253,13 @@ COMMENT ON TABLE public.dasher_boards_rinks IS 'Dasher Boards: physical sheets o
 --
 
 COMMENT ON COLUMN public.dasher_boards_rinks.inspection_weekday IS '0=Sunday .. 6=Saturday (JS Date.getDay convention). Weekly checklist items come due on this weekday. Default Monday.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.perimeter_anchor_offset; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.perimeter_anchor_offset IS 'Fraction [0, 1) of the boundary arc length where sequence position 1 starts drawing. Purely a rendering rotation — never renumbers or relabels assets. Default 0 (top-middle of the diagram).';
 
 
 --
@@ -8593,6 +8646,72 @@ COMMENT ON TABLE public.facility_documents IS 'Per-facility library of uploaded 
 
 
 --
+-- Name: facility_door_markers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_door_markers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    door_type_id uuid NOT NULL,
+    label text,
+    position_x numeric NOT NULL,
+    position_y numeric NOT NULL,
+    created_by uuid,
+    updated_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_door_markers_position_x_check CHECK (((position_x >= (0)::numeric) AND (position_x <= (1)::numeric))),
+    CONSTRAINT facility_door_markers_position_y_check CHECK (((position_y >= (0)::numeric) AND (position_y <= (1)::numeric)))
+);
+
+
+--
+-- Name: TABLE facility_door_markers; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_door_markers IS 'Ice Depth diagram overlays: door/gate markers placed on the rink diagram. position_x/position_y are fractional [0,1] in the same coordinate space as ice_depth_points (380×740 viewBox). Facility-level reference geography — rendered read-only on every report, independent of report state. door_type_id is pinned to the same facility via a composite FK.';
+
+
+--
+-- Name: COLUMN facility_door_markers.label; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_door_markers.label IS 'Optional free-text label (e.g. "West Zamboni") shown with the door-type name in tooltips/legend.';
+
+
+--
+-- Name: facility_door_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_door_types (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    color text,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_door_types_color_check CHECK (((color IS NULL) OR (color ~ '^#[0-9a-fA-F]{6}$'::text)))
+);
+
+
+--
+-- Name: TABLE facility_door_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_door_types IS 'Ice Depth diagram overlays: admin-configurable door-type lookup (e.g. Zamboni Door, Access Door). Facility-scoped; seeded on facility provisioning but fully editable in Admin. color is an optional CSS hex; NULL renders the brand navy default.';
+
+
+--
+-- Name: COLUMN facility_door_types.color; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_door_types.color IS 'Optional 6-digit CSS hex for markers of this type. NULL = UI default (brand navy #002244).';
+
+
+--
 -- Name: facility_dropdown_options; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -8631,6 +8750,38 @@ CREATE TABLE public.facility_modules (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: facility_rink_diagram_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_rink_diagram_config (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    logo_storage_path text,
+    logo_position_x numeric DEFAULT 0.5 NOT NULL,
+    logo_position_y numeric DEFAULT 0.5 NOT NULL,
+    logo_scale numeric DEFAULT 0.25 NOT NULL,
+    logo_rotation numeric DEFAULT 0 NOT NULL,
+    logo_opacity numeric DEFAULT 0.15 NOT NULL,
+    logo_visible boolean DEFAULT true NOT NULL,
+    updated_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_rink_diagram_config_logo_opacity_check CHECK (((logo_opacity >= (0)::numeric) AND (logo_opacity <= (1)::numeric))),
+    CONSTRAINT facility_rink_diagram_config_logo_position_x_check CHECK (((logo_position_x >= (0)::numeric) AND (logo_position_x <= (1)::numeric))),
+    CONSTRAINT facility_rink_diagram_config_logo_position_y_check CHECK (((logo_position_y >= (0)::numeric) AND (logo_position_y <= (1)::numeric))),
+    CONSTRAINT facility_rink_diagram_config_logo_rotation_check CHECK (((logo_rotation >= ('-360'::integer)::numeric) AND (logo_rotation <= (360)::numeric))),
+    CONSTRAINT facility_rink_diagram_config_logo_scale_check CHECK (((logo_scale > (0)::numeric) AND (logo_scale <= (1)::numeric)))
+);
+
+
+--
+-- Name: TABLE facility_rink_diagram_config; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_rink_diagram_config IS 'Ice Depth diagram overlays: per-facility center-ice logo watermark config (one row per facility). logo_storage_path points into the private rink-logos bucket (''<facility_id>/<file>''). logo_position_x/y are fractional [0,1] in the shared diagram coordinate space; logo_scale is a fraction of diagram width; logo_opacity defaults to watermark level (0.15). Rendered BELOW door markers and depth points so it never obscures data.';
 
 
 --
@@ -11583,6 +11734,38 @@ ALTER TABLE ONLY public.facility_documents
 
 
 --
+-- Name: facility_door_markers facility_door_markers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_markers
+    ADD CONSTRAINT facility_door_markers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: facility_door_types facility_door_types_facility_name_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_types
+    ADD CONSTRAINT facility_door_types_facility_name_uniq UNIQUE (facility_id, name);
+
+
+--
+-- Name: facility_door_types facility_door_types_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_types
+    ADD CONSTRAINT facility_door_types_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: facility_door_types facility_door_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_types
+    ADD CONSTRAINT facility_door_types_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: facility_dropdown_options facility_dropdown_options_facility_domain_key_uniq; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11612,6 +11795,22 @@ ALTER TABLE ONLY public.facility_modules
 
 ALTER TABLE ONLY public.facility_modules
     ADD CONSTRAINT facility_modules_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rink_diagram_config
+    ADD CONSTRAINT facility_rink_diagram_config_facility_uniq UNIQUE (facility_id);
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rink_diagram_config
+    ADD CONSTRAINT facility_rink_diagram_config_pkey PRIMARY KEY (id);
 
 
 --
@@ -13266,6 +13465,27 @@ CREATE INDEX idx_facility_documents_facility_active ON public.facility_documents
 
 
 --
+-- Name: idx_facility_door_markers_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_door_markers_facility ON public.facility_door_markers USING btree (facility_id);
+
+
+--
+-- Name: idx_facility_door_markers_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_door_markers_type ON public.facility_door_markers USING btree (door_type_id);
+
+
+--
+-- Name: idx_facility_door_types_facility_active_sort; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_door_types_facility_active_sort ON public.facility_door_types USING btree (facility_id, is_active, sort_order);
+
+
+--
 -- Name: idx_facility_dropdown_options_facility_domain_active_sort; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -14421,6 +14641,13 @@ CREATE TRIGGER facilities_seed_dasher_boards AFTER INSERT ON public.facilities F
 
 
 --
+-- Name: facilities facilities_seed_door_types; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER facilities_seed_door_types AFTER INSERT ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.tg_seed_door_types();
+
+
+--
 -- Name: facilities facilities_seed_modules; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -14988,10 +15215,31 @@ CREATE TRIGGER trg_facility_documents_updated_at BEFORE UPDATE ON public.facilit
 
 
 --
+-- Name: facility_door_markers trg_facility_door_markers_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_door_markers_updated_at BEFORE UPDATE ON public.facility_door_markers FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: facility_door_types trg_facility_door_types_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_door_types_updated_at BEFORE UPDATE ON public.facility_door_types FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: facility_dropdown_options trg_facility_dropdown_options_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER trg_facility_dropdown_options_updated_at BEFORE UPDATE ON public.facility_dropdown_options FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: facility_rink_diagram_config trg_facility_rink_diagram_config_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_rink_diagram_config_updated_at BEFORE UPDATE ON public.facility_rink_diagram_config FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -16579,6 +16827,54 @@ ALTER TABLE ONLY public.facility_documents
 
 
 --
+-- Name: facility_door_markers facility_door_markers_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_markers
+    ADD CONSTRAINT facility_door_markers_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: facility_door_markers facility_door_markers_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_markers
+    ADD CONSTRAINT facility_door_markers_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_door_markers facility_door_markers_type_same_facility_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_markers
+    ADD CONSTRAINT facility_door_markers_type_same_facility_fkey FOREIGN KEY (door_type_id, facility_id) REFERENCES public.facility_door_types(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: facility_door_markers facility_door_markers_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_markers
+    ADD CONSTRAINT facility_door_markers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: facility_door_types facility_door_types_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_types
+    ADD CONSTRAINT facility_door_types_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: facility_door_types facility_door_types_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_types
+    ADD CONSTRAINT facility_door_types_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
 -- Name: facility_dropdown_options facility_dropdown_options_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -16592,6 +16888,22 @@ ALTER TABLE ONLY public.facility_dropdown_options
 
 ALTER TABLE ONLY public.facility_modules
     ADD CONSTRAINT facility_modules_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rink_diagram_config
+    ADD CONSTRAINT facility_rink_diagram_config_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rink_diagram_config
+    ADD CONSTRAINT facility_rink_diagram_config_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.employees(id) ON DELETE SET NULL;
 
 
 --
@@ -19795,6 +20107,74 @@ CREATE POLICY facility_documents_update ON public.facility_documents FOR UPDATE 
 
 
 --
+-- Name: facility_door_markers; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_door_markers ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_door_markers facility_door_markers_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_markers_delete ON public.facility_door_markers FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_markers facility_door_markers_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_markers_insert ON public.facility_door_markers FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_markers facility_door_markers_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_markers_select ON public.facility_door_markers FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_markers facility_door_markers_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_markers_update ON public.facility_door_markers FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_door_types ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_door_types facility_door_types_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_types_delete ON public.facility_door_types FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_types facility_door_types_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_types_insert ON public.facility_door_types FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_types facility_door_types_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_types_select ON public.facility_door_types FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_door_types facility_door_types_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_door_types_update ON public.facility_door_types FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
 -- Name: facility_dropdown_options; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -19860,6 +20240,40 @@ CREATE POLICY facility_modules_select ON public.facility_modules FOR SELECT TO a
 --
 
 CREATE POLICY facility_modules_update ON public.facility_modules FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.is_facility_admin(facility_id)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.is_facility_admin(facility_id))));
+
+
+--
+-- Name: facility_rink_diagram_config; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_rink_diagram_config ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rink_diagram_config_delete ON public.facility_rink_diagram_config FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rink_diagram_config_insert ON public.facility_rink_diagram_config FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rink_diagram_config_select ON public.facility_rink_diagram_config FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rink_diagram_config_update ON public.facility_rink_diagram_config FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
 
 
 --

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  boundaryPathD,
   buildPerimeterSegments,
+  nearestArcLength,
   PERIMETER_LENGTH,
   perimeterNormalAt,
   perimeterPointAt,
@@ -120,5 +122,67 @@ describe("buildPerimeterSegments", () => {
     const one = buildPerimeterSegments(assets.slice(0, 1), "clockwise")
     expect(one).toHaveLength(1)
     expect(one[0].endS - one[0].startS).toBeCloseTo(PERIMETER_LENGTH - 2, 6)
+  })
+
+  it("anchorOffset rotates the ring without changing span sizes or order", () => {
+    const base = buildPerimeterSegments(assets, "clockwise")
+    const rotated = buildPerimeterSegments(assets, "clockwise", 100)
+    expect(rotated.map((s) => s.label)).toEqual(base.map((s) => s.label))
+    for (let i = 0; i < base.length; i++) {
+      expect(rotated[i].endS - rotated[i].startS).toBeCloseTo(
+        base[i].endS - base[i].startS,
+        6,
+      )
+      // Every point on the rotated ring is the base ring shifted by exactly
+      // the offset (mod the perimeter) — the rotation is rigid, not a
+      // relabel or a resize. startS/endS are raw (unwrapped) arc lengths, so
+      // compare the actual boundary points instead.
+      const basePoint = perimeterPointAt(base[i].startS + 100)
+      const rotatedPoint = perimeterPointAt(rotated[i].startS)
+      expect(rotatedPoint.x).toBeCloseTo(basePoint.x, 6)
+      expect(rotatedPoint.y).toBeCloseTo(basePoint.y, 6)
+    }
+  })
+
+  it("a full-perimeter anchorOffset is equivalent to no offset (wraps)", () => {
+    const base = buildPerimeterSegments(assets, "clockwise")
+    const wrapped = buildPerimeterSegments(assets, "clockwise", PERIMETER_LENGTH)
+    for (let i = 0; i < base.length; i++) {
+      const basePoint = perimeterPointAt(base[i].startS)
+      const wrappedPoint = perimeterPointAt(wrapped[i].startS)
+      expect(wrappedPoint.x).toBeCloseTo(basePoint.x, 6)
+      expect(wrappedPoint.y).toBeCloseTo(basePoint.y, 6)
+    }
+  })
+})
+
+describe("boundaryPathD", () => {
+  it("returns a non-empty SVG path covering the whole loop", () => {
+    const d = boundaryPathD()
+    expect(d.startsWith("M ")).toBe(true)
+    expect(d).toContain("L ")
+  })
+})
+
+describe("nearestArcLength", () => {
+  it("recovers the arc length of a point on the boundary", () => {
+    for (const s of [0, 50, 300, 800, PERIMETER_LENGTH - 10]) {
+      const p = perimeterPointAt(s)
+      const found = nearestArcLength(p)
+      // Sample resolution is 2 units, so recovery is exact to within that.
+      const diff = Math.min(
+        Math.abs(found - s),
+        PERIMETER_LENGTH - Math.abs(found - s),
+      )
+      expect(diff).toBeLessThanOrEqual(2)
+    }
+  })
+
+  it("finds the closest boundary point for an off-boundary click", () => {
+    // A point well outside the ring, near the top edge — nearest s should
+    // land near the top-edge midpoint (s=0), not on the opposite wall.
+    const s = nearestArcLength({ x: 190, y: 20 })
+    const dist = Math.min(s, PERIMETER_LENGTH - s)
+    expect(dist).toBeLessThan(20)
   })
 })

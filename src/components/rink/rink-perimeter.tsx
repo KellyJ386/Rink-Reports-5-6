@@ -12,12 +12,17 @@
 // break in the board line; it is never red or yellow unless it has open
 // issues. Non-color cues: doors get a glyph, condition gets a "!" marker.
 
-import { useId, useMemo } from "react"
+import { useId, useMemo, useRef } from "react"
 
 import { RinkMarkings } from "@/components/ice-depth/usa-rink"
 
 import {
+  boundaryPathD,
   buildPerimeterSegments,
+  nearestArcLength,
+  perimeterNormalAt,
+  perimeterPointAt,
+  PERIMETER_LENGTH,
   RINK_H,
   RINK_W,
   type PerimeterDirection,
@@ -39,6 +44,13 @@ export type RinkPerimeterProps = {
   /** Active positioned assets (boards + doors) in sequence order. */
   positioned: PositionedAssetLite[]
   direction: PerimeterDirection
+  /**
+   * Where sequence position 1 starts drawing, as a fraction [0, 1) of the
+   * boundary's arc length (the rink's `perimeter_anchor_offset`). Purely a
+   * rendering rotation — never changes which asset is which. Default 0 =
+   * top-middle, the historical fixed start.
+   */
+  anchorOffsetFraction?: number
   /** Glass rows keyed by parent board id (for the glass layer). */
   glassByParent?: Record<string, RinkPerimeterGlass>
   /** Open-issue condition per asset id (assets absent = clear). */
@@ -48,6 +60,13 @@ export type RinkPerimeterProps = {
   showGlassLayer?: boolean
   showLabels?: boolean
   className?: string
+  /**
+   * When set, the diagram enters "pick a start point" mode: the whole
+   * boundary becomes a click target, and clicking anywhere on it reports the
+   * nearest arc-length fraction. Admin-only (see PerimeterTab's "Set start
+   * point" toggle) — staff-facing renders never pass this.
+   */
+  onPickAnchor?: (offsetFraction: number) => void
 }
 
 const BOARD_COLOR = "#33475e"
@@ -70,6 +89,7 @@ function segmentStroke(
 export function RinkPerimeter({
   positioned,
   direction,
+  anchorOffsetFraction = 0,
   glassByParent,
   conditionByAssetId,
   selectedAssetId,
@@ -77,19 +97,43 @@ export function RinkPerimeter({
   showGlassLayer = false,
   showLabels = true,
   className,
+  onPickAnchor,
 }: RinkPerimeterProps) {
   const uid = useId()
+  const svgRef = useRef<SVGSVGElement>(null)
+  const anchorOffset = anchorOffsetFraction * PERIMETER_LENGTH
   const segments = useMemo(
-    () => buildPerimeterSegments(positioned, direction),
-    [positioned, direction],
+    () => buildPerimeterSegments(positioned, direction, anchorOffset),
+    [positioned, direction, anchorOffset],
   )
   const interactive = typeof onSelectAsset === "function"
+  const pickingAnchor = typeof onPickAnchor === "function"
+  const anchorPoint = perimeterPointAt(anchorOffset)
+  const anchorNormal = perimeterNormalAt(anchorOffset)
+  const anchorCaption = {
+    x: anchorPoint.x + anchorNormal.x * 26,
+    y: anchorPoint.y + anchorNormal.y * 26,
+  }
+
+  function handleBoundaryClick(e: React.PointerEvent<SVGPathElement>) {
+    const svg = svgRef.current
+    if (!svg || !onPickAnchor) return
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return
+    const pt = svg.createSVGPoint()
+    pt.x = e.clientX
+    pt.y = e.clientY
+    const local = pt.matrixTransform(ctm.inverse())
+    const s = nearestArcLength({ x: local.x, y: local.y })
+    onPickAnchor(s / PERIMETER_LENGTH)
+  }
 
   return (
     <div className={className} style={{ aspectRatio: `${RINK_W}/${RINK_H}` }}>
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${RINK_W} ${RINK_H}`}
-        className="h-auto w-full"
+        className={pickingAnchor ? "h-auto w-full cursor-crosshair" : "h-auto w-full"}
         preserveAspectRatio="xMidYMid meet"
         aria-label="Rink perimeter diagram"
       >
@@ -99,6 +143,33 @@ export function RinkPerimeter({
         <g pointerEvents="none" aria-hidden="true">
           <RinkMarkings />
         </g>
+
+        {/* "Pick a start point" hit target — the whole boundary, so it works
+            even before any assets exist (the wizard's empty-ring preview).
+            Wide transparent stroke for an easy tap target; a thin dashed
+            highlight underneath signals the mode is active. */}
+        {pickingAnchor && (
+          <>
+            <path
+              d={boundaryPathD()}
+              fill="none"
+              stroke={SELECT_COLOR}
+              strokeWidth={2}
+              strokeDasharray="4 4"
+              opacity={0.5}
+              pointerEvents="none"
+            />
+            <path
+              d={boundaryPathD()}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={28}
+              role="button"
+              aria-label="Click a spot on the boundary to set the perimeter start point"
+              onPointerDown={handleBoundaryClick}
+            />
+          </>
+        )}
 
         {/* Glass layer (inside the boards). */}
         {showGlassLayer &&
@@ -267,13 +338,15 @@ export function RinkPerimeter({
           )
         })}
 
-        {/* Anchor marker: where position 1 starts (sits above the label ring
-            so it never collides with the top-edge asset labels). */}
+        {/* Anchor marker: where position 1 starts — the facility-settable
+            start point (default top-middle). Offset further outward than the
+            label ring so it never collides with the top-edge asset labels,
+            wherever on the ring it sits. */}
         <g pointerEvents="none" aria-hidden="true">
-          <circle cx={190} cy={70} r={2.5} fill="#8A92A0" />
+          <circle cx={anchorPoint.x} cy={anchorPoint.y} r={2.5} fill="#8A92A0" />
           <text
-            x={190}
-            y={44}
+            x={anchorCaption.x}
+            y={anchorCaption.y}
             textAnchor="middle"
             fontSize={9}
             className="fill-muted-foreground font-mono"

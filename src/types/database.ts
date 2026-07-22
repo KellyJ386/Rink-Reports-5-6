@@ -2785,6 +2785,7 @@ export type Database = {
           is_default: boolean
           name: string
           perimeter_anchor_label: string | null
+          perimeter_anchor_offset: number
           perimeter_direction: string
           rink_template: string
           slug: string
@@ -2802,6 +2803,7 @@ export type Database = {
           is_default?: boolean
           name: string
           perimeter_anchor_label?: string | null
+          perimeter_anchor_offset?: number
           perimeter_direction?: string
           rink_template?: string
           slug: string
@@ -2819,6 +2821,7 @@ export type Database = {
           is_default?: boolean
           name?: string
           perimeter_anchor_label?: string | null
+          perimeter_anchor_offset?: number
           perimeter_direction?: string
           rink_template?: string
           slug?: string

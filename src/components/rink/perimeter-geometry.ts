@@ -134,6 +134,36 @@ const JOINT_GAP = 2 // arc-length gap at each joint so segments read as panels
 const SAMPLE_STEP = 4 // boundary sampling resolution for path polylines
 const LABEL_OFFSET = 16 // outward label distance (sized for the larger label type)
 const GLASS_INSET = -7 // glass overlay sits just inside the boards
+const NEAREST_SAMPLE_STEP = 2 // resolution for nearestArcLength's click-to-s search
+
+/**
+ * The full boundary loop as a single SVG path — used for the always-present
+ * click-anywhere-to-set-the-start-point hit target, which must work even
+ * before any assets exist (the wizard's empty-ring preview).
+ */
+export function boundaryPathD(): string {
+  return spanPath(0, PERIMETER_LENGTH, 0)
+}
+
+/**
+ * Nearest arc length on the boundary to an arbitrary SVG-space point — powers
+ * the "click a spot on the diagram to set the start point" interaction. Dense
+ * linear search; the boundary is short enough (~1400 units) that this is
+ * well under a millisecond and needs no closed-form corner/straight split.
+ */
+export function nearestArcLength(point: PerimeterPoint): number {
+  let bestS = 0
+  let bestDist = Infinity
+  for (let s = 0; s < PERIMETER_LENGTH; s += NEAREST_SAMPLE_STEP) {
+    const p = perimeterPointAt(s)
+    const dist = (p.x - point.x) ** 2 + (p.y - point.y) ** 2
+    if (dist < bestDist) {
+      bestDist = dist
+      bestS = s
+    }
+  }
+  return bestS
+}
 
 function spanPath(s0: number, s1: number, offset: number): string {
   const pts: string[] = []
@@ -153,12 +183,14 @@ function spanPath(s0: number, s1: number, offset: number): string {
 
 /**
  * Divides the boundary into equal arc-length spans — one per positioned asset,
- * in the given drawing order. Position 1 starts at the anchor (top-edge
- * midpoint); `counterclockwise` mirrors the walk.
+ * in the given drawing order. Position 1 starts at `anchorOffset` (an arc
+ * length, default 0 = top-edge midpoint — the historical default before the
+ * facility-settable start point); `counterclockwise` mirrors the walk.
  */
 export function buildPerimeterSegments(
   assets: readonly PositionedAssetLite[],
   direction: PerimeterDirection = "clockwise",
+  anchorOffset = 0,
 ): PerimeterSegment[] {
   const n = assets.length
   if (n === 0) return []
@@ -167,8 +199,8 @@ export function buildPerimeterSegments(
 
   return assets.map((asset, i) => {
     // Walk in the chosen direction; normalize so s0 < s1 for sampling.
-    const rawStart = sign * span * i
-    const rawEnd = sign * span * (i + 1)
+    const rawStart = anchorOffset + sign * span * i
+    const rawEnd = anchorOffset + sign * span * (i + 1)
     const s0 = Math.min(rawStart, rawEnd) + JOINT_GAP / 2
     const s1 = Math.max(rawStart, rawEnd) - JOINT_GAP / 2
     const midS = (s0 + s1) / 2

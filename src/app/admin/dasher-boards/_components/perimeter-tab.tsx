@@ -30,6 +30,7 @@ import {
   removeAsset,
   setDoorSubtype,
   setGlassSpec,
+  setPerimeterAnchor,
   toggleGlass,
 } from "../actions"
 import type { AssetRow, GlassSpecInput, RinkRow, SubtypeRow } from "../types"
@@ -88,11 +89,25 @@ export function PerimeterTab({
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showGlass, setShowGlass] = useState(false)
+  const [pickingAnchor, setPickingAnchor] = useState(false)
+  const [, startAnchor] = useTransition()
   const selected = positioned.find((a) => a.id === selectedId) ?? null
+
+  function handlePickAnchor(offsetFraction: number) {
+    startAnchor(async () => {
+      const r = await setPerimeterAnchor(rink.id, offsetFraction)
+      if (!r.ok) toast.error(r.error)
+      else {
+        toast.success("Start point updated — the diagram rotated to match.")
+        setPickingAnchor(false)
+      }
+    })
+  }
 
   if (positioned.length === 0) {
     return (
       <div className="flex flex-col gap-6">
+        <StartPointCard rink={rink} />
         <SequenceBuilderCard rink={rink} />
         <RinkSettingsCard mode="edit" rink={rink} />
       </div>
@@ -143,8 +158,25 @@ export function PerimeterTab({
                 <Switch checked={showGlass} onCheckedChange={setShowGlass} />
                 Glass layer
               </label>
+              <Button
+                type="button"
+                size="sm"
+                variant={pickingAnchor ? "default" : "outline"}
+                onClick={() => {
+                  setSelectedId(null)
+                  setPickingAnchor((v) => !v)
+                }}
+              >
+                {pickingAnchor ? "Cancel" : "Set start point"}
+              </Button>
             </div>
           </div>
+          {pickingAnchor && (
+            <p className="text-muted-foreground text-sm">
+              Click anywhere on the boundary to set where position 1 starts.
+              Existing labels never move — the diagram rotates to match.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -158,11 +190,15 @@ export function PerimeterTab({
                 direction={
                   rink.perimeter_direction as "clockwise" | "counterclockwise"
                 }
+                anchorOffsetFraction={rink.perimeter_anchor_offset}
                 glassByParent={glassForDiagram}
-                selectedAssetId={selectedId}
-                onSelectAsset={(id) =>
-                  setSelectedId((cur) => (cur === id ? null : id))
+                selectedAssetId={pickingAnchor ? null : selectedId}
+                onSelectAsset={
+                  pickingAnchor
+                    ? undefined
+                    : (id) => setSelectedId((cur) => (cur === id ? null : id))
                 }
+                onPickAnchor={pickingAnchor ? handlePickAnchor : undefined}
                 showGlassLayer={showGlass}
               />
             </div>
@@ -216,6 +252,63 @@ export function PerimeterTab({
 
       <RinkSettingsCard mode="edit" rink={rink} />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Wizard step 1.5: pick the start point, before any positions exist
+// ---------------------------------------------------------------------------
+
+function StartPointCard({ rink }: { rink: RinkRow }) {
+  const [pickingAnchor, setPickingAnchor] = useState(false)
+  const [pending, start] = useTransition()
+
+  function handlePickAnchor(offsetFraction: number) {
+    start(async () => {
+      const r = await setPerimeterAnchor(rink.id, offsetFraction)
+      if (!r.ok) toast.error(r.error)
+      else {
+        toast.success("Start point set.")
+        setPickingAnchor(false)
+      }
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle>Start point</CardTitle>
+            <CardDescription>
+              Where position 1 begins on the diagram
+              {rink.perimeter_anchor_label ? ` (${rink.perimeter_anchor_label})` : ""}.
+              Set it now, or generate positions first and set it later —
+              either order works, and it can be changed anytime.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={pickingAnchor ? "default" : "outline"}
+            disabled={pending}
+            onClick={() => setPickingAnchor((v) => !v)}
+          >
+            {pickingAnchor ? "Cancel" : "Click to set"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="mx-auto w-full max-w-xs">
+          <RinkPerimeter
+            positioned={[]}
+            direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
+            anchorOffsetFraction={rink.perimeter_anchor_offset}
+            onPickAnchor={pickingAnchor ? handlePickAnchor : undefined}
+          />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

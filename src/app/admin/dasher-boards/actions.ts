@@ -301,6 +301,48 @@ export async function updateRink(
   }
 }
 
+/**
+ * Sets where sequence position 1 starts drawing on the diagram — a fraction
+ * [0, 1) of the boundary arc length, set by clicking a spot on the live
+ * diagram (RinkPerimeter's onPickAnchor). Purely a rendering rotation: no
+ * asset is renumbered or relabeled, so this is safe to call anytime,
+ * including on a rink that already has a full perimeter.
+ */
+export async function setPerimeterAnchor(
+  rinkId: string,
+  offsetFraction: number,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    if (!Number.isFinite(offsetFraction)) {
+      return { ok: false, error: "Invalid start point." }
+    }
+    // Wrap into [0, 1) rather than reject — the click handler always
+    // produces an in-range value, but normalize defensively.
+    const clamped = ((offsetFraction % 1) + 1) % 1
+
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .update({ perimeter_anchor_offset: clamped })
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to set the start point.") }
+    }
+    if (!data || data.length === 0) {
+      return { ok: false, error: "Rink not found." }
+    }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setPerimeterAnchor", e)
+    return { ok: false, error: "Failed to set the start point." }
+  }
+}
+
 // ============================================================================
 // Perimeter generation & granular editing
 // ============================================================================
