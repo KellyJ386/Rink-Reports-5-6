@@ -5176,6 +5176,18 @@ select pg_temp.expect_count(
       'dab0000a-0000-4000-8000-00000000000a', 1, 1)$$,
   0, 'DB25: alice (no admin grant) shift RPC is a 0-row no-op under RLS');
 
+-- Seed helper is internal-only (service_role); no client role may call it
+-- directly via RPC (migration 194's revoke was public-only and missed
+-- anon/authenticated — closed in migration 201; regression probe here so it
+-- can't silently reopen).
+select pg_temp.expect_error(
+  $$select public.seed_default_dasher_boards_config('11111111-1111-1111-1111-111111111111')$$,
+  'DB29: authenticated CANNOT execute seed_default_dasher_boards_config');
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.seed_default_dasher_boards_config('11111111-1111-1111-1111-111111111111')$$,
+  'DB29: anon CANNOT execute seed_default_dasher_boards_config');
+
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
