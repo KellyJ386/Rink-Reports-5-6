@@ -240,6 +240,21 @@ export function RinkPerimeter({
                   strokeLinecap="butt"
                 />
               )}
+              {/* Number tap halo: the label/condition chip sits ~16 units
+                  OUTWARD of the board line, past the 34-unit hit band, so a tap
+                  on the number itself (the natural target) can miss. A
+                  transparent disc centered on the label anchor makes the whole
+                  number a reliable tap target — and, because the "!" condition
+                  chip renders at the same anchor, it fixes issue-bearing assets
+                  too (whose number is replaced by the non-interactive chip). */}
+              {interactive && (
+                <circle
+                  cx={seg.labelAnchor.x}
+                  cy={seg.labelAnchor.y}
+                  r={13}
+                  fill="transparent"
+                />
+              )}
               {/* Selection halo. */}
               {selected && (
                 <path
@@ -337,6 +352,35 @@ export function RinkPerimeter({
             </g>
           )
         })}
+
+        {/* Glass tap targets. When the glass layer is shown on an interactive
+            diagram, let a user tap the glass directly. Painted AFTER the board
+            groups so it wins pointer events in the glass band; pointer-only
+            (no role/tabIndex) so it doesn't double the keyboard tab stops —
+            keyboard/AT users already reach the position via the board group.
+            The glass path is drawn per board segment, so selecting seg.assetId
+            opens that board's sheet, whose spec block already targets the
+            board's glass child (glass is 1:1 with its board). */}
+        {interactive &&
+          showGlassLayer &&
+          segments.map((seg) => {
+            if (seg.assetType === "door") return null
+            const glass = glassByParent?.[seg.assetId]
+            if (!glass?.isActive) return null
+            return (
+              <path
+                key={`glass-hit-${seg.assetId}`}
+                d={seg.glassPathD}
+                fill="none"
+                stroke="transparent"
+                strokeWidth={14}
+                strokeLinecap="butt"
+                className="cursor-pointer"
+                aria-hidden="true"
+                onClick={() => onSelectAsset?.(seg.assetId)}
+              />
+            )
+          })}
 
         {/* Anchor marker: where position 1 starts — the facility-settable
             start point (default top-middle). Offset further outward than the
