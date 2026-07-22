@@ -8,7 +8,7 @@ upstream fix lands.
 
 | GHSA | Package | Path | Why accepted | Remediation |
 |------|---------|------|--------------|-------------|
-| *(none currently — the ignore list is empty as of 2026-07-08)* | | | | |
+| [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) | sharp | `.>next>sharp` | libvips codec-parsing CVEs (CVE-2026-33327, -33328, -35590, -35591). `sharp` is bundled transitively by `next@16.2.10` for `next/image` optimization — the app never routes user-uploaded images through it, only build-time and static assets served via `next/image`. No `next@16.2.10`-compatible fix available as of 2026-07-22. | Re-run `pnpm audit --prod` after each `next` patch bump; drop this entry once Next updates its internal `sharp` pin to ≥0.35.0 (the patched version). |
 
 ## Below the CI gate — tracked, not ignored
 

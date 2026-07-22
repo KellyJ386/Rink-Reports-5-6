@@ -63,7 +63,7 @@
       "ws": "^8.21.0"
     },
     "auditConfig": {
-      "ignoreGhsas": []
+      "ignoreGhsas": ["GHSA-f88m-g3jw-g9cj"]
     }
   }
 }
