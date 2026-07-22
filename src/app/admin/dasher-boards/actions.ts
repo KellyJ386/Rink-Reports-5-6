@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 
-import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { getCurrentUser, requireAdmin, requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
@@ -78,6 +78,27 @@ async function ensureDasherBoardsAdmin(): Promise<string | null> {
     : "Your account has admin console access but not the Dasher Boards module's admin permission. Ask an administrator to grant it under Admin → Permissions."
 }
 
+/**
+ * Guard for the SPEC-only write path (setGlassSpec). Managers hold the module's
+ * `edit` grant but NOT admin-console access, so this uses requireUser() (not
+ * requireAdmin) and allows `edit` OR `admin` — there is no permission-tier
+ * hierarchy, so an admin does not satisfy the `edit` check and must be ORed in
+ * explicitly. The RLS `admin OR edit` UPDATE policy + the assets column-guard
+ * trigger (migration 202) back this at the DB layer; structural edits stay on
+ * ensureDasherBoardsAdmin.
+ */
+async function ensureDasherBoardsEditor(): Promise<string | null> {
+  await requireUser()
+  const supabase = await createClient()
+  const [canEdit, canAdmin] = await Promise.all([
+    currentUserCan(supabase, "dasher_boards", "edit"),
+    currentUserCan(supabase, "dasher_boards", "admin"),
+  ])
+  return canEdit || canAdmin
+    ? null
+    : "You need the Dasher Boards edit permission to change a spec. Ask an administrator to grant it under Admin → Permissions."
+}
+
 type AdminCtx =
   | {
       ok: true
@@ -87,8 +108,15 @@ type AdminCtx =
     }
   | { ok: false; error: string }
 
-async function resolveAdminContext(): Promise<AdminCtx> {
-  const denied = await ensureDasherBoardsAdmin()
+/**
+ * Resolves the acting profile/facility/employee behind a module guard. Shared
+ * by the admin path (resolveAdminContext) and the edit-tier spec path
+ * (resolveEditorContext); the only difference is which guard runs.
+ */
+async function resolveContext(
+  guard: () => Promise<string | null>,
+): Promise<AdminCtx> {
+  const denied = await guard()
   if (denied) return { ok: false, error: denied }
   const current = await getCurrentUser()
   const profile = current?.profile
@@ -112,6 +140,14 @@ async function resolveAdminContext(): Promise<AdminCtx> {
     facilityId: profile.facility_id,
     employeeId: employeeRow?.id ?? null,
   }
+}
+
+async function resolveAdminContext(): Promise<AdminCtx> {
+  return resolveContext(ensureDasherBoardsAdmin)
+}
+
+async function resolveEditorContext(): Promise<AdminCtx> {
+  return resolveContext(ensureDasherBoardsEditor)
 }
 
 function revalidateModule() {
@@ -1006,13 +1042,19 @@ function validateSpec(spec: GlassSpecInput): string | null {
   return null
 }
 
-/** Replacement spec for one glass panel or door (doors own their glass). */
+/**
+ * Replacement spec for one glass panel or door (doors own their glass).
+ * Edit-tier (managers) may call this — it writes only the five spec columns,
+ * and the RLS policy + assets column-guard trigger (migration 202) enforce that
+ * at the DB layer. Structural edits (relabel, door conversion, glass toggle,
+ * insert/remove) remain on resolveAdminContext.
+ */
 export async function setGlassSpec(
   assetId: string,
   spec: GlassSpecInput,
 ): Promise<SimpleResult> {
   try {
-    const ctx = await resolveAdminContext()
+    const ctx = await resolveEditorContext()
     if (!ctx.ok) return ctx
     if (!isUuid(assetId)) return { ok: false, error: "Invalid asset." }
     const invalid = validateSpec(spec)

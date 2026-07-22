@@ -5071,6 +5071,14 @@ select pg_temp.expect_error(
      where inspection_id = 'dabd000a-0000-4000-8000-000000000001'$$,
   'DB21: trigger layer — responses under a completed walk are immutable');
 
+-- These admin-tier asset corrections run in a trusted/service context (the
+-- suite simulates it via the postgres BYPASSRLS role). Flip the guard's
+-- documented service bypass so the BEFORE UPDATE dasher_boards_assets_guard
+-- (migration 202) treats them as exempt — the same way a super_admin/service
+-- caller is exempt — rather than applying the edit-tier column freeze that
+-- (correctly) restricts managers below (DB30+).
+set local rr.dasher_boards_guard_bypass = 'on';
+
 -- Label permanence: relabel retires the old label forever.
 select pg_temp.expect_ok(
   $$update public.dasher_boards_assets
@@ -5097,6 +5105,10 @@ select pg_temp.expect_error(
        set glass_width_in = 48
      where id = 'dabb000b-0000-4000-8000-000000000001'$$,
   'DB23: board_panel rows reject glass spec writes (check constraint)');
+
+-- End of the trusted-context asset corrections; restore normal guard
+-- enforcement for the edit-tier assertions below.
+set local rr.dasher_boards_guard_bypass = 'off';
 
 -- Hardening (migration 197): hard deletes retire labels too.
 insert into public.dasher_boards_assets
@@ -5187,6 +5199,65 @@ set local role anon;
 select pg_temp.expect_error(
   $$select public.seed_default_dasher_boards_config('11111111-1111-1111-1111-111111111111')$$,
   'DB29: anon CANNOT execute seed_default_dasher_boards_config');
+
+-- ---------------------------------------------------------------------------
+-- DB30–33: edit-tier (manager) spec writes (migration 202).
+--
+-- Managers hold the dasher_boards `edit` grant (canonical_role_permission_grants,
+-- migration 198). They may set the glass replacement spec on a glass/door row,
+-- but NOT any structural/identity column, and cannot insert/delete assets.
+-- Enforced by the admin-OR-edit UPDATE policy + the dasher_boards_assets_guard
+-- column freeze. mona is the facility-A manager persona.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+select 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'dasher_boards', a::public.user_action, true
+from unnest(array['view', 'submit', 'edit']) as a
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select (case when public.has_module_edit_access('dasher_boards') then 1 else 0 end)
+        + (case when public.has_module_admin_access('dasher_boards') then 0 else 10 end)$$,
+  11, 'DB30: helper tiers — mona has edit but NOT admin');
+
+-- CAN set the glass replacement spec on a glass panel (the whole point).
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set glass_width_in = 68, glass_height_in = 72,
+           glass_thickness_in = 0.625, glass_material = 'tempered',
+           spec_notes = 'set by manager'
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DB31: manager (edit) CAN set the glass replacement spec');
+
+-- CANNOT change structural/identity columns — the column guard raises.
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets set label = 'B1Z'
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DB32a: manager (edit) CANNOT relabel an asset (column guard)');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets set is_active = false
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DB32b: manager (edit) CANNOT toggle is_active (column guard)');
+
+-- CANNOT insert or delete assets — those stay admin-only at the RLS layer.
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_assets
+      (facility_id, rink_id, asset_type, label, sequence_position)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'B88', 88)$$,
+  'DB33a: manager (edit) CANNOT insert an asset');
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.dasher_boards_assets
+      where id = 'dabb000a-0000-4000-8000-000000000002' returning 1)
+    select count(*) from d$$,
+  0, 'DB33b: manager (edit) DELETE of an asset is a 0-row no-op under RLS');
 
 set local role postgres;
 
