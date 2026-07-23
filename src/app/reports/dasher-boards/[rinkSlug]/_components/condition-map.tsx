@@ -584,7 +584,7 @@ function AssetSheet({
                 <SpecBlock
                   key={`${specTarget.id}:${specTarget.asset_type}`}
                   target={specTarget}
-                  canAdmin={can.admin}
+                  canEditSpec={can.edit || can.admin}
                 />
               )}
 
@@ -636,10 +636,10 @@ function AssetSheet({
 
 function SpecBlock({
   target,
-  canAdmin,
+  canEditSpec,
 }: {
   target: PerimeterAsset
-  canAdmin: boolean
+  canEditSpec: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [pending, start] = useTransition()
@@ -688,21 +688,21 @@ function SpecBlock({
         <Label>Replacement spec</Label>
         <span className="flex items-center gap-2">
           {!hasSpec &&
-            (canAdmin ? (
+            (canEditSpec ? (
               <Badge variant="warning">No spec on file</Badge>
             ) : (
               <span className="text-muted-foreground text-xs">
                 No spec on file
               </span>
             ))}
-          {canAdmin && (
+          {canEditSpec && (
             <Button variant="ghost" size="sm" onClick={() => setEditing((v) => !v)}>
               {editing ? "Close" : "Edit"}
             </Button>
           )}
         </span>
       </div>
-      {editing && canAdmin ? (
+      {editing && canEditSpec ? (
         <div className="flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
             <input

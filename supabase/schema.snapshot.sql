@@ -1052,6 +1052,59 @@ COMMENT ON FUNCTION public.daily_report_submissions_stamp_business_date() IS 'BE
 
 
 --
+-- Name: dasher_boards_assets_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_assets_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if public.dasher_boards_guard_exempt() then
+    return new;
+  end if;
+
+  -- Admins retain full write. This admin-first branch matters because the
+  -- helpers have no hierarchy — an admin does NOT satisfy has_module_edit_access,
+  -- so without it an admin would be caught by the edit-only freeze below.
+  if public.has_module_admin_access('dasher_boards') then
+    return new;
+  end if;
+
+  if public.has_module_edit_access('dasher_boards') then
+    -- Edit tier (managers): the five spec columns only. `updated_at` is left
+    -- free (the set_updated_at trigger maintains it).
+    if new.id                is distinct from old.id
+       or new.facility_id       is distinct from old.facility_id
+       or new.rink_id           is distinct from old.rink_id
+       or new.asset_type        is distinct from old.asset_type
+       or new.subtype_id        is distinct from old.subtype_id
+       or new.label             is distinct from old.label
+       or new.sequence_position is distinct from old.sequence_position
+       or new.parent_board_id   is distinct from old.parent_board_id
+       or new.is_active         is distinct from old.is_active
+       or new.created_at        is distinct from old.created_at
+    then
+      raise exception 'dasher_boards: edit grant may only change the glass replacement spec';
+    end if;
+    return new;
+  end if;
+
+  -- Neither exempt, admin, nor edit: the RLS row gate should already have
+  -- blocked this, so a reachable raise here means a policy/guard drift.
+  raise exception 'dasher_boards: not authorized to modify assets';
+end;
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_assets_guard(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_assets_guard() IS 'BEFORE UPDATE column guard on dasher_boards_assets: exempt roles and module admins may change any column; edit-tier (managers) may change ONLY the glass replacement spec (glass_width_in/glass_height_in/glass_thickness_in/glass_material/spec_notes); all else is rejected. Pairs with the admin-OR-edit UPDATE policy so edit-tier cannot rewrite structural/identity columns via a direct request.';
+
+
+--
 -- Name: dasher_boards_assets_label_check(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -15033,6 +15086,13 @@ CREATE TRIGGER trg_dasher_boards_asset_subtypes_updated_at BEFORE UPDATE ON publ
 
 
 --
+-- Name: dasher_boards_assets trg_dasher_boards_assets_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_guard BEFORE UPDATE ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_assets_guard();
+
+
+--
 -- Name: dasher_boards_assets trg_dasher_boards_assets_label_check; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -19489,7 +19549,7 @@ CREATE POLICY dasher_boards_assets_select ON public.dasher_boards_assets FOR SEL
 -- Name: dasher_boards_assets dasher_boards_assets_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY dasher_boards_assets_update ON public.dasher_boards_assets FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+CREATE POLICY dasher_boards_assets_update ON public.dasher_boards_assets FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('dasher_boards'::text) OR public.has_module_edit_access('dasher_boards'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('dasher_boards'::text) OR public.has_module_edit_access('dasher_boards'::text)))));
 
 
 --
