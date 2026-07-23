@@ -149,7 +149,8 @@ export function ConditionMap(props: ConditionMapProps) {
           hasSpec:
             a.glass_width_in !== null ||
             a.glass_height_in !== null ||
-            a.glass_thickness_in !== null,
+            a.glass_thickness_in !== null ||
+            a.glass_material !== null,
         }
       }
     }
@@ -334,7 +335,13 @@ export function ConditionMap(props: ConditionMapProps) {
               pending={walkPending}
               onComplete={completeWalk}
               missingCount={
-                dueItems.filter((i) => !responses[i.id]).length
+                // Mirror the server sign-off gates: an item is still outstanding
+                // if it's unanswered OR flagged without a linked issue (gate c).
+                dueItems.filter(
+                  (i) =>
+                    !responses[i.id] ||
+                    (responses[i.id] === "flag" && !linkedItems.has(i.id)),
+                ).length
               }
             />
           </CardContent>
@@ -641,6 +648,7 @@ function SpecBlock({
   target: PerimeterAsset
   canEditSpec: boolean
 }) {
+  const router = useRouter()
   const [editing, setEditing] = useState(false)
   const [pending, start] = useTransition()
   const [width, setWidth] = useState(
@@ -678,6 +686,9 @@ function SpecBlock({
       else {
         toast.success("Spec saved.")
         setEditing(false)
+        // revalidateModule() doesn't cover this dynamic rink route; refresh so
+        // the read view (and the diagram's spec indicator) shows the new values.
+        router.refresh()
       }
     })
   }

@@ -223,7 +223,10 @@ export function RinkPerimeter({
                     },
                     className: "cursor-pointer focus:outline-none",
                   }
-                : {})}
+                : // Non-interactive (e.g. pick-anchor mode): the visible board/
+                  // door strokes must not swallow taps meant for the boundary
+                  // pick target underneath.
+                  { pointerEvents: "none" as const })}
             >
               {/* Enlarged transparent hit area. Butt caps so a segment's hit
                   zone never extends past its own span and steals the

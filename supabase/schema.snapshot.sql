@@ -1052,6 +1052,33 @@ COMMENT ON FUNCTION public.daily_report_submissions_stamp_business_date() IS 'BE
 
 
 --
+-- Name: dasher_boards_assets_glass_parent(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_assets_glass_parent() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.asset_type = 'glass_panel' and new.parent_board_id is not null
+     and (tg_op = 'INSERT'
+          or new.parent_board_id is distinct from old.parent_board_id) then
+    if not exists (
+      select 1 from public.dasher_boards_assets p
+       where p.id = new.parent_board_id
+         and p.asset_type = 'board_panel'
+         and p.rink_id = new.rink_id
+         and p.facility_id = new.facility_id
+    ) then
+      raise exception 'dasher_boards: glass parent must be a board panel in the same rink';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+
+--
 -- Name: dasher_boards_assets_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1343,6 +1370,44 @@ $$;
 
 
 --
+-- Name: dasher_boards_issues_facility_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_issues_facility_scope() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.supervisor_id is not null
+     and not exists (
+       select 1 from public.employees e
+        where e.id = new.supervisor_id and e.facility_id = new.facility_id
+     ) then
+    raise exception 'dasher_boards: supervisor must belong to the issue''s facility';
+  end if;
+
+  if new.resolved_by is not null
+     and not exists (
+       select 1 from public.employees e
+        where e.id = new.resolved_by and e.facility_id = new.facility_id
+     ) then
+    raise exception 'dasher_boards: resolver must belong to the issue''s facility';
+  end if;
+
+  if new.category_id is not null
+     and not exists (
+       select 1 from public.dasher_boards_issue_categories c
+        where c.id = new.category_id and c.facility_id = new.facility_id
+     ) then
+    raise exception 'dasher_boards: category must belong to the issue''s facility';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
 -- Name: dasher_boards_issues_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1428,10 +1493,10 @@ begin
   if p_delta is null or p_delta not in (-1, 1) then
     raise exception 'dasher_boards: shift delta must be -1 or 1';
   end if;
+  if p_delta = -1 and p_from <= 1 then
+    raise exception 'dasher_boards: cannot shift positions below 1';
+  end if;
 
-  -- Negative flip: matched rows first move to distinct negative positions,
-  -- then flip back positive with the delta applied — one transaction, no
-  -- transient duplicates against untouched rows.
   update public.dasher_boards_assets
      set sequence_position = -(sequence_position + p_delta)
    where rink_id = p_rink_id
@@ -8223,6 +8288,7 @@ CREATE TABLE public.dasher_boards_issues (
     resolved_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    source_local_id uuid,
     CONSTRAINT dasher_boards_issues_a_requires_supervisor CHECK (((severity <> 'a'::text) OR ((supervisor_id IS NOT NULL) AND (action_taken IS NOT NULL)))),
     CONSTRAINT dasher_boards_issues_category_spatial_only CHECK (((asset_id IS NOT NULL) OR (category_id IS NULL))),
     CONSTRAINT dasher_boards_issues_one_target CHECK ((num_nonnulls(asset_id, checklist_item_id) = 1)),
@@ -8235,6 +8301,13 @@ CREATE TABLE public.dasher_boards_issues (
 --
 
 COMMENT ON TABLE public.dasher_boards_issues IS 'Dasher Boards: condition issues. Spatial issues target an asset (with category); checklist-flag issues target a cadenced item (no category, no diagram dot). Open issues (resolved_at null) color the diagram and carry forward across days. Severity a requires a supervisor and supervisor acknowledgment before the walk that logged it can complete. Resolved issues are immutable; ack/resolution fields are writable only by edit-level grants (guard trigger, migration 192).';
+
+
+--
+-- Name: COLUMN dasher_boards_issues.source_local_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_issues.source_local_id IS 'Offline-queue local id of the submission that created this issue (null for online reports). Makes a crash-window replay re-drive idempotent via the partial unique index below.';
 
 
 --
@@ -13385,6 +13458,13 @@ CREATE INDEX idx_dasher_boards_issues_rink_open ON public.dasher_boards_issues U
 
 
 --
+-- Name: idx_dasher_boards_issues_source_local; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_issues_source_local ON public.dasher_boards_issues USING btree (rink_id, source_local_id) WHERE (source_local_id IS NOT NULL);
+
+
+--
 -- Name: idx_dasher_boards_retired_labels_rink; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -15086,6 +15166,13 @@ CREATE TRIGGER trg_dasher_boards_asset_subtypes_updated_at BEFORE UPDATE ON publ
 
 
 --
+-- Name: dasher_boards_assets trg_dasher_boards_assets_glass_parent; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_glass_parent BEFORE INSERT OR UPDATE ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_assets_glass_parent();
+
+
+--
 -- Name: dasher_boards_assets trg_dasher_boards_assets_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -15160,6 +15247,13 @@ CREATE TRIGGER trg_dasher_boards_inspections_updated_at BEFORE UPDATE ON public.
 --
 
 CREATE TRIGGER trg_dasher_boards_issue_categories_updated_at BEFORE UPDATE ON public.dasher_boards_issue_categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_issues trg_dasher_boards_issues_facility_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_issues_facility_scope BEFORE INSERT OR UPDATE ON public.dasher_boards_issues FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_issues_facility_scope();
 
 
 --
@@ -19474,7 +19568,7 @@ ALTER TABLE public.dasher_boards_asset_events ENABLE ROW LEVEL SECURITY;
 -- Name: dasher_boards_asset_events dasher_boards_asset_events_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY dasher_boards_asset_events_insert ON public.dasher_boards_asset_events FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+CREATE POLICY dasher_boards_asset_events_insert ON public.dasher_boards_asset_events FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('dasher_boards'::text) OR (public.has_module_edit_access('dasher_boards'::text) AND (event_type = 'spec_updated'::text))))));
 
 
 --
@@ -19723,7 +19817,7 @@ CREATE POLICY dasher_boards_issues_select ON public.dasher_boards_issues FOR SEL
 -- Name: dasher_boards_issues dasher_boards_issues_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY dasher_boards_issues_update ON public.dasher_boards_issues FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_edit_access('dasher_boards'::text) OR public.has_module_admin_access('dasher_boards'::text) OR ((reported_by = public.current_employee_id()) AND (resolved_at IS NULL) AND public.has_module_submit_access('dasher_boards'::text)))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+CREATE POLICY dasher_boards_issues_update ON public.dasher_boards_issues FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (resolved_at IS NULL) AND (public.has_module_edit_access('dasher_boards'::text) OR public.has_module_admin_access('dasher_boards'::text) OR ((reported_by = public.current_employee_id()) AND public.has_module_submit_access('dasher_boards'::text)))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --

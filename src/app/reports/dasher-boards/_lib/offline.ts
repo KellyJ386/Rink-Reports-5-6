@@ -67,6 +67,28 @@ async function resolveOpenWalkId(
   return data?.id ?? null
 }
 
+// Did this inspector already complete a walk on this rink very recently? Used
+// to make a complete_walk re-drive (crash after completion, before the queue
+// row was marked synced) an idempotent success instead of a false "no open
+// walk" permanent failure.
+async function hasRecentlyCompletedWalk(
+  supabase: SupabaseClient,
+  employeeId: string,
+  rinkId: string,
+): Promise<boolean> {
+  const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+  const { data } = await supabase
+    .from("dasher_boards_inspections")
+    .select("id")
+    .eq("rink_id", rinkId)
+    .eq("inspector_id", employeeId)
+    .not("completed_at", "is", null)
+    .gte("completed_at", since)
+    .limit(1)
+    .maybeSingle()
+  return !!data
+}
+
 export async function handleDasherBoardsReplay({
   supabase,
   localId,
@@ -90,7 +112,14 @@ export async function handleDasherBoardsReplay({
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
     }
     doWrite = async () => {
-      const r = await persistIssueReport(supabase, { employeeId, facilityId, input })
+      // Thread the queue localId so a crash-window re-drive dedups instead of
+      // inserting a second issue (persistIssueReport keys on source_local_id).
+      const r = await persistIssueReport(supabase, {
+        employeeId,
+        facilityId,
+        input,
+        sourceLocalId: localId,
+      })
       return r.ok ? { ok: true } : r
     }
   } else if (action === "start_walk") {
@@ -146,6 +175,12 @@ export async function handleDasherBoardsReplay({
     doWrite = async () => {
       const inspectionId = await resolveOpenWalkId(supabase, employeeId, rinkId)
       if (!inspectionId) {
+        // No OPEN walk. If one completed here very recently, this is a re-drive
+        // of an already-successful completion (crash before the queue synced) —
+        // treat it as an idempotent success, not a false permanent failure.
+        if (await hasRecentlyCompletedWalk(supabase, employeeId, rinkId)) {
+          return { ok: true }
+        }
         return { ok: false, error: "No open walk for this rink.", permanent: true }
       }
       // The three sign-off gates run HERE, at replay time — an offline

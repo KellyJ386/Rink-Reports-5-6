@@ -5259,7 +5259,64 @@ select pg_temp.expect_count(
     select count(*) from d$$,
   0, 'DB33b: manager (edit) DELETE of an asset is a 0-row no-op under RLS');
 
+-- Audit trail (migration 203 fix 12): a manager may write the spec_updated
+-- event for their allowed spec write, but not forge a structural-change event.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_asset_events (facility_id, asset_id, event_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dabb000a-0000-4000-8000-000000000002', 'spec_updated')$$,
+  'DB34a: manager (edit) CAN record a spec_updated audit event');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_asset_events (facility_id, asset_id, event_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dabb000a-0000-4000-8000-000000000002', 'relabeled')$$,
+  'DB34b: manager (edit) CANNOT record a non-spec audit event');
+
 set local role postgres;
+
+-- Migration 203 integrity triggers/guards (fire for everyone; tested directly).
+-- Fix 11: the degenerate downward shift from position 1 is rejected.
+select pg_temp.expect_error(
+  $$select public.dasher_boards_shift_positions(
+      'dab0000a-0000-4000-8000-00000000000a', 1, -1)$$,
+  'DB35: shift_positions rejects a shift that would settle a row at position 0');
+
+-- Fix 10: a glass panel cannot parent a board in a DIFFERENT rink.
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_assets
+      (facility_id, rink_id, asset_type, label, parent_board_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'glass_panel', 'GX',
+            'dabb000b-0000-4000-8000-000000000001')$$,
+  'DB36: glass parent must be a board panel in the same rink');
+
+-- Fix 9: an issue cannot name a supervisor from another facility.
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, asset_id, description, severity, supervisor_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a',
+            'dabb000a-0000-4000-8000-000000000001', 'x', 'b',
+            'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')$$,
+  'DB37: issue supervisor must belong to the issue''s facility');
+
+-- Fix 6: the offline idempotency key blocks a duplicate (rink, source_local_id).
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, asset_id, description, severity, source_local_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a',
+            'dabb000a-0000-4000-8000-000000000001', 'x', 'c',
+            'dddddddd-0000-4000-8000-00000000d001')$$,
+  'DB38a: first issue with a source_local_id inserts');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, asset_id, description, severity, source_local_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a',
+            'dabb000a-0000-4000-8000-000000000001', 'y', 'c',
+            'dddddddd-0000-4000-8000-00000000d001')$$,
+  'DB38b: a duplicate (rink, source_local_id) is rejected');
 
 -- ---------------------------------------------------------------------------
 -- OVR: rink-diagram overlays (migration 199).

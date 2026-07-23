@@ -2616,6 +2616,7 @@ export type Database = {
           resolved_by: string | null
           rink_id: string
           severity: string
+          source_local_id: string | null
           supervisor_ack_at: string | null
           supervisor_id: string | null
           updated_at: string | null
@@ -2635,6 +2636,7 @@ export type Database = {
           resolved_by?: string | null
           rink_id: string
           severity: string
+          source_local_id?: string | null
           supervisor_ack_at?: string | null
           supervisor_id?: string | null
           updated_at?: string | null
@@ -2654,6 +2656,7 @@ export type Database = {
           resolved_by?: string | null
           rink_id?: string
           severity?: string
+          source_local_id?: string | null
           supervisor_ack_at?: string | null
           supervisor_id?: string | null
           updated_at?: string | null
