@@ -5379,7 +5379,57 @@ select pg_temp.expect_error(
      where id = 'dabf0002-0000-4000-8000-000000000002'$$,
   'DB43: staff CANNOT edit the content of an issue they did not report');
 
+-- ---------------------------------------------------------------------------
+-- DB44-46: per-asset Pass/Fail checks (migration 205).
+-- The walk's inspector (submit) records checks while the walk is open; a
+-- non-owner cannot, and checks are immutable once the walk is completed.
+-- ---------------------------------------------------------------------------
 set local role postgres;
+insert into public.dasher_boards_inspections
+  (id, facility_id, rink_id, inspector_id, started_at)
+values
+  ('dabf1001-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', now()),
+  ('dabf1002-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'cccc3333-cccc-cccc-cccc-cccccccccccc', now());
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Staff CAN record a check on their own open walk.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_asset_checks
+      (facility_id, inspection_id, asset_id, status, note, checked_by)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dabf1001-0000-4000-8000-000000000001',
+            'dabb000a-0000-4000-8000-000000000001', 'pass', 'looks good',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DB44: staff CAN record a Pass/Fail check on their own open walk');
+
+-- Staff CANNOT record a check on a walk they do not own.
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_asset_checks
+      (facility_id, inspection_id, asset_id, status, checked_by)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dabf1002-0000-4000-8000-000000000002',
+            'dabb000a-0000-4000-8000-000000000001', 'pass',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DB45: staff CANNOT record a check on a walk they do not own');
+
+-- Complete the walk, then the check is frozen. Tested at the trigger layer via
+-- direct SQL (postgres BYPASSRLS), mirroring DB21 — for a submit user the
+-- completed walk simply falls out of the UPDATE policy (0 rows).
+set local role postgres;
+update public.dasher_boards_inspections
+   set completed_at = now()
+ where id = 'dabf1001-0000-4000-8000-000000000001';
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_asset_checks set status = 'fail'
+     where inspection_id = 'dabf1001-0000-4000-8000-000000000001'
+       and asset_id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DB46: trigger layer — asset checks are immutable once the walk is completed');
 
 -- ---------------------------------------------------------------------------
 -- OVR: rink-diagram overlays (migration 199).
