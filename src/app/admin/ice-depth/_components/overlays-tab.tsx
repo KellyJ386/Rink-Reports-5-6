@@ -24,6 +24,7 @@ import {
   useTransition,
 } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { RINK_H, RINK_W, RinkMarkings } from "@/components/ice-depth/usa-rink"
@@ -65,6 +66,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 import {
@@ -109,14 +117,30 @@ function layoutFromConfig(config: RinkDiagramConfigRow | null): LogoLayoutState 
   }
 }
 
+type RinkOption = {
+  id: string
+  name: string
+  is_active: boolean
+  is_default: boolean
+}
+
 type Props = {
+  rinks: RinkOption[]
+  selectedRinkId: string
   doorTypes: DoorTypeRow[]
   markers: DoorMarkerRow[]
   config: RinkDiagramConfigRow | null
   logoUrl: string | null
 }
 
-export function OverlaysTab({ doorTypes, markers, config, logoUrl }: Props) {
+export function OverlaysTab({
+  rinks,
+  selectedRinkId,
+  doorTypes,
+  markers,
+  config,
+  logoUrl,
+}: Props) {
   const [mode, setMode] = useState<EditorMode>("place")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const activeTypes = doorTypes.filter((t) => t.is_active)
@@ -152,12 +176,17 @@ export function OverlaysTab({ doorTypes, markers, config, logoUrl }: Props) {
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Diagram overlays</CardTitle>
-            <p className="text-muted-foreground text-sm">
-              Facility-wide reference geography — door markers and the
-              center-ice logo appear on every ice-depth diagram, on every
-              report.
-            </p>
+            <div>
+              <CardTitle>Diagram overlays</CardTitle>
+              <p className="text-muted-foreground text-sm">
+                Door markers and the center-ice logo belong to this rink —
+                each sheet of ice keeps its own door layout. Saved here, they
+                show up on every ice-depth report on this rink.
+              </p>
+            </div>
+            {rinks.length > 1 && (
+              <RinkSwitcher rinks={rinks} selectedRinkId={selectedRinkId} />
+            )}
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -172,6 +201,7 @@ export function OverlaysTab({ doorTypes, markers, config, logoUrl }: Props) {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
             <div className="flex flex-col gap-2">
               <SectionDiagram
+                rinkId={selectedRinkId}
                 markers={markers}
                 typeById={typeById}
                 mode={mode}
@@ -188,12 +218,14 @@ export function OverlaysTab({ doorTypes, markers, config, logoUrl }: Props) {
               {selected ? (
                 <SelectedMarkerEditor
                   key={selected.id}
+                  rinkId={selectedRinkId}
                   marker={selected}
                   doorTypes={activeTypes}
                   onClear={() => setSelectedId(null)}
                 />
               ) : (
                 <LogoCard
+                  rinkId={selectedRinkId}
                   config={config}
                   logoUrl={logoUrl}
                   logo={logo}
@@ -205,6 +237,52 @@ export function OverlaysTab({ doorTypes, markers, config, logoUrl }: Props) {
           </div>
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Rink switcher — navigates ?tab=overlays&rink=<id>, same pattern as the
+// staff module's DiagramNav. Each rink keeps independent door markers + logo.
+// ---------------------------------------------------------------------------
+
+function RinkSwitcher({
+  rinks,
+  selectedRinkId,
+}: {
+  rinks: RinkOption[]
+  selectedRinkId: string
+}) {
+  const router = useRouter()
+  const [pending, startTransition] = useTransition()
+
+  function onChange(rinkId: string) {
+    startTransition(() => {
+      const sp = new URLSearchParams()
+      sp.set("tab", "overlays")
+      sp.set("rink", rinkId)
+      router.push(`/admin/ice-depth?${sp.toString()}`)
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="overlay-rink-select" className="text-muted-foreground text-xs">
+        Rink
+      </Label>
+      <Select disabled={pending} value={selectedRinkId} onValueChange={onChange}>
+        <SelectTrigger id="overlay-rink-select" className="h-9 w-48 text-sm">
+          <SelectValue placeholder="Pick a rink…" />
+        </SelectTrigger>
+        <SelectContent>
+          {rinks.map((r) => (
+            <SelectItem key={r.id} value={r.id} className="text-sm">
+              {r.name}
+              {!r.is_active ? " (inactive)" : r.is_default ? " (default)" : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
@@ -304,6 +382,7 @@ function ModeToolbar({
 const SECTION_IDLE_COLOR = "#8A92A0"
 
 function SectionDiagram({
+  rinkId,
   markers,
   typeById,
   mode,
@@ -314,6 +393,7 @@ function SectionDiagram({
   logo,
   setLogo,
 }: {
+  rinkId: string
   markers: DoorMarkerRow[]
   typeById: Map<string, DoorTypeRow>
   mode: EditorMode
@@ -360,6 +440,7 @@ function SectionDiagram({
     const pos = sectionPosition(section.number)
     startPlacing(async () => {
       const r = await upsertDoorMarker({
+        rink_id: rinkId,
         door_type_id: placeTypeId,
         position_x: pos.position_x,
         position_y: pos.position_y,
@@ -373,6 +454,7 @@ function SectionDiagram({
     startPlacing(async () => {
       const r = await upsertDoorMarker({
         id: marker.id,
+        rink_id: rinkId,
         door_type_id: marker.door_type_id,
         label: marker.label,
         position_x: pos.position_x,
@@ -432,7 +514,7 @@ function SectionDiagram({
   function onSvgPointerUp() {
     if (mode === "logo" && logoDragging) {
       setLogoDragging(false)
-      void updateRinkLogoLayout({
+      void updateRinkLogoLayout(rinkId, {
         position_x: logo.position_x,
         position_y: logo.position_y,
       }).then((r) => {
@@ -646,10 +728,12 @@ function SectionDiagram({
 // ---------------------------------------------------------------------------
 
 function SelectedMarkerEditor({
+  rinkId,
   marker,
   doorTypes,
   onClear,
 }: {
+  rinkId: string
   marker: DoorMarkerRow
   doorTypes: DoorTypeRow[]
   onClear: () => void
@@ -667,6 +751,7 @@ function SelectedMarkerEditor({
     startSave(async () => {
       const r = await upsertDoorMarker({
         id: marker.id,
+        rink_id: rinkId,
         door_type_id: typeId,
         label,
         position_x: pos.position_x,
@@ -791,11 +876,13 @@ function SelectedMarkerEditor({
 // ---------------------------------------------------------------------------
 
 function LogoCard({
+  rinkId,
   config,
   logoUrl,
   logo,
   setLogo,
 }: {
+  rinkId: string
   config: RinkDiagramConfigRow | null
   logoUrl: string | null
   logo: LogoLayoutState
@@ -815,7 +902,7 @@ function LogoCard({
 
   function commitLayout(patch: Partial<LogoLayoutState>) {
     startLayout(async () => {
-      const r = await updateRinkLogoLayout(patch)
+      const r = await updateRinkLogoLayout(rinkId, patch)
       if (!r.ok) toast.error(r.error)
     })
   }
@@ -829,7 +916,7 @@ function LogoCard({
   function onRemove() {
     if (!confirm("Remove the center-ice logo?")) return
     startRemove(async () => {
-      const r = await removeRinkLogo()
+      const r = await removeRinkLogo(rinkId)
       if (!r.ok) toast.error(r.error)
       else toast.success("Logo removed.")
     })
@@ -849,6 +936,7 @@ function LogoCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <form action={uploadAction} className="flex flex-col gap-2">
+          <input type="hidden" name="rink_id" value={rinkId} />
           <Label htmlFor="logo-file">
             {logoUrl ? "Replace logo" : "Upload logo"}
           </Label>

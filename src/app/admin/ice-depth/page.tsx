@@ -58,6 +58,7 @@ export const dynamic = "force-dynamic"
 type SearchParams = Promise<{
   tab?: string
   layout?: string
+  rink?: string
   session?: string
   employee?: string
   has_low?: string
@@ -129,7 +130,9 @@ export default async function IceDepthAdminPage({
       {tab === "layouts" && (
         <LayoutsTabLoader facilityId={facilityId} params={params} />
       )}
-      {tab === "overlays" && <OverlaysTabLoader facilityId={facilityId} />}
+      {tab === "overlays" && (
+        <OverlaysTabLoader facilityId={facilityId} params={params} />
+      )}
       {tab === "history" && (
         <HistoryTabLoader
           facilityId={facilityId}
@@ -259,12 +262,19 @@ async function LayoutsTabLoader({
 }
 
 // ---------------------------------------------------------------------------
-// Overlays tab (facility-level door markers + center-ice logo watermark)
+// Overlays tab — door markers + logo watermark, scoped to ONE physical rink
+// (migration 206). Door types are the one facility-level lookup here.
 // ---------------------------------------------------------------------------
 
-async function OverlaysTabLoader({ facilityId }: { facilityId: string }) {
+async function OverlaysTabLoader({
+  facilityId,
+  params,
+}: {
+  facilityId: string
+  params: { rink?: string }
+}) {
   const supabase = await createClient()
-  const [typesRes, markersRes, configRes] = await Promise.all([
+  const [typesRes, rinksRes] = await Promise.all([
     supabase
       .from("facility_door_types")
       .select("*")
@@ -272,14 +282,64 @@ async function OverlaysTabLoader({ facilityId }: { facilityId: string }) {
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     supabase
+      .from("ice_depth_rinks")
+      .select("id, name, is_active, is_default, sort_order")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+  ])
+  const doorTypes = (typesRes.data ?? []) as DoorTypeRow[]
+  const rinks = (rinksRes.data ?? []) as Array<{
+    id: string
+    name: string
+    is_active: boolean
+    is_default: boolean
+    sort_order: number
+  }>
+
+  if (rinks.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Add a rink first</CardTitle>
+          <CardDescription>
+            Door markers and the center-ice logo belong to a specific sheet of
+            ice. Create a rink on the Rinks tab before setting up overlays.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href="/admin/ice-depth?tab=rinks">Go to Rinks</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Same "auto-open default" resolution as the staff module (migration 83):
+  // the requested rink if valid, else the default rink, else the first
+  // active rink, else the first rink.
+  const requested = params.rink
+    ? rinks.find((r) => r.id === params.rink)
+    : undefined
+  const selectedRink =
+    requested ??
+    rinks.find((r) => r.is_default) ??
+    rinks.find((r) => r.is_active) ??
+    rinks[0]
+
+  const [markersRes, configRes] = await Promise.all([
+    supabase
       .from("facility_door_markers")
       .select("*")
       .eq("facility_id", facilityId)
+      .eq("rink_id", selectedRink.id)
       .order("created_at", { ascending: true }),
     supabase
       .from("facility_rink_diagram_config")
       .select("*")
       .eq("facility_id", facilityId)
+      .eq("rink_id", selectedRink.id)
       .maybeSingle(),
   ])
   const config = (configRes.data ?? null) as RinkDiagramConfigRow | null
@@ -290,7 +350,12 @@ async function OverlaysTabLoader({ facilityId }: { facilityId: string }) {
   )
   return (
     <OverlaysTab
-      doorTypes={(typesRes.data ?? []) as DoorTypeRow[]}
+      // Remount on rink switch so local editor state (mode, selection, the
+      // live logo-layout preview) never bleeds from one rink to another.
+      key={selectedRink.id}
+      rinks={rinks}
+      selectedRinkId={selectedRink.id}
+      doorTypes={doorTypes}
       markers={(markersRes.data ?? []) as DoorMarkerRow[]}
       config={config}
       logoUrl={logoUrl}
@@ -470,7 +535,12 @@ async function HistoryTabLoader({
             .select("*")
             .eq("facility_id", facilityId)
             .maybeSingle(),
-          getRinkOverlays(supabase, facilityId),
+          sessionLayout?.rink_id
+            ? getRinkOverlays(supabase, {
+                facilityId,
+                rinkId: sessionLayout.rink_id,
+              })
+            : Promise.resolve({ markers: [], logo: null }),
         ])
       const points = (pointsRes.data ?? []) as PointRow[]
       const measurements = (measRes.data ?? []) as MeasurementRow[]

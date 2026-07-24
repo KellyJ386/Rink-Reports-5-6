@@ -8877,6 +8877,7 @@ CREATE TABLE public.facility_door_markers (
     updated_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    rink_id uuid NOT NULL,
     CONSTRAINT facility_door_markers_position_x_check CHECK (((position_x >= (0)::numeric) AND (position_x <= (1)::numeric))),
     CONSTRAINT facility_door_markers_position_y_check CHECK (((position_y >= (0)::numeric) AND (position_y <= (1)::numeric)))
 );
@@ -8894,6 +8895,13 @@ COMMENT ON TABLE public.facility_door_markers IS 'Ice Depth diagram overlays: do
 --
 
 COMMENT ON COLUMN public.facility_door_markers.label IS 'Optional free-text label (e.g. "West Zamboni") shown with the door-type name in tooltips/legend.';
+
+
+--
+-- Name: COLUMN facility_door_markers.rink_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_door_markers.rink_id IS 'Which physical sheet of ice (ice_depth_rinks) this door marker belongs to. Pinned to the same facility as facility_id via a composite FK. Doors are placed per rink — each sheet of ice has its own physical door layout.';
 
 
 --
@@ -8986,6 +8994,7 @@ CREATE TABLE public.facility_rink_diagram_config (
     updated_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    rink_id uuid NOT NULL,
     CONSTRAINT facility_rink_diagram_config_logo_opacity_check CHECK (((logo_opacity >= (0)::numeric) AND (logo_opacity <= (1)::numeric))),
     CONSTRAINT facility_rink_diagram_config_logo_position_x_check CHECK (((logo_position_x >= (0)::numeric) AND (logo_position_x <= (1)::numeric))),
     CONSTRAINT facility_rink_diagram_config_logo_position_y_check CHECK (((logo_position_y >= (0)::numeric) AND (logo_position_y <= (1)::numeric))),
@@ -8998,7 +9007,14 @@ CREATE TABLE public.facility_rink_diagram_config (
 -- Name: TABLE facility_rink_diagram_config; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.facility_rink_diagram_config IS 'Ice Depth diagram overlays: per-facility center-ice logo watermark config (one row per facility). logo_storage_path points into the private rink-logos bucket (''<facility_id>/<file>''). logo_position_x/y are fractional [0,1] in the shared diagram coordinate space; logo_scale is a fraction of diagram width; logo_opacity defaults to watermark level (0.15). Rendered BELOW door markers and depth points so it never obscures data.';
+COMMENT ON TABLE public.facility_rink_diagram_config IS 'Ice Depth diagram overlays: per-RINK (physical sheet of ice) center-ice logo watermark config — one row per ice_depth_rinks row, not per facility (migration 206). logo_storage_path points into the private rink-logos bucket (''<facility_id>/<file>''). logo_position_x/y are fractional [0,1] in the shared diagram coordinate space; logo_scale is a fraction of diagram width; logo_opacity defaults to watermark level (0.15). Rendered BELOW door markers and depth points so it never obscures data.';
+
+
+--
+-- Name: COLUMN facility_rink_diagram_config.rink_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_rink_diagram_config.rink_id IS 'Which physical sheet of ice (ice_depth_rinks) this logo config belongs to. Pinned to the same facility as facility_id via a composite FK. One row per rink (unique).';
 
 
 --
@@ -9261,6 +9277,10 @@ CREATE TABLE public.ice_depth_sessions (
     total_measurements integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    board_pass boolean,
+    board_fail_notes text,
+    glass_pass boolean,
+    glass_fail_notes text,
     CONSTRAINT ice_depth_sessions_measurement_unit_snapshot_check CHECK ((measurement_unit_snapshot = ANY (ARRAY['inches'::text, 'mm'::text])))
 );
 
@@ -9298,6 +9318,34 @@ COMMENT ON COLUMN public.ice_depth_sessions.has_high_reading IS 'Denormalized: t
 --
 
 COMMENT ON COLUMN public.ice_depth_sessions.total_measurements IS 'Count of recorded child measurements. May be less than the layout''s active point count -- incomplete submissions are allowed.';
+
+
+--
+-- Name: COLUMN ice_depth_sessions.board_pass; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_depth_sessions.board_pass IS 'Pass/Fail checkoff for the dasher boards, recorded as part of this ice-depth session. Null = not answered.';
+
+
+--
+-- Name: COLUMN ice_depth_sessions.board_fail_notes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_depth_sessions.board_fail_notes IS 'Required free-text note describing the issue when board_pass = false.';
+
+
+--
+-- Name: COLUMN ice_depth_sessions.glass_pass; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_depth_sessions.glass_pass IS 'Pass/Fail checkoff for the rink glass, recorded as part of this ice-depth session. Null = not answered.';
+
+
+--
+-- Name: COLUMN ice_depth_sessions.glass_fail_notes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_depth_sessions.glass_fail_notes IS 'Required free-text note describing the issue when glass_pass = false.';
 
 
 --
@@ -12031,19 +12079,19 @@ ALTER TABLE ONLY public.facility_modules
 
 
 --
--- Name: facility_rink_diagram_config facility_rink_diagram_config_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.facility_rink_diagram_config
-    ADD CONSTRAINT facility_rink_diagram_config_facility_uniq UNIQUE (facility_id);
-
-
---
 -- Name: facility_rink_diagram_config facility_rink_diagram_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.facility_rink_diagram_config
     ADD CONSTRAINT facility_rink_diagram_config_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_rink_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rink_diagram_config
+    ADD CONSTRAINT facility_rink_diagram_config_rink_uniq UNIQUE (rink_id);
 
 
 --
@@ -12124,6 +12172,14 @@ ALTER TABLE ONLY public.ice_depth_points
 
 ALTER TABLE ONLY public.ice_depth_rinks
     ADD CONSTRAINT ice_depth_rinks_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: ice_depth_rinks ice_depth_rinks_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ice_depth_rinks
+    ADD CONSTRAINT ice_depth_rinks_id_facility_uniq UNIQUE (id, facility_id);
 
 
 --
@@ -13723,6 +13779,13 @@ CREATE INDEX idx_facility_documents_facility_active ON public.facility_documents
 --
 
 CREATE INDEX idx_facility_door_markers_facility ON public.facility_door_markers USING btree (facility_id);
+
+
+--
+-- Name: idx_facility_door_markers_rink; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_door_markers_rink ON public.facility_door_markers USING btree (rink_id);
 
 
 --
@@ -17164,6 +17227,14 @@ ALTER TABLE ONLY public.facility_door_markers
 
 
 --
+-- Name: facility_door_markers facility_door_markers_rink_same_facility_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_door_markers
+    ADD CONSTRAINT facility_door_markers_rink_same_facility_fkey FOREIGN KEY (rink_id, facility_id) REFERENCES public.ice_depth_rinks(id, facility_id) ON DELETE CASCADE;
+
+
+--
 -- Name: facility_door_markers facility_door_markers_type_same_facility_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -17217,6 +17288,14 @@ ALTER TABLE ONLY public.facility_modules
 
 ALTER TABLE ONLY public.facility_rink_diagram_config
     ADD CONSTRAINT facility_rink_diagram_config_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_rink_diagram_config facility_rink_diagram_config_rink_same_facility_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rink_diagram_config
+    ADD CONSTRAINT facility_rink_diagram_config_rink_same_facility_fkey FOREIGN KEY (rink_id, facility_id) REFERENCES public.ice_depth_rinks(id, facility_id) ON DELETE CASCADE;
 
 
 --

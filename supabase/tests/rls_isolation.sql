@@ -5432,15 +5432,21 @@ select pg_temp.expect_error(
   'DB46: trigger layer — asset checks are immutable once the walk is completed');
 
 -- ---------------------------------------------------------------------------
--- OVR: rink-diagram overlays (migration 199).
+-- OVR: rink-diagram overlays (migration 199; re-scoped to one rink per
+-- marker/config by migration 206).
 --
--- Door markers + center-ice logo config are facility-level ice_depth
--- configuration: any enabled ice_depth grant may READ (own facility only);
--- only module admins may WRITE. This section is the standing regression probe
--- required by the feature spec (same authorization-at-UI-only failure class
--- as the scheduling publish-lock bypass): a plain staff session must be
--- unable to write door types / markers / config or touch the rink-logos
--- storage bucket, via ANY direct call path.
+-- Door TYPES stay facility-level (shared naming/color vocabulary); door
+-- MARKERS and the logo CONFIG now belong to one physical rink
+-- (ice_depth_rinks) — a facility with multiple sheets of ice gets
+-- independent door layouts per sheet. Any enabled ice_depth grant may READ
+-- (own facility only); only module admins may WRITE. This section is the
+-- standing regression probe required by the feature spec (same
+-- authorization-at-UI-only failure class as the scheduling publish-lock
+-- bypass): a plain staff session must be unable to write door types /
+-- markers / config or touch the rink-logos storage bucket, via ANY direct
+-- call path — PLUS the new per-rink isolation: a marker/config on one rink
+-- must not appear when a query is scoped to a sibling rink in the SAME
+-- facility.
 --
 -- Personas: alice = staff (ice_depth view+submit, NO admin). mona gains an
 -- ice_depth admin grant HERE for the positive write assertions (her earlier
@@ -5459,32 +5465,46 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   4, 'OVR: facility B auto-seeded 4 standard door types on creation');
 
--- Fixture: one marker + one config row per facility (as postgres/BYPASSRLS),
--- plus one rink-logos storage object per facility for the read-scoping check.
+-- A second rink in facility A (facility A already has "Main Rink A" from the
+-- migration-83 fixture above) so per-rink isolation has a same-facility
+-- sibling to test against — not just cross-facility isolation.
+insert into public.ice_depth_rinks
+  (id, facility_id, name, slug, sort_order, is_active, is_default)
+values
+  ('aaaa1111-dd02-aaaa-aaaa-aaaa11110063',
+   '11111111-1111-1111-1111-111111111111', 'Oval Rink A', 'oval-rink', 1, true, false)
+on conflict (facility_id, slug) do nothing;
+
+-- Fixture: one marker + one config row on Main Rink A, plus a rink-logos
+-- storage object per facility for the read-scoping check.
 insert into public.facility_door_markers
-  (id, facility_id, door_type_id, label, position_x, position_y)
+  (id, facility_id, rink_id, door_type_id, label, position_x, position_y)
 values
   ('aaaa1111-0d01-aaaa-aaaa-aaaa11110061',
    '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-dddd-aaaa-aaaa-aaaa11110003',
    (select id from public.facility_door_types
      where facility_id = '11111111-1111-1111-1111-111111111111'
        and name = 'Zamboni Door'),
    'West Zamboni', 0.2, 0.1),
   ('bbbb2222-0d01-bbbb-bbbb-bbbb22220061',
    '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-dddd-bbbb-bbbb-bbbb22220003',
    (select id from public.facility_door_types
      where facility_id = '22222222-2222-2222-2222-222222222222'
        and name = 'Zamboni Door'),
    'B Zamboni', 0.8, 0.9)
 on conflict (id) do nothing;
 
-insert into public.facility_rink_diagram_config (facility_id, logo_storage_path)
+insert into public.facility_rink_diagram_config (facility_id, rink_id, logo_storage_path)
 values
   ('11111111-1111-1111-1111-111111111111',
+   'aaaa1111-dddd-aaaa-aaaa-aaaa11110003',
    '11111111-1111-1111-1111-111111111111/rink-logo-a.png'),
   ('22222222-2222-2222-2222-222222222222',
+   'bbbb2222-dddd-bbbb-bbbb-bbbb22220003',
    '22222222-2222-2222-2222-222222222222/rink-logo-b.png')
-on conflict (facility_id) do nothing;
+on conflict (rink_id) do nothing;
 
 insert into storage.objects (bucket_id, name)
 select 'rink-logos', v.name
@@ -5501,14 +5521,43 @@ where not exists (
 -- door type belonging to another facility, even via a BYPASSRLS writer.
 select pg_temp.expect_error(
   $$insert into public.facility_door_markers
-      (facility_id, door_type_id, position_x, position_y)
+      (facility_id, rink_id, door_type_id, position_x, position_y)
     values
       ('11111111-1111-1111-1111-111111111111',
+       'aaaa1111-dddd-aaaa-aaaa-aaaa11110003',
        (select id from public.facility_door_types
          where facility_id = '22222222-2222-2222-2222-222222222222'
            and name = 'Access Door'),
        0.5, 0.5)$$,
   'OVR: composite FK rejects a marker pointing at a foreign facility''s door type');
+
+-- Composite FK (rink_id, facility_id): a marker can never reference a RINK
+-- belonging to another facility either — the new invariant from migration 206.
+select pg_temp.expect_error(
+  $$insert into public.facility_door_markers
+      (facility_id, rink_id, door_type_id, position_x, position_y)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'bbbb2222-dddd-bbbb-bbbb-bbbb22220003',
+       (select id from public.facility_door_types
+         where facility_id = '11111111-1111-1111-1111-111111111111'
+           and name = 'Access Door'),
+       0.5, 0.5)$$,
+  'OVR: composite FK rejects a marker pointing at a foreign facility''s rink');
+
+-- Per-rink isolation, SAME facility: Main Rink A's marker/config must not
+-- appear when a query is scoped to its sibling Oval Rink A — proves the
+-- data model separates rinks, not just facilities.
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_door_markers
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and rink_id = 'aaaa1111-dd02-aaaa-aaaa-aaaa11110063'$$,
+  0, 'OVR: Main Rink A''s marker does NOT appear when scoped to sibling Oval Rink A');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_rink_diagram_config
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and rink_id = 'aaaa1111-dd02-aaaa-aaaa-aaaa11110063'$$,
+  0, 'OVR: Main Rink A''s logo config does NOT appear when scoped to sibling Oval Rink A');
 
 -- ---- alice (staff: view+submit, NO admin) ----------------------------------
 set local role authenticated;
@@ -5522,12 +5571,14 @@ select pg_temp.expect_count(
   4, 'OVR: staff alice CAN SELECT her own facility''s door types');
 select pg_temp.expect_count(
   $$select count(*) from public.facility_door_markers
-    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  1, 'OVR: staff alice CAN SELECT her own facility''s door markers');
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and rink_id = 'aaaa1111-dddd-aaaa-aaaa-aaaa11110003'$$,
+  1, 'OVR: staff alice CAN SELECT her own rink''s door markers');
 select pg_temp.expect_count(
   $$select count(*) from public.facility_rink_diagram_config
-    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  1, 'OVR: staff alice CAN SELECT her own facility''s diagram config');
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and rink_id = 'aaaa1111-dddd-aaaa-aaaa-aaaa11110003'$$,
+  1, 'OVR: staff alice CAN SELECT her own rink''s diagram config');
 
 -- ...foreign facility invisible.
 select pg_temp.expect_count(
@@ -5550,17 +5601,20 @@ select pg_temp.expect_error(
   'OVR: staff alice CANNOT INSERT a door type (own facility)');
 select pg_temp.expect_error(
   $$insert into public.facility_door_markers
-      (facility_id, door_type_id, position_x, position_y)
+      (facility_id, rink_id, door_type_id, position_x, position_y)
     values
       ('11111111-1111-1111-1111-111111111111',
+       'aaaa1111-dddd-aaaa-aaaa-aaaa11110003',
        (select id from public.facility_door_types
          where facility_id = '11111111-1111-1111-1111-111111111111'
            and name = 'Access Door'),
        0.5, 0.5)$$,
   'OVR: staff alice CANNOT INSERT a door marker (own facility)');
 select pg_temp.expect_error(
-  $$insert into public.facility_rink_diagram_config (facility_id)
-    values ('11111111-1111-1111-1111-111111111111')$$,
+  $$insert into public.facility_rink_diagram_config (facility_id, rink_id)
+    values
+      ('11111111-1111-1111-1111-111111111111',
+       'aaaa1111-dd02-aaaa-aaaa-aaaa11110063')$$,
   'OVR: staff alice CANNOT INSERT diagram config');
 
 -- ...UPDATE / DELETE silently match zero rows.
@@ -5574,7 +5628,7 @@ select pg_temp.expect_count(
 select pg_temp.expect_count(
   $$with u as (
       update public.facility_rink_diagram_config set logo_visible = false
-      where facility_id = '11111111-1111-1111-1111-111111111111'
+      where rink_id = 'aaaa1111-dddd-aaaa-aaaa-aaaa11110003'
       returning 1)
     select count(*) from u$$,
   0, 'OVR: staff alice UPDATE of diagram config matches 0 rows');
@@ -5621,7 +5675,8 @@ select pg_temp.expect_error(
   $$select public.seed_default_door_types('11111111-1111-1111-1111-111111111111')$$,
   'OVR: anon CANNOT execute seed_default_door_types');
 
--- ---- mona (module admin): the write gate opens with the admin grant --------
+-- ---- mona (module admin): the write gate opens with the admin grant,
+-- across EITHER of her facility's rinks -------------------------------------
 set local role postgres;
 insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
 values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -5636,33 +5691,49 @@ select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc
 select pg_temp.expect_count(
   $$with i as (
       insert into public.facility_door_markers
-        (facility_id, door_type_id, position_x, position_y)
+        (facility_id, rink_id, door_type_id, position_x, position_y)
       values
         ('11111111-1111-1111-1111-111111111111',
+         'aaaa1111-dddd-aaaa-aaaa-aaaa11110003',
          (select id from public.facility_door_types
            where facility_id = '11111111-1111-1111-1111-111111111111'
              and name = 'Player Gate'),
          0.4, 0.6)
       returning 1)
     select count(*) from i$$,
-  1, 'OVR: module-admin mona CAN INSERT a door marker in her facility');
+  1, 'OVR: module-admin mona CAN INSERT a door marker on Main Rink A');
+select pg_temp.expect_count(
+  $$with i as (
+      insert into public.facility_door_markers
+        (facility_id, rink_id, door_type_id, position_x, position_y)
+      values
+        ('11111111-1111-1111-1111-111111111111',
+         'aaaa1111-dd02-aaaa-aaaa-aaaa11110063',
+         (select id from public.facility_door_types
+           where facility_id = '11111111-1111-1111-1111-111111111111'
+             and name = 'Player Gate'),
+         0.3, 0.3)
+      returning 1)
+    select count(*) from i$$,
+  1, 'OVR: module-admin mona CAN INSERT a door marker on the sibling Oval Rink A too');
 select pg_temp.expect_count(
   $$with u as (
       update public.facility_rink_diagram_config set logo_opacity = 0.2
-      where facility_id = '11111111-1111-1111-1111-111111111111'
+      where rink_id = 'aaaa1111-dddd-aaaa-aaaa-aaaa11110003'
       returning 1)
     select count(*) from u$$,
-  1, 'OVR: module-admin mona CAN UPDATE diagram config in her facility');
+  1, 'OVR: module-admin mona CAN UPDATE diagram config on her rink');
 select pg_temp.expect_error(
   $$insert into public.facility_door_markers
-      (facility_id, door_type_id, position_x, position_y)
+      (facility_id, rink_id, door_type_id, position_x, position_y)
     values
       ('22222222-2222-2222-2222-222222222222',
+       'bbbb2222-dddd-bbbb-bbbb-bbbb22220003',
        (select id from public.facility_door_types
          where facility_id = '22222222-2222-2222-2222-222222222222'
            and name = 'Player Gate'),
        0.4, 0.6)$$,
-  'OVR: module-admin mona CANNOT INSERT a door marker into facility B');
+  'OVR: module-admin mona CANNOT INSERT a door marker into facility B''s rink');
 
 set local role postgres;
 

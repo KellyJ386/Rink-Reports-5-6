@@ -92,6 +92,26 @@ async function resolveFacility(): Promise<
 
 type UserClient = Awaited<ReturnType<typeof createClient>>
 
+/**
+ * Confirm a rink id belongs to the caller's facility before any door-marker
+ * or logo-config write (migration 206 scopes both to one physical rink).
+ * The composite FK enforces this at the DB layer too; this just turns a raw
+ * constraint violation into a readable error.
+ */
+async function resolveRink(
+  supabase: UserClient,
+  facilityId: string,
+  rinkId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data } = await supabase
+    .from("ice_depth_rinks")
+    .select("id")
+    .eq("id", rinkId)
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  return data ? { ok: true } : { ok: false, error: "Rink not found." }
+}
+
 /** Acting employee for created_by/updated_by attribution (nullable). */
 async function resolveEmployeeId(
   supabase: UserClient,
@@ -255,6 +275,7 @@ export async function deleteDoorType(id: string): Promise<SimpleResult> {
 
 export async function upsertDoorMarker(input: {
   id?: string
+  rink_id: string
   door_type_id: string
   label?: string | null
   position_x: number
@@ -266,6 +287,7 @@ export async function upsertDoorMarker(input: {
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
+    if (!input.rink_id) return { ok: false, error: "Missing rink id." }
     if (!input.door_type_id) {
       return { ok: false, error: "Pick a door type first." }
     }
@@ -283,6 +305,9 @@ export async function upsertDoorMarker(input: {
         : null
 
     const supabase = await createClient()
+
+    const rink = await resolveRink(supabase, facility.facilityId, input.rink_id)
+    if (!rink.ok) return { ok: false, error: rink.error }
 
     // Confirm the type belongs to this facility (the composite FK enforces it
     // too, but this returns a readable error instead of a constraint message).
@@ -308,6 +333,7 @@ export async function upsertDoorMarker(input: {
         })
         .eq("id", input.id)
         .eq("facility_id", facility.facilityId)
+        .eq("rink_id", input.rink_id)
         .select("id")
       if (error) {
         return { ok: false, error: dbError(error, "Failed to update marker.") }
@@ -321,6 +347,7 @@ export async function upsertDoorMarker(input: {
 
     const { error } = await supabase.from("facility_door_markers").insert({
       facility_id: facility.facilityId,
+      rink_id: input.rink_id,
       door_type_id: input.door_type_id,
       label,
       position_x,
@@ -406,19 +433,23 @@ export async function seedDefaultDoorTypes(): Promise<SimpleResult> {
 // Center-ice logo watermark
 // ============================================================================
 
-export async function updateRinkLogoLayout(patch: {
-  position_x?: number
-  position_y?: number
-  scale?: number
-  rotation?: number
-  opacity?: number
-  visible?: boolean
-}): Promise<SimpleResult> {
+export async function updateRinkLogoLayout(
+  rinkId: string,
+  patch: {
+    position_x?: number
+    position_y?: number
+    scale?: number
+    rotation?: number
+    opacity?: number
+    visible?: boolean
+  },
+): Promise<SimpleResult> {
   try {
     const denied = await ensureIceDepthAdmin()
     if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
+    if (!rinkId) return { ok: false, error: "Missing rink id." }
 
     const layout = normalizeLogoLayout(patch)
     const update: typeof layout & { logo_visible?: boolean } = { ...layout }
@@ -426,16 +457,20 @@ export async function updateRinkLogoLayout(patch: {
     if (Object.keys(update).length === 0) return { ok: true }
 
     const supabase = await createClient()
+    const rink = await resolveRink(supabase, facility.facilityId, rinkId)
+    if (!rink.ok) return { ok: false, error: rink.error }
+
     const updated_by = await resolveEmployeeId(supabase, facility.facilityId)
     // Upsert so layout tweaks work even before a logo is uploaded (the row
-    // then simply waits for a logo_storage_path).
+    // then simply waits for a logo_storage_path). One row per RINK now.
     const { error } = await supabase.from("facility_rink_diagram_config").upsert(
       {
         facility_id: facility.facilityId,
+        rink_id: rinkId,
         ...update,
         updated_by,
       },
-      { onConflict: "facility_id" },
+      { onConflict: "rink_id" },
     )
     if (error) {
       return { ok: false, error: dbError(error, "Failed to save logo layout.") }
@@ -458,6 +493,11 @@ export async function uploadRinkLogo(
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
 
+    const rinkId = formData.get("rink_id")
+    if (typeof rinkId !== "string" || !rinkId) {
+      return { ok: false, error: "Missing rink id." }
+    }
+
     const file = formData.get("file")
     if (!(file instanceof File) || file.size === 0) {
       return { ok: false, error: "Choose a logo file to upload." }
@@ -474,10 +514,14 @@ export async function uploadRinkLogo(
     }
 
     const supabase = await createClient()
+    const rink = await resolveRink(supabase, facility.facilityId, rinkId)
+    if (!rink.ok) return { ok: false, error: rink.error }
+
     const { data: existing } = await supabase
       .from("facility_rink_diagram_config")
       .select("logo_storage_path")
       .eq("facility_id", facility.facilityId)
+      .eq("rink_id", rinkId)
       .maybeSingle()
 
     // Unique object name per upload: replacing the logo can never serve a
@@ -498,16 +542,18 @@ export async function uploadRinkLogo(
 
     // Config write goes through the USER client so RLS re-checks the
     // module-admin grant even though the object write used service-role.
+    // One row per RINK now (migration 206).
     const updated_by = await resolveEmployeeId(supabase, facility.facilityId)
     const { error: dbErr } = await supabase
       .from("facility_rink_diagram_config")
       .upsert(
         {
           facility_id: facility.facilityId,
+          rink_id: rinkId,
           logo_storage_path: storagePath,
           updated_by,
         },
-        { onConflict: "facility_id" },
+        { onConflict: "rink_id" },
       )
     if (dbErr) {
       // Roll back the orphaned object so a retry starts clean.
@@ -529,18 +575,20 @@ export async function uploadRinkLogo(
   }
 }
 
-export async function removeRinkLogo(): Promise<SimpleResult> {
+export async function removeRinkLogo(rinkId: string): Promise<SimpleResult> {
   try {
     const denied = await ensureIceDepthAdmin()
     if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility()
     if (!facility.ok) return { ok: false, error: facility.error }
+    if (!rinkId) return { ok: false, error: "Missing rink id." }
 
     const supabase = await createClient()
     const { data: existing } = await supabase
       .from("facility_rink_diagram_config")
       .select("id, logo_storage_path")
       .eq("facility_id", facility.facilityId)
+      .eq("rink_id", rinkId)
       .maybeSingle()
     if (!existing) return { ok: true }
 
@@ -549,6 +597,7 @@ export async function removeRinkLogo(): Promise<SimpleResult> {
       .from("facility_rink_diagram_config")
       .update({ logo_storage_path: null, updated_by })
       .eq("facility_id", facility.facilityId)
+      .eq("rink_id", rinkId)
       .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to remove logo.") }

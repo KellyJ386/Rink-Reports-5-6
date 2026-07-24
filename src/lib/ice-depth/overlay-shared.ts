@@ -144,7 +144,7 @@ export function normalizeLogoLayout(patch: {
 // display as their NEAREST section).
 // ---------------------------------------------------------------------------
 
-export const DOOR_SECTION_COUNT = 24
+export const DOOR_SECTION_COUNT = 64
 
 export type DoorSection = {
   /** 1-based section number, clockwise from the top-edge midpoint. */

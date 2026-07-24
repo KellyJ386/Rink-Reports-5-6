@@ -69,14 +69,17 @@ type IceDepthRecord = {
 }
 
 /**
- * Facility-level diagram overlays (door markers + logo watermark), projected
+ * This rink's diagram overlays (door markers + logo watermark), projected
  * into viewBox coordinates for the PDF renderer. Reference geography — the
- * same on every report, independent of the session being rendered.
+ * same on every report on this rink, independent of the session being
+ * rendered. Door types are the one facility-level lookup here.
  */
 async function fetchRinkOverlays(
   sb: SupabaseClient,
   facilityId: string,
+  rinkId: string | null,
 ): Promise<PdfRinkOverlays> {
+  if (!rinkId) return { markers: [], logo: null }
   const [typesRes, markersRes, configRes] = await Promise.all([
     sb
       .from("facility_door_types")
@@ -85,13 +88,15 @@ async function fetchRinkOverlays(
     sb
       .from("facility_door_markers")
       .select("door_type_id, position_x, position_y")
-      .eq("facility_id", facilityId),
+      .eq("facility_id", facilityId)
+      .eq("rink_id", rinkId),
     sb
       .from("facility_rink_diagram_config")
       .select(
         "logo_storage_path, logo_position_x, logo_position_y, logo_scale, logo_rotation, logo_opacity, logo_visible",
       )
       .eq("facility_id", facilityId)
+      .eq("rink_id", rinkId)
       .maybeSingle(),
   ])
 
@@ -179,16 +184,18 @@ async function fetchIceDepthRecord(
   // malformed.
   let layout_name: string | null = null
   let logo_url: string | null = null
+  let rink_id: string | null = null
   if (row.layout_id) {
     const { data } = await sb
       .from("ice_depth_layouts")
-      .select("name, logo_url")
+      .select("name, logo_url, rink_id")
       .eq("id", row.layout_id)
       .eq("facility_id", row.facility_id)
       .maybeSingle()
     if (data) {
       layout_name = data.name
       logo_url = data.logo_url
+      rink_id = data.rink_id
     }
   }
 
@@ -289,7 +296,7 @@ async function fetchIceDepthRecord(
     }))
   }
 
-  const overlays = await fetchRinkOverlays(sb, row.facility_id)
+  const overlays = await fetchRinkOverlays(sb, row.facility_id, rink_id)
 
   return {
     id: row.id,
