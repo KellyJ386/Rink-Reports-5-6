@@ -5738,6 +5738,92 @@ select pg_temp.expect_error(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- 2z. Retention floors + keep-forever invariant (migration 208).
+--
+-- The defect this closes: the per-module retention floor (365 days for
+-- accident/incident reports) lived ONLY in the browser as a `minDays` prop,
+-- while the server action accepted a flat keep_days >= 30 for every module. A
+-- crafted POST wrote accident_reports = 30 days, and because purge_module_data
+-- ignores auto_purge, the admin "Purge now" button then hard-deleted against it
+-- immediately. These assertions are the regression gate.
+--
+-- Run as postgres (BYPASSRLS) so it is the trigger — not a policy — doing the
+-- rejecting. The trigger is deliberately NOT role-exempt: a retention floor is
+-- a compliance minimum, not a permission check.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'accident_reports', 30)$$,
+  'RETENTION-208: accident_reports CANNOT be set below its 365-day floor');
+
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'incident_reports', 90)$$,
+  'RETENTION-208: incident_reports CANNOT be set below its 365-day floor');
+
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'accident_reports', 365)
+    on conflict (facility_id, module_key)
+    do update set keep_days = 365$$,
+  'RETENTION-208: accident_reports CAN be set at its 365-day floor');
+
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'refrigeration', 60)$$,
+  'RETENTION-208: refrigeration CANNOT be set below its 90-day floor');
+
+-- keep_days = 0 is "keep forever": always permitted (stricter than any floor),
+-- and MUST force auto_purge off. Every retention-driven purge function filters
+-- `auto_purge = true`, so this coercion is what stops a keep-forever row from
+-- computing a cutoff of now() - '0 days' = now() and deleting the whole module.
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days, auto_purge)
+    values ('11111111-1111-1111-1111-111111111111', 'daily_reports', 0, true)
+    on conflict (facility_id, module_key)
+    do update set keep_days = 0, auto_purge = true$$,
+  'RETENTION-208: keep_days=0 (keep forever) is accepted');
+
+select pg_temp.expect_count(
+  $$select count(*)::int from public.retention_settings
+     where keep_days = 0 and auto_purge = true$$,
+  0,
+  'RETENTION-208: INVARIANT — no row can hold keep_days=0 AND auto_purge=true');
+
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'accident_reports', 0)
+    on conflict (facility_id, module_key)
+    do update set keep_days = 0$$,
+  'RETENTION-208: keep_days=0 accepted even where a 365-day floor applies');
+
+-- The floors table itself must not be lowerable by a facility admin, or the
+-- defect simply moves up one level.
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*)::int from public.retention_module_floors
+     where module_key = 'accident_reports' and min_days = 365$$,
+  1,
+  'RETENTION-208: floors are readable by an authenticated user');
+
+select pg_temp.expect_count(
+  $$with attempted as (
+      update public.retention_module_floors set min_days = 30
+       where module_key = 'accident_reports'
+      returning 1
+    ) select count(*)::int from attempted$$,
+  0,
+  'RETENTION-208: non-super-admin CANNOT lower a retention floor');
+
+reset role;
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

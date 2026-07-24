@@ -109,7 +109,26 @@ independently verified. Do not act on these as fact until checked.
 
 ---
 
-### Defect 1 — Retention can be driven to destroy compliance records — **VERIFIED**
+### Defect 1 — Retention can be driven to destroy compliance records — **VERIFIED → CLOSED (migration 208)**
+
+> **Closed by `supabase/migrations/00000000000208_retention_floors_and_keep_forever.sql`.**
+> Per-module floors now live in `retention_module_floors` and are enforced by a
+> BEFORE INSERT/UPDATE trigger on `retention_settings`, so the floor is applied at
+> the database boundary rather than in the browser. `keep_days = 0` ("keep
+> forever") is now permitted and forces `auto_purge = false`, which is what makes
+> it safe: every retention-driven purge function filters `auto_purge = true`, so a
+> keep-forever row can never be selected by one. Existing rows below their floor
+> were raised up to it. Regression assertions are in `supabase/tests/rls_isolation.sql`
+> (section 2z, `RETENTION-208`). **Still open** from the original I-4 ask: legal
+> hold, flag-for-review instead of hard delete, and retention-aware DELETE guards
+> on compliance tables.
+>
+> Two claims in the original write-up below were **wrong**, corrected here:
+> `purge_module_data` *does* already guard `keep_days = 0` and *does* authorize via
+> `is_super_admin() or is_facility_admin()`; and `audit_logs` was never
+> retention-configurable — migration 24 pins it to a fixed 7-year window, so the
+> retention UI was advertising a setting nothing read. Both `audit_logs` and
+> `scheduling` have been removed from the retention UI for that reason.
 
 The retention engine exists, but implements close to the **inverse** of what I-4
 asks for.
@@ -401,7 +420,7 @@ close-the-hole step was added ahead of the workflow. `supervisor` →
 
 ### I-4. Retention policy engine
 
-**Status:** PARTIAL — the engine exists and implements close to the inverse of this requirement. See Defect 1. **Highest priority in this library.**
+**Status:** PARTIALLY DONE — the data-loss path was closed by migration 208 (see Defect 1). Legal hold, flag-for-review, and RLS delete guards remain open.
 
 **Current state (verified 2026-07-24):** `retention_settings`
 (`supabase/migrations/00000000000018_retention_settings.sql`) is per-facility,
@@ -1578,9 +1597,15 @@ booking import (N-16).
 The original ordering opened with the marketing site, then I-1 through I-5. With
 the site dropped and the verification findings in hand, the real order is:
 
-1. **I-4** — Defect 1 is the only finding that destroys data irreversibly, on a
-   nightly timer. Server-side minimums first, then auto-delete, then legal hold.
+1. ~~**I-4**~~ — **done for the data-loss path** (migration 208). What remains of
+   I-4 — legal hold, flag-for-review instead of hard delete, retention-aware
+   DELETE guards — is feature work, no longer urgent, and can be scheduled
+   alongside the rest.
 2. **I-3** — Defect 2, and cheap: a trigger plus tightening one UPDATE policy.
+   **Now the front of the queue.** Note the close parallel to Defect 1: a
+   compliance-relevant rule enforced only in application code, with the DB
+   accepting anything. `accident_change_log` having no trigger is the same shape
+   of bug that migration 208 just fixed for retention floors.
    Sequenced before I-2 deliberately — hash chaining over a log that can be
    bypassed proves very little.
 3. **I-5** — the privilege audit will surface siblings of Defects 1 and 2 in other

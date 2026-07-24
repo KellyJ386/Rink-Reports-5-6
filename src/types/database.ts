@@ -6297,6 +6297,30 @@ export type Database = {
           },
         ]
       }
+      retention_module_floors: {
+        Row: {
+          created_at: string
+          min_days: number
+          module_key: string
+          note: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          min_days: number
+          module_key: string
+          note?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          min_days?: number
+          module_key?: string
+          note?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       retention_settings: {
         Row: {
           auto_purge: boolean

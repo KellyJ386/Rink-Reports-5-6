@@ -15,6 +15,25 @@ export type ActionState =
   | { ok: false; error: string }
   | { ok: null }
 
+/**
+ * Retention-configurable modules.
+ *
+ * `minDays` is a DISPLAY MIRROR of `public.retention_module_floors`, which is
+ * the authoritative source and is enforced by a BEFORE INSERT/UPDATE trigger on
+ * retention_settings (migration 208). It is used here only for the number
+ * input's `min` attribute and the preset filter. Never treat it as the
+ * enforcement point — it living here alone, unenforced server-side, was the
+ * data-loss defect migration 208 closed.
+ *
+ * Two modules are deliberately absent:
+ *  - `audit_logs`   — fixed at a 7-year compliance window by
+ *                     purge_old_audit_logs() and purge_module_data(); it never
+ *                     read retention_settings, so the row shown here was a
+ *                     setting that did nothing.
+ *  - `scheduling`   — purge_module_data() raises "Manual purge is not supported
+ *                     for scheduling" and no purge_old_scheduling() exists, so
+ *                     the row was settable but permanently inert.
+ */
 export const MODULES: ReadonlyArray<{
   key: string
   label: string
@@ -64,22 +83,10 @@ export const MODULES: ReadonlyArray<{
     minDays: 90,
   },
   {
-    key: "scheduling",
-    label: "Scheduling",
-    description: "Past shifts, swaps, and time-off requests.",
-    minDays: 90,
-  },
-  {
     key: "communications",
     label: "Communications",
     description: "Messages and alerts.",
     minDays: 30,
-  },
-  {
-    key: "audit_logs",
-    label: "Audit Log",
-    description: "System audit trail entries.",
-    minDays: 365,
   },
 ]
 

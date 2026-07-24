@@ -3737,6 +3737,54 @@ COMMENT ON FUNCTION public.resync_daily_area_assignments(p_date date) IS 'Daily 
 
 
 --
+-- Name: retention_settings_enforce_floor(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.retention_settings_enforce_floor() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_min_days integer;
+begin
+  -- keep_days = 0 is "keep forever": stricter than any floor, so it always
+  -- passes the floor check. But it MUST NOT be combined with auto_purge, or the
+  -- nightly cron would compute a cutoff of now() - '0 days' = now() and delete
+  -- the entire module. Every retention-driven purge function filters
+  -- `auto_purge = true`, so clearing the flag here is what makes keep-forever
+  -- safe across all of them — existing and future — without editing any.
+  if new.keep_days = 0 then
+    new.auto_purge := false;
+    return new;
+  end if;
+
+  select min_days into v_min_days
+    from public.retention_module_floors
+   where module_key = new.module_key;
+
+  -- A module with no floor row is unconstrained beyond the table CHECK. This is
+  -- deliberate: it lets a new module ship before its floor is decided, rather
+  -- than failing closed on an unrelated deploy.
+  if v_min_days is not null and new.keep_days < v_min_days then
+    raise exception
+      'Retention for % cannot be shorter than % days (regulatory minimum). Requested % days.',
+      new.module_key, v_min_days, new.keep_days
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION retention_settings_enforce_floor(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.retention_settings_enforce_floor() IS 'BEFORE INSERT/UPDATE guard on retention_settings. Enforces the per-module floor from retention_module_floors, and coerces auto_purge to false whenever keep_days = 0 so a keep-forever row can never be selected by a purge loop. Enforced for every role including service_role — the floor is a compliance minimum, not a permission check. Adjusting a floor requires super_admin rights on retention_module_floors.';
+
+
+--
 -- Name: schedule_shifts_publish_lock(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -10562,6 +10610,34 @@ COMMENT ON COLUMN public.report_area_assignments.superseded_at IS 'NULL = active
 
 
 --
+-- Name: retention_module_floors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.retention_module_floors (
+    module_key text NOT NULL,
+    min_days integer NOT NULL,
+    note text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT retention_module_floors_min_days_sane CHECK ((min_days >= 30))
+);
+
+
+--
+-- Name: TABLE retention_module_floors; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.retention_module_floors IS 'Regulatory/business minimum retention per module, enforced by retention_settings_enforce_floor(). A facility may keep records LONGER than the floor, or forever (keep_days = 0), but never less. Previously these values lived only in the browser as a minDays prop, which is the defect this table closes. audit_logs is intentionally absent — it is fixed at 7 years by purge_old_audit_logs() and is not retention_settings-configurable.';
+
+
+--
+-- Name: COLUMN retention_module_floors.min_days; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.retention_module_floors.min_days IS 'Smallest permitted non-zero keep_days for this module. keep_days = 0 (keep forever) is always permitted — it is stricter than any floor.';
+
+
+--
 -- Name: retention_settings; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10575,7 +10651,7 @@ CREATE TABLE public.retention_settings (
     updated_at timestamp with time zone,
     last_purged_at timestamp with time zone,
     last_purge_count integer,
-    CONSTRAINT retention_settings_keep_days_min CHECK ((keep_days >= 30))
+    CONSTRAINT retention_settings_keep_days_min CHECK (((keep_days = 0) OR (keep_days >= 30)))
 );
 
 
@@ -10583,7 +10659,7 @@ CREATE TABLE public.retention_settings (
 -- Name: TABLE retention_settings; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.retention_settings IS 'Per-facility, per-module retention rules. keep_days=0 means keep forever (disabled).';
+COMMENT ON TABLE public.retention_settings IS 'Per-facility, per-module retention rules. keep_days = 0 means keep forever, which forces auto_purge = false (see retention_settings_enforce_floor). Non-zero values are floored per module by retention_module_floors.';
 
 
 --
@@ -12620,6 +12696,14 @@ ALTER TABLE ONLY public.refrigeration_thresholds
 
 ALTER TABLE ONLY public.report_area_assignments
     ADD CONSTRAINT report_area_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: retention_module_floors retention_module_floors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.retention_module_floors
+    ADD CONSTRAINT retention_module_floors_pkey PRIMARY KEY (module_key);
 
 
 --
@@ -15830,6 +15914,20 @@ CREATE TRIGGER trg_refrigeration_thresholds_updated_at BEFORE UPDATE ON public.r
 --
 
 CREATE TRIGGER trg_report_area_assignments_block_past BEFORE INSERT OR UPDATE ON public.report_area_assignments FOR EACH ROW EXECUTE FUNCTION public.report_area_assignments_block_past();
+
+
+--
+-- Name: retention_module_floors trg_retention_module_floors_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_retention_module_floors_updated_at BEFORE UPDATE ON public.retention_module_floors FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: retention_settings trg_retention_settings_enforce_floor; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_retention_settings_enforce_floor BEFORE INSERT OR UPDATE ON public.retention_settings FOR EACH ROW EXECUTE FUNCTION public.retention_settings_enforce_floor();
 
 
 --
@@ -22103,6 +22201,26 @@ CREATE POLICY report_area_assignments_select ON public.report_area_assignments F
 CREATE POLICY report_area_assignments_update ON public.report_area_assignments FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
    FROM public.employees e
   WHERE ((e.id = report_area_assignments.employee_id) AND (e.facility_id = report_area_assignments.facility_id)))))));
+
+
+--
+-- Name: retention_module_floors; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.retention_module_floors ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: retention_module_floors retention_module_floors_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY retention_module_floors_select ON public.retention_module_floors FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: retention_module_floors retention_module_floors_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY retention_module_floors_write ON public.retention_module_floors TO authenticated USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
 
 
 --
