@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000206_rink_diagram_overlays_per_rink.sql
+-- 00000000000207_rink_diagram_overlays_per_rink.sql
 --
 -- Ice Depth diagram overlays (migration 199) were scoped to the whole
 -- FACILITY: one shared set of door markers and one logo config across every
