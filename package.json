@@ -61,7 +61,7 @@
   "pnpm": {
     "overrides": {
       "ws": "^8.21.0",
-      "postcss": "^8.5.16"
+      "postcss": "^8.5.18"
     },
     "auditConfig": {
       "ignoreGhsas": ["GHSA-f88m-g3jw-g9cj"]
