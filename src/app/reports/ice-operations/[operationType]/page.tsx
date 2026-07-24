@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { TabNav } from "@/components/ui/tab-nav"
-import { getIsAdmin, requireUser } from "@/lib/auth"
+import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
@@ -34,8 +34,6 @@ import {
 } from "../types"
 
 export const dynamic = "force-dynamic"
-
-const CONFIGURE_HREF = "/admin/ice-operations?tab=setup"
 
 const FORM_TITLES: Record<OperationType, string> = {
   ice_make: "Ice Make Activity",
@@ -158,39 +156,34 @@ export default async function OperationTypePage({
 
   const equipmentType = OPERATION_EQUIPMENT_TYPE[operationType]
 
-  const [
-    { data: rinksRaw },
-    { data: equipmentRaw },
-    { data: recentRaw },
-    isAdmin,
-  ] = await Promise.all([
-    supabase
-      .from("ice_operations_rinks")
-      .select("id, name, sort_order, is_active")
-      .eq("facility_id", facilityId)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("ice_operations_equipment")
-      .select(
-        "id, name, equipment_type, hours_count, sort_order, is_active, fuel_type_id, tank_capacity_gal"
-      )
-      .eq("facility_id", facilityId)
-      .eq("is_active", true)
-      .eq("equipment_type", equipmentType)
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("ice_operations_submissions")
-      .select(
-        "id, operation_type, occurred_at, submitted_at, failed_count, ice_operations_rinks(name), ice_operations_equipment(name)"
-      )
-      .eq("facility_id", facilityId)
-      .order("submitted_at", { ascending: false })
-      .limit(8),
-    getIsAdmin(current),
-  ])
+  const [{ data: rinksRaw }, { data: equipmentRaw }, { data: recentRaw }] =
+    await Promise.all([
+      supabase
+        .from("ice_operations_rinks")
+        .select("id, name, sort_order, is_active")
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      supabase
+        .from("ice_operations_equipment")
+        .select(
+          "id, name, equipment_type, hours_count, sort_order, is_active, fuel_type_id, tank_capacity_gal"
+        )
+        .eq("facility_id", facilityId)
+        .eq("is_active", true)
+        .eq("equipment_type", equipmentType)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      supabase
+        .from("ice_operations_submissions")
+        .select(
+          "id, operation_type, occurred_at, submitted_at, failed_count, ice_operations_rinks(name), ice_operations_equipment(name)"
+        )
+        .eq("facility_id", facilityId)
+        .order("submitted_at", { ascending: false })
+        .limit(8),
+    ])
 
   const rinks = (rinksRaw ?? []).map((r) => ({ id: r.id, name: r.name }))
   type EquipmentDbRow = {
@@ -232,13 +225,7 @@ export default async function OperationTypePage({
     failedCount: s.failed_count ?? 0,
   }))
 
-  const shell = (
-    <IceOpsShell
-      isAdmin={isAdmin}
-      configureHref={CONFIGURE_HREF}
-      recent={recent}
-    />
-  )
+  const shell = <IceOpsShell recent={recent} />
 
   const renderShellLayout = (content: ReactNode) => (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
