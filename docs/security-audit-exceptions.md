@@ -8,7 +8,7 @@ upstream fix lands.
 
 | GHSA | Package | Path | Why accepted | Remediation |
 |------|---------|------|--------------|-------------|
-| [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) | sharp | `.>next>sharp` | libvips codec-parsing CVEs (CVE-2026-33327, -33328, -35590, -35591). `sharp` is bundled transitively by `next@16.2.10` for `next/image` optimization — the app never routes user-uploaded images through it, only build-time and static assets served via `next/image`. No `next@16.2.10`-compatible fix available as of 2026-07-22. | Re-run `pnpm audit --prod` after each `next` patch bump; drop this entry once Next updates its internal `sharp` pin to ≥0.35.0 (the patched version). |
+| [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) | sharp | `.>next>sharp` | libvips codec-parsing CVEs (CVE-2026-33327, -33328, -35590, -35591). `sharp` is bundled transitively by Next for `next/image` optimization — the app never routes user-uploaded images through it, only build-time and static assets served via `next/image`. Still unpatched (`sharp@0.34.5` bundled by `next@16.2.11`) as of 2026-07-24. | Re-run `pnpm audit --prod` after each `next` patch bump; drop this entry once Next updates its internal `sharp` pin to ≥0.35.0 (the patched version). |
 
 ## Below the CI gate — tracked, not ignored
 
@@ -24,14 +24,6 @@ on write; no attacker-controlled input reaches that call path, and the module
 is admin-only and lazy-loaded (`src/components/admin/bulk-upload/`).
 *Remediation trigger:* drop when an `exceljs` release bumps its `uuid`
 dependency past v8.
-
-**`postcss` 8.4.31 via `.>next>postcss`** — GHSA-qx2v-qp2m-jg93 (moderate,
-patched ≥ 8.5.10): XSS via unescaped `</style>` in stringify output. postcss
-is a build-toolchain dependency vendored by Next; the app never stringifies
-untrusted CSS and builds run in CI/Vercel, not on user input. Next 16.2.10
-still pins postcss 8.4.31.
-*Remediation trigger:* re-run `pnpm audit --prod` after each `next` patch
-bump; this disappears when Next updates its internal pin.
 
 ## Notably fixed
 
@@ -61,3 +53,22 @@ bump; this disappears when Next updates its internal pin.
   auth gating runs in `src/proxy.ts`, so a proxy-bypass advisory is a real
   exposure, not a theoretical one. No ignore is recorded for these — they are
   genuinely patched.
+
+- **Three new `next` high advisories** — GHSA-m99w-x7hq-7vfj (DoS in the App
+  Router via Server Actions), GHSA-89xv-2m56-2m9x (SSRF in Server Actions),
+  and GHSA-p9j2-gv94-2wf4 (SSRF in rewrites via an attacker-controlled
+  destination hostname) — were cleared on 2026-07-24 by bumping `next`
+  16.2.10 → 16.2.11 (and `eslint-config-next` to match). All patched at
+  `next@16.2.11`; no ignore recorded.
+
+- **`postcss` 8.4.31 via `.>next>postcss`** — GHSA-6g55-p6wh-862q (high,
+  patched ≥ 8.5.12: arbitrary file read / info disclosure via an
+  attacker-controlled `sourceMappingURL` in CSS comments), which supersedes
+  the previously-tracked moderate GHSA-qx2v-qp2m-jg93 (both fixed by the same
+  bump). `next@16.2.11` still vendors an unpatched `postcss@8.4.31` alongside
+  the project's own `postcss@8.5.16` (via `@tailwindcss/postcss`) — cleared on
+  2026-07-24 by adding `"postcss": "^8.5.16"` to `pnpm.overrides`, forcing the
+  whole tree onto the already-present patched version instead of waiting on
+  Next to update its internal pin. *Re-check trigger:* if a future `next` bump
+  vendors its own patched postcss, the override can likely be dropped (verify
+  no regression first).
