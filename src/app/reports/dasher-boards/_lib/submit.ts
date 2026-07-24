@@ -7,6 +7,7 @@ import { dayKeyInTz } from "@/lib/timezone"
 import {
   isIssueSeverity,
   isUuid,
+  type AssetCheckStatus,
   type IssueSeverity,
 } from "./compute"
 import { getDueChecklist } from "./queries"
@@ -330,7 +331,7 @@ export type ChecklistResponseInput = {
   status: "pass" | "flag"
 }
 
-export type AssetCheckStatus = "pass" | "fail"
+export type { AssetCheckStatus }
 
 /**
  * Records the walk-doer's Pass/Fail check (with an optional note) for one asset

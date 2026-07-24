@@ -2,6 +2,10 @@ import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
 import { getCommunicationsUnreadCount } from "@/lib/communications/unread"
+import {
+  latestCheckStatus,
+  type AssetCheckLite,
+} from "@/app/reports/dasher-boards/_lib/compute"
 
 // =============================================================================
 // Dashboard module status ("monitoring lights")
@@ -193,20 +197,85 @@ async function accidentsStatus(
 }
 
 /**
- * Dasher Boards: open severity-A (safety-critical) perimeter issues. B/C
- * issues are routine carry-forward work and don't warrant a red bubble.
+ * Dasher Boards: open severity-A (safety-critical) perimeter issues, PLUS
+ * walk checks marked Fail that aren't already covered by an open issue on
+ * the same asset (any severity). This mirrors the diagram's "flagged"
+ * condition (see combineDisplayCondition in reports/dasher-boards/_lib/
+ * compute.ts) — a Fail with no open issue is still something nobody has
+ * acted on, so it counts toward the same red bubble as B/C issues do NOT:
+ * routine carry-forward B/C work alone still doesn't light this up, but an
+ * un-actioned Fail is a check nobody has turned into a tracked issue yet.
+ * There's no state between "red" and "green" in this dashboard's model
+ * (StatusBubble only ever renders one of the two), so both trigger types
+ * fold into one "red" count rather than inventing an intermediate state.
  */
 async function dasherBoardsStatus(
   supabase: Client,
   facilityId: string,
 ): Promise<ModuleStatus | null> {
-  const { count } = await supabase
+  const { count: severityACount } = await supabase
     .from("dasher_boards_issues")
     .select("id", { count: "exact", head: true })
     .eq("facility_id", facilityId)
     .eq("severity", "a")
     .is("resolved_at", null)
-  const n = count ?? 0
+
+  // Every inspection (walk) at this facility — a check's "latest" status is
+  // read the same way the diagram reads it: regardless of which walk (open
+  // or completed) it came from.
+  const { data: inspections } = await supabase
+    .from("dasher_boards_inspections")
+    .select("id")
+    .eq("facility_id", facilityId)
+  const inspectionIds = (inspections ?? []).map((i) => i.id)
+
+  let flaggedCount = 0
+  if (inspectionIds.length > 0) {
+    const { data: checks } = await supabase
+      .from("dasher_boards_asset_checks")
+      .select("asset_id, status, created_at, updated_at")
+      .in("inspection_id", inspectionIds)
+
+    const byAsset = new Map<string, AssetCheckLite[]>()
+    for (const c of checks ?? []) {
+      const list = byAsset.get(c.asset_id) ?? []
+      list.push({
+        assetId: c.asset_id,
+        status: c.status as "pass" | "fail",
+        effectiveAt: c.updated_at ?? c.created_at,
+      })
+      byAsset.set(c.asset_id, list)
+    }
+    const failedAssetIds = [...byAsset.entries()]
+      .filter(([, list]) => latestCheckStatus(list) === "fail")
+      .map(([assetId]) => assetId)
+
+    if (failedAssetIds.length > 0) {
+      const [{ data: activeAssets }, { data: openIssueAssets }] = await Promise.all([
+        supabase
+          .from("dasher_boards_assets")
+          .select("id")
+          .eq("facility_id", facilityId)
+          .eq("is_active", true)
+          .in("id", failedAssetIds),
+        supabase
+          .from("dasher_boards_issues")
+          .select("asset_id")
+          .eq("facility_id", facilityId)
+          .in("asset_id", failedAssetIds)
+          .is("resolved_at", null),
+      ])
+      const activeIds = new Set((activeAssets ?? []).map((a) => a.id))
+      const coveredIds = new Set(
+        (openIssueAssets ?? []).map((r) => r.asset_id).filter((v): v is string => !!v),
+      )
+      flaggedCount = failedAssetIds.filter(
+        (id) => activeIds.has(id) && !coveredIds.has(id),
+      ).length
+    }
+  }
+
+  const n = (severityACount ?? 0) + flaggedCount
   return n > 0 ? { state: "red", count: n } : null
 }
 

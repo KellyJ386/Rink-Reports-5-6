@@ -317,7 +317,7 @@ function StartPointCard({ rink }: { rink: RinkRow }) {
 // ---------------------------------------------------------------------------
 
 function SequenceBuilderCard({ rink }: { rink: RinkRow }) {
-  const [count, setCount] = useState("40")
+  const [count, setCount] = useState("64")
   const [pending, start] = useTransition()
 
   function onGenerate() {

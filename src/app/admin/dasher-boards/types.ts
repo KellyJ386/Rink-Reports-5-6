@@ -11,6 +11,7 @@ export type ChecklistItemRow = Tables<"dasher_boards_checklist_items">
 export type IssueRow = Tables<"dasher_boards_issues">
 export type InspectionRow = Tables<"dasher_boards_inspections">
 export type AssetEventRow = Tables<"dasher_boards_asset_events">
+export type AssetCheckRow = Tables<"dasher_boards_asset_checks">
 
 export type RinkTemplate = "nhl_200x85" | "olympic_200x100" | "custom"
 export const RINK_TEMPLATES: readonly RinkTemplate[] = [
@@ -45,11 +46,12 @@ export type GlassSpecInput = {
   notes: string | null
 }
 
-export type Tab = "perimeter" | "checklist" | "lists"
+export type Tab = "perimeter" | "checklist" | "lists" | "walks"
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "perimeter", label: "Perimeter" },
   { key: "checklist", label: "Checklist" },
   { key: "lists", label: "Lists" },
+  { key: "walks", label: "Walks" },
 ]
 export function asTab(value: string | undefined): Tab {
   const allowed = TABS.map((t) => t.key)
@@ -74,3 +76,31 @@ export type ActionState =
   | { ok: null }
 
 export type SimpleResult = { ok: true } | { ok: false; error: string }
+
+// ---- Walks tab composites ----
+
+export type EmployeeLite = {
+  id: string
+  first_name: string
+  last_name: string
+}
+
+/** One row in the Walks list: an inspection plus resolved inspector + fail tally. */
+export type WalkListItem = InspectionRow & {
+  inspector: EmployeeLite | null
+  failCount: number
+  checkCount: number
+}
+
+/** One asset_checks row, joined against its asset and (optionally) who checked it. */
+export type WalkAssetCheckItem = AssetCheckRow & {
+  asset: Pick<AssetRow, "id" | "label" | "asset_type"> | null
+  checkedBy: EmployeeLite | null
+}
+
+export type WalkDetailData = {
+  inspection: InspectionRow
+  inspector: EmployeeLite | null
+  /** Fails sorted first, per the walk-review use case (what needs attention). */
+  checks: WalkAssetCheckItem[]
+}

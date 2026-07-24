@@ -5,6 +5,7 @@
 export type AssetType = "board_panel" | "glass_panel" | "door"
 export type IssueSeverity = "a" | "b" | "c"
 export type Cadence = "daily" | "weekly" | "monthly" | "yearly"
+export type AssetCheckStatus = "pass" | "fail"
 
 export const ASSET_TYPES: readonly AssetType[] = [
   "board_panel",
@@ -89,6 +90,75 @@ export function worstOpenSeverity(
     if (worst === null || SEVERITY_RANK[s] > SEVERITY_RANK[worst]) worst = s
   }
   return worst
+}
+
+// ---------------------------------------------------------------------------
+// Asset-check rollup: "latest" check per asset, plus the combined
+// diagram/dashboard condition once an open-issue rollup is also known.
+// ---------------------------------------------------------------------------
+
+export type AssetCheckLite = {
+  assetId: string
+  status: AssetCheckStatus
+  /** created_at, or updated_at when the check was later edited. */
+  effectiveAt: string
+}
+
+/**
+ * The current condition of one asset from its check history: the row with
+ * the max `effectiveAt` wins — a later check supersedes an earlier one
+ * regardless of which walk it came from (a Pass after a prior Fail reads as
+ * Pass). Empty ⇒ null (never checked).
+ */
+export function latestCheckStatus(
+  checks: readonly Pick<AssetCheckLite, "status" | "effectiveAt">[],
+): AssetCheckStatus | null {
+  let best: Pick<AssetCheckLite, "status" | "effectiveAt"> | null = null
+  for (const c of checks) {
+    if (!best || c.effectiveAt > best.effectiveAt) best = c
+  }
+  return best?.status ?? null
+}
+
+/**
+ * Combine a board's own latest check with its glass child's latest check
+ * into one segment-level status (a glass row has no diagram segment of its
+ * own, so its condition rides on the board's). This is a DIFFERENT operation
+ * from `latestCheckStatus`: that function supersedes by time WITHIN one
+ * asset's own history (a later check on the SAME asset legitimately replaces
+ * an earlier one). Board and glass are different physical pieces, so their
+ * check histories must not be merged and re-sorted by time together — a Fail
+ * on the board, still unaddressed, must not be masked just because the glass
+ * happened to be checked (and passed) more recently. Fail wins over pass
+ * wins over null, independent of which one is more recent.
+ */
+export function combineAssetAndChildCheckStatus(
+  own: AssetCheckStatus | null,
+  child: AssetCheckStatus | null,
+): AssetCheckStatus | null {
+  if (own === "fail" || child === "fail") return "fail"
+  if (own === "pass" || child === "pass") return "pass"
+  return null
+}
+
+/**
+ * The diagram/dashboard's display condition for one asset, combining the
+ * open-issue rollup with the latest condition check. An open issue (any
+ * severity) is the actively-tracked, unresolved problem, so it always wins
+ * over a bare Fail check. A Fail with no open issue is "flagged": surfaced
+ * during a walk but not yet escalated into the issue pipeline — a distinct,
+ * less-alarming state from an open severity-A/B/C issue, but still visibly
+ * different from a clear asset. Neither present ⇒ null (clear).
+ */
+export function combineDisplayCondition(args: {
+  worstOpenSeverity: IssueSeverity | null
+  latestCheckStatus: AssetCheckStatus | null
+}): "alert" | "warn" | "flagged" | null {
+  const { worstOpenSeverity: severity, latestCheckStatus: check } = args
+  if (severity === "a") return "alert"
+  if (severity === "b" || severity === "c") return "warn"
+  if (check === "fail") return "flagged"
+  return null
 }
 
 // ---------------------------------------------------------------------------

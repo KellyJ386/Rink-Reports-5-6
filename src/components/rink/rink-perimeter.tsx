@@ -11,6 +11,13 @@
 // respectively. A door's at-rest identity is the lime accent (#4DFF00) plus a
 // break in the board line; it is never red or yellow unless it has open
 // issues. Non-color cues: doors get a glyph, condition gets a "!" marker.
+//
+// "flagged" (coral #FF7B4F — the palette's "warm attention" hue, distinct
+// from red/yellow/lime/glass-blue) is a Fail walk-check with no open issue
+// backing it yet: surfaced but not escalated into the issue pipeline. It
+// always loses to an open issue of any severity (see combineDisplayCondition
+// in reports/dasher-boards/_lib/compute.ts) — an open issue is the
+// actively-tracked problem.
 
 import { useId, useMemo, useRef } from "react"
 
@@ -30,7 +37,7 @@ import {
   type PositionedAssetLite,
 } from "./perimeter-geometry"
 
-export type PerimeterCondition = "warn" | "alert"
+export type PerimeterCondition = "warn" | "alert" | "flagged"
 
 export type RinkPerimeterGlass = {
   id: string
@@ -75,6 +82,7 @@ const DOOR_INK = "#1A9B00"
 const SELECT_COLOR = "#4DFF00"
 const WARN_COLOR = "#FFD600"
 const ALERT_COLOR = "#F42A2A"
+const FLAG_COLOR = "#FF7B4F"
 const GLASS_COLOR = "#5aa9d6"
 
 function segmentStroke(
@@ -83,7 +91,20 @@ function segmentStroke(
 ): string {
   if (condition === "alert") return ALERT_COLOR
   if (condition === "warn") return WARN_COLOR
+  if (condition === "flagged") return FLAG_COLOR
   return seg.assetType === "door" ? DOOR_COLOR : BOARD_COLOR
+}
+
+/** Marker chip fill (the "!" badge outward of the span). */
+function conditionMarkerFill(condition: PerimeterCondition): string {
+  if (condition === "alert") return ALERT_COLOR
+  if (condition === "warn") return WARN_COLOR
+  return FLAG_COLOR
+}
+
+/** Marker chip text ink — white reads AA on red/coral, navy reads AA on yellow. */
+function conditionMarkerInk(condition: PerimeterCondition): string {
+  return condition === "warn" ? "#002244" : "#FFFFFF"
 }
 
 export function RinkPerimeter({
@@ -212,7 +233,9 @@ export function RinkPerimeter({
                         ? ", open severity A issue"
                         : condition === "warn"
                           ? ", open issue"
-                          : ""
+                          : condition === "flagged"
+                            ? ", flagged fail — no issue reported yet"
+                            : ""
                     }`,
                     onClick: () => onSelectAsset?.(seg.assetId),
                     onKeyDown: (e: React.KeyboardEvent) => {
@@ -322,7 +345,7 @@ export function RinkPerimeter({
                     cx={seg.labelAnchor.x}
                     cy={seg.labelAnchor.y}
                     r={9}
-                    fill={condition === "alert" ? ALERT_COLOR : WARN_COLOR}
+                    fill={conditionMarkerFill(condition)}
                     stroke="#FFFFFF"
                     strokeWidth={1.25}
                   />
@@ -332,7 +355,7 @@ export function RinkPerimeter({
                     textAnchor="middle"
                     fontSize={11}
                     fontWeight={800}
-                    fill={condition === "alert" ? "#FFFFFF" : "#002244"}
+                    fill={conditionMarkerInk(condition)}
                   >
                     !
                   </text>
