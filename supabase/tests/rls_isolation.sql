@@ -5319,6 +5319,69 @@ select pg_temp.expect_error(
   'DB38b: a duplicate (rink, source_local_id) is rejected');
 
 -- ---------------------------------------------------------------------------
+-- DB39-43: staff condition logging (migration 204).
+-- Staff (submit) may mark B/C issues fixed and pick cleaning categories;
+-- severity-A resolution stays supervisor-only, staff cannot acknowledge, and a
+-- non-reporter cannot rewrite an issue's content.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.dasher_boards_issues
+  (id, facility_id, rink_id, asset_id, description, severity, reported_by,
+   supervisor_id, action_taken)
+values
+  ('dabf0001-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'dabb000a-0000-4000-8000-000000000001',
+   'needs cleaning', 'c', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', null, null),
+  ('dabf0002-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'dabb000a-0000-4000-8000-000000000001',
+   'panel scuff', 'b', 'cccc3333-cccc-cccc-cccc-cccccccccccc', null, null),
+  ('dabf0003-0000-4000-8000-000000000003', '11111111-1111-1111-1111-111111111111',
+   'dab0000a-0000-4000-8000-00000000000a', 'dabb000a-0000-4000-8000-000000000001',
+   'sharp edge', 'a', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'cccc3333-cccc-cccc-cccc-cccccccccccc', 'taped the edge');
+
+-- Cleaning categories are seeded per asset type.
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_issue_categories
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and label = 'Needs cleaning'$$,
+  3, 'DB39: default cleaning categories seeded (board/glass/door)');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Staff CAN mark a B/C issue fixed.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_issues
+       set resolved_by = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+           resolved_at = now()
+     where id = 'dabf0001-0000-4000-8000-000000000001'$$,
+  'DB40: staff (submit) CAN mark a C issue fixed');
+
+-- Staff CANNOT resolve a severity-A issue (guard raises even on their own A).
+select pg_temp.expect_error(
+  $$update public.dasher_boards_issues
+       set resolved_by = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+           resolved_at = now()
+     where id = 'dabf0003-0000-4000-8000-000000000003'$$,
+  'DB41: staff (submit) CANNOT resolve a severity-A issue');
+
+-- Staff CANNOT acknowledge (set supervisor_ack_at), even on their own issue.
+select pg_temp.expect_error(
+  $$update public.dasher_boards_issues set supervisor_ack_at = now()
+     where id = 'dabf0003-0000-4000-8000-000000000003'$$,
+  'DB42: staff (submit) CANNOT acknowledge an issue');
+
+-- A non-reporter staff CANNOT rewrite an issue's content (guard path 2).
+select pg_temp.expect_error(
+  $$update public.dasher_boards_issues set description = 'hijacked'
+     where id = 'dabf0002-0000-4000-8000-000000000002'$$,
+  'DB43: staff CANNOT edit the content of an issue they did not report');
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- OVR: rink-diagram overlays (migration 199).
 --
 -- Door markers + center-ice logo config are facility-level ice_depth

@@ -207,8 +207,27 @@ export async function resolveIssueAction(
     const ctx = await resolveContext()
     if (!ctx.ok) return ctx
     if (!isUuid(issueId)) return { ok: false, error: "Invalid issue." }
-    if (!(await currentUserCan(ctx.supabase, "dasher_boards", "edit"))) {
-      return { ok: false, error: NO_EDIT }
+    // Staff (submit) may mark B/C issues fixed; severity-A still needs a
+    // supervisor (edit). RLS + the issues guard enforce this at the DB layer —
+    // the check here just yields a clear message. Acknowledge stays edit-only.
+    const [canEdit, canSubmit] = await Promise.all([
+      currentUserCan(ctx.supabase, "dasher_boards", "edit"),
+      currentUserCan(ctx.supabase, "dasher_boards", "submit"),
+    ])
+    if (!canEdit && !canSubmit) return { ok: false, error: NO_SUBMIT }
+    if (!canEdit) {
+      const { data: issue } = await ctx.supabase
+        .from("dasher_boards_issues")
+        .select("severity")
+        .eq("id", issueId)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle()
+      if (issue?.severity === "a") {
+        return {
+          ok: false,
+          error: "Severity-A issues need a supervisor to sign off before closing.",
+        }
+      }
     }
     return await resolveIssue(ctx.supabase, {
       employeeId: ctx.employeeId,

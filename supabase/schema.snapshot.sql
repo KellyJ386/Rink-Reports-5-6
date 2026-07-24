@@ -1445,8 +1445,6 @@ begin
   v_is_edit  := public.has_module_edit_access('dasher_boards');
 
   if v_is_admin then
-    -- Admins may correct report fields and perform ack/resolve; nothing more
-    -- to police (linkage already frozen above).
     return new;
   end if;
 
@@ -1462,8 +1460,30 @@ begin
     return new;
   end if;
 
-  -- Reporter path (RLS already restricted to own unresolved rows):
-  -- description/category only.
+  -- Submit tier (staff). RLS has already restricted the reachable rows.
+  -- Path 1: resolving a non-A issue (mark fixed) — resolution fields only.
+  if new.resolved_at is distinct from old.resolved_at
+     or new.resolved_by is distinct from old.resolved_by
+  then
+    if old.severity = 'a' then
+      raise exception 'dasher_boards: severity-A issues require a supervisor to resolve';
+    end if;
+    if new.description      is distinct from old.description
+       or new.category_id      is distinct from old.category_id
+       or new.severity         is distinct from old.severity
+       or new.action_taken     is distinct from old.action_taken
+       or new.supervisor_id    is distinct from old.supervisor_id
+       or new.supervisor_ack_at is distinct from old.supervisor_ack_at
+    then
+      raise exception 'dasher_boards: resolving may change only the resolution fields';
+    end if;
+    return new;
+  end if;
+
+  -- Path 2: the reporter editing their own unresolved report (desc/category).
+  if old.reported_by is distinct from public.current_employee_id() then
+    raise exception 'dasher_boards: you may only edit issues you reported';
+  end if;
   if new.severity          is distinct from old.severity
      or new.action_taken      is distinct from old.action_taken
      or new.supervisor_id     is distinct from old.supervisor_id
@@ -5776,7 +5796,7 @@ begin
   ) as s(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: board panels.
+  -- Issue categories: board panels (repair + cleaning).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'board_panel', c.label, c.sort_order
   from (values
@@ -5786,11 +5806,13 @@ begin
     ('Kickplate damage', 3),
     ('Caprail damage', 4),
     ('Resurfacer impact', 5),
-    ('Other', 6)
+    ('Needs cleaning', 7),
+    ('Debris/buildup', 8),
+    ('Other', 9)
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: glass panels.
+  -- Issue categories: glass panels (repair + cleaning).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'glass_panel', c.label, c.sort_order
   from (values
@@ -5799,11 +5821,13 @@ begin
     ('Not seated/rattle', 2),
     ('Crazing at clamp', 3),
     ('Gasket damaged/missing', 4),
-    ('Other', 5)
+    ('Needs cleaning', 6),
+    ('Film/residue', 7),
+    ('Other', 8)
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: doors.
+  -- Issue categories: doors (repair + cleaning).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'door', c.label, c.sort_order
   from (values
@@ -5813,7 +5837,8 @@ begin
     ('Threshold damage', 3),
     ('Door glass damage', 4),
     ('Hardware protruding ice-side', 5),
-    ('Other', 6)
+    ('Needs cleaning', 7),
+    ('Other', 8)
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 end;
@@ -19817,7 +19842,7 @@ CREATE POLICY dasher_boards_issues_select ON public.dasher_boards_issues FOR SEL
 -- Name: dasher_boards_issues dasher_boards_issues_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY dasher_boards_issues_update ON public.dasher_boards_issues FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (resolved_at IS NULL) AND (public.has_module_edit_access('dasher_boards'::text) OR public.has_module_admin_access('dasher_boards'::text) OR ((reported_by = public.current_employee_id()) AND public.has_module_submit_access('dasher_boards'::text)))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+CREATE POLICY dasher_boards_issues_update ON public.dasher_boards_issues FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (resolved_at IS NULL) AND (public.has_module_edit_access('dasher_boards'::text) OR public.has_module_admin_access('dasher_boards'::text) OR (public.has_module_submit_access('dasher_boards'::text) AND ((severity <> 'a'::text) OR (reported_by = public.current_employee_id()))))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --
