@@ -159,7 +159,29 @@ asks for.
   (`supabase/migrations/00000000000132_purge_module_data.sql`) — a settable,
   permanently inert row.
 
-### Defect 2 — Destructive edits to compliance records are unlogged — **VERIFIED**
+### Defect 2 — Submitted compliance records are mutable in place — **VERIFIED, but downgraded**
+
+> **CORRECTION (2026-07-24, same day).** This entry originally claimed that a
+> direct `UPDATE` on an accident report "writes **no change-log row at all**".
+> **That was wrong**, and the error mattered: it drove the sequencing that put I-3
+> ahead of I-2.
+>
+> `public.audit_row_change()` — a SECURITY DEFINER AFTER trigger capturing full
+> `before`/`after` JSONB plus actor and entity id — **is** attached to both
+> `accident_reports` and `incident_reports`
+> (`supabase/migrations/00000000000041_audit_triggers.sql:137-146`), and migration
+> 46 extends it to `air_quality_reports`, `refrigeration_reports`,
+> `ice_depth_sessions`, `daily_report_submissions` and `ice_operation_reports`.
+> Every mutation of those tables therefore **does** land in `audit_logs`, by
+> whatever path it arrives.
+>
+> What is genuinely missing is narrower: the **module-specific**
+> `accident_change_log` row, which is what the admin History tab renders. A
+> record edited outside the app therefore shows complete history in the audit log
+> but an incomplete one in its own module view. That is a real inconsistency, not
+> an integrity hole — and I-2's hash chaining is **not** undermined the way this
+> entry originally claimed, because the chain covers `audit_logs`, which is
+> trigger-populated rather than app-populated.
 
 I-3 assumes *"once submitted, the original values are immutable."* Not true today.
 
@@ -176,10 +198,13 @@ I-3 assumes *"once submitted, the original values are immutable."* Not true toda
   `src/app/reports/accidents/actions.ts`). The migration's own comment concedes
   changes *"should be logged in accident_change_log by the app."*
 
-Net effect: a direct PostgREST `UPDATE` from an admin session mutates a compliance
-record and writes **no change-log row at all**. Hash chaining (I-2) would not catch
-this — the chain stays perfectly valid over a log that was never written to. This
-is why I-3 is sequenced before I-2.
+Net effect (as corrected above): a direct PostgREST `UPDATE` from an admin session
+mutates a compliance record, is **fully captured in `audit_logs`** by the generic
+trigger, but produces **no `accident_change_log` row** — so the module's own
+History tab silently under-reports. The remaining substance of I-3 is therefore
+about **immutability and amendment semantics**, not about tracing: records should
+not be destructively editable at all, and corrections should be new linked
+versions with a reason. That is feature work, not an urgent hole.
 
 Prior art for the fix: `superseded_at` on `report_area_assignments`
 (`supabase/migrations/00000000000182_daily_area_assignment_schema.sql`).
@@ -1601,19 +1626,22 @@ the site dropped and the verification findings in hand, the real order is:
    I-4 — legal hold, flag-for-review instead of hard delete, retention-aware
    DELETE guards — is feature work, no longer urgent, and can be scheduled
    alongside the rest.
-2. **I-3** — Defect 2, and cheap: a trigger plus tightening one UPDATE policy.
-   **Now the front of the queue.** Note the close parallel to Defect 1: a
-   compliance-relevant rule enforced only in application code, with the DB
-   accepting anything. `accident_change_log` having no trigger is the same shape
-   of bug that migration 208 just fixed for retention floors.
-   Sequenced before I-2 deliberately — hash chaining over a log that can be
-   bypassed proves very little.
-3. **I-5** — the privilege audit will surface siblings of Defects 1 and 2 in other
-   modules; the `_change_log` tables are the first place to look.
-4. **I-1 and N-4** — Defects 4 and 3, both scheduling integrity.
-5. **I-2** — hash chaining, over a log that is now trustworthy, plus the
-   silent-write-failure fix.
-6. **I-8** — encode Defects 1 through 5 as permanent probes so none can regress.
+2. **I-5** — the privilege audit is now the strongest next move. Defect 1 was a
+   real instance of "enforced in the UI, not in the database", and the audit is
+   built to find its siblings systematically rather than one at a time.
+3. **I-2** — hash chaining. **Promoted above I-3** following the Defect 2
+   correction: `audit_logs` is trigger-populated on every compliance table, so it
+   is a sound substrate for a chain today. The original ordering assumed the log
+   could be bypassed, which was wrong.
+4. **I-1 and N-4** — Defects 4 and 3, both scheduling integrity. Defect 4 still
+   needs confirming before it is acted on; Defect 3 (certification expiry checked
+   against `current_date` rather than the shift date) is verified and small.
+5. **I-3** — reclassified as feature work after the Defect 2 correction:
+   immutability and amendment semantics (reason codes, linked versions,
+   approval), plus closing the module change-log gap so a module's History tab
+   matches what `audit_logs` already records. No longer urgent.
+6. **I-8** — encode the confirmed defects as permanent probes so none can regress.
+   The `RETENTION-208` block added for Defect 1 is the template.
 7. **I-6 and I-7** in parallel — both procurement gates, neither started.
 8. **N-1 and N-3** — cheap now that the compliance-profile engine exists.
    **N-2** depends on I-2.
