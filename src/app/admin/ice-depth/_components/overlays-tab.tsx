@@ -45,6 +45,16 @@ import {
   type RinkOverlayMarker,
 } from "@/lib/ice-depth/overlay-shared"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -650,6 +660,7 @@ function SelectedMarkerEditor({
   const [section, setSection] = useState(currentSection)
   const [savePending, startSave] = useTransition()
   const [delPending, startDel] = useTransition()
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   function onSave() {
     const pos = sectionPosition(section)
@@ -666,8 +677,8 @@ function SelectedMarkerEditor({
     })
   }
 
-  function onDelete() {
-    if (!confirm("Delete this door marker?")) return
+  function onConfirmDelete() {
+    setConfirmOpen(false)
     startDel(async () => {
       const r = await deleteDoorMarker(marker.id)
       if (!r.ok) toast.error(r.error)
@@ -743,13 +754,34 @@ function SelectedMarkerEditor({
           <Button
             size="sm"
             variant="destructive"
-            onClick={onDelete}
+            onClick={() => setConfirmOpen(true)}
             disabled={delPending}
           >
             Delete
           </Button>
         </div>
       </CardContent>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this door marker?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone. The marker will no longer appear on any
+              ice-depth report.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }
@@ -1007,6 +1039,7 @@ function DoorTypeRowItem({
 }) {
   const [activePending, startActive] = useTransition()
   const [delPending, startDel] = useTransition()
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   function onToggleActive() {
     startActive(async () => {
@@ -1015,13 +1048,8 @@ function DoorTypeRowItem({
     })
   }
 
-  function onDelete() {
-    if (
-      !confirm(
-        `Delete door type "${doorType.name}"? Markers using it must be deleted first.`,
-      )
-    )
-      return
+  function onConfirmDelete() {
+    setConfirmOpen(false)
     startDel(async () => {
       const r = await deleteDoorType(doorType.id)
       if (!r.ok) toast.error(r.error)
@@ -1062,13 +1090,34 @@ function DoorTypeRowItem({
           variant="ghost"
           size="sm"
           className="text-destructive"
-          onClick={onDelete}
+          onClick={() => setConfirmOpen(true)}
           disabled={delPending}
         >
           Delete
         </Button>
       </div>
       {editing && <DoorTypeForm doorType={doorType} onDone={onToggleEdit} />}
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete door type &ldquo;{doorType.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Markers using this type must be deleted first, or deactivate the
+              type instead. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </li>
   )
 }
