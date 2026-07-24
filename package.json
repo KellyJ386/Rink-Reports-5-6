@@ -34,7 +34,7 @@
     "exceljs": "^4.4.0",
     "libphonenumber-js": "^1.13.8",
     "lucide-react": "^1.23.0",
-    "next": "16.2.10",
+    "next": "16.2.11",
     "posthog-js": "^1.398.4",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -53,14 +53,15 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.4",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.2.11",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   },
   "pnpm": {
     "overrides": {
-      "ws": "^8.21.0"
+      "ws": "^8.21.0",
+      "postcss": "^8.5.16"
     },
     "auditConfig": {
       "ignoreGhsas": ["GHSA-f88m-g3jw-g9cj"]
