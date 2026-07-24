@@ -138,6 +138,9 @@ function SessionsList({
             <th className="border-b px-3 py-2 text-left font-medium">Total</th>
             <th className="border-b px-3 py-2 text-left font-medium">Low</th>
             <th className="border-b px-3 py-2 text-left font-medium">High</th>
+            <th className="border-b px-3 py-2 text-left font-medium">
+              Board/Glass
+            </th>
             <th className="border-b px-3 py-2 text-right font-medium">
               Actions
             </th>
@@ -169,6 +172,19 @@ function SessionsList({
                 <Badge variant={s.high_count > 0 ? "warning" : "secondary"}>
                   {s.high_count}
                 </Badge>
+              </td>
+              <td className="border-b px-3 py-2 align-middle">
+                <div className="flex gap-1">
+                  {s.board_pass === false && (
+                    <Badge variant="error">Board</Badge>
+                  )}
+                  {s.glass_pass === false && (
+                    <Badge variant="error">Glass</Badge>
+                  )}
+                  {s.board_pass !== false && s.glass_pass !== false && (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </div>
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 <div className="flex justify-end">

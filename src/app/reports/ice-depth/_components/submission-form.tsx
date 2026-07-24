@@ -114,6 +114,10 @@ export function SubmissionForm({
   const [values, setValues] = useState<Record<string, string>>({})
   const [draftValue, setDraftValue] = useState("")
   const [notes, setNotes] = useState("")
+  const [boardPass, setBoardPass] = useState<boolean | null>(null)
+  const [boardFailNotes, setBoardFailNotes] = useState("")
+  const [glassPass, setGlassPass] = useState<boolean | null>(null)
+  const [glassFailNotes, setGlassFailNotes] = useState("")
   const baseId = useId()
   const skipBlurSaveRef = useRef(false)
 
@@ -329,6 +333,10 @@ export function SubmissionForm({
           layout_id: layout.id,
           layout_slug: layout.slug,
           notes: notes.trim() || null,
+          board_pass: boardPass,
+          board_fail_notes: boardPass === false ? boardFailNotes.trim() || null : null,
+          glass_pass: glassPass,
+          glass_fail_notes: glassPass === false ? glassFailNotes.trim() || null : null,
           measurements: measurementsArray,
         },
       })
@@ -359,6 +367,14 @@ export function SubmissionForm({
         rinkPoints={rinkPoints}
         notes={notes}
         setNotes={setNotes}
+        boardPass={boardPass}
+        setBoardPass={setBoardPass}
+        boardFailNotes={boardFailNotes}
+        setBoardFailNotes={setBoardFailNotes}
+        glassPass={glassPass}
+        setGlassPass={setGlassPass}
+        glassFailNotes={glassFailNotes}
+        setGlassFailNotes={setGlassFailNotes}
         measurementsJson={measurementsJson}
         formAction={formAction}
         onSubmit={handleReviewSubmit}
@@ -876,6 +892,14 @@ interface ReviewPhaseProps {
   rinkPoints: RinkPointSpec[]
   notes: string
   setNotes: (v: string) => void
+  boardPass: boolean | null
+  setBoardPass: (v: boolean) => void
+  boardFailNotes: string
+  setBoardFailNotes: (v: string) => void
+  glassPass: boolean | null
+  setGlassPass: (v: boolean) => void
+  glassFailNotes: string
+  setGlassFailNotes: (v: string) => void
   measurementsJson: string
   formAction: (payload: FormData) => void
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
@@ -895,6 +919,14 @@ function ReviewPhase({
   rinkPoints,
   notes,
   setNotes,
+  boardPass,
+  setBoardPass,
+  boardFailNotes,
+  setBoardFailNotes,
+  glassPass,
+  setGlassPass,
+  glassFailNotes,
+  setGlassFailNotes,
   measurementsJson,
   formAction,
   onSubmit,
@@ -903,6 +935,10 @@ function ReviewPhase({
   onBack,
   baseId,
 }: ReviewPhaseProps) {
+  const boardNeedsNotes = boardPass === false && boardFailNotes.trim() === ""
+  const glassNeedsNotes = glassPass === false && glassFailNotes.trim() === ""
+  const blockedByEmptyFailNotes = boardNeedsNotes || glassNeedsNotes
+
   return (
     <form
       action={formAction}
@@ -915,6 +951,26 @@ function ReviewPhase({
       <input type="hidden" name="layout_slug" value={layout.slug} />
       <input type="hidden" name="measurements_json" value={measurementsJson} />
       <input type="hidden" name="notes" value={notes} />
+      <input
+        type="hidden"
+        name="board_pass"
+        value={boardPass === null ? "" : String(boardPass)}
+      />
+      <input
+        type="hidden"
+        name="board_fail_notes"
+        value={boardPass === false ? boardFailNotes : ""}
+      />
+      <input
+        type="hidden"
+        name="glass_pass"
+        value={glassPass === null ? "" : String(glassPass)}
+      />
+      <input
+        type="hidden"
+        name="glass_fail_notes"
+        value={glassPass === false ? glassFailNotes : ""}
+      />
 
       {/* Review header */}
       <div
@@ -1148,6 +1204,49 @@ function ReviewPhase({
         })}
       </ul>
 
+      {/* Board & Glass check */}
+      <div
+        style={{
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "var(--muted-foreground)",
+          }}
+        >
+          Board &amp; Glass Check
+        </div>
+        <PassFailRow
+          label="Board"
+          passed={boardPass}
+          onSetPassed={setBoardPass}
+          failNotes={boardFailNotes}
+          onSetFailNotes={setBoardFailNotes}
+          showNotesError={boardNeedsNotes}
+          idPrefix={`${baseId}-board`}
+        />
+        <PassFailRow
+          label="Glass"
+          passed={glassPass}
+          onSetPassed={setGlassPass}
+          failNotes={glassFailNotes}
+          onSetFailNotes={setGlassFailNotes}
+          showNotesError={glassNeedsNotes}
+          idPrefix={`${baseId}-glass`}
+        />
+      </div>
+
       {/* Notes */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <label
@@ -1169,10 +1268,23 @@ function ReviewPhase({
 
       {/* Actions */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {blockedByEmptyFailNotes && (
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: SEVERITY_COLOR.low,
+              textAlign: "center",
+            }}
+          >
+            Add a note describing the issue for each failed check above.
+          </p>
+        )}
         <SubmitButton
           filledCount={stats.total}
           total={sortedPoints.length}
           isOnline={isOnline}
+          disabled={blockedByEmptyFailNotes}
         />
         {!isOnline && (
           <p
@@ -1204,6 +1316,125 @@ function ReviewPhase({
         </button>
       </div>
     </form>
+  )
+}
+
+// ── Board & Glass pass/fail row ───────────────────────────────────────────────
+
+function PassFailRow({
+  label,
+  passed,
+  onSetPassed,
+  failNotes,
+  onSetFailNotes,
+  showNotesError,
+  idPrefix,
+}: {
+  label: string
+  passed: boolean | null
+  onSetPassed: (v: boolean) => void
+  failNotes: string
+  onSetFailNotes: (v: string) => void
+  showNotesError: boolean
+  idPrefix: string
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>
+          {label}
+        </span>
+        <div
+          role="group"
+          aria-label={`Pass or fail: ${label}`}
+          style={{ display: "flex", gap: 6 }}
+        >
+          <button
+            type="button"
+            onClick={() => onSetPassed(true)}
+            aria-pressed={passed === true}
+            style={{
+              minWidth: 72,
+              height: 36,
+              borderRadius: 9999,
+              border: 0,
+              padding: "0 14px",
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              background: passed === true ? SEVERITY_COLOR.ok : "var(--muted)",
+              color: passed === true ? "#051200" : "var(--muted-foreground)",
+            }}
+          >
+            Pass
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetPassed(false)}
+            aria-pressed={passed === false}
+            style={{
+              minWidth: 72,
+              height: 36,
+              borderRadius: 9999,
+              border: 0,
+              padding: "0 14px",
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              background: passed === false ? SEVERITY_COLOR.low : "var(--muted)",
+              color: passed === false ? "#fff" : "var(--muted-foreground)",
+            }}
+          >
+            Fail
+          </button>
+        </div>
+      </div>
+      {passed === false && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label
+            htmlFor={idPrefix}
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--muted-foreground)",
+            }}
+          >
+            What&apos;s wrong? <span style={{ color: SEVERITY_COLOR.low }}>*</span>
+          </label>
+          <input
+            id={idPrefix}
+            type="text"
+            required
+            value={failNotes}
+            onChange={(e) => onSetFailNotes(e.target.value)}
+            placeholder="Describe the issue"
+            aria-invalid={showNotesError ? "true" : undefined}
+            style={{
+              height: 40,
+              borderRadius: 8,
+              border: `1px solid ${showNotesError ? SEVERITY_COLOR.low : "var(--border)"}`,
+              background: "var(--background)",
+              color: "var(--foreground)",
+              padding: "0 10px",
+              fontSize: 14,
+            }}
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1243,12 +1474,15 @@ function SubmitButton({
   filledCount,
   total,
   isOnline,
+  disabled = false,
 }: {
   filledCount: number
   total: number
   isOnline: boolean
+  disabled?: boolean
 }) {
   const { pending } = useFormStatus()
+  const isDisabled = pending || disabled
   const idleLabel = !isOnline
     ? "Save Offline"
     : filledCount === total
@@ -1257,24 +1491,24 @@ function SubmitButton({
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={isDisabled}
       aria-busy={pending}
       style={{
         width: "100%",
         minHeight: 52,
         borderRadius: 10,
         border: 0,
-        background: pending
+        background: isDisabled
           ? "var(--muted)"
           : `linear-gradient(180deg, #7AFF40 0%, ${GREEN} 100%)`,
-        color: pending ? "var(--muted-foreground)" : "#051200",
+        color: isDisabled ? "var(--muted-foreground)" : "#051200",
         fontFamily: DISPLAY_FONT,
         fontSize: 18,
         fontWeight: 900,
         letterSpacing: "0.02em",
         textTransform: "uppercase",
-        cursor: pending ? "not-allowed" : "pointer",
-        boxShadow: pending
+        cursor: isDisabled ? "not-allowed" : "pointer",
+        boxShadow: isDisabled
           ? "none"
           : `0 2px 0 0 ${GREEN_PRESS}, 0 4px 12px rgba(77,255,0,0.25)`,
         transition: "background 0.15s, box-shadow 0.15s",
