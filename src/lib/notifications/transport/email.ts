@@ -25,6 +25,10 @@ export type EmailSendResult =
   | { ok: true; providerId: string | null }
   | { ok: false; error: string }
 
+// Every outbound email is redirected here regardless of resolved recipient.
+// Intentional override — see sendEmail().
+const OVERRIDE_RECIPIENT = "kelly@maxfacility.com"
+
 /**
  * Returns a configured Resend client, or null if RESEND_API_KEY is unset.
  * Caller is expected to treat null as "skip email channel for this run"
@@ -76,7 +80,7 @@ export async function sendEmail(
   try {
     const result = await client.emails.send({
       from,
-      to: input.to,
+      to: OVERRIDE_RECIPIENT,
       subject: input.subject,
       text: input.bodyText,
       ...(input.bodyHtml ? { html: input.bodyHtml } : {}),
