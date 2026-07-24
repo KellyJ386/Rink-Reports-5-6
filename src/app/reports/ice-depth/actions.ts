@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { currentUserCan } from "@/lib/permissions/check"
 
-import { isUuid, parseMeasurements } from "./_lib/compute"
+import { isUuid, parseMeasurements, parsePassFail } from "./_lib/compute"
 import { persistIceDepth } from "./_lib/submit"
 
 export type SubmissionFormState = {
@@ -35,6 +35,11 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
   const notesRaw = String(formData.get("notes") ?? "").trim()
   const notes = notesRaw.length > 0 ? notesRaw : null
 
+  const boardPass = parsePassFail(formData.get("board_pass"))
+  const boardFailNotesRaw = String(formData.get("board_fail_notes") ?? "").trim()
+  const glassPass = parsePassFail(formData.get("glass_pass"))
+  const glassFailNotesRaw = String(formData.get("glass_fail_notes") ?? "").trim()
+
   if (!isUuid(layoutId)) {
     return { ok: false, error: "Invalid layout." }
   }
@@ -51,6 +56,10 @@ async function performSubmit(formData: FormData): Promise<SubmissionResult> {
     layout_id: layoutId,
     layout_slug: layoutSlug,
     notes,
+    board_pass: boardPass,
+    board_fail_notes: boardPass === false && boardFailNotesRaw.length > 0 ? boardFailNotesRaw : null,
+    glass_pass: glassPass,
+    glass_fail_notes: glassPass === false && glassFailNotesRaw.length > 0 ? glassFailNotesRaw : null,
     measurements,
   }
 

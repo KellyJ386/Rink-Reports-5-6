@@ -5,6 +5,7 @@ import {
   buildInputFromPayload,
   dedupeMeasurements,
   parseMeasurements,
+  parsePassFail,
   severityFor,
   shouldFireAlert,
   summarizeMeasurements,
@@ -122,8 +123,56 @@ describe("buildInputFromObject", () => {
       layout_id: LAYOUT_ID,
       layout_slug: "main-rink",
       notes: null,
+      board_pass: null,
+      board_fail_notes: null,
+      glass_pass: null,
+      glass_fail_notes: null,
       measurements: [{ point_id: P1, depth_value: 1.25 }],
     })
+  })
+
+  it("parses board/glass pass=true with no notes required", () => {
+    const out = buildInputFromObject({
+      layout_id: LAYOUT_ID,
+      layout_slug: "main-rink",
+      board_pass: true,
+      glass_pass: "true",
+      measurements: [],
+    })!
+    expect(out.board_pass).toBe(true)
+    expect(out.board_fail_notes).toBeNull()
+    expect(out.glass_pass).toBe(true)
+    expect(out.glass_fail_notes).toBeNull()
+  })
+
+  it("parses board/glass fail with notes, trimmed", () => {
+    const out = buildInputFromObject({
+      layout_id: LAYOUT_ID,
+      layout_slug: "main-rink",
+      board_pass: false,
+      board_fail_notes: "  cracked panel near bench  ",
+      glass_pass: "false",
+      glass_fail_notes: "chip in corner glass",
+      measurements: [],
+    })!
+    expect(out.board_pass).toBe(false)
+    expect(out.board_fail_notes).toBe("cracked panel near bench")
+    expect(out.glass_pass).toBe(false)
+    expect(out.glass_fail_notes).toBe("chip in corner glass")
+  })
+
+  it("drops fail notes when pass is true or unanswered (defense in depth)", () => {
+    const out = buildInputFromObject({
+      layout_id: LAYOUT_ID,
+      layout_slug: "main-rink",
+      board_pass: true,
+      board_fail_notes: "stray text that shouldn't be kept",
+      measurements: [],
+    })!
+    expect(out.board_pass).toBe(true)
+    expect(out.board_fail_notes).toBeNull()
+    expect(out.glass_pass).toBeNull()
+    expect(out.glass_fail_notes).toBeNull()
   })
 
   it("keeps non-empty trimmed notes", () => {
@@ -157,8 +206,35 @@ describe("buildInputFromObject", () => {
       layout_id: LAYOUT_ID,
       layout_slug: "main-rink",
       notes: null,
+      board_pass: null,
+      board_fail_notes: null,
+      glass_pass: null,
+      glass_fail_notes: null,
       measurements: [{ point_id: P1, depth_value: 1 }],
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parsePassFail
+// ---------------------------------------------------------------------------
+
+describe("parsePassFail", () => {
+  it("accepts real booleans (offline JSON payload)", () => {
+    expect(parsePassFail(true)).toBe(true)
+    expect(parsePassFail(false)).toBe(false)
+  })
+
+  it("accepts 'true'/'false' strings (form field)", () => {
+    expect(parsePassFail("true")).toBe(true)
+    expect(parsePassFail("false")).toBe(false)
+  })
+
+  it("treats anything else as unanswered", () => {
+    expect(parsePassFail(null)).toBeNull()
+    expect(parsePassFail(undefined)).toBeNull()
+    expect(parsePassFail("")).toBeNull()
+    expect(parsePassFail("maybe")).toBeNull()
   })
 })
 

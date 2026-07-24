@@ -79,7 +79,7 @@ async function loadDonePageData(
     const sessionRes = await supabase
       .from("ice_depth_sessions")
       .select(
-        "id, submitted_at, notes, facility_id, layout_id, total_measurements, low_count, high_count, has_low_reading, has_high_reading, measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot"
+        "id, submitted_at, notes, board_pass, board_fail_notes, glass_pass, glass_fail_notes, facility_id, layout_id, total_measurements, low_count, high_count, has_low_reading, has_high_reading, measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot"
       )
       .eq("id", idParam)
       .maybeSingle()
@@ -287,6 +287,10 @@ type DonePageBodyProps = {
     id: string
     submitted_at: string
     notes: string | null
+    board_pass: boolean | null
+    board_fail_notes: string | null
+    glass_pass: boolean | null
+    glass_fail_notes: string | null
     facility_id: string
     layout_id: string
     total_measurements: number | null
@@ -473,6 +477,46 @@ function DonePageBody({
         {measurements.length === 0 && (
           <div className="ice-print-hide rounded-xl border border-border bg-card px-4 py-6 text-center text-[13px] text-muted-foreground">
             No measurements were recorded in this session.
+          </div>
+        )}
+
+        {(session.board_pass !== null || session.glass_pass !== null) && (
+          <div className="ice-print-hide rounded-xl border border-border bg-card px-4 py-[14px]">
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+              Board &amp; Glass Check
+            </div>
+            <div className="flex flex-col gap-2 text-[13px]">
+              {session.board_pass !== null && (
+                <p className="m-0">
+                  <span className="font-semibold text-foreground">Board: </span>
+                  <span
+                    className={
+                      session.board_pass ? "text-success" : "text-destructive"
+                    }
+                  >
+                    {session.board_pass ? "Pass" : "Fail"}
+                  </span>
+                  {session.board_fail_notes && (
+                    <span className="text-foreground"> — {session.board_fail_notes}</span>
+                  )}
+                </p>
+              )}
+              {session.glass_pass !== null && (
+                <p className="m-0">
+                  <span className="font-semibold text-foreground">Glass: </span>
+                  <span
+                    className={
+                      session.glass_pass ? "text-success" : "text-destructive"
+                    }
+                  >
+                    {session.glass_pass ? "Pass" : "Fail"}
+                  </span>
+                  {session.glass_fail_notes && (
+                    <span className="text-foreground"> — {session.glass_fail_notes}</span>
+                  )}
+                </p>
+              )}
+            </div>
           </div>
         )}
 

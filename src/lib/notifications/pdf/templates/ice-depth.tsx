@@ -48,6 +48,10 @@ type IceDepthRecord = {
   id: string
   facility_id: string
   notes: string | null
+  board_pass: boolean | null
+  board_fail_notes: string | null
+  glass_pass: boolean | null
+  glass_fail_notes: string | null
   submitted_at: string
   unit: "inches" | "mm"
   low_threshold: number
@@ -160,7 +164,8 @@ async function fetchIceDepthRecord(
   const { data: row } = await sb
     .from("ice_depth_sessions")
     .select(
-      `id, facility_id, employee_id, layout_id, notes, submitted_at,
+      `id, facility_id, employee_id, layout_id, notes,
+       board_pass, board_fail_notes, glass_pass, glass_fail_notes, submitted_at,
        measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot,
        has_low_reading, has_high_reading, low_count, high_count,
        total_measurements`,
@@ -290,6 +295,10 @@ async function fetchIceDepthRecord(
     id: row.id,
     facility_id: row.facility_id,
     notes: row.notes,
+    board_pass: row.board_pass,
+    board_fail_notes: row.board_fail_notes,
+    glass_pass: row.glass_pass,
+    glass_fail_notes: row.glass_fail_notes,
     submitted_at: row.submitted_at,
     unit: row.measurement_unit_snapshot,
     low_threshold:
@@ -563,6 +572,24 @@ function IceDepthPdf({
             </View>
           )}
         </View>
+
+        {r.board_pass !== null || r.glass_pass !== null ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Board &amp; Glass Check</Text>
+            {r.board_pass !== null ? (
+              <Text style={styles.body}>
+                Board: {r.board_pass ? "Pass" : "Fail"}
+                {r.board_fail_notes ? ` — ${r.board_fail_notes}` : ""}
+              </Text>
+            ) : null}
+            {r.glass_pass !== null ? (
+              <Text style={styles.body}>
+                Glass: {r.glass_pass ? "Pass" : "Fail"}
+                {r.glass_fail_notes ? ` — ${r.glass_fail_notes}` : ""}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {r.notes ? (
           <View style={styles.section}>

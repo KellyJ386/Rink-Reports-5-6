@@ -66,6 +66,16 @@ export async function persistIceDepth(
 ): Promise<PersistResult> {
   const { employeeId, facilityId, input } = args
 
+  // Required: a Fail on the board/glass checkoff must carry a note (also
+  // enforced client-side; kept here as defense-in-depth for the offline
+  // replay path, mirroring the ice-operations circle-check convention).
+  if (input.board_pass === false && !input.board_fail_notes) {
+    return { ok: false, error: "Add a note describing the board issue." }
+  }
+  if (input.glass_pass === false && !input.glass_fail_notes) {
+    return { ok: false, error: "Add a note describing the glass issue." }
+  }
+
   const byPoint = dedupeMeasurements(input.measurements)
 
   // 1) Validate the layout belongs to the facility, is active, and the slug
@@ -139,6 +149,10 @@ export async function persistIceDepth(
       layout_id: layout.id,
       employee_id: employeeId,
       notes: input.notes,
+      board_pass: input.board_pass,
+      board_fail_notes: input.board_fail_notes,
+      glass_pass: input.glass_pass,
+      glass_fail_notes: input.glass_fail_notes,
       submitted_at: new Date().toISOString(),
       measurement_unit_snapshot: measurementUnitSnapshot,
       low_threshold_snapshot: lowThresholdSnapshot,
@@ -257,6 +271,39 @@ export async function persistIceDepth(
   } catch (err) {
     // Alerts are best-effort; do not fail the submission, but record why.
     logServerError("ice-depth/persist:alert", err, { session_id: sessionId })
+  }
+
+  // 8) Best-effort alert on a Board/Glass Fail — independent of the
+  // depth-threshold `alert_on` setting above (a cracked board or glass panel
+  // is actionable regardless of what that's set to), gated only on the
+  // facility having alerts enabled at all.
+  try {
+    if (settingsRow?.alerts_enabled && (input.board_pass === false || input.glass_pass === false)) {
+      const severity = settingsRow.default_alert_severity || "high"
+      const lines: string[] = []
+      if (input.board_pass === false) lines.push(`Board: FAIL — ${input.board_fail_notes}`)
+      if (input.glass_pass === false) lines.push(`Glass: FAIL — ${input.glass_fail_notes}`)
+      const { error: bgAlertErr } = await supabase
+        .from("communication_alerts")
+        .insert({
+          facility_id: facilityId,
+          source_module: "ice_depth",
+          source_record_id: sessionId,
+          severity,
+          title: `Ice Depth: ${layout.name} — Board/Glass check failed`,
+          body: lines.join("\n"),
+          created_by_employee_id: employeeId,
+          requires_acknowledgement: true,
+        })
+      if (bgAlertErr) {
+        logServerError("ice-depth/persist:board-glass-alert", bgAlertErr, {
+          session_id: sessionId,
+          facility_id: facilityId,
+        })
+      }
+    }
+  } catch (err) {
+    logServerError("ice-depth/persist:board-glass-alert", err, { session_id: sessionId })
   }
 
   // Ice depth does NOT fan out on submit. The report is saved here; the

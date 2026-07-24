@@ -22,16 +22,32 @@ export function isUuid(v: unknown): v is string {
  * online server action and the offline replay endpoint. `measurements` is
  * deduped by `point_id` (last write wins); the server still re-loads + snapshots
  * the referenced points and recomputes severity.
+ *
+ * `board_pass`/`glass_pass` are a lightweight session-level Pass/Fail checkoff
+ * (null = not answered), distinct from the per-point depth measurements and
+ * from the separate, more detailed Dasher Boards spatial tracker. A `false`
+ * pass carries required notes describing the issue.
  */
 export type IceDepthInput = {
   layout_id: string
   layout_slug: string
   notes: string | null
+  board_pass: boolean | null
+  board_fail_notes: string | null
+  glass_pass: boolean | null
+  glass_fail_notes: string | null
   measurements: SubmittedMeasurement[]
 }
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : ""
+}
+
+/** Accepts a real boolean (offline JSON payload) or "true"/"false" (form field). */
+export function parsePassFail(v: unknown): boolean | null {
+  if (v === true || v === "true") return true
+  if (v === false || v === "false") return false
+  return null
 }
 
 /**
@@ -102,10 +118,21 @@ export function buildInputFromObject(obj: unknown): IceDepthInput | null {
 
   const notesRaw = str(o.notes)
 
+  const boardPass = parsePassFail(o.board_pass)
+  const boardFailNotesRaw = str(o.board_fail_notes)
+  const glassPass = parsePassFail(o.glass_pass)
+  const glassFailNotesRaw = str(o.glass_fail_notes)
+
   return {
     layout_id,
     layout_slug,
     notes: notesRaw.length > 0 ? notesRaw : null,
+    board_pass: boardPass,
+    board_fail_notes:
+      boardPass === false && boardFailNotesRaw.length > 0 ? boardFailNotesRaw : null,
+    glass_pass: glassPass,
+    glass_fail_notes:
+      glassPass === false && glassFailNotesRaw.length > 0 ? glassFailNotesRaw : null,
     measurements,
   }
 }
@@ -116,6 +143,10 @@ export function buildInputFromForm(formData: FormData): IceDepthInput | null {
     layout_id: formData.get("layout_id"),
     layout_slug: formData.get("layout_slug"),
     notes: formData.get("notes"),
+    board_pass: formData.get("board_pass"),
+    board_fail_notes: formData.get("board_fail_notes"),
+    glass_pass: formData.get("glass_pass"),
+    glass_fail_notes: formData.get("glass_fail_notes"),
     measurements_json: formData.get("measurements_json"),
   })
 }

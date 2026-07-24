@@ -162,18 +162,50 @@ export function SessionDetail({ detail, backHref, canDelete, timezone }: Props) 
                 {session.low_threshold_snapshot} · High{" "}
                 {session.high_threshold_snapshot}
               </p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {session.has_low_reading && (
                   <Badge variant="error">{session.low_count} low</Badge>
                 )}
                 {session.has_high_reading && (
                   <Badge variant="warning">{session.high_count} high</Badge>
                 )}
+                {session.board_pass === true && (
+                  <Badge variant="success">Board pass</Badge>
+                )}
+                {session.board_pass === false && (
+                  <Badge variant="error">Board fail</Badge>
+                )}
+                {session.glass_pass === true && (
+                  <Badge variant="success">Glass pass</Badge>
+                )}
+                {session.glass_pass === false && (
+                  <Badge variant="error">Glass fail</Badge>
+                )}
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {(session.board_pass === false || session.glass_pass === false) && (
+            <section className="flex flex-col gap-2">
+              <h3 className="text-sm font-semibold">Board &amp; glass issues</h3>
+              <div className="flex flex-col gap-2">
+                {session.board_pass === false && (
+                  <p className="bg-destructive-soft text-destructive-soft-foreground rounded-md border p-3 text-sm whitespace-pre-wrap">
+                    <span className="font-semibold">Board: </span>
+                    {session.board_fail_notes}
+                  </p>
+                )}
+                {session.glass_pass === false && (
+                  <p className="bg-destructive-soft text-destructive-soft-foreground rounded-md border p-3 text-sm whitespace-pre-wrap">
+                    <span className="font-semibold">Glass: </span>
+                    {session.glass_fail_notes}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
           {session.notes && (
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold">Submitter notes</h3>
