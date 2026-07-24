@@ -1,29 +1,29 @@
 "use client"
 
 // Admin editor for the facility-level rink-diagram overlays:
-//   * Door markers — click-to-place (with a chosen door type), drag to move,
-//     select to relabel/retype/delete. Door types themselves are managed in
-//     the same tab (add / rename / recolor / reorder / deactivate / delete).
+//   * Door markers — placed by picking a NUMBERED PERIMETER SECTION, the same
+//     interaction as the Dasher Boards diagram: the board line is divided into
+//     24 equal sections walked clockwise from the top-edge midpoint
+//     (section 1). Click a section to place the chosen door type there;
+//     select a door to relabel / retype / move it to another section /
+//     delete. Door types themselves are managed in the same tab.
 //   * Center-ice logo — upload, drag to reposition, sliders for scale /
 //     rotation / opacity, visibility toggle, remove.
 //
-// These are facility configuration, shared by every diagram in the facility,
-// so the preview renders the bare USA-Hockey rink (no measurement points).
-// All writes go through the module-admin-gated server actions in
+// Markers are STORED as ordinary normalized 0..1 coordinates (the section
+// midpoint), so the DB schema, report rendering, and PDF are untouched;
+// markers placed before the section UI existed display as their nearest
+// section. All writes go through the module-admin-gated server actions in
 // ../overlay-actions.ts — the UI is NOT the authorization boundary.
 
 import {
   useActionState,
-  useCallback,
   useEffect,
-  useRef,
+  useMemo,
   useState,
   useTransition,
 } from "react"
-import type {
-  MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
-} from "react"
+import type { PointerEvent as ReactPointerEvent } from "react"
 import { toast } from "sonner"
 
 import { RINK_H, RINK_W, RinkMarkings } from "@/components/ice-depth/usa-rink"
@@ -33,8 +33,15 @@ import {
 } from "@/components/ice-depth/rink-overlays"
 import {
   DOOR_MARKER_DEFAULT_COLOR,
+  DOOR_SECTION_COUNT,
+  doorSections,
   logoBox,
   markerTitle,
+  nearestDoorSection,
+  sectionLabelAnchor,
+  sectionPathD,
+  sectionPosition,
+  type DoorSection,
   type RinkOverlayMarker,
 } from "@/lib/ice-depth/overlay-shared"
 
@@ -70,7 +77,7 @@ import type {
 
 const NULL_STATE: ActionState = { ok: null }
 
-type EditorMode = "place" | "select" | "drag" | "logo"
+type EditorMode = "place" | "select" | "logo"
 
 type LogoLayoutState = {
   position_x: number
@@ -154,7 +161,7 @@ export function OverlaysTab({ doorTypes, markers, config, logoUrl }: Props) {
           />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
             <div className="flex flex-col gap-2">
-              <OverlayDiagram
+              <SectionDiagram
                 markers={markers}
                 typeById={typeById}
                 mode={mode}
@@ -212,9 +219,16 @@ function ModeToolbar({
   hasLogo: boolean
 }) {
   const modes: ReadonlyArray<{ key: EditorMode; label: string; help: string }> = [
-    { key: "place", label: "Place door", help: "Click the diagram to add a door marker." },
-    { key: "select", label: "Select", help: "Click a marker to edit or delete it." },
-    { key: "drag", label: "Drag", help: "Drag a marker to move it; release to save." },
+    {
+      key: "place",
+      label: "Place door",
+      help: "Tap a numbered section on the boards to place a door there.",
+    },
+    {
+      key: "select",
+      label: "Select",
+      help: "Tap a door to edit it — or tap another section to move the selected door.",
+    },
     {
       key: "logo",
       label: "Move logo",
@@ -274,10 +288,12 @@ function ModeToolbar({
 }
 
 // ---------------------------------------------------------------------------
-// Diagram panel
+// Section diagram — numbered perimeter ring (dasher-boards interaction)
 // ---------------------------------------------------------------------------
 
-function OverlayDiagram({
+const SECTION_IDLE_COLOR = "#8A92A0"
+
+function SectionDiagram({
   markers,
   typeById,
   mode,
@@ -298,71 +314,94 @@ function OverlayDiagram({
   logo: LogoLayoutState
   setLogo: (l: LogoLayoutState) => void
 }) {
-  const svgRef = useRef<SVGSVGElement | null>(null)
   const [placing, startPlacing] = useTransition()
-  const [dragging, setDragging] = useState<string | null>(null)
-  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [logoDragging, setLogoDragging] = useState(false)
 
-  // Same client-coords → 0..1 fraction mapping as the point layout editor;
-  // the container matches the rink's aspect ratio so plain division is exact.
-  const toFrac = useCallback(
-    (clientX: number, clientY: number): { x: number; y: number } | null => {
-      const svg = svgRef.current
-      if (!svg) return null
-      const rect = svg.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) return null
-      return {
-        x: Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)),
-        y: Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
-      }
-    },
-    [],
-  )
+  const sections = useMemo(() => doorSections(), [])
 
-  function onSvgClick(e: ReactMouseEvent<SVGSVGElement>) {
-    if (mode !== "place") return
+  // Section number → markers currently displayed there (nearest-section
+  // bucketing, so legacy free-placed markers land in a section too).
+  const markersBySection = useMemo(() => {
+    const map = new Map<number, DoorMarkerRow[]>()
+    for (const m of markers) {
+      const n = nearestDoorSection(m.position_x, m.position_y)
+      const list = map.get(n) ?? []
+      list.push(m)
+      map.set(n, list)
+    }
+    return map
+  }, [markers])
+
+  function placeInSection(section: DoorSection) {
     if (!placeTypeId) {
       toast.error("Create/activate a door type first.")
       return
     }
-    const target = e.target
-    if (target instanceof Element && target.closest("[data-door-marker]")) {
+    const occupants = markersBySection.get(section.number) ?? []
+    if (occupants.length > 0) {
+      // A section holds one door — select the existing one instead of
+      // stacking a second glyph on the same spot.
+      onSelect(occupants[0].id)
+      toast.info(
+        `Section ${section.number} already has a door — edit it, or pick another section.`,
+      )
       return
     }
-    const frac = toFrac(e.clientX, e.clientY)
-    if (!frac) return
+    const pos = sectionPosition(section.number)
     startPlacing(async () => {
       const r = await upsertDoorMarker({
         door_type_id: placeTypeId,
-        position_x: frac.x,
-        position_y: frac.y,
+        position_x: pos.position_x,
+        position_y: pos.position_y,
       })
       if (!r.ok) toast.error(r.error)
     })
   }
 
-  function onMarkerPointerDown(
-    e: ReactPointerEvent<SVGGElement>,
-    marker: DoorMarkerRow,
-  ) {
-    if (mode === "select") {
-      e.stopPropagation()
-      onSelect(marker.id)
+  function moveSelectedToSection(section: DoorSection, marker: DoorMarkerRow) {
+    const pos = sectionPosition(section.number)
+    startPlacing(async () => {
+      const r = await upsertDoorMarker({
+        id: marker.id,
+        door_type_id: marker.door_type_id,
+        label: marker.label,
+        position_x: pos.position_x,
+        position_y: pos.position_y,
+      })
+      if (!r.ok) toast.error(r.error)
+      else toast.success(`Moved to section ${section.number}.`)
+    })
+  }
+
+  function onSectionActivate(section: DoorSection) {
+    const occupants = markersBySection.get(section.number) ?? []
+    if (mode === "place") {
+      placeInSection(section)
       return
     }
-    if (mode === "drag") {
-      e.stopPropagation()
-      e.preventDefault()
-      onSelect(marker.id)
-      setDragging(marker.id)
-      const frac = toFrac(e.clientX, e.clientY)
-      if (frac) setDragPos(frac)
-      try {
-        ;(e.target as Element).setPointerCapture?.(e.pointerId)
-      } catch {
-        /* ignore */
+    if (mode === "select") {
+      if (occupants.length > 0) {
+        onSelect(occupants[0].id)
+        return
       }
+      const selectedMarker = markers.find((m) => m.id === selectedId)
+      if (selectedMarker) {
+        moveSelectedToSection(section, selectedMarker)
+      }
+    }
+  }
+
+  // Logo drag (unchanged from the free-position editor — the logo is not a
+  // board fixture, so it keeps full 2-D placement).
+  function logoFrac(
+    e: ReactPointerEvent<SVGSVGElement>,
+  ): { x: number; y: number } | null {
+    const svg = e.currentTarget
+    const rect = svg.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
     }
   }
 
@@ -370,44 +409,17 @@ function OverlayDiagram({
     if (mode !== "logo" || !logoUrl) return
     e.preventDefault()
     setLogoDragging(true)
-    const frac = toFrac(e.clientX, e.clientY)
+    const frac = logoFrac(e)
     if (frac) setLogo({ ...logo, position_x: frac.x, position_y: frac.y })
   }
 
   function onSvgPointerMove(e: ReactPointerEvent<SVGSVGElement>) {
-    if (mode === "drag" && dragging) {
-      const frac = toFrac(e.clientX, e.clientY)
-      if (frac) setDragPos(frac)
-      return
-    }
-    if (mode === "logo" && logoDragging) {
-      const frac = toFrac(e.clientX, e.clientY)
-      if (frac) setLogo({ ...logo, position_x: frac.x, position_y: frac.y })
-    }
+    if (mode !== "logo" || !logoDragging) return
+    const frac = logoFrac(e)
+    if (frac) setLogo({ ...logo, position_x: frac.x, position_y: frac.y })
   }
 
   function onSvgPointerUp() {
-    if (mode === "drag" && dragging && dragPos) {
-      const id = dragging
-      const marker = markers.find((m) => m.id === id)
-      const { x, y } = dragPos
-      setDragging(null)
-      setDragPos(null)
-      if (marker) {
-        void upsertDoorMarker({
-          id,
-          door_type_id: marker.door_type_id,
-          label: marker.label,
-          position_x: x,
-          position_y: y,
-        }).then((r) => {
-          if (!r.ok) toast.error(r.error)
-        })
-      }
-      return
-    }
-    setDragging(null)
-    setDragPos(null)
     if (mode === "logo" && logoDragging) {
       setLogoDragging(false)
       void updateRinkLogoLayout({
@@ -419,14 +431,8 @@ function OverlayDiagram({
     }
   }
 
-  const cursor =
-    mode === "place"
-      ? "cursor-crosshair"
-      : mode === "drag" || mode === "logo"
-        ? "cursor-grab"
-        : "cursor-pointer"
-
   const box = logoBox(logo, RINK_W, RINK_H)
+  const sectionsInteractive = mode !== "logo"
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -435,11 +441,12 @@ function OverlayDiagram({
         style={{ aspectRatio: `${RINK_W}/${RINK_H}` }}
       >
         <svg
-          ref={svgRef}
           viewBox={`0 0 ${RINK_W} ${RINK_H}`}
           preserveAspectRatio="xMidYMid meet"
-          className={cn("h-full w-full select-none", cursor)}
-          onClick={onSvgClick}
+          className={cn(
+            "h-full w-full select-none",
+            mode === "logo" ? "cursor-grab" : "cursor-pointer",
+          )}
           onPointerDown={onSvgPointerDown}
           onPointerMove={onSvgPointerMove}
           onPointerUp={onSvgPointerUp}
@@ -484,44 +491,140 @@ function OverlayDiagram({
             )}
           </g>
 
-          {/* Door markers */}
-          {markers.map((m) => {
-            const t = typeById.get(m.door_type_id)
-            const isDragging = dragging === m.id
-            const x = isDragging && dragPos ? dragPos.x : m.position_x
-            const y = isDragging && dragPos ? dragPos.y : m.position_y
-            const inactiveType = !t || !t.is_active
+          {/* Numbered perimeter sections (dasher-boards interaction). */}
+          {sections.map((section) => {
+            const occupants = markersBySection.get(section.number) ?? []
+            const occupant = occupants[0]
+            const occupantType = occupant
+              ? typeById.get(occupant.door_type_id)
+              : undefined
+            const occupantColor =
+              occupantType?.color ?? DOOR_MARKER_DEFAULT_COLOR
+            const isSelectedSection =
+              occupant != null && occupant.id === selectedId
+            const anchor = sectionLabelAnchor(section)
+            const mid = sectionPosition(section.number)
+            const cx = mid.position_x * RINK_W
+            const cy = mid.position_y * RINK_H
             return (
               <g
-                key={m.id}
-                data-door-marker="1"
-                onPointerDown={(e) => onMarkerPointerDown(e, m)}
-                style={{ cursor: mode === "drag" ? "grab" : "pointer" }}
-                opacity={inactiveType ? 0.35 : 1}
+                key={section.number}
+                {...(sectionsInteractive
+                  ? {
+                      role: "button",
+                      tabIndex: 0,
+                      "aria-label": occupant
+                        ? `Section ${section.number}: ${markerTitle({
+                            type_name: occupantType?.name ?? "Inactive type",
+                            label: occupant.label,
+                          })}`
+                        : `Section ${section.number}: empty`,
+                      onClick: () => onSectionActivate(section),
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          onSectionActivate(section)
+                        }
+                      },
+                      className: "cursor-pointer focus:outline-none",
+                    }
+                  : {})}
               >
-                <DoorMarkerGlyph
-                  cx={x * RINK_W}
-                  cy={y * RINK_H}
-                  color={t?.color ?? DOOR_MARKER_DEFAULT_COLOR}
-                  title={markerTitle({
-                    type_name: t?.name ?? "Inactive type",
-                    label: m.label,
-                  })}
-                  selected={selectedId === m.id}
+                {/* Enlarged transparent hit band along the span (butt caps so
+                    a section never steals its neighbor's taps). */}
+                {sectionsInteractive && (
+                  <path
+                    d={sectionPathD(section)}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={30}
+                    strokeLinecap="butt"
+                  />
+                )}
+                {/* Selection halo. */}
+                {isSelectedSection && (
+                  <path
+                    d={sectionPathD(section)}
+                    fill="none"
+                    stroke="#4DFF00"
+                    strokeWidth={11}
+                    strokeLinecap="round"
+                    opacity={0.35}
+                  />
+                )}
+                {/* Section span: muted when empty, door-type color when
+                    occupied. */}
+                <path
+                  d={sectionPathD(section)}
+                  fill="none"
+                  stroke={occupant ? occupantColor : SECTION_IDLE_COLOR}
+                  strokeWidth={occupant ? 6 : 3.5}
+                  strokeLinecap="round"
+                  opacity={
+                    occupant && (!occupantType || !occupantType.is_active)
+                      ? 0.35
+                      : occupant
+                        ? 1
+                        : 0.45
+                  }
                 />
+                {/* Door glyph at the section midpoint. */}
+                {occupant && (
+                  <DoorMarkerGlyph
+                    cx={cx}
+                    cy={cy}
+                    color={occupantColor}
+                    title={`${markerTitle({
+                      type_name: occupantType?.name ?? "Inactive type",
+                      label: occupant.label,
+                    })} (section ${section.number})`}
+                    selected={isSelectedSection}
+                  />
+                )}
+                {/* Section number chip, outward of the boards. */}
+                <text
+                  x={anchor.x}
+                  y={anchor.y + 3.4}
+                  textAnchor="middle"
+                  fontSize={9.5}
+                  fontWeight={isSelectedSection ? 800 : 600}
+                  className={
+                    isSelectedSection
+                      ? "fill-foreground font-mono"
+                      : "fill-muted-foreground font-mono"
+                  }
+                  pointerEvents="none"
+                >
+                  {section.number}
+                </text>
               </g>
             )
           })}
+
+          {/* Anchor marker: section 1 starts at the top-edge midpoint,
+              clockwise — same convention as the Dasher Boards diagram. */}
+          <g pointerEvents="none" aria-hidden="true">
+            <text
+              x={190}
+              y={40}
+              textAnchor="middle"
+              fontSize={9}
+              className="fill-muted-foreground font-mono"
+            >
+              section 1 →
+            </text>
+          </g>
         </svg>
         {placing && (
           <div className="text-muted-foreground bg-background/80 absolute right-2 top-2 rounded-md border px-2 py-1 text-xs">
-            Placing…
+            Saving…
           </div>
         )}
       </div>
       {markers.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          Pick a door type and click the diagram to place your first marker.
+          Pick a door type, then tap a numbered section on the boards to place
+          your first door.
         </p>
       )}
     </div>
@@ -541,22 +644,25 @@ function SelectedMarkerEditor({
   doorTypes: DoorTypeRow[]
   onClear: () => void
 }) {
+  const currentSection = nearestDoorSection(marker.position_x, marker.position_y)
   const [label, setLabel] = useState(marker.label ?? "")
   const [typeId, setTypeId] = useState(marker.door_type_id)
+  const [section, setSection] = useState(currentSection)
   const [savePending, startSave] = useTransition()
   const [delPending, startDel] = useTransition()
 
   function onSave() {
+    const pos = sectionPosition(section)
     startSave(async () => {
       const r = await upsertDoorMarker({
         id: marker.id,
         door_type_id: typeId,
         label,
-        position_x: marker.position_x,
-        position_y: marker.position_y,
+        position_x: pos.position_x,
+        position_y: pos.position_y,
       })
       if (!r.ok) toast.error(r.error)
-      else toast.success("Marker saved.")
+      else toast.success("Door saved.")
     })
   }
 
@@ -566,7 +672,7 @@ function SelectedMarkerEditor({
       const r = await deleteDoorMarker(marker.id)
       if (!r.ok) toast.error(r.error)
       else {
-        toast.success("Marker deleted.")
+        toast.success("Door deleted.")
         onClear()
       }
     })
@@ -576,7 +682,9 @@ function SelectedMarkerEditor({
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">Door marker</CardTitle>
+          <CardTitle className="text-base">
+            Door — section {currentSection}
+          </CardTitle>
           <Button variant="ghost" size="sm" onClick={onClear}>
             Close
           </Button>
@@ -599,6 +707,27 @@ function SelectedMarkerEditor({
           </select>
         </div>
         <div className="flex flex-col gap-1">
+          <Label htmlFor="dm-section">Section (1–{DOOR_SECTION_COUNT})</Label>
+          <select
+            id="dm-section"
+            value={section}
+            onChange={(e) => setSection(Number(e.target.value))}
+            className="border-input bg-background h-9 rounded-md border px-2 py-1 text-sm"
+          >
+            {Array.from({ length: DOOR_SECTION_COUNT }, (_, i) => i + 1).map(
+              (n) => (
+                <option key={n} value={n}>
+                  Section {n}
+                </option>
+              ),
+            )}
+          </select>
+          <p className="text-muted-foreground text-xs">
+            Numbered clockwise around the boards from center ice at the top.
+            You can also tap another section on the diagram to move this door.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
           <Label htmlFor="dm-label">Label (optional)</Label>
           <Input
             id="dm-label"
@@ -607,9 +736,6 @@ function SelectedMarkerEditor({
             placeholder="e.g. West Zamboni"
           />
         </div>
-        <p className="text-muted-foreground font-mono text-xs">
-          x {marker.position_x.toFixed(3)} · y {marker.position_y.toFixed(3)}
-        </p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={onSave} disabled={savePending}>
             {savePending ? "Saving…" : "Save"}

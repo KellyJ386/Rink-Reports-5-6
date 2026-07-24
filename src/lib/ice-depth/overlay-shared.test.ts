@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  DOOR_SECTION_COUNT,
   clamp01,
+  doorSections,
   isAllowedRinkLogoExtension,
   legendEntries,
   logoBox,
   markerTitle,
+  nearestDoorSection,
   normalizeLogoLayout,
   rinkLogoExtension,
   rinkLogoMimeType,
+  sectionPathD,
+  sectionPosition,
   type RinkOverlayMarker,
 } from "./overlay-shared"
 
@@ -84,6 +89,62 @@ describe("normalizeLogoLayout", () => {
     expect(normalizeLogoLayout({ opacity: Number.POSITIVE_INFINITY })).toEqual({
       logo_opacity: 1,
     })
+  })
+})
+
+describe("perimeter door sections", () => {
+  it("divides the boundary into DOOR_SECTION_COUNT contiguous numbered spans", () => {
+    const sections = doorSections()
+    expect(sections).toHaveLength(DOOR_SECTION_COUNT)
+    expect(sections[0].number).toBe(1)
+    expect(sections[DOOR_SECTION_COUNT - 1].number).toBe(DOOR_SECTION_COUNT)
+    for (let i = 1; i < sections.length; i++) {
+      expect(sections[i].startS).toBeCloseTo(sections[i - 1].endS, 6)
+    }
+  })
+
+  it("starts section 1 just clockwise of the top-edge midpoint (dasher anchor)", () => {
+    const [first] = doorSections()
+    expect(first.startS).toBe(0)
+    // Midpoint of section 1 sits on the top edge, right of center.
+    expect(first.position_y).toBeCloseTo(70 / 740, 5)
+    expect(first.position_x).toBeGreaterThan(0.5)
+  })
+
+  it("keeps every section midpoint on the board line, inside the 0..1 space", () => {
+    for (const s of doorSections()) {
+      expect(s.position_x).toBeGreaterThanOrEqual(62.5 / 380)
+      expect(s.position_x).toBeLessThanOrEqual(317.5 / 380)
+      expect(s.position_y).toBeGreaterThanOrEqual(70 / 740)
+      expect(s.position_y).toBeLessThanOrEqual(670 / 740)
+    }
+  })
+
+  it("round-trips: a section's own stored position maps back to that section", () => {
+    for (const s of doorSections()) {
+      const pos = sectionPosition(s.number)
+      expect(nearestDoorSection(pos.position_x, pos.position_y)).toBe(s.number)
+    }
+  })
+
+  it("clamps out-of-range section numbers in sectionPosition", () => {
+    expect(sectionPosition(0)).toEqual(sectionPosition(1))
+    expect(sectionPosition(999)).toEqual(sectionPosition(DOOR_SECTION_COUNT))
+  })
+
+  it("buckets an off-boundary (legacy free-placed) marker to the nearest section", () => {
+    // A point just inside the ice near the top-right corner should land in an
+    // early clockwise section, not wrap around the whole ring.
+    const n = nearestDoorSection(0.8, 0.12)
+    expect(n).toBeGreaterThanOrEqual(2)
+    expect(n).toBeLessThanOrEqual(5)
+  })
+
+  it("builds a drawable span path", () => {
+    const [first] = doorSections()
+    const d = sectionPathD(first)
+    expect(d.startsWith("M ")).toBe(true)
+    expect(d).toContain(" L ")
   })
 })
 

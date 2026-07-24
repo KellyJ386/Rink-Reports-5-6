@@ -8,6 +8,12 @@
 // (see src/components/ice-depth/rink-geometry.ts). No second coordinate
 // system exists.
 
+import {
+  PERIMETER_LENGTH,
+  perimeterNormalAt,
+  perimeterPointAt,
+} from "@/components/rink/perimeter-geometry"
+
 // Brand tokens for the overlay layer. Navy is the default door-marker color
 // (when a door type has no color of its own); lime is reserved for the
 // active/selected marker in the admin editor so selection never collides with
@@ -123,6 +129,127 @@ export function normalizeLogoLayout(patch: {
     out.logo_opacity = clamp01(patch.opacity)
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Perimeter door sections
+//
+// Doors live on the boards, so placement works like the Dasher Boards
+// perimeter: the SAME rounded-rectangle boundary (perimeter-geometry.ts) is
+// divided into DOOR_SECTION_COUNT equal numbered sections, walked CLOCKWISE
+// from the top-edge midpoint (section 1 — matching dasher's "pos 1" anchor).
+// The admin picks a section; the marker is stored as the section midpoint in
+// the ordinary normalized 0..1 coordinate space, so report/PDF rendering and
+// the DB schema are unchanged, and pre-section markers keep working (they
+// display as their NEAREST section).
+// ---------------------------------------------------------------------------
+
+export const DOOR_SECTION_COUNT = 24
+
+export type DoorSection = {
+  /** 1-based section number, clockwise from the top-edge midpoint. */
+  number: number
+  startS: number
+  endS: number
+  midS: number
+  /** Section midpoint on the boundary, normalized to the 0..1 space. */
+  position_x: number
+  position_y: number
+}
+
+export function doorSections(count = DOOR_SECTION_COUNT): DoorSection[] {
+  const span = PERIMETER_LENGTH / count
+  return Array.from({ length: count }, (_, i) => {
+    const startS = span * i
+    const endS = span * (i + 1)
+    const midS = (startS + endS) / 2
+    const mid = perimeterPointAt(midS)
+    return {
+      number: i + 1,
+      startS,
+      endS,
+      midS,
+      position_x: mid.x / 380,
+      position_y: mid.y / 740,
+    }
+  })
+}
+
+/** Stored coordinates for a door placed in section `number`. */
+export function sectionPosition(
+  number: number,
+  count = DOOR_SECTION_COUNT,
+): { position_x: number; position_y: number } {
+  const sections = doorSections(count)
+  const section =
+    sections[Math.min(Math.max(1, Math.round(number)), count) - 1]
+  return { position_x: section.position_x, position_y: section.position_y }
+}
+
+/**
+ * Nearest section for an arbitrary stored position (legacy free-placed
+ * markers, drag releases). Projects the point onto the boundary by sampled
+ * arc-length search, then buckets into the section grid.
+ */
+export function nearestDoorSection(
+  position_x: number,
+  position_y: number,
+  count = DOOR_SECTION_COUNT,
+): number {
+  const px = clamp01(position_x) * 380
+  const py = clamp01(position_y) * 740
+  const step = 2
+  let bestS = 0
+  let bestD = Number.POSITIVE_INFINITY
+  for (let s = 0; s < PERIMETER_LENGTH; s += step) {
+    const p = perimeterPointAt(s)
+    const d = (p.x - px) * (p.x - px) + (p.y - py) * (p.y - py)
+    if (d < bestD) {
+      bestD = d
+      bestS = s
+    }
+  }
+  const span = PERIMETER_LENGTH / count
+  return (Math.floor(bestS / span) % count) + 1
+}
+
+/**
+ * SVG path for a section's span along the boundary (admin ring rendering).
+ * `gap` trims arc length at both ends so adjacent sections read as separate
+ * segments; `offset` shifts the polyline along the outward normal.
+ */
+export function sectionPathD(
+  section: Pick<DoorSection, "startS" | "endS">,
+  gap = 2,
+  offset = 0,
+): string {
+  const s0 = section.startS + gap / 2
+  const s1 = section.endS - gap / 2
+  const n = Math.max(2, Math.ceil((s1 - s0) / 4))
+  const pts: string[] = []
+  for (let i = 0; i <= n; i++) {
+    const s = s0 + ((s1 - s0) * i) / n
+    const p = perimeterPointAt(s)
+    if (offset !== 0) {
+      const nrm = perimeterNormalAt(s)
+      pts.push(
+        `${(p.x + nrm.x * offset).toFixed(2)} ${(p.y + nrm.y * offset).toFixed(2)}`,
+      )
+    } else {
+      pts.push(`${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+    }
+  }
+  return `M ${pts[0]} L ${pts.slice(1).join(" L ")}`
+}
+
+/** Outward label anchor for a section's number chip. */
+export function sectionLabelAnchor(
+  section: Pick<DoorSection, "midS">,
+  offset = 16,
+): { x: number; y: number } {
+  const p = perimeterPointAt(section.midS)
+  const nrm = perimeterNormalAt(section.midS)
+  return { x: p.x + nrm.x * offset, y: p.y + nrm.y * offset }
 }
 
 /** Marker + resolved presentation data, shared by report + admin renderers. */

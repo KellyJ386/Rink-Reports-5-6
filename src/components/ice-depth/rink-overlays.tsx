@@ -15,6 +15,7 @@ import {
   legendEntries,
   logoBox,
   markerTitle,
+  nearestDoorSection,
   type RinkLogoOverlay,
   type RinkOverlayMarker,
   type RinkOverlays,
@@ -101,13 +102,14 @@ export function RinkDoorMarkers({ markers }: { markers: RinkOverlayMarker[] }) {
     <g pointerEvents="none">
       {markers.map((m) => {
         const { cx, cy } = rinkCoords(m.position_x, m.position_y)
+        const section = nearestDoorSection(m.position_x, m.position_y)
         return (
           <DoorMarkerGlyph
             key={m.id}
             cx={cx}
             cy={cy}
             color={m.color || DOOR_MARKER_DEFAULT_COLOR}
-            title={markerTitle(m)}
+            title={`${markerTitle(m)} (section ${section})`}
           />
         )
       })}
