@@ -19,6 +19,7 @@ import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 import { formatInTz } from "@/lib/timezone"
 
+import { combineDisplayCondition } from "./_lib/compute"
 import { getInspectionStatus, getRinkPerimeter } from "./_lib/queries"
 
 export const dynamic = "force-dynamic"
@@ -93,8 +94,11 @@ export default async function DasherBoardsPage() {
         )
         const conditionByAssetId: Record<string, PerimeterCondition> = {}
         for (const a of perimeter.assets) {
-          if (a.worst_open_severity === "a") conditionByAssetId[a.id] = "alert"
-          else if (a.worst_open_severity) conditionByAssetId[a.id] = "warn"
+          const condition = combineDisplayCondition({
+            worstOpenSeverity: a.worst_open_severity,
+            latestCheckStatus: a.latest_check_status,
+          })
+          if (condition) conditionByAssetId[a.id] = condition
         }
 
         return (

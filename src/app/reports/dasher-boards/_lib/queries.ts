@@ -5,8 +5,12 @@ import type { Tables } from "@/types/database"
 import { dayKeyInTz, weekdayOfKey } from "@/lib/timezone"
 
 import {
+  combineAssetAndChildCheckStatus,
   computeDueItemIds,
+  latestCheckStatus,
   worstOpenSeverity,
+  type AssetCheckLite,
+  type AssetCheckStatus,
   type Cadence,
   type IssueSeverity,
 } from "./compute"
@@ -23,6 +27,8 @@ export type AssetEventRow = Tables<"dasher_boards_asset_events">
 export type PerimeterAsset = AssetRow & {
   open_count: number
   worst_open_severity: IssueSeverity | null
+  /** This asset's own latest walk check (any inspection, open or completed). */
+  latest_check_status: AssetCheckStatus | null
 }
 
 export type RinkPerimeter = {
@@ -62,9 +68,34 @@ export async function getRinkPerimeter(
     .is("resolved_at", null)
     .not("asset_id", "is", null)
 
-  // Glass rows have no segment of their own — an open issue on G12 must color
-  // the B12 position on the diagram. Attribute glass issues to BOTH the glass
-  // row (its own open_count in the dialog) and its parent board (the segment).
+  // Every inspection (walk) ever run on this rink, open or completed — a
+  // check's "latest" status doesn't care which walk it came from, only when
+  // it was recorded (dasher_boards_asset_checks has no rink_id of its own,
+  // so join through inspections).
+  const { data: inspections } = await supabase
+    .from("dasher_boards_inspections")
+    .select("id")
+    .eq("rink_id", rinkId)
+  const inspectionIds = (inspections ?? []).map((i) => i.id)
+
+  let assetChecks: Array<{
+    asset_id: string
+    status: string
+    created_at: string
+    updated_at: string | null
+  }> = []
+  if (inspectionIds.length > 0) {
+    const { data } = await supabase
+      .from("dasher_boards_asset_checks")
+      .select("asset_id, status, created_at, updated_at")
+      .in("inspection_id", inspectionIds)
+    assetChecks = data ?? []
+  }
+
+  // Glass rows have no segment of their own — an open issue (or a fail check)
+  // on G12 must color the B12 position on the diagram. Attribute glass rows
+  // to BOTH the glass row itself (its own rollup, for the dialog) and its
+  // parent board (the segment).
   const glassParent = new Map<string, string>()
   for (const a of assets) {
     if (a.asset_type === "glass_panel" && a.parent_board_id) {
@@ -84,14 +115,48 @@ export async function getRinkPerimeter(
     if (parentId) push(parentId, row.severity as IssueSeverity)
   }
 
+  // Each asset's OWN check history only (no cross-asset merging) — a later
+  // check correctly supersedes an earlier one, but only within the SAME
+  // asset's own timeline. Board and glass are different physical pieces, so
+  // their histories are resolved independently here and combined afterward
+  // via `combineAssetAndChildCheckStatus` (fail-wins), not merged into one
+  // time-sorted list — see that function's doc comment for why.
+  const ownCheckRollup = new Map<string, AssetCheckLite[]>()
+  for (const row of assetChecks) {
+    const list = ownCheckRollup.get(row.asset_id) ?? []
+    list.push({
+      assetId: row.asset_id,
+      status: row.status as AssetCheckStatus,
+      effectiveAt: row.updated_at ?? row.created_at,
+    })
+    ownCheckRollup.set(row.asset_id, list)
+  }
+  const ownLatestCheck = new Map<string, AssetCheckStatus | null>()
+  for (const a of assets) {
+    ownLatestCheck.set(a.id, latestCheckStatus(ownCheckRollup.get(a.id) ?? []))
+  }
+  // Reverse of glassParent: a board's own glass child id, for the segment
+  // combine below (glass rows don't need this — they display their own
+  // status only, same asymmetry as the issue rollup above).
+  const glassChildOf = new Map<string, string>()
+  for (const [glassId, boardId] of glassParent) {
+    glassChildOf.set(boardId, glassId)
+  }
+
   return {
     rink,
     assets: assets.map((a) => {
       const sevs = rollup.get(a.id) ?? []
+      const own = ownLatestCheck.get(a.id) ?? null
+      const childId = glassChildOf.get(a.id)
+      const latest_check_status = childId
+        ? combineAssetAndChildCheckStatus(own, ownLatestCheck.get(childId) ?? null)
+        : own
       return {
         ...a,
         open_count: sevs.length,
         worst_open_severity: worstOpenSeverity(sevs),
+        latest_check_status,
       }
     }),
   }

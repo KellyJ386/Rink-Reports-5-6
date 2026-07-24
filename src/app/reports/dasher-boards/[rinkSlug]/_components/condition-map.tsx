@@ -50,7 +50,11 @@ import {
   saveChecklistResponsesAction,
   startWalkAction,
 } from "../../actions"
-import { thicknessToFraction, type IssueSeverity } from "../../_lib/compute"
+import {
+  combineDisplayCondition,
+  thicknessToFraction,
+  type IssueSeverity,
+} from "../../_lib/compute"
 import type {
   ChecklistItemRow,
   DueChecklist,
@@ -132,8 +136,11 @@ export function ConditionMap(props: ConditionMapProps) {
   const conditionByAssetId = useMemo(() => {
     const map: Record<string, PerimeterCondition> = {}
     for (const a of assets) {
-      if (a.worst_open_severity === "a") map[a.id] = "alert"
-      else if (a.worst_open_severity) map[a.id] = "warn"
+      const condition = combineDisplayCondition({
+        worstOpenSeverity: a.worst_open_severity,
+        latestCheckStatus: a.latest_check_status,
+      })
+      if (condition) map[a.id] = condition
     }
     return map
   }, [assets])
@@ -386,7 +393,8 @@ export function ConditionMap(props: ConditionMapProps) {
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardDescription>
-              Red = open severity A · yellow = open B/C · lime = door
+              Red = open severity A · yellow = open B/C · coral = flagged
+              fail (no issue yet) · lime = door
             </CardDescription>
             <label className="flex items-center gap-2 text-sm">
               <Switch checked={showGlass} onCheckedChange={setShowGlass} />
@@ -634,9 +642,11 @@ function AssetSheet({
               {walkActive && asset && can.submit && (
                 <AssetCheckBlock
                   key={`check-${asset.id}`}
-                  current={assetChecks[asset.id] ?? null}
+                  asset={asset}
+                  glassChild={glassChild}
+                  assetChecks={assetChecks}
                   pending={checkPending}
-                  onSave={(status, note) => onSaveCheck(asset.id, status, note)}
+                  onSave={onSaveCheck}
                 />
               )}
 
@@ -699,16 +709,26 @@ function AssetSheet({
 }
 
 // Per-asset Pass/Fail check with a notes box — the walk-doer's per-piece
-// checkoff. Tapping Pass or Fail saves immediately (with whatever note is typed).
+// checkoff. Tapping Pass or Fail saves immediately (with whatever note is
+// typed). A board position's check can target the board OR its glass — same
+// board/glass toggle as ReportIssueForm, so board vs. glass checks look
+// consistent with board vs. glass issue reports in the same sheet.
 function AssetCheckBlock({
-  current,
+  asset,
+  glassChild,
+  assetChecks,
   pending,
   onSave,
 }: {
-  current: { status: "pass" | "fail"; note: string | null } | null
+  asset: PerimeterAsset
+  glassChild: PerimeterAsset | null
+  assetChecks: Record<string, { status: "pass" | "fail"; note: string | null }>
   pending: boolean
-  onSave: (status: "pass" | "fail", note: string | null) => void
+  onSave: (assetId: string, status: "pass" | "fail", note: string | null) => void
 }) {
+  const [targetGlass, setTargetGlass] = useState(false)
+  const targetAsset = targetGlass && glassChild ? glassChild : asset
+  const current = assetChecks[targetAsset.id] ?? null
   const [note, setNote] = useState(current?.note ?? "")
 
   return (
@@ -721,6 +741,30 @@ function AssetCheckBlock({
           </Badge>
         )}
       </div>
+      {glassChild && glassChild.is_active && (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant={targetGlass ? "outline" : "default"}
+            onClick={() => {
+              setTargetGlass(false)
+              setNote(assetChecks[asset.id]?.note ?? "")
+            }}
+          >
+            Board {asset.label}
+          </Button>
+          <Button
+            size="sm"
+            variant={targetGlass ? "default" : "outline"}
+            onClick={() => {
+              setTargetGlass(true)
+              setNote(assetChecks[glassChild.id]?.note ?? "")
+            }}
+          >
+            Glass {glassChild.label}
+          </Button>
+        </div>
+      )}
       <Textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
@@ -734,7 +778,7 @@ function AssetCheckBlock({
           variant={current?.status === "pass" ? "default" : "outline"}
           className="flex-1"
           disabled={pending}
-          onClick={() => onSave("pass", note)}
+          onClick={() => onSave(targetAsset.id, "pass", note)}
         >
           Pass
         </Button>
@@ -743,7 +787,7 @@ function AssetCheckBlock({
           variant={current?.status === "fail" ? "destructive" : "outline"}
           className="flex-1"
           disabled={pending}
-          onClick={() => onSave("fail", note)}
+          onClick={() => onSave(targetAsset.id, "fail", note)}
         >
           Fail
         </Button>
