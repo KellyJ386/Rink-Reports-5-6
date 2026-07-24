@@ -149,7 +149,8 @@ export function ConditionMap(props: ConditionMapProps) {
           hasSpec:
             a.glass_width_in !== null ||
             a.glass_height_in !== null ||
-            a.glass_thickness_in !== null,
+            a.glass_thickness_in !== null ||
+            a.glass_material !== null,
         }
       }
     }
@@ -334,7 +335,13 @@ export function ConditionMap(props: ConditionMapProps) {
               pending={walkPending}
               onComplete={completeWalk}
               missingCount={
-                dueItems.filter((i) => !responses[i.id]).length
+                // Mirror the server sign-off gates: an item is still outstanding
+                // if it's unanswered OR flagged without a linked issue (gate c).
+                dueItems.filter(
+                  (i) =>
+                    !responses[i.id] ||
+                    (responses[i.id] === "flag" && !linkedItems.has(i.id)),
+                ).length
               }
             />
           </CardContent>
@@ -603,6 +610,7 @@ function AssetSheet({
                       issue={issue}
                       categories={categories}
                       canEdit={can.edit}
+                      canSubmit={can.submit}
                       online={online}
                     />
                   ))}
@@ -641,6 +649,7 @@ function SpecBlock({
   target: PerimeterAsset
   canEditSpec: boolean
 }) {
+  const router = useRouter()
   const [editing, setEditing] = useState(false)
   const [pending, start] = useTransition()
   const [width, setWidth] = useState(
@@ -678,6 +687,9 @@ function SpecBlock({
       else {
         toast.success("Spec saved.")
         setEditing(false)
+        // revalidateModule() doesn't cover this dynamic rink route; refresh so
+        // the read view (and the diagram's spec indicator) shows the new values.
+        router.refresh()
       }
     })
   }
@@ -830,16 +842,20 @@ function OpenIssueRow({
   issue,
   categories,
   canEdit,
+  canSubmit,
   online,
 }: {
   issue: IssueRow
   categories: CategoryRow[]
   canEdit: boolean
+  canSubmit: boolean
   online: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const severity = issue.severity as IssueSeverity
+  // Staff (submit) may mark B/C issues fixed; severity-A needs a supervisor.
+  const canResolve = canEdit || (canSubmit && severity !== "a")
   const category = issue.category_id
     ? (categories.find((c) => c.id === issue.category_id)?.label ?? null)
     : null
@@ -875,9 +891,9 @@ function OpenIssueRow({
       <p className="text-muted-foreground font-mono text-xs">
         {new Date(issue.created_at).toLocaleString()}
       </p>
-      {canEdit && online && (
+      {online && (canResolve || canEdit) && (
         <div className="flex gap-2">
-          {severity === "a" && !issue.supervisor_ack_at && (
+          {canEdit && severity === "a" && !issue.supervisor_ack_at && (
             <Button
               size="sm"
               variant="outline"
@@ -889,13 +905,15 @@ function OpenIssueRow({
               Acknowledge
             </Button>
           )}
-          <Button
-            size="sm"
-            disabled={pending}
-            onClick={() => run(() => resolveIssueAction(issue.id), "Resolved.")}
-          >
-            Resolve
-          </Button>
+          {canResolve && (
+            <Button
+              size="sm"
+              disabled={pending}
+              onClick={() => run(() => resolveIssueAction(issue.id), "Marked fixed.")}
+            >
+              Mark fixed
+            </Button>
+          )}
         </div>
       )}
     </div>

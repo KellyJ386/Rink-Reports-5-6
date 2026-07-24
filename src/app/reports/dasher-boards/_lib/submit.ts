@@ -2,6 +2,7 @@ import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
 import { dbError } from "@/lib/db-error"
+import { dayKeyInTz } from "@/lib/timezone"
 
 import {
   isIssueSeverity,
@@ -76,9 +77,17 @@ export function parseIssueReportInput(payload: unknown): IssueReportInput | null
 
 export async function persistIssueReport(
   supabase: ServerSupabase,
-  args: { employeeId: string; facilityId: string; input: IssueReportInput },
+  args: {
+    employeeId: string
+    facilityId: string
+    input: IssueReportInput
+    // Offline-queue local id, threaded on replay so a crash-window re-drive is
+    // idempotent (online callers omit it). Deduped against source_local_id.
+    sourceLocalId?: string | null
+  },
 ): Promise<PersistResult<{ issueId: string }>> {
   const { employeeId, facilityId, input } = args
+  const sourceLocalId = args.sourceLocalId ?? null
 
   if ((input.assetId === null) === (input.checklistItemId === null)) {
     return { ok: false, error: "An issue targets exactly one asset or checklist item." }
@@ -184,6 +193,18 @@ export async function persistIssueReport(
     inspectionId = walk?.id ?? null
   }
 
+  // Idempotency: a queued report_issue that already landed (crash-window
+  // re-drive) is a no-op — return the existing row instead of a duplicate.
+  if (sourceLocalId) {
+    const { data: existing } = await supabase
+      .from("dasher_boards_issues")
+      .select("id")
+      .eq("rink_id", rinkId)
+      .eq("source_local_id", sourceLocalId)
+      .maybeSingle()
+    if (existing) return { ok: true, issueId: existing.id }
+  }
+
   const { data: inserted, error } = await supabase
     .from("dasher_boards_issues")
     .insert({
@@ -198,6 +219,7 @@ export async function persistIssueReport(
       reported_by: employeeId,
       inspection_id: inspectionId,
       supervisor_id: input.supervisorId,
+      source_local_id: sourceLocalId,
     })
     .select("id")
     .single()
@@ -383,7 +405,7 @@ export async function completeInspection(
 
   const { data: walk } = await supabase
     .from("dasher_boards_inspections")
-    .select("id, rink_id, inspector_id, completed_at")
+    .select("id, rink_id, inspector_id, completed_at, started_at")
     .eq("id", inspectionId)
     .eq("facility_id", facilityId)
     .maybeSingle()
@@ -408,8 +430,16 @@ export async function completeInspection(
     }
   }
 
-  // (b) All due checklist items answered.
-  const due = await getDueChecklist(supabase, walk.rink_id)
+  // (b) All due checklist items answered. Due-ness is computed as of the WALK'S
+  // day, not "now" — an offline walk replayed days later must be judged against
+  // what was due when it was actually performed, or a valid walk gets rejected.
+  const { data: tzRow } = await supabase
+    .from("facilities")
+    .select("timezone")
+    .eq("id", facilityId)
+    .maybeSingle()
+  const walkDayKey = dayKeyInTz(walk.started_at, tzRow?.timezone ?? null)
+  const due = await getDueChecklist(supabase, walk.rink_id, walkDayKey)
   if (!due) return { ok: false, error: "Failed to load the due checklist." }
   const { data: answeredRows } = await supabase
     .from("dasher_boards_checklist_responses")
