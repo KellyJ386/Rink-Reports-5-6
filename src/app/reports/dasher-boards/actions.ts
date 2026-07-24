@@ -22,8 +22,10 @@ import {
   parseIssueReportInput,
   persistIssueReport,
   resolveIssue,
+  saveAssetCheck,
   saveChecklistResponses,
   startInspection,
+  type AssetCheckStatus,
   type ChecklistResponseInput,
 } from "./_lib/submit"
 
@@ -285,6 +287,35 @@ export async function saveChecklistResponsesAction(
   } catch (e) {
     logServerError("reports/dasher-boards/saveChecklistResponses", e)
     return { ok: false, error: "Failed to save responses." }
+  }
+}
+
+export async function saveAssetCheckAction(
+  inspectionId: string,
+  assetId: string,
+  status: AssetCheckStatus,
+  note: string | null,
+): Promise<ActionResult> {
+  try {
+    const ctx = await resolveContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(inspectionId) || !isUuid(assetId)) {
+      return { ok: false, error: "Invalid check." }
+    }
+    if (!(await currentUserCan(ctx.supabase, "dasher_boards", "submit"))) {
+      return { ok: false, error: NO_SUBMIT }
+    }
+    return await saveAssetCheck(ctx.supabase, {
+      employeeId: ctx.employeeId,
+      facilityId: ctx.facilityId,
+      inspectionId,
+      assetId,
+      status,
+      note,
+    })
+  } catch (e) {
+    logServerError("reports/dasher-boards/saveAssetCheck", e)
+    return { ok: false, error: "Failed to save the check." }
   }
 }
 

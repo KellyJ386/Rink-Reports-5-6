@@ -31,8 +31,10 @@ import {
   completeInspection,
   parseIssueReportInput,
   persistIssueReport,
+  saveAssetCheck,
   saveChecklistResponses,
   startInspection,
+  type AssetCheckStatus,
   type ChecklistResponseInput,
 } from "./submit"
 
@@ -163,6 +165,33 @@ export async function handleDasherBoardsReplay({
         facilityId,
         inspectionId,
         responses,
+      })
+      return r.ok ? { ok: true } : r
+    }
+  } else if (action === "save_asset_check") {
+    const rinkId = asString(payload.rinkId)
+    const assetId = asString(payload.assetId)
+    const status = asString(payload.status)
+    const note = typeof payload.note === "string" ? payload.note : null
+    if (
+      !isUuid(rinkId) ||
+      !isUuid(assetId) ||
+      (status !== "pass" && status !== "fail")
+    ) {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
+    }
+    doWrite = async () => {
+      const inspectionId = await resolveOpenWalkId(supabase, employeeId, rinkId)
+      if (!inspectionId) {
+        return { ok: false, error: "No open walk for this rink.", permanent: true }
+      }
+      const r = await saveAssetCheck(supabase, {
+        employeeId,
+        facilityId,
+        inspectionId,
+        assetId,
+        status: status as AssetCheckStatus,
+        note,
       })
       return r.ok ? { ok: true } : r
     }

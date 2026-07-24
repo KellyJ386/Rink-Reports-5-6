@@ -1052,6 +1052,47 @@ COMMENT ON FUNCTION public.daily_report_submissions_stamp_business_date() IS 'BE
 
 
 --
+-- Name: dasher_boards_asset_checks_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_asset_checks_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_inspection_id uuid;
+  v_completed_at  timestamptz;
+begin
+  if public.dasher_boards_guard_exempt() then
+    return coalesce(new, old);
+  end if;
+
+  v_inspection_id := case when tg_op = 'INSERT' then new.inspection_id else old.inspection_id end;
+
+  select i.completed_at into v_completed_at
+    from public.dasher_boards_inspections i
+   where i.id = v_inspection_id;
+
+  if v_completed_at is not null then
+    raise exception 'dasher_boards: asset checks are immutable once the inspection is completed';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if new.inspection_id is distinct from old.inspection_id
+       or new.asset_id    is distinct from old.asset_id
+       or new.facility_id is distinct from old.facility_id
+    then
+      raise exception 'dasher_boards: asset-check linkage columns are immutable';
+    end if;
+    return new;
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
 -- Name: dasher_boards_assets_glass_parent(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8093,6 +8134,31 @@ COMMENT ON TABLE public.daily_report_templates IS 'Daily Reports: templates with
 
 
 --
+-- Name: dasher_boards_asset_checks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_asset_checks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    inspection_id uuid NOT NULL,
+    asset_id uuid NOT NULL,
+    status text NOT NULL,
+    note text,
+    checked_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_asset_checks_status_check CHECK ((status = ANY (ARRAY['pass'::text, 'fail'::text])))
+);
+
+
+--
+-- Name: TABLE dasher_boards_asset_checks; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_asset_checks IS 'Dasher Boards: per-asset Pass/Fail condition check recorded during a walk (one row per inspection+asset). Written by the walk''s inspector (submit grant) while the walk is open; immutable once the inspection is completed. Separate from the persistent issue pipeline and the cadenced checklist.';
+
+
+--
 -- Name: dasher_boards_asset_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -11597,6 +11663,22 @@ ALTER TABLE ONLY public.daily_report_templates
 
 
 --
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_checks
+    ADD CONSTRAINT dasher_boards_asset_checks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_checks
+    ADD CONSTRAINT dasher_boards_asset_checks_uniq UNIQUE (inspection_id, asset_id);
+
+
+--
 -- Name: dasher_boards_asset_events dasher_boards_asset_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13382,6 +13464,20 @@ CREATE INDEX idx_daily_report_templates_area ON public.daily_report_templates US
 --
 
 CREATE INDEX idx_daily_report_templates_facility_area ON public.daily_report_templates USING btree (facility_id, area_id);
+
+
+--
+-- Name: idx_dasher_boards_asset_checks_asset; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_asset_checks_asset ON public.dasher_boards_asset_checks USING btree (asset_id);
+
+
+--
+-- Name: idx_dasher_boards_asset_checks_inspection; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_asset_checks_inspection ON public.dasher_boards_asset_checks USING btree (inspection_id);
 
 
 --
@@ -15184,6 +15280,20 @@ CREATE TRIGGER trg_daily_report_templates_updated_at BEFORE UPDATE ON public.dai
 
 
 --
+-- Name: dasher_boards_asset_checks trg_dasher_boards_asset_checks_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_asset_checks_guard BEFORE INSERT OR DELETE OR UPDATE ON public.dasher_boards_asset_checks FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_asset_checks_guard();
+
+
+--
+-- Name: dasher_boards_asset_checks trg_dasher_boards_asset_checks_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_asset_checks_updated_at BEFORE UPDATE ON public.dasher_boards_asset_checks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: dasher_boards_asset_subtypes trg_dasher_boards_asset_subtypes_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -16587,6 +16697,38 @@ ALTER TABLE ONLY public.daily_report_templates
 
 ALTER TABLE ONLY public.daily_report_templates
     ADD CONSTRAINT daily_report_templates_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_checks
+    ADD CONSTRAINT dasher_boards_asset_checks_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.dasher_boards_assets(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_checked_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_checks
+    ADD CONSTRAINT dasher_boards_asset_checks_checked_by_fkey FOREIGN KEY (checked_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_checks
+    ADD CONSTRAINT dasher_boards_asset_checks_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_inspection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_asset_checks
+    ADD CONSTRAINT dasher_boards_asset_checks_inspection_id_fkey FOREIGN KEY (inspection_id) REFERENCES public.dasher_boards_inspections(id) ON DELETE CASCADE;
 
 
 --
@@ -19581,6 +19723,44 @@ CREATE POLICY daily_report_templates_select ON public.daily_report_templates FOR
 --
 
 CREATE POLICY daily_report_templates_update ON public.daily_report_templates FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: dasher_boards_asset_checks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_asset_checks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_checks_delete ON public.dasher_boards_asset_checks FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_checks_insert ON public.dasher_boards_asset_checks FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('dasher_boards'::text) AND (EXISTS ( SELECT 1
+   FROM public.dasher_boards_inspections i
+  WHERE ((i.id = dasher_boards_asset_checks.inspection_id) AND (i.inspector_id = public.current_employee_id()) AND (i.completed_at IS NULL)))))));
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_checks_select ON public.dasher_boards_asset_checks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_asset_checks dasher_boards_asset_checks_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_asset_checks_update ON public.dasher_boards_asset_checks FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('dasher_boards'::text) AND (EXISTS ( SELECT 1
+   FROM public.dasher_boards_inspections i
+  WHERE ((i.id = dasher_boards_asset_checks.inspection_id) AND (i.inspector_id = public.current_employee_id()) AND (i.completed_at IS NULL))))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --

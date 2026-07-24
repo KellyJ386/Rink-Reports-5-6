@@ -112,6 +112,8 @@ export default async function DasherBoardsRinkPage({
   let walk: { id: string; startedAt: string } | null = null
   let walkResponses: Record<string, "pass" | "flag"> = {}
   let walkIssueItemIds: string[] = []
+  let walkAssetChecks: Record<string, { status: "pass" | "fail"; note: string | null }> =
+    {}
   if (employee) {
     const { data: openWalk } = await supabase
       .from("dasher_boards_inspections")
@@ -122,23 +124,34 @@ export default async function DasherBoardsRinkPage({
       .maybeSingle()
     if (openWalk) {
       walk = { id: openWalk.id, startedAt: openWalk.started_at }
-      const [{ data: responses }, { data: walkIssues }] = await Promise.all([
-        supabase
-          .from("dasher_boards_checklist_responses")
-          .select("item_id, status")
-          .eq("inspection_id", openWalk.id),
-        supabase
-          .from("dasher_boards_issues")
-          .select("checklist_item_id")
-          .eq("inspection_id", openWalk.id)
-          .not("checklist_item_id", "is", null),
-      ])
+      const [{ data: responses }, { data: walkIssues }, { data: assetChecks }] =
+        await Promise.all([
+          supabase
+            .from("dasher_boards_checklist_responses")
+            .select("item_id, status")
+            .eq("inspection_id", openWalk.id),
+          supabase
+            .from("dasher_boards_issues")
+            .select("checklist_item_id")
+            .eq("inspection_id", openWalk.id)
+            .not("checklist_item_id", "is", null),
+          supabase
+            .from("dasher_boards_asset_checks")
+            .select("asset_id, status, note")
+            .eq("inspection_id", openWalk.id),
+        ])
       walkResponses = Object.fromEntries(
         (responses ?? []).map((r) => [r.item_id, r.status as "pass" | "flag"]),
       )
       walkIssueItemIds = (walkIssues ?? [])
         .map((i) => i.checklist_item_id)
         .filter((v): v is string => !!v)
+      walkAssetChecks = Object.fromEntries(
+        (assetChecks ?? []).map((c) => [
+          c.asset_id,
+          { status: c.status as "pass" | "fail", note: c.note },
+        ]),
+      )
     }
   }
 
@@ -168,6 +181,7 @@ export default async function DasherBoardsRinkPage({
         walk={walk}
         walkResponses={walkResponses}
         walkIssueItemIds={walkIssueItemIds}
+        walkAssetChecks={walkAssetChecks}
         employeeId={employee?.id ?? null}
         ownerId={current.authUser.id}
         can={{ submit: canSubmit, edit: canEdit, admin: canAdmin }}

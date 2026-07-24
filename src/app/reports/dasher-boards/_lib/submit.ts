@@ -330,6 +330,76 @@ export type ChecklistResponseInput = {
   status: "pass" | "flag"
 }
 
+export type AssetCheckStatus = "pass" | "fail"
+
+/**
+ * Records the walk-doer's Pass/Fail check (with an optional note) for one asset
+ * in their open walk. Upserts on (inspection, asset). Submit-tier; the RLS
+ * policy + guard trigger re-enforce inspector-owns-open-walk and immutability.
+ */
+export async function saveAssetCheck(
+  supabase: ServerSupabase,
+  args: {
+    employeeId: string
+    facilityId: string
+    inspectionId: string
+    assetId: string
+    status: AssetCheckStatus
+    note: string | null
+  },
+): Promise<PersistResult> {
+  const { employeeId, facilityId, inspectionId, assetId, status, note } = args
+  if (!isUuid(inspectionId) || !isUuid(assetId)) {
+    return { ok: false, error: "Invalid check." }
+  }
+  if (status !== "pass" && status !== "fail") {
+    return { ok: false, error: "A check must be pass or fail." }
+  }
+
+  const { data: walk } = await supabase
+    .from("dasher_boards_inspections")
+    .select("id, rink_id, inspector_id, completed_at")
+    .eq("id", inspectionId)
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  if (!walk || walk.inspector_id !== employeeId) {
+    return { ok: false, error: "Walk not found." }
+  }
+  if (walk.completed_at) {
+    return { ok: false, error: "This walk is already signed off." }
+  }
+
+  const { data: asset } = await supabase
+    .from("dasher_boards_assets")
+    .select("id")
+    .eq("id", assetId)
+    .eq("rink_id", walk.rink_id)
+    .eq("facility_id", facilityId)
+    .maybeSingle()
+  if (!asset) {
+    return { ok: false, error: "That piece isn't on this rink." }
+  }
+
+  const trimmed = note?.trim() ? note.trim() : null
+  const { error } = await supabase
+    .from("dasher_boards_asset_checks")
+    .upsert(
+      {
+        facility_id: facilityId,
+        inspection_id: inspectionId,
+        asset_id: assetId,
+        status,
+        note: trimmed,
+        checked_by: employeeId,
+      },
+      { onConflict: "inspection_id,asset_id" },
+    )
+  if (error) {
+    return { ok: false, error: dbError(error, "Failed to save the check.") }
+  }
+  return { ok: true }
+}
+
 export async function saveChecklistResponses(
   supabase: ServerSupabase,
   args: {

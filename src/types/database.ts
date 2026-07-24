@@ -2216,6 +2216,71 @@ export type Database = {
           },
         ]
       }
+      dasher_boards_asset_checks: {
+        Row: {
+          asset_id: string
+          checked_by: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          inspection_id: string
+          note: string | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          asset_id: string
+          checked_by?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          inspection_id: string
+          note?: string | null
+          status: string
+          updated_at?: string | null
+        }
+        Update: {
+          asset_id?: string
+          checked_by?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          inspection_id?: string
+          note?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_asset_checks_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_asset_checks_checked_by_fkey"
+            columns: ["checked_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_asset_checks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_asset_checks_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_inspections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dasher_boards_asset_events: {
         Row: {
           asset_id: string

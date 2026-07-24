@@ -46,6 +46,7 @@ import {
   getAssetDetailAction,
   reportIssueAction,
   resolveIssueAction,
+  saveAssetCheckAction,
   saveChecklistResponsesAction,
   startWalkAction,
 } from "../../actions"
@@ -90,6 +91,7 @@ export type ConditionMapProps = {
   walk: { id: string; startedAt: string } | null
   walkResponses: Record<string, "pass" | "flag">
   walkIssueItemIds: string[]
+  walkAssetChecks: Record<string, { status: "pass" | "fail"; note: string | null }>
   employeeId: string | null
   ownerId: string
   can: { submit: boolean; edit: boolean; admin: boolean }
@@ -108,6 +110,7 @@ export function ConditionMap(props: ConditionMapProps) {
     walk,
     walkResponses,
     walkIssueItemIds,
+    walkAssetChecks,
     can,
     ownerId,
   } = props
@@ -164,6 +167,8 @@ export function ConditionMap(props: ConditionMapProps) {
   const activeWalk = walk ?? (offlineWalk ? { id: null, startedAt: null } : null)
   // Local response state so taps feel instant on the boards.
   const [responses, setResponses] = useState(walkResponses)
+  // Per-asset Pass/Fail checks, local so taps feel instant.
+  const [assetChecks, setAssetChecks] = useState(walkAssetChecks)
   // Checklist items flagged + reported this session (offline included).
   const [locallyLinkedItems, setLocallyLinkedItems] = useState<string[]>([])
   const [cacheSavedAt, setCacheSavedAt] = useState<number | null>(null)
@@ -175,8 +180,36 @@ export function ConditionMap(props: ConditionMapProps) {
   if ((walk?.id ?? null) !== seenWalkId) {
     setSeenWalkId(walk?.id ?? null)
     setResponses(walkResponses)
+    setAssetChecks(walkAssetChecks)
     setLocallyLinkedItems([])
     setOfflineWalk(false)
+  }
+
+  function saveAssetCheck(
+    assetId: string,
+    status: "pass" | "fail",
+    note: string | null,
+  ) {
+    const trimmed = note?.trim() ? note.trim() : null
+    // Optimistic — the check reflects instantly on the boards.
+    setAssetChecks((prev) => ({ ...prev, [assetId]: { status, note: trimmed } }))
+    startWalkTransition(async () => {
+      if (!online || !walk) {
+        const ok = enqueueSubmission({
+          localId: genLocalId(),
+          moduleKey: "dasher_boards",
+          action: "save_asset_check",
+          payload: { rinkId: rink.id, assetId, status, note: trimmed },
+        })
+        if (ok) toast.success("Check saved offline — it will sync.")
+        else toast.error("Offline queue unavailable. Reload once online.")
+        return
+      }
+      const r = await saveAssetCheckAction(walk.id, assetId, status, trimmed)
+      if (!r.ok) toast.error(r.error)
+      else toast.success(status === "pass" ? "Marked pass." : "Marked fail.")
+      router.refresh()
+    })
   }
 
   // Stale-data indicator: remember when this rink's data last rendered live.
@@ -384,6 +417,10 @@ export function ConditionMap(props: ConditionMapProps) {
         {...props}
         dialog={dialog}
         online={online}
+        walkActive={!!activeWalk}
+        assetChecks={assetChecks}
+        onSaveCheck={saveAssetCheck}
+        checkPending={walkPending}
         onClose={() => setDialog(null)}
         onIssueReported={(itemId) => {
           if (itemId) setLocallyLinkedItems((cur) => [...cur, itemId])
@@ -505,6 +542,10 @@ function CompleteWalkForm({
 function AssetSheet({
   dialog,
   online,
+  walkActive,
+  assetChecks,
+  onSaveCheck,
+  checkPending,
   onClose,
   onIssueReported,
   assets,
@@ -516,6 +557,10 @@ function AssetSheet({
 }: ConditionMapProps & {
   dialog: DialogTarget | null
   online: boolean
+  walkActive: boolean
+  assetChecks: Record<string, { status: "pass" | "fail"; note: string | null }>
+  onSaveCheck: (assetId: string, status: "pass" | "fail", note: string | null) => void
+  checkPending: boolean
   onClose: () => void
   onIssueReported: (checklistItemId: string | null) => void
 }) {
@@ -584,6 +629,17 @@ function AssetSheet({
             </SheetHeader>
 
             <div className="flex flex-col gap-4">
+              {/* Pass/Fail condition check — the walk-doer's primary action for
+                  this piece. Only during an active walk, for submit-tier. */}
+              {walkActive && asset && can.submit && (
+                <AssetCheckBlock
+                  key={`check-${asset.id}`}
+                  current={assetChecks[asset.id] ?? null}
+                  pending={checkPending}
+                  onSave={(status, note) => onSaveCheck(asset.id, status, note)}
+                />
+              )}
+
               {/* Replacement spec — first thing on screen when glass breaks.
                   Re-keyed by target identity AND type so a board→door
                   conversion with the sheet open never edits stale fields. */}
@@ -639,6 +695,60 @@ function AssetSheet({
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+// Per-asset Pass/Fail check with a notes box — the walk-doer's per-piece
+// checkoff. Tapping Pass or Fail saves immediately (with whatever note is typed).
+function AssetCheckBlock({
+  current,
+  pending,
+  onSave,
+}: {
+  current: { status: "pass" | "fail"; note: string | null } | null
+  pending: boolean
+  onSave: (status: "pass" | "fail", note: string | null) => void
+}) {
+  const [note, setNote] = useState(current?.note ?? "")
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3">
+      <div className="flex items-center justify-between">
+        <Label>Condition check</Label>
+        {current && (
+          <Badge variant={current.status === "pass" ? "success" : "destructive"}>
+            {current.status === "pass" ? "Pass" : "Fail"}
+          </Badge>
+        )}
+      </div>
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Notes on this piece (optional)"
+        rows={2}
+        className="text-base"
+      />
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant={current?.status === "pass" ? "default" : "outline"}
+          className="flex-1"
+          disabled={pending}
+          onClick={() => onSave("pass", note)}
+        >
+          Pass
+        </Button>
+        <Button
+          type="button"
+          variant={current?.status === "fail" ? "destructive" : "outline"}
+          className="flex-1"
+          disabled={pending}
+          onClick={() => onSave("fail", note)}
+        >
+          Fail
+        </Button>
+      </div>
+    </div>
   )
 }
 
