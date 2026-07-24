@@ -124,9 +124,16 @@ export default async function IceDepthLayoutSubmissionPage({
         .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true }),
-      // Facility-level diagram overlays (door markers + logo watermark) —
-      // read-only reference geography, identical on every report.
-      getRinkOverlays(supabase, employeeRow.facility_id),
+      // This rink's diagram overlays (door markers + logo watermark) —
+      // read-only reference geography, identical on every report for this
+      // rink. Layouts always carry a rink_id in practice; the null case just
+      // renders with no overlays rather than throwing.
+      layout.rink_id
+        ? getRinkOverlays(supabase, {
+            facilityId: employeeRow.facility_id,
+            rinkId: layout.rink_id,
+          })
+        : Promise.resolve({ markers: [], logo: null }),
     ])
 
   const points: PointForForm[] = (pointsRaw ?? []).map((p) => ({

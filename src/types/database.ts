@@ -3547,6 +3547,7 @@ export type Database = {
           label: string | null
           position_x: number
           position_y: number
+          rink_id: string
           updated_at: string | null
           updated_by: string | null
         }
@@ -3559,6 +3560,7 @@ export type Database = {
           label?: string | null
           position_x: number
           position_y: number
+          rink_id: string
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -3571,6 +3573,7 @@ export type Database = {
           label?: string | null
           position_x?: number
           position_y?: number
+          rink_id?: string
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -3588,6 +3591,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_door_markers_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "facility_door_markers_type_same_facility_fkey"
@@ -3753,6 +3763,7 @@ export type Database = {
           logo_scale: number
           logo_storage_path: string | null
           logo_visible: boolean
+          rink_id: string
           updated_at: string | null
           updated_by: string | null
         }
@@ -3767,6 +3778,7 @@ export type Database = {
           logo_scale?: number
           logo_storage_path?: string | null
           logo_visible?: boolean
+          rink_id: string
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -3781,6 +3793,7 @@ export type Database = {
           logo_scale?: number
           logo_storage_path?: string | null
           logo_visible?: boolean
+          rink_id?: string
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -3788,9 +3801,16 @@ export type Database = {
           {
             foreignKeyName: "facility_rink_diagram_config_facility_id_fkey"
             columns: ["facility_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_rink_diagram_config_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "ice_depth_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "facility_rink_diagram_config_updated_by_fkey"

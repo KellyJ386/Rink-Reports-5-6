@@ -111,7 +111,7 @@ async function loadDonePageData(
 
     const layoutRes = await supabase
       .from("ice_depth_layouts")
-      .select("id, name, slug, diagram_aspect_ratio, logo_url")
+      .select("id, name, slug, diagram_aspect_ratio, logo_url, rink_id")
       .eq("id", session.layout_id)
       .maybeSingle()
 
@@ -163,9 +163,14 @@ async function loadDonePageData(
         .select("timezone")
         .eq("id", session.facility_id)
         .maybeSingle(),
-      // Facility-level diagram overlays — same on every report, independent
-      // of this session's state.
-      getRinkOverlays(supabase, session.facility_id),
+      // This rink's diagram overlays — same on every report on this rink,
+      // independent of this session's state.
+      layout.rink_id
+        ? getRinkOverlays(supabase, {
+            facilityId: session.facility_id,
+            rinkId: layout.rink_id,
+          })
+        : Promise.resolve({ markers: [], logo: null }),
     ])
 
     if (measurementsResult.error) {

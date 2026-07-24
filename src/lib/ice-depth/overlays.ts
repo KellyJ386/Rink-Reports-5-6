@@ -1,7 +1,12 @@
 // Server-side read helpers for the Ice Depth rink-diagram overlays (door
-// markers + center-ice logo watermark). Facility configuration, not report
-// data: every ice-depth report renders the SAME overlays, read-only,
-// independent of report/lock state.
+// markers + center-ice logo watermark). Config, not report data: every
+// ice-depth report on a given RINK renders that rink's same overlays,
+// read-only, independent of report/lock state.
+//
+// Scoping (migration 206): door markers and the logo config belong to one
+// physical rink (ice_depth_rinks) — a facility with multiple sheets of ice
+// gets independent door layouts per sheet. Door TYPES stay facility-level on
+// purpose (a shared naming/color vocabulary every rink picks from).
 //
 // RLS already scopes every query to the caller's facility (any enabled
 // ice_depth grant may read; see migration 199); the explicit facility_id
@@ -24,13 +29,15 @@ export const RINK_LOGO_BUCKET = "rink-logos"
 const LOGO_URL_TTL_SECONDS = 60 * 60
 
 /**
- * Load both overlays for a facility, ready to render: active-type markers
- * (sorted by type sort_order, then creation) with resolved colors, and the
- * logo watermark (with a signed URL) when configured + visible.
+ * Load both overlays for one physical rink, ready to render: active-type
+ * markers on that rink (sorted by type sort_order, then creation) with
+ * resolved colors, and that rink's logo watermark (with a signed URL) when
+ * configured + visible. Door types are the one facility-level lookup here —
+ * every rink in the facility shares the same name/color vocabulary.
  */
 export async function getRinkOverlays(
   supabase: SupabaseClient,
-  facilityId: string,
+  { facilityId, rinkId }: { facilityId: string; rinkId: string },
 ): Promise<RinkOverlays> {
   const [typesRes, markersRes, configRes] = await Promise.all([
     supabase
@@ -40,13 +47,15 @@ export async function getRinkOverlays(
     supabase
       .from("facility_door_markers")
       .select("id, door_type_id, label, position_x, position_y, created_at")
-      .eq("facility_id", facilityId),
+      .eq("facility_id", facilityId)
+      .eq("rink_id", rinkId),
     supabase
       .from("facility_rink_diagram_config")
       .select(
         "logo_storage_path, logo_position_x, logo_position_y, logo_scale, logo_rotation, logo_opacity, logo_visible",
       )
       .eq("facility_id", facilityId)
+      .eq("rink_id", rinkId)
       .maybeSingle(),
   ])
 
