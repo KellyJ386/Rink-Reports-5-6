@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { checkRateLimit } from "@/lib/rate-limit/check"
 import { createClient } from "@/lib/supabase/server"
 
 type RequestBody = {
@@ -107,26 +108,18 @@ export async function POST(request: NextRequest) {
   // legitimate leads (who can retry). Abuse protection must not depend on the
   // limiter being healthy.
   const ip = clientIp(request)
-  const { data: allowed, error: rateError } = await supabase.rpc(
-    "check_rate_limit",
-    {
-      p_bucket: RATE_LIMIT_BUCKET,
-      p_identifier: ip,
-      p_max: RATE_LIMIT_MAX,
-      p_window_seconds: RATE_LIMIT_WINDOW_SECONDS,
-    }
-  )
+  // check_rate_limit is service-role-only (migration 216), so it runs through
+  // the service-role client. failOpen: false — a limiter outage on this public,
+  // unauthenticated write must fail CLOSED (an unbounded insert path is worse
+  // than briefly turning away retryable leads).
+  const allowed = await checkRateLimit({
+    bucket: RATE_LIMIT_BUCKET,
+    identifier: ip,
+    max: RATE_LIMIT_MAX,
+    windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+    failOpen: false,
+  })
 
-  if (rateError) {
-    console.error("information-requests: rate limit check failed", rateError)
-    return NextResponse.json(
-      { error: "Service temporarily unavailable. Please try again shortly." },
-      {
-        status: 503,
-        headers: { "Retry-After": "30" },
-      }
-    )
-  }
   if (allowed === false) {
     return NextResponse.json(
       { error: "Too many requests. Please try again in a few minutes." },

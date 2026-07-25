@@ -7376,10 +7376,22 @@ COMMENT ON FUNCTION public.update_incident_report(p_report_id uuid, p_severity_l
 --
 
 CREATE FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
-  select coalesce(
+begin
+  -- Internal gate: only reveal a permission bit the caller is entitled to see.
+  if not (
+    p_user_id = auth.uid()
+    or public.is_super_admin()
+    or (p_facility_id = public.current_facility_id()
+        and public.is_facility_admin(p_facility_id))
+  ) then
+    raise exception 'user_has_permission: not authorized to query this user/facility'
+      using errcode = '42501';
+  end if;
+
+  return coalesce(
     (select u.is_super_admin from public.users u where u.id = p_user_id),
     false
   )
@@ -7391,6 +7403,7 @@ CREATE FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p
       and action      = p_action
       and enabled     = true
   );
+end;
 $$;
 
 
@@ -7398,7 +7411,7 @@ $$;
 -- Name: FUNCTION user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) IS 'True iff (user, facility, module, action) is enabled, or the user is a global super_admin.';
+COMMENT ON FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) IS 'Permission-bit lookup. Internally gated (migration 216): the caller may only query themselves, their own facility as its admin, or — as a super-admin — anyone. Prevents cross-tenant permission enumeration.';
 
 
 --
@@ -19826,7 +19839,9 @@ CREATE POLICY air_quality_readings_delete ON public.air_quality_readings FOR DEL
 -- Name: air_quality_readings air_quality_readings_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY air_quality_readings_insert ON public.air_quality_readings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('air_quality'::text))));
+CREATE POLICY air_quality_readings_insert ON public.air_quality_readings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('air_quality'::text) OR public.has_module_edit_access('air_quality'::text) OR ((public.current_employee_module_permission('air_quality'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.air_quality_reports r
+  WHERE ((r.id = air_quality_readings.report_id) AND (r.facility_id = air_quality_readings.facility_id) AND (r.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -20566,7 +20581,9 @@ CREATE POLICY daily_report_submission_items_delete ON public.daily_report_submis
 -- Name: daily_report_submission_items daily_report_submission_items_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY daily_report_submission_items_insert ON public.daily_report_submission_items FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level))));
+CREATE POLICY daily_report_submission_items_insert ON public.daily_report_submission_items FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.daily_report_submissions s
+  WHERE ((s.id = daily_report_submission_items.submission_id) AND (s.facility_id = daily_report_submission_items.facility_id) AND (s.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -21688,7 +21705,9 @@ CREATE POLICY ice_depth_measurements_delete ON public.ice_depth_measurements FOR
 -- Name: ice_depth_measurements ice_depth_measurements_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ice_depth_measurements_insert ON public.ice_depth_measurements FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_depth'::text))));
+CREATE POLICY ice_depth_measurements_insert ON public.ice_depth_measurements FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('ice_depth'::text) OR public.has_module_edit_access('ice_depth'::text) OR ((public.current_employee_module_permission('ice_depth'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.ice_depth_sessions s
+  WHERE ((s.id = ice_depth_measurements.session_id) AND (s.facility_id = ice_depth_measurements.facility_id) AND (s.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -21892,7 +21911,9 @@ CREATE POLICY ice_operations_circle_check_results_delete ON public.ice_operation
 -- Name: ice_operations_circle_check_results ice_operations_circle_check_results_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ice_operations_circle_check_results_insert ON public.ice_operations_circle_check_results FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_operations'::text))));
+CREATE POLICY ice_operations_circle_check_results_insert ON public.ice_operations_circle_check_results FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('ice_operations'::text) OR public.has_module_edit_access('ice_operations'::text) OR ((public.current_employee_module_permission('ice_operations'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.ice_operations_submissions o
+  WHERE ((o.id = ice_operations_circle_check_results.submission_id) AND (o.facility_id = ice_operations_circle_check_results.facility_id) AND (o.employee_id = public.current_employee_id())))))))));
 
 
 --

@@ -5,7 +5,9 @@ import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { currentUserCan } from "@/lib/permissions/check"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import { logServerError } from "@/lib/observability/log-server-error"
 import {
   MAX_DOCUMENT_BYTES,
@@ -96,6 +98,22 @@ function revalidate() {
   revalidatePath("/reports/facility-paperwork")
 }
 
+/**
+ * facility_documents writes go through the SERVICE-ROLE client (RLS bypassed),
+ * so the app is the only gate. requireAdmin() admits a role-based admin that
+ * lacks the module `admin/admin` user_permissions grant — broader than the
+ * table's own `is_facility_admin(facility_id)` RLS. Re-check facility-admin
+ * (on the USER's client) before any service-role write so the service path
+ * enforces exactly what a direct PostgREST call would face. (I-5 audit.)
+ */
+async function ensureFacilityAdmin(): Promise<string | null> {
+  const userClient = await createClient()
+  const allowed = await currentUserCan(userClient, "admin", "admin")
+  return allowed
+    ? null
+    : "Your account has admin console access but not the facility admin permission required to manage documents. Ask an administrator to grant it under Admin → Permissions."
+}
+
 // ============================================================================
 // Bulk upload
 // ============================================================================
@@ -106,6 +124,8 @@ export async function uploadDocuments(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const denied = await ensureFacilityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility(formData)
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -216,6 +236,8 @@ export async function updateDocument(
 ): Promise<ActionState> {
   try {
     await requireAdmin()
+    const denied = await ensureFacilityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility(formData)
     if (!facility.ok) return { ok: false, error: facility.error }
 
@@ -258,6 +280,8 @@ export async function setDocumentActive(
     const fd = new FormData()
     fd.set("facility_id", facilityId)
     await requireAdmin()
+    const denied = await ensureFacilityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility(fd)
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing document id." }
@@ -286,6 +310,8 @@ export async function deleteDocument(
     const fd = new FormData()
     fd.set("facility_id", facilityId)
     await requireAdmin()
+    const denied = await ensureFacilityAdmin()
+    if (denied) return { ok: false, error: denied }
     const facility = await resolveFacility(fd)
     if (!facility.ok) return { ok: false, error: facility.error }
     if (!id) return { ok: false, error: "Missing document id." }

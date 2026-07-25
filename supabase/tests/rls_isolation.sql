@@ -1456,39 +1456,44 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- RL: rate limiting (migration 92).
+-- RL: rate limiting (migration 92; hardened in migration 216).
 --
--- The public lead form (src/app/api/information-requests/route.ts) calls
--- public.check_rate_limit() via the anon client. Verify:
---   (a) anon CAN call the function and is blocked after p_max within a window;
---   (b) anon CANNOT touch public.rate_limit_counters directly (the only policy
---       targets service_role (migration 180); anon/authenticated have none, so
---       direct access is denied — reachable only through the SECURITY DEFINER
---       function).
+-- check_rate_limit() is now SERVICE-ROLE ONLY: the login action and public
+-- lead-form route call it through the service-role client (migration 216
+-- closed a client-callable counter-forgery/lockout oracle). Verify:
+--   (a) service_role CAN call it and is blocked after p_max within a window;
+--   (b) anon CANNOT call it at all (grant revoked);
+--   (c) anon cannot touch public.rate_limit_counters directly.
 -- ---------------------------------------------------------------------------
 reset role;
-set local role anon;
+set local role service_role;
 
 -- (a) First p_max (=3) calls in a fresh window are allowed; the next is blocked.
--- A unique identifier keeps this independent of any other test's hits.
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  1, 'RL: anon call #1 allowed');
+  1, 'RL: service_role call #1 allowed');
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  1, 'RL: anon call #2 allowed');
+  1, 'RL: service_role call #2 allowed');
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  1, 'RL: anon call #3 allowed (at the cap)');
+  1, 'RL: service_role call #3 allowed (at the cap)');
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  0, 'RL: anon call #4 BLOCKED (over the cap)');
+  0, 'RL: service_role call #4 BLOCKED (over the cap)');
+reset role;
 
--- (b) anon cannot read or write the counters table directly. The only policy on
+-- (b) anon can no longer call the function (migration 216 revoke).
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.check_rate_limit('rls_test', 'rl-ident-2', 3, 600)$$,
+  'RL: anon CANNOT call check_rate_limit (service-role only since migration 216)');
+
+-- (c) anon cannot read or write the counters table directly. The only policy on
 -- the table targets service_role (migration 180), so anon has no applicable
 -- policy: SELECT returns 0 rows (no error) and INSERT is blocked.
 select pg_temp.expect_count(
@@ -6413,6 +6418,92 @@ select pg_temp.expect_count(
         'Admin follow-up correction', '[]'::jsonb) as r) x
     where (x.r->>'ok') = 'true'$$,
   1, 'I3: a daily-reports module admin can correct someone else''s submission');
+reset role;
+
+-- GAP (migration 217): a submit-holder cannot inject child items into a
+-- submission they do NOT own. Alice holds daily submit + access to zoe's area
+-- but is not the submitter of zoe's report, so the tightened
+-- daily_report_submission_items INSERT policy rejects her. (Before 217 the
+-- child insert only needed view-level access — a cross-user integrity hole.)
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submission_items
+      (facility_id, submission_id, label_snapshot, is_checked)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Injected row', true)$$,
+  'GAP-217: a submit-holder CANNOT add items to another user''s submission');
+reset role;
+
+-- Positive path preserved: the OWNER can still add items to their OWN
+-- submission (this is exactly what every module's submit.ts does).
+set local role postgres;
+insert into public.daily_report_submissions
+  (id, facility_id, area_id, template_id, employee_id, business_date)
+values ('c0217000-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_date)
+on conflict (id) do nothing;
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submission_items
+      (facility_id, submission_id, label_snapshot, is_checked)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0217000-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Own item', true)$$,
+  'GAP-217: the OWNER can still add items to their own submission');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2Z. Authorization-audit hardening (migration 216).
+--
+-- user_has_permission() was a cross-tenant permission oracle (SECURITY
+-- DEFINER, no internal gate); check_rate_limit() let any client forge
+-- counters. Probe the new gate and the revoked grant.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Alice may ask about HERSELF.
+select pg_temp.expect_ok(
+  $$select public.user_has_permission(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit')$$,
+  'AUTHZ-216: a user CAN query their own permission bit');
+-- Alice (plain staff) CANNOT probe another user in another facility.
+select pg_temp.expect_error(
+  $$select public.user_has_permission(
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      '22222222-2222-2222-2222-222222222222', 'admin', 'admin')$$,
+  'AUTHZ-216: a user CANNOT probe another user/facility permission bit');
+-- check_rate_limit EXECUTE is revoked from authenticated.
+select pg_temp.expect_error(
+  $$select public.check_rate_limit('login_email', 'victim@x.test', 1, 3600)$$,
+  'AUTHZ-216: authenticated CANNOT call check_rate_limit (service-role only)');
+reset role;
+
+-- A facility admin CAN query bits within their own facility; service_role
+-- retains the rate-limit grant.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_ok(
+  $$select public.user_has_permission(
+      'dada1111-0000-4000-8000-000000000001',
+      '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit')$$,
+  'AUTHZ-216: a facility admin CAN query bits within their own facility');
+reset role;
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.check_rate_limit('probe', 'x', 5, 60)$$,
+  'AUTHZ-216: service_role CAN call check_rate_limit');
 reset role;
 
 -- ---------------------------------------------------------------------------
