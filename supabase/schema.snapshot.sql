@@ -309,78 +309,59 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       -- admin (Control Center)
       ('super_admin','admin','admin'::public.user_action),
       ('admin','admin','admin'::public.user_action),
-      ('gm','admin','admin'::public.user_action),
       ('manager','admin','view'::public.user_action),
       -- daily_reports
       ('super_admin','daily_reports','admin'::public.user_action),
       ('admin','daily_reports','admin'::public.user_action),
-      ('gm','daily_reports','admin'::public.user_action),
       ('manager','daily_reports','admin'::public.user_action),
-      ('supervisor','daily_reports','edit'::public.user_action),
       ('staff','daily_reports','submit'::public.user_action),
       ('driver','daily_reports','submit'::public.user_action),
       -- ice_depth
       ('super_admin','ice_depth','admin'::public.user_action),
       ('admin','ice_depth','admin'::public.user_action),
-      ('gm','ice_depth','admin'::public.user_action),
       ('manager','ice_depth','admin'::public.user_action),
-      ('supervisor','ice_depth','edit'::public.user_action),
       ('staff','ice_depth','submit'::public.user_action),
       ('driver','ice_depth','submit'::public.user_action),
       -- ice_operations
       ('super_admin','ice_operations','admin'::public.user_action),
       ('admin','ice_operations','admin'::public.user_action),
-      ('gm','ice_operations','admin'::public.user_action),
       ('manager','ice_operations','admin'::public.user_action),
-      ('supervisor','ice_operations','edit'::public.user_action),
       ('staff','ice_operations','submit'::public.user_action),
       ('driver','ice_operations','edit'::public.user_action),
       -- refrigeration
       ('super_admin','refrigeration','admin'::public.user_action),
       ('admin','refrigeration','admin'::public.user_action),
-      ('gm','refrigeration','admin'::public.user_action),
       ('manager','refrigeration','admin'::public.user_action),
-      ('supervisor','refrigeration','edit'::public.user_action),
       ('staff','refrigeration','submit'::public.user_action),
       ('driver','refrigeration','submit'::public.user_action),
       -- incident_reports
       ('super_admin','incident_reports','admin'::public.user_action),
       ('admin','incident_reports','admin'::public.user_action),
-      ('gm','incident_reports','admin'::public.user_action),
       ('manager','incident_reports','admin'::public.user_action),
-      ('supervisor','incident_reports','edit'::public.user_action),
       ('staff','incident_reports','submit'::public.user_action),
       ('driver','incident_reports','submit'::public.user_action),
       -- accident_reports
       ('super_admin','accident_reports','admin'::public.user_action),
       ('admin','accident_reports','admin'::public.user_action),
-      ('gm','accident_reports','admin'::public.user_action),
       ('manager','accident_reports','admin'::public.user_action),
-      ('supervisor','accident_reports','edit'::public.user_action),
       ('staff','accident_reports','submit'::public.user_action),
       ('driver','accident_reports','submit'::public.user_action),
       -- air_quality
       ('super_admin','air_quality','admin'::public.user_action),
       ('admin','air_quality','admin'::public.user_action),
-      ('gm','air_quality','admin'::public.user_action),
       ('manager','air_quality','admin'::public.user_action),
-      ('supervisor','air_quality','edit'::public.user_action),
       ('staff','air_quality','submit'::public.user_action),
       ('driver','air_quality','view'::public.user_action),
       -- scheduling
       ('super_admin','scheduling','admin'::public.user_action),
       ('admin','scheduling','admin'::public.user_action),
-      ('gm','scheduling','admin'::public.user_action),
       ('manager','scheduling','admin'::public.user_action),
-      ('supervisor','scheduling','edit'::public.user_action),
       ('staff','scheduling','view'::public.user_action),
       ('driver','scheduling','view'::public.user_action),
       -- communications
       ('super_admin','communications','admin'::public.user_action),
       ('admin','communications','admin'::public.user_action),
-      ('gm','communications','admin'::public.user_action),
       ('manager','communications','admin'::public.user_action),
-      ('supervisor','communications','edit'::public.user_action),
       ('staff','communications','submit'::public.user_action),
       ('driver','communications','submit'::public.user_action),
       -- facility_paperwork (document library: manage for admin-tier roles,
@@ -388,17 +369,13 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       -- is_facility_admin regardless)
       ('super_admin','facility_paperwork','admin'::public.user_action),
       ('admin','facility_paperwork','admin'::public.user_action),
-      ('gm','facility_paperwork','admin'::public.user_action),
       ('manager','facility_paperwork','admin'::public.user_action),
-      ('supervisor','facility_paperwork','view'::public.user_action),
       ('staff','facility_paperwork','view'::public.user_action),
       ('driver','facility_paperwork','view'::public.user_action),
       -- dasher_boards (added migration 193; manager deliberately edit, not admin)
       ('super_admin','dasher_boards','admin'::public.user_action),
       ('admin','dasher_boards','admin'::public.user_action),
-      ('gm','dasher_boards','admin'::public.user_action),
       ('manager','dasher_boards','edit'::public.user_action),
-      ('supervisor','dasher_boards','edit'::public.user_action),
       ('staff','dasher_boards','submit'::public.user_action),
       ('driver','dasher_boards','submit'::public.user_action)
   ),
@@ -538,7 +515,7 @@ begin
     public.is_super_admin()
     or (
       v_tgt_facility = public.current_facility_id()
-      and public.current_user_role() in ('admin', 'gm', 'super_admin')
+      and public.current_user_role() in ('admin', 'super_admin')
     )
   ) then
     raise exception 'Not authorised';
@@ -589,12 +566,12 @@ declare
   v_valid_cnt int;
 begin
   -- AuthZ: caller must be in p_facility_id AND hold at least 'admin' role
-  -- key (admin, gm, super_admin), OR be a platform super_admin.
+  -- key (admin, super_admin), OR be a platform super_admin.
   if not public.is_super_admin() then
     if p_facility_id is null or p_facility_id <> public.current_facility_id() then
       raise exception 'create_employee_complete: facility mismatch';
     end if;
-    if public.current_user_role() not in ('admin', 'gm', 'super_admin') then
+    if public.current_user_role() not in ('admin', 'super_admin') then
       raise exception 'create_employee_complete: caller lacks admin privilege';
     end if;
   end if;
@@ -1602,12 +1579,12 @@ begin
     return;
   end if;
 
-  -- Authorisation: super_admin or facility-scoped admin/gm/super_admin.
+  -- Authorisation: super_admin or facility-scoped admin/super_admin.
   if not (
     public.is_super_admin()
     or (
       v_facility_id = public.current_facility_id()
-      and public.current_user_role() in ('admin', 'gm', 'super_admin')
+      and public.current_user_role() in ('admin', 'super_admin')
     )
   ) then
     return query select false, 0, 'Not authorised'::text;
@@ -3233,7 +3210,7 @@ begin
     public.is_super_admin()
     or (
       v_facility_id = public.current_facility_id()
-      and public.current_user_role() in ('admin', 'gm', 'super_admin')
+      and public.current_user_role() in ('admin', 'super_admin')
     )
   ) then
     return false;
@@ -20209,14 +20186,14 @@ ALTER TABLE public.employee_certifications ENABLE ROW LEVEL SECURITY;
 -- Name: employee_certifications employee_certifications_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_certifications_delete ON public.employee_certifications FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY employee_certifications_delete ON public.employee_certifications FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: employee_certifications employee_certifications_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_certifications_insert ON public.employee_certifications FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY employee_certifications_insert ON public.employee_certifications FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -20230,7 +20207,7 @@ CREATE POLICY employee_certifications_select ON public.employee_certifications F
 -- Name: employee_certifications employee_certifications_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_certifications_update ON public.employee_certifications FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY employee_certifications_update ON public.employee_certifications FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -22190,14 +22167,14 @@ ALTER TABLE public.role_permission_defaults ENABLE ROW LEVEL SECURITY;
 -- Name: role_permission_defaults role_permission_defaults_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: role_permission_defaults role_permission_defaults_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -22211,7 +22188,7 @@ CREATE POLICY role_permission_defaults_select ON public.role_permission_defaults
 -- Name: role_permission_defaults role_permission_defaults_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --

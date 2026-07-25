@@ -5750,6 +5750,38 @@ select pg_temp.expect_error(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- 2X. Retired-role drift guard (migration 209).
+--
+-- 'gm' and 'supervisor' were retired in migrations 58/87 and key-blocked by
+-- the roles_key_not_retired CHECK (migration 188), yet quoted references
+-- kept resurfacing in RLS policies (migration 119 re-added 'gm' to the
+-- employee_certifications write policies) and in SECURITY DEFINER role
+-- gates / seed matrices. These probes scan the LIVE catalog — not the
+-- migration files — so any future policy or function that quotes a retired
+-- role key fails CI here.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from pg_policies
+     where schemaname = 'public'
+       and (coalesce(qual, '')       ~ '''gm'''
+         or coalesce(with_check, '') ~ '''gm'''
+         or coalesce(qual, '')       ~ '''supervisor'''
+         or coalesce(with_check, '') ~ '''supervisor''')$$,
+  0, 'RRD: no public RLS policy references a retired role key');
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and (p.prosrc ~ '''gm''' or p.prosrc ~ '''supervisor''')$$,
+  0, 'RRD: no public function body references a retired role key');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.canonical_role_permission_grants()
+     where role_key in ('gm', 'supervisor')$$,
+  0, 'RRD: canonical grant matrix has no retired-role rows');
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
