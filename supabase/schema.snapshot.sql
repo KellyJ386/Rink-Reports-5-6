@@ -7039,6 +7039,102 @@ COMMENT ON FUNCTION public.submit_incident_report(p_facility_id uuid, p_employee
 
 
 --
+-- Name: supersede_daily_report_submission(uuid, text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.supersede_daily_report_submission(p_original_id uuid, p_reason text, p_items jsonb) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_emp      uuid := public.current_employee_id();
+  v_original public.daily_report_submissions%rowtype;
+  v_new_id   uuid;
+  v_item     jsonb;
+  v_n        integer := 0;
+begin
+  if p_reason is null or btrim(p_reason) = '' then
+    return jsonb_build_object('ok', false, 'error',
+      'A correction reason is required.');
+  end if;
+
+  select * into v_original
+    from public.daily_report_submissions
+   where id = p_original_id
+     for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Submission not found.');
+  end if;
+
+  if not public.is_super_admin()
+     and v_original.facility_id is distinct from public.current_facility_id() then
+    raise exception 'supersede_daily_report_submission: cross-facility'
+      using errcode = '42501';
+  end if;
+
+  -- Module admin, or the original submitter (paper-logbook rule: the person
+  -- who wrote the entry may line-through-and-correct their own).
+  if not (
+    public.is_super_admin()
+    or public.has_module_admin_access('daily_reports')
+    or (v_emp is not null and v_original.employee_id = v_emp)
+  ) then
+    raise exception 'supersede_daily_report_submission: only a daily-reports admin or the original submitter may file a correction'
+      using errcode = '42501';
+  end if;
+
+  if v_original.superseded_at is not null then
+    return jsonb_build_object('ok', false, 'error',
+      'This submission was already corrected. Correct the latest version instead.');
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' then
+    return jsonb_build_object('ok', false, 'error',
+      'Corrected items payload is required.');
+  end if;
+
+  insert into public.daily_report_submissions
+    (facility_id, area_id, template_id, employee_id, submitted_at,
+     business_date, supersedes_id, correction_reason, corrected_by)
+  values
+    (v_original.facility_id, v_original.area_id, v_original.template_id,
+     v_emp, now(),
+     v_original.business_date, v_original.id, btrim(p_reason), v_emp)
+  returning id into v_new_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    if coalesce(btrim(v_item->>'label_snapshot'), '') = '' then
+      raise exception 'supersede_daily_report_submission: every item needs a label_snapshot';
+    end if;
+    insert into public.daily_report_submission_items
+      (facility_id, submission_id, checklist_item_id, label_snapshot, is_checked)
+    values
+      (v_original.facility_id, v_new_id,
+       nullif(v_item->>'checklist_item_id', '')::uuid,
+       v_item->>'label_snapshot',
+       coalesce((v_item->>'is_checked')::boolean, false));
+    v_n := v_n + 1;
+  end loop;
+
+  -- The line-through: stamp the original. (Audited by
+  -- trg_audit_daily_report_submissions like every other change here.)
+  update public.daily_report_submissions
+     set superseded_at = now(),
+         superseded_by = v_new_id
+   where id = v_original.id;
+
+  return jsonb_build_object('ok', true, 'correction_id', v_new_id, 'item_count', v_n);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION supersede_daily_report_submission(p_original_id uuid, p_reason text, p_items jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.supersede_daily_report_submission(p_original_id uuid, p_reason text, p_items jsonb) IS 'Files a correction for a (possibly day-locked) daily-report submission: inserts a new submission carrying the ORIGINAL business_date + required reason, and stamps the original superseded (never edited or deleted). Allowed for daily-reports module admins and the original submitter.';
+
+
+--
 -- Name: tg_seed_dasher_boards_config(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8662,7 +8758,12 @@ CREATE TABLE public.daily_report_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    business_date date
+    business_date date,
+    superseded_at timestamp with time zone,
+    superseded_by uuid,
+    supersedes_id uuid,
+    correction_reason text,
+    corrected_by uuid
 );
 
 
@@ -8678,6 +8779,20 @@ COMMENT ON TABLE public.daily_report_submissions IS 'Daily Reports: a single sub
 --
 
 COMMENT ON COLUMN public.daily_report_submissions.business_date IS 'Facility-local date of the submission (set server-side at submit time). A grouping key for a day''s submissions; NOT unique -- daily reports are append-only, so a same-day correction is a new row.';
+
+
+--
+-- Name: COLUMN daily_report_submissions.superseded_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_submissions.superseded_at IS 'Set when a correction supersedes this submission. The row is never edited beyond this stamp; superseded_by links to the correction.';
+
+
+--
+-- Name: COLUMN daily_report_submissions.supersedes_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_submissions.supersedes_id IS 'Set on a correction row: the submission this one supersedes. correction_reason is required for corrections.';
 
 
 --
@@ -14118,6 +14233,13 @@ CREATE INDEX idx_daily_report_submissions_facility_submitted ON public.daily_rep
 
 
 --
+-- Name: idx_daily_report_submissions_supersedes; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_submissions_supersedes ON public.daily_report_submissions USING btree (supersedes_id) WHERE (supersedes_id IS NOT NULL);
+
+
+--
 -- Name: idx_daily_report_submissions_template; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -15501,6 +15623,13 @@ CREATE UNIQUE INDEX uniq_communication_ack_alert_employee ON public.communicatio
 --
 
 CREATE UNIQUE INDEX uniq_communication_ack_message_employee ON public.communication_acknowledgements USING btree (message_id, employee_id) WHERE (message_id IS NOT NULL);
+
+
+--
+-- Name: uniq_daily_report_submission_active_correction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_daily_report_submission_active_correction ON public.daily_report_submissions USING btree (supersedes_id) WHERE ((supersedes_id IS NOT NULL) AND (superseded_at IS NULL));
 
 
 --
@@ -17393,6 +17522,14 @@ ALTER TABLE ONLY public.daily_report_submissions
 
 
 --
+-- Name: daily_report_submissions daily_report_submissions_corrected_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_submissions
+    ADD CONSTRAINT daily_report_submissions_corrected_by_fkey FOREIGN KEY (corrected_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
 -- Name: daily_report_submissions daily_report_submissions_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -17406,6 +17543,22 @@ ALTER TABLE ONLY public.daily_report_submissions
 
 ALTER TABLE ONLY public.daily_report_submissions
     ADD CONSTRAINT daily_report_submissions_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_submissions daily_report_submissions_superseded_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_submissions
+    ADD CONSTRAINT daily_report_submissions_superseded_by_fkey FOREIGN KEY (superseded_by) REFERENCES public.daily_report_submissions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_submissions daily_report_submissions_supersedes_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_submissions
+    ADD CONSTRAINT daily_report_submissions_supersedes_id_fkey FOREIGN KEY (supersedes_id) REFERENCES public.daily_report_submissions(id) ON DELETE SET NULL;
 
 
 --
@@ -20456,7 +20609,7 @@ CREATE POLICY daily_report_submissions_insert ON public.daily_report_submissions
 -- Name: daily_report_submissions daily_report_submissions_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY daily_report_submissions_select ON public.daily_report_submissions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id) AND (public.has_module_edit_access('daily_reports'::text) OR public.daily_area_assignment_allows(area_id, business_date)))))));
+CREATE POLICY daily_report_submissions_select ON public.daily_report_submissions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((employee_id IS NOT NULL) AND (employee_id = public.current_employee_id())) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id) AND (public.has_module_edit_access('daily_reports'::text) OR public.daily_area_assignment_allows(area_id, business_date)))))));
 
 
 --

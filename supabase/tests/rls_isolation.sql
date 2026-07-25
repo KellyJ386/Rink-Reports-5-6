@@ -6292,6 +6292,130 @@ delete from public.schedule_settings
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2Y. Daily-report corrections (migration 215) — the paper-logbook rule.
+--
+-- A locked (past-day) submission can be corrected by its ORIGINAL SUBMITTER
+-- or a daily-reports module admin, through one SECURITY DEFINER RPC: a new
+-- submission supersedes the original, which is stamped but never edited or
+-- deleted. Probes reuse the DAR cast (zoe = staff submitter, sam = edit-tier
+-- staff who is NOT the submitter, mona = daily module admin fixtures exist
+-- above; Fred = facility admin) and the migration-183 area/template
+-- fixtures.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- A locked submission: zoe submitted YESTERDAY (facility-local) with 2 items.
+insert into public.daily_report_submissions
+  (id, facility_id, area_id, template_id, employee_id, submitted_at, business_date)
+values ('c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+        'dada1111-0000-4000-8000-000000000002',
+        now() - interval '1 day', current_date - 1)
+on conflict (id) do nothing;
+insert into public.daily_report_submission_items
+  (id, facility_id, submission_id, label_snapshot, is_checked)
+values
+  ('c0121500-0002-4aaa-8aaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Nets secured', true),
+  ('c0121500-0003-4aaa-8aaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Ice depth logged', false)
+on conflict (id) do nothing;
+reset role;
+
+-- Non-owner, non-admin (sam, edit tier): the RPC's gate raises.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ed17ed17-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ed17ed17-0000-4000-8000-000000000001', true);
+select pg_temp.expect_error(
+  $$select public.supersede_daily_report_submission(
+      'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'not mine',
+      '[]'::jsonb)$$,
+  'I3: non-owner staff CANNOT file a correction (RPC gate raises)');
+reset role;
+
+-- Owner (zoe): direct UPDATE of the locked row is still RLS-inert, the
+-- reason is mandatory, and the governed supersede works.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dada1111-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dada1111-0000-4000-8000-000000000001', true);
+select pg_temp.expect_ok(
+  $$update public.daily_report_submissions
+       set correction_reason = 'sneaky edit'
+     where id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  'I3: owner''s direct UPDATE runs (RLS scopes it to 0 rows — migration 161 lesson)');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', '   ', '[]'::jsonb) as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'I3: a blank correction reason is rejected');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        'Wrong ice depth recorded',
+        '[{"checklist_item_id": null, "label_snapshot": "Nets secured", "is_checked": true},
+          {"checklist_item_id": null, "label_snapshot": "Ice depth logged", "is_checked": true}]'::jsonb) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'item_count')::int = 2$$,
+  1, 'I3: the ORIGINAL SUBMITTER can correct their own locked report');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'again', '[]'::jsonb) as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'I3: a submission cannot be superseded twice');
+reset role;
+
+-- Ledger shape (as owner-bypassing postgres): the line-through happened, the
+-- direct-edit attempt did NOT land, the correction belongs to the ORIGINAL
+-- day, and both versions exist.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+     where id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'
+       and superseded_at is not null
+       and superseded_by is not null
+       and correction_reason is null$$,
+  1, 'I3: original is stamped superseded, otherwise untouched');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions c
+      join public.daily_report_submissions o on o.superseded_by = c.id
+     where o.id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'
+       and c.supersedes_id = o.id
+       and c.business_date = o.business_date
+       and c.correction_reason = 'Wrong ice depth recorded'
+       and c.employee_id = 'dada1111-0000-4000-8000-000000000002'
+       and c.corrected_by = 'dada1111-0000-4000-8000-000000000002'$$,
+  1, 'I3: correction links both ways, keeps the original business_date, and names the corrector');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submission_items i
+      join public.daily_report_submissions o
+        on o.superseded_by = i.submission_id
+     where o.id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'
+       and i.is_checked$$,
+  2, 'I3: the correction carries the corrected item states');
+reset role;
+
+-- A daily-reports module admin (mona) can correct someone ELSE''s submission:
+-- file a second-generation correction against zoe''s correction.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        (select superseded_by from public.daily_report_submissions
+          where id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'),
+        'Admin follow-up correction', '[]'::jsonb) as r) x
+    where (x.r->>'ok') = 'true'$$,
+  1, 'I3: a daily-reports module admin can correct someone else''s submission');
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 2X. Retired-role drift guard (migration 209).
 --
 -- 'gm' and 'supervisor' were retired in migrations 58/87 and key-blocked by

@@ -2261,33 +2261,48 @@ export type Database = {
         Row: {
           area_id: string
           business_date: string | null
+          corrected_by: string | null
+          correction_reason: string | null
           created_at: string
           employee_id: string | null
           facility_id: string
           id: string
           submitted_at: string
+          superseded_at: string | null
+          superseded_by: string | null
+          supersedes_id: string | null
           template_id: string
           updated_at: string | null
         }
         Insert: {
           area_id: string
           business_date?: string | null
+          corrected_by?: string | null
+          correction_reason?: string | null
           created_at?: string
           employee_id?: string | null
           facility_id: string
           id?: string
           submitted_at?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          supersedes_id?: string | null
           template_id: string
           updated_at?: string | null
         }
         Update: {
           area_id?: string
           business_date?: string | null
+          corrected_by?: string | null
+          correction_reason?: string | null
           created_at?: string
           employee_id?: string | null
           facility_id?: string
           id?: string
           submitted_at?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          supersedes_id?: string | null
           template_id?: string
           updated_at?: string | null
         }
@@ -2297,6 +2312,13 @@ export type Database = {
             columns: ["area_id"]
             isOneToOne: false
             referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submissions_corrected_by_fkey"
+            columns: ["corrected_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
             referencedColumns: ["id"]
           },
           {
@@ -2311,6 +2333,20 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submissions_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "daily_report_submissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_submissions_supersedes_id_fkey"
+            columns: ["supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_submissions"
             referencedColumns: ["id"]
           },
           {
@@ -8316,6 +8352,10 @@ export type Database = {
           p_witnesses?: Json
         }
         Returns: string
+      }
+      supersede_daily_report_submission: {
+        Args: { p_items: Json; p_original_id: string; p_reason: string }
+        Returns: Json
       }
       update_incident_report: {
         Args: {

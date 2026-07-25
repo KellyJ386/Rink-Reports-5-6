@@ -1104,3 +1104,56 @@ export async function deleteSubmission(id: string): Promise<SimpleResult> {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
   }
 }
+
+// ============================================================================
+// Corrections (migration 215)
+// ============================================================================
+
+export type CorrectionItemInput = {
+  checklist_item_id: string | null
+  label_snapshot: string
+  is_checked: boolean
+}
+
+/**
+ * File a correction that supersedes a (possibly day-locked) submission. The
+ * SECURITY DEFINER RPC re-checks authorization (module admin OR original
+ * submitter), keeps the original untouched apart from the superseded stamp,
+ * and requires a reason. Returns the new submission's id so the caller can
+ * navigate to it.
+ */
+export async function fileCorrection(input: {
+  submissionId: string
+  reason: string
+  items: CorrectionItemInput[]
+}): Promise<{ ok: true; correctionId: string } | { ok: false; error: string }> {
+  try {
+    const denied = await ensureDailyAdmin()
+    if (denied) return { ok: false, error: denied }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc(
+      "supersede_daily_report_submission",
+      {
+        p_original_id: input.submissionId,
+        p_reason: input.reason,
+        p_items: input.items,
+      },
+    )
+    if (error) return { ok: false, error: dbError(error, "Correction failed.") }
+
+    const result = (data ?? {}) as {
+      ok?: boolean
+      error?: string
+      correction_id?: string
+    }
+    if (result.ok !== true || !result.correction_id) {
+      return { ok: false, error: result.error ?? "Correction failed." }
+    }
+    revalidatePath("/admin/daily-reports")
+    return { ok: true, correctionId: result.correction_id }
+  } catch (e) {
+    logServerError("admin/daily-reports/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}

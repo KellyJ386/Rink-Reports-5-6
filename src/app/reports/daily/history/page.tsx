@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { ClipboardList } from "lucide-react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
@@ -26,7 +27,13 @@ const HISTORY_LIMIT = 100
 
 type SubmissionRow = Pick<
   Tables<"daily_report_submissions">,
-  "id" | "area_id" | "template_id" | "employee_id" | "submitted_at"
+  | "id"
+  | "area_id"
+  | "template_id"
+  | "employee_id"
+  | "submitted_at"
+  | "superseded_at"
+  | "supersedes_id"
 >
 
 type HistoryItem = {
@@ -38,6 +45,10 @@ type HistoryItem = {
   submittedBy: string | null
   checkedCount: number
   itemCount: number
+  superseded: boolean
+  isCorrection: boolean
+  /** Own, current submission — the submitter may file a correction. */
+  canCorrect: boolean
 }
 
 function formatTimestamp(iso: string, timeZone: string): string {
@@ -111,7 +122,9 @@ export default async function DailyReportHistoryPage() {
   // facility id, and never use the service role here.
   const { data: subsRaw } = await supabase
     .from("daily_report_submissions")
-    .select("id, area_id, template_id, employee_id, submitted_at")
+    .select(
+      "id, area_id, template_id, employee_id, submitted_at, superseded_at, supersedes_id"
+    )
     .eq("facility_id", employeeRow.facility_id)
     .order("submitted_at", { ascending: false })
     .limit(HISTORY_LIMIT)
@@ -193,6 +206,10 @@ export default async function DailyReportHistoryPage() {
       submittedBy: emp ? `${emp.first_name} ${emp.last_name}`.trim() : null,
       checkedCount: counts.checked,
       itemCount: counts.total,
+      superseded: s.superseded_at !== null,
+      isCorrection: s.supersedes_id !== null,
+      canCorrect:
+        s.superseded_at === null && s.employee_id === employeeRow.id,
     }
   })
 
@@ -256,11 +273,31 @@ export default async function DailyReportHistoryPage() {
                 {it.submittedBy ? <> · {it.submittedBy}</> : null}
               </div>
             </div>
-            {it.itemCount > 0 ? (
-              <span className="shrink-0 self-start rounded-full bg-muted px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground sm:self-auto">
-                {it.checkedCount}/{it.itemCount} complete
-              </span>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+              {it.superseded ? (
+                <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium">
+                  Corrected
+                </span>
+              ) : null}
+              {it.isCorrection ? (
+                <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium">
+                  Correction
+                </span>
+              ) : null}
+              {it.itemCount > 0 ? (
+                <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
+                  {it.checkedCount}/{it.itemCount} complete
+                </span>
+              ) : null}
+              {it.canCorrect ? (
+                <Link
+                  href={`/reports/daily/history/${it.id}/correct`}
+                  className="rounded-full border px-2.5 py-1 text-xs font-medium underline-offset-2 hover:underline"
+                >
+                  File correction
+                </Link>
+              ) : null}
+            </div>
           </li>
         ))}
         </ul>

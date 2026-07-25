@@ -131,3 +131,46 @@ export async function submitDailyReportAction(
   }
   redirect(result.redirectTo)
 }
+
+// ============================================================================
+// Corrections (migration 215) — the original submitter's path
+// ============================================================================
+
+export type OwnCorrectionItemInput = {
+  checklist_item_id: string | null
+  label_snapshot: string
+  is_checked: boolean
+}
+
+/**
+ * File a correction for one of YOUR OWN submissions (possibly from a locked
+ * past day). The SECURITY DEFINER RPC authorizes (module admin OR original
+ * submitter), requires a reason, stamps the original superseded, and keeps
+ * both versions on record.
+ */
+export async function fileOwnCorrection(input: {
+  submissionId: string
+  reason: string
+  items: OwnCorrectionItemInput[]
+}): Promise<{ ok: true; correctionId: string } | { ok: false; error: string }> {
+  await requireUser()
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc(
+    "supersede_daily_report_submission",
+    {
+      p_original_id: input.submissionId,
+      p_reason: input.reason,
+      p_items: input.items,
+    },
+  )
+  if (error) return { ok: false, error: dbError(error, "Correction failed.") }
+  const result = (data ?? {}) as {
+    ok?: boolean
+    error?: string
+    correction_id?: string
+  }
+  if (result.ok !== true || !result.correction_id) {
+    return { ok: false, error: result.error ?? "Correction failed." }
+  }
+  return { ok: true, correctionId: result.correction_id }
+}
