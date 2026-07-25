@@ -5,6 +5,7 @@ import {
   dayKeyInTz,
   dayPartsInTz,
   formatInTz,
+  localDayKey,
   minutesOfDayInTz,
   utcToWallTime,
   wallTimeToUtc,
@@ -260,5 +261,22 @@ describe("formatInTz", () => {
 
   it("returns unparseable string input unchanged", () => {
     expect(formatInTz("not-a-date", "UTC")).toBe("not-a-date")
+  })
+})
+
+describe("localDayKey", () => {
+  it("matches the runtime-local calendar date, not the UTC date", () => {
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const expected = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    expect(localDayKey()).toBe(expected)
+  })
+
+  it("offsets by whole local days", () => {
+    // Compare through dayKeyInTz's own local-zone path so the assertion is
+    // stable across DST boundaries in the runner's zone.
+    const yesterday = new Date(Date.now() - 86_400_000)
+    expect(localDayKey(-1)).toBe(dayKeyInTz(yesterday, null))
+    expect(localDayKey(0) >= localDayKey(-1)).toBe(true)
   })
 })

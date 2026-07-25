@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { RequiredMark } from "@/components/ui/required-mark"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
+import { dayKeyInTz } from "@/lib/timezone"
 import {
   Select,
   SelectContent,
@@ -71,6 +72,7 @@ type Props = {
   equipment: EquipmentForForm[]
   compliance: FormComplianceContext | null
   frequency: FrequencyStatus | null
+  timezone: string | null
 }
 
 const initialState: SubmissionFormState = {}
@@ -86,6 +88,7 @@ export function SubmissionForm({
   equipment,
   compliance,
   frequency,
+  timezone,
 }: Props) {
   const [state, formAction] = useActionState(
     submitAirQualityReport,
@@ -137,7 +140,9 @@ export function SubmissionForm({
   }
   const [formData, setFormData] = useState<AirQualityFormData>(() => {
     const fd = emptyAirQualityFormData()
-    fd.date_of_test = new Date().toISOString().slice(0, 10)
+    // Facility-local date, not the UTC calendar date — toISOString() runs a
+    // day ahead of a US-Eastern facility every evening from 7/8pm local.
+    fd.date_of_test = dayKeyInTz(new Date(), timezone)
     return fd
   })
 

@@ -3342,6 +3342,7 @@ CREATE FUNCTION public.resolve_daily_area_assignments(p_date date) RETURNS integ
 declare
   v_facility uuid;
   v_tz       text;
+  v_today    date;
   v_start    timestamptz;
   v_end      timestamptz;
   v_n        integer;
@@ -3358,10 +3359,15 @@ begin
     raise exception 'daily_reports access required' using errcode = '42501';
   end if;
 
-  -- Only today's window (facility-local "today" can differ from the server's
-  -- UTC date by a day in either direction). Past days are locked; far-future
-  -- materialization is meaningless because schedules/defaults still change.
-  if p_date is null or p_date < current_date - 2 or p_date > current_date + 2 then
+  -- Only today's window. The window is anchored to the FACILITY-LOCAL date
+  -- (everything else in this function uses f.timezone; the previous
+  -- current_date anchor used the session timezone — UTC on Supabase — which
+  -- skews one day off facility-local every evening).
+  select coalesce(f.timezone, 'UTC') into v_tz
+    from public.facilities f where f.id = v_facility;
+  v_today := (now() at time zone coalesce(v_tz, 'UTC'))::date;
+
+  if p_date is null or p_date < v_today - 2 or p_date > v_today + 2 then
     raise exception 'resolve_daily_area_assignments: date % out of range', p_date;
   end if;
 
@@ -3382,8 +3388,6 @@ begin
   -- queue up behind the first instead of double-inserting.
   perform pg_advisory_xact_lock(hashtextextended(v_facility::text || ':' || p_date::text, 42));
 
-  select coalesce(f.timezone, 'UTC') into v_tz
-    from public.facilities f where f.id = v_facility;
   v_start := (p_date::timestamp) at time zone v_tz;
   v_end   := v_start + interval '1 day';
 
@@ -3586,7 +3590,10 @@ begin
     from public.facilities f where f.id = v_facility;
   v_today := (now() at time zone v_tz)::date;
 
-  if p_date is null or p_date < v_today or p_date > current_date + 2 then
+  -- Both bounds anchored to the facility-local date (the upper bound
+  -- previously used session-timezone current_date — one day off facility-local
+  -- every evening on a UTC server).
+  if p_date is null or p_date < v_today or p_date > v_today + 2 then
     raise exception 'resync_daily_area_assignments: date % out of range', p_date;
   end if;
 

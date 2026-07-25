@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
@@ -170,6 +171,8 @@ export default async function AirQualityHomePage() {
     location_id: e.location_id,
   }))
 
+  const timezone = await getFacilityTimezone(supabase, employeeRow.facility_id)
+
   // Jurisdiction-aware compliance context + this-week frequency status.
   const complianceCtx = await loadComplianceContext(
     supabase,
@@ -238,6 +241,7 @@ export default async function AirQualityHomePage() {
         equipment={equipment}
         compliance={formCompliance}
         frequency={frequency}
+        timezone={timezone}
       />
     </div>
   )
