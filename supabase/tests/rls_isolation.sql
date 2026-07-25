@@ -2563,14 +2563,13 @@ select pg_temp.expect_count(
   $$select count(*) from public.audit_logs
      where id = 'a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb'$$,
   0, 'RET-212: 9-year-old row leaves audit_logs under the default 7-year fallback (staged for destruction, migration 213)');
--- Clean up: the settings rows (so later sections see defaults) and the
--- surviving 8-year probe row (so the next purge run — section 2k3 — doesn't
--- sweep it into its batch once the 10-year setting is gone).
+-- Clean up the settings rows so later sections see defaults. (The surviving
+-- 8-year probe row is left in place — audit_logs is append-only at the
+-- trigger level since migration 214; section 2k3's purge run sweeps it into
+-- its staged batch, which that section's probes account for.)
 delete from public.retention_settings
  where facility_id = '11111111-1111-1111-1111-111111111111'
    and module_key in ('audit_logs', 'daily_reports');
-delete from public.audit_logs
- where id = 'a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa';
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -2698,7 +2697,7 @@ reset role;
 set local role postgres;
 select pg_temp.expect_count(
   $$select count(*) from public.audit_logs_pending_destruction
-     where batch_id = (select batch_id from _a3_ctx)$$,
+     where original_id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
   1, 'A3: one signature destroyed nothing (and direct DELETE touched 0 rows)');
 reset role;
 
@@ -2768,10 +2767,109 @@ select pg_temp.expect_count(
   $$select count(*) from public.audit_destruction_batches
      where id = (select batch_id from _a3_ctx2) and status = 'cancelled'$$,
   1, 'A3: cancelled batch is closed');
--- Restore the fixture state: drop the restored probe row so later audit
--- assertions see the pre-section counts.
-delete from public.audit_logs
- where id = 'a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb';
+-- The restored probe row is deliberately left in place: audit_logs is
+-- append-only at the trigger level (migration 214), and the I2 section
+-- verifies the facility-A chain INCLUDING this restore.
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2k4. Audit-log hash chain (migration 214) — the numbered logbook.
+--
+-- Every audit_logs insert is chained (prev_hash/row_hash under a
+-- per-facility advisory lock); verify_audit_chain() recomputes every hash
+-- and walks the linkage, bridging retention-staged/destroyed spans via the
+-- batches' archived hash metadata. UPDATE/DELETE raise for everyone —
+-- including service_role — outside the governed staging bypass.
+--
+-- By this point in the file facility A's chain has real history: fixture
+-- DML audits, a destroyed batch, a cancelled batch with a tail-restored
+-- row. Verifying it here exercises genesis, bridges, and restores at once.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+-- Chained columns are being populated by the insert trigger.
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and (row_hash is null or seq is null)$$,
+  0, 'I2: every facility-A audit row carries seq + row_hash');
+reset role;
+
+-- Staff cannot run verification (admin gate raises).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.verify_audit_chain('11111111-1111-1111-1111-111111111111')$$,
+  'I2: staff alice CANNOT run verify_audit_chain');
+reset role;
+
+-- Admin: both facilities verify clean — across the destroyed batch (bridge),
+-- the cancelled batch (bridge + tail restore), and facility B's staged batch.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'checked')::int > 0$$,
+  1, 'I2: facility-A chain verifies (incl. destroyed + cancelled batch bridges)');
+reset role;
+
+-- Append-only: even service_role cannot UPDATE or DELETE audit rows.
+set local role service_role;
+select pg_temp.expect_error(
+  $$update public.audit_logs set after = '{"tampered":true}'::jsonb
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'I2: service_role CANNOT UPDATE audit rows (append-only trigger)');
+select pg_temp.expect_error(
+  $$delete from public.audit_logs
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'I2: service_role CANNOT DELETE audit rows (append-only trigger)');
+reset role;
+
+-- Tamper detection: a payload edit by someone who CAN bypass the guard
+-- (owner-level, bypass GUC — i.e. exactly the attacker the chain exists
+-- for) breaks verification, and restoring the value heals it.
+set local role postgres;
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after || '{"__tampered":true}'::jsonb
+ where id = (
+   select id from public.audit_logs
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and after is not null
+    order by seq desc limit 1);
+select set_config('rr.audit_chain_bypass', '', true);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
+    where (x.r->>'ok') = 'false'
+      and (x.r->>'reason') like 'row_hash mismatch%'$$,
+  1, 'I2: a tampered payload is DETECTED by verify_audit_chain');
+reset role;
+
+set local role postgres;
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after - '__tampered'
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and after ? '__tampered';
+select set_config('rr.audit_chain_bypass', '', true);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
+    where (x.r->>'ok') = 'true'$$,
+  1, 'I2: restoring the payload heals verification');
 reset role;
 
 -- ---------------------------------------------------------------------------

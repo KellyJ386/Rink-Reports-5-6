@@ -976,6 +976,7 @@ export type Database = {
           approved_by_2: string | null
           cancelled_at: string | null
           cancelled_by: string | null
+          chain_anchors: Json | null
           created_at: string
           destroyed_at: string | null
           facility_id: string
@@ -990,6 +991,7 @@ export type Database = {
           approved_by_2?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          chain_anchors?: Json | null
           created_at?: string
           destroyed_at?: string | null
           facility_id: string
@@ -1004,6 +1006,7 @@ export type Database = {
           approved_by_2?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          chain_anchors?: Json | null
           created_at?: string
           destroyed_at?: string | null
           facility_id?: string
@@ -1055,6 +1058,9 @@ export type Database = {
           facility_id: string
           id: string
           ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
           user_agent: string | null
         }
         Insert: {
@@ -1069,6 +1075,9 @@ export type Database = {
           facility_id: string
           id?: string
           ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: never
           user_agent?: string | null
         }
         Update: {
@@ -1083,6 +1092,9 @@ export type Database = {
           facility_id?: string
           id?: string
           ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: never
           user_agent?: string | null
         }
         Relationships: [
@@ -1124,6 +1136,9 @@ export type Database = {
           ip: unknown | null
           original_created_at: string
           original_id: string
+          original_prev_hash: string | null
+          original_row_hash: string | null
+          original_seq: number | null
           staged_at: string
           user_agent: string | null
         }
@@ -1141,6 +1156,9 @@ export type Database = {
           ip?: unknown | null
           original_created_at: string
           original_id: string
+          original_prev_hash?: string | null
+          original_row_hash?: string | null
+          original_seq?: number | null
           staged_at?: string
           user_agent?: string | null
         }
@@ -1158,6 +1176,9 @@ export type Database = {
           ip?: unknown | null
           original_created_at?: string
           original_id?: string
+          original_prev_hash?: string | null
+          original_row_hash?: string | null
+          original_seq?: number | null
           staged_at?: string
           user_agent?: string | null
         }
@@ -7754,6 +7775,27 @@ export type Database = {
         Args: { p_batch_id: string }
         Returns: Json
       }
+      audit_row_chain_hash: {
+        Args: {
+          p_action: string
+          p_actor_employee_id: string
+          p_actor_user_id: string
+          p_after: Json
+          p_before: Json
+          p_created_at: string
+          p_entity_id: string
+          p_entity_type: string
+          p_facility_id: string
+          p_ip: unknown
+          p_prev_hash: string
+          p_user_agent: string
+        }
+        Returns: string
+      }
+      audit_sha256: {
+        Args: { p_input: string }
+        Returns: string
+      }
       can_edit_user_profile: {
         Args: { p_target_user_id: string }
         Returns: boolean
@@ -8302,6 +8344,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: boolean
+      }
+      verify_audit_chain: {
+        Args: { p_facility_id: string }
+        Returns: Json
       }
     }
     Enums: {

@@ -185,7 +185,7 @@ begin
       'Destruction requires a second approval from a DIFFERENT admin.');
   end if;
 
-  -- Second, distinct approver: destroy.
+  -- Second, distinct approver: destroy (anchors already on the batch).
   delete from public.audit_logs_pending_destruction
    where batch_id = p_batch_id;
   get diagnostics v_n = row_count;
@@ -215,6 +215,80 @@ $$;
 --
 
 COMMENT ON FUNCTION public.approve_audit_destruction(p_batch_id uuid) IS 'Two-person destruction of a staged audit batch: first call records approval, a second call by a DIFFERENT facility admin deletes the quarantined rows. Self-second-approval refused. Both steps self-audit.';
+
+
+--
+-- Name: audit_logs_append_only(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_logs_append_only() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if coalesce(current_setting('rr.audit_chain_bypass', true), '') = 'on' then
+    return coalesce(new, old);
+  end if;
+  raise exception
+    'audit_logs is append-only: % is not allowed (retention goes through the governed two-person destruction flow)',
+    tg_op
+    using errcode = '42501';
+end;
+$$;
+
+
+--
+-- Name: audit_logs_hash_chain(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_logs_hash_chain() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_prev text;
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('audit_chain:' || new.facility_id::text, 42));
+
+  select row_hash into v_prev
+    from public.audit_logs
+   where facility_id = new.facility_id
+   order by seq desc
+   limit 1;
+
+  new.prev_hash := v_prev;
+  new.row_hash  := public.audit_row_chain_hash(
+    v_prev, new.facility_id, new.actor_user_id, new.actor_employee_id,
+    new.action, new.entity_type, new.entity_id, new.before, new.after,
+    new.ip, new.user_agent, new.created_at);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: audit_row_chain_hash(text, uuid, uuid, uuid, text, text, uuid, jsonb, jsonb, inet, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_row_chain_hash(p_prev_hash text, p_facility_id uuid, p_actor_user_id uuid, p_actor_employee_id uuid, p_action text, p_entity_type text, p_entity_id uuid, p_before jsonb, p_after jsonb, p_ip inet, p_user_agent text, p_created_at timestamp with time zone) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select public.audit_sha256(
+    coalesce(p_prev_hash, 'genesis')
+    || '|' || p_facility_id::text
+    || '|' || coalesce(p_actor_user_id::text, '')
+    || '|' || coalesce(p_actor_employee_id::text, '')
+    || '|' || p_action
+    || '|' || p_entity_type
+    || '|' || coalesce(p_entity_id::text, '')
+    || '|' || coalesce(p_before::text, '')
+    || '|' || coalesce(p_after::text, '')
+    || '|' || coalesce(p_ip::text, '')
+    || '|' || coalesce(p_user_agent, '')
+    || '|' || extract(epoch from p_created_at)::text)
+$$;
 
 
 --
@@ -307,6 +381,18 @@ $$;
 --
 
 COMMENT ON FUNCTION public.audit_row_change() IS 'Generic AFTER trigger function: appends a row to audit_logs describing the INSERT/UPDATE/DELETE. Pass the facility-id column name as the first trigger argument; defaults to ''facility_id''. Skips silently if facility cannot be resolved so it never blocks the underlying DML.';
+
+
+--
+-- Name: audit_sha256(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_sha256(p_input text) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'extensions', 'public', 'pg_temp'
+    AS $$
+  select encode(digest(convert_to(p_input, 'utf8'), 'sha256'), 'hex')
+$$;
 
 
 --
@@ -6832,6 +6918,10 @@ begin
   values (p_facility_id, v_n)
   returning id into v_batch;
 
+  -- Governed bypass of the append-only guard (transaction-local), mirroring
+  -- the schedule publish-lock pattern.
+  perform set_config('rr.audit_chain_bypass', 'on', true);
+
   with moved as (
     delete from public.audit_logs
      where facility_id = p_facility_id
@@ -6841,11 +6931,27 @@ begin
   insert into public.audit_logs_pending_destruction
     (batch_id, original_id, facility_id, actor_user_id, actor_employee_id,
      action, entity_type, entity_id, before, after, ip, user_agent,
-     original_created_at)
+     original_created_at, original_seq, original_prev_hash, original_row_hash)
   select v_batch, id, facility_id, actor_user_id, actor_employee_id,
          action, entity_type, entity_id, before, after, ip, user_agent,
-         created_at
+         created_at, seq, prev_hash, row_hash
     from moved;
+
+  perform set_config('rr.audit_chain_bypass', '', true);
+
+  -- Archive the chain anchors NOW (not at destruction) so verification can
+  -- bridge the gap for as long as the batch exists in any state.
+  update public.audit_destruction_batches b
+     set chain_anchors = (
+       select jsonb_agg(
+                jsonb_build_object(
+                  'seq', p.original_seq,
+                  'prev_hash', p.original_prev_hash,
+                  'row_hash', p.original_row_hash)
+                order by p.original_seq)
+         from public.audit_logs_pending_destruction p
+        where p.batch_id = v_batch)
+   where b.id = v_batch;
 
   return v_n;
 end;
@@ -7228,6 +7334,110 @@ $$;
 --
 
 COMMENT ON FUNCTION public.validate_module_area_permission() IS 'BEFORE INSERT/UPDATE guard on module_area_permissions: the polymorphic area_id must reference an existing area in the same facility for the given module_key (daily_reports today). Added after 15 orphaned grants were found in production (2026-07-06 admin-area review).';
+
+
+--
+-- Name: verify_audit_chain(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.verify_audit_chain(p_facility_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  r          record;
+  v_prev     text := null;   -- row_hash of the previous SURVIVING row
+  v_checked  integer := 0;
+  v_first    boolean := true;
+  v_cursor   text;
+  v_hop_prev text;
+  v_hops     integer;
+  v_bridged  boolean;
+begin
+  if not (public.is_super_admin() or public.is_facility_admin(p_facility_id)) then
+    raise exception 'verify_audit_chain: admin access required'
+      using errcode = '42501';
+  end if;
+
+  for r in
+    select * from public.audit_logs
+     where facility_id = p_facility_id
+     order by seq
+  loop
+    -- Self-integrity: the stored row_hash must recompute from the stored
+    -- prev_hash + payload. Catches any payload edit.
+    if r.row_hash is distinct from public.audit_row_chain_hash(
+         r.prev_hash, r.facility_id, r.actor_user_id, r.actor_employee_id,
+         r.action, r.entity_type, r.entity_id, r.before, r.after,
+         r.ip, r.user_agent, r.created_at) then
+      return jsonb_build_object(
+        'ok', false, 'checked', v_checked,
+        'first_break_seq', r.seq, 'reason', 'row_hash mismatch (payload altered)');
+    end if;
+
+    -- Linkage: prev_hash must reach the previous surviving row's hash,
+    -- possibly hopping backwards through destroyed-row hash metadata.
+    if not v_first and r.prev_hash is distinct from v_prev then
+      v_bridged := false;
+      v_cursor  := r.prev_hash;
+      v_hops    := 0;
+      while v_cursor is not null and v_hops < 100000 loop
+        select a->>'prev_hash' into v_hop_prev
+          from public.audit_destruction_batches b
+               cross join lateral jsonb_array_elements(coalesce(b.chain_anchors, '[]'::jsonb)) as a
+         where b.facility_id = p_facility_id
+           and a->>'row_hash' = v_cursor
+         limit 1;
+        if not found then
+          exit; -- dead end: not a destroyed row we have metadata for
+        end if;
+        v_hops   := v_hops + 1;
+        v_cursor := v_hop_prev;
+        if v_cursor is not distinct from v_prev then
+          v_bridged := true;
+          exit;
+        end if;
+      end loop;
+      if not v_bridged then
+        return jsonb_build_object(
+          'ok', false, 'checked', v_checked,
+          'first_break_seq', r.seq,
+          'reason', 'prev_hash linkage broken (row missing or reordered)');
+      end if;
+    end if;
+
+    if v_first and r.prev_hash is not null then
+      -- Oldest retained row points at destroyed history: acceptable only if
+      -- the pointer resolves into archived anchors.
+      if not exists (
+        select 1
+          from public.audit_destruction_batches b
+               cross join lateral jsonb_array_elements(coalesce(b.chain_anchors, '[]'::jsonb)) as a
+         where b.facility_id = p_facility_id
+           and a->>'row_hash' = r.prev_hash
+      ) then
+        return jsonb_build_object(
+          'ok', false, 'checked', v_checked,
+          'first_break_seq', r.seq,
+          'reason', 'genesis prev_hash does not resolve to destroyed history');
+      end if;
+    end if;
+
+    v_first   := false;
+    v_prev    := r.row_hash;
+    v_checked := v_checked + 1;
+  end loop;
+
+  return jsonb_build_object('ok', true, 'checked', v_checked);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION verify_audit_chain(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.verify_audit_chain(p_facility_id uuid) IS 'Recomputes every audit_logs hash for a facility and walks the seq-ordered linkage, bridging destroyed spans via audit_destruction_batches.chain_anchors. Admin-gated. Any payload edit, missing row, or reorder returns ok=false with the first breaking seq.';
 
 
 --
@@ -7776,6 +7986,7 @@ CREATE TABLE public.audit_destruction_batches (
     cancelled_by uuid,
     cancelled_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    chain_anchors jsonb,
     CONSTRAINT audit_destruction_batches_status_check CHECK ((status = ANY (ARRAY['staged'::text, 'destroyed'::text, 'cancelled'::text]))),
     CONSTRAINT audit_destruction_two_person CHECK (((approved_by_2 IS NULL) OR (approved_by_1 IS NULL) OR (approved_by_2 <> approved_by_1)))
 );
@@ -7786,6 +7997,13 @@ CREATE TABLE public.audit_destruction_batches (
 --
 
 COMMENT ON TABLE public.audit_destruction_batches IS 'One row per retention-purge staging run per facility. Audit rows moved to audit_logs_pending_destruction reference a batch; destroying the batch requires two different admins (approve RPC), cancelling restores the rows.';
+
+
+--
+-- Name: COLUMN audit_destruction_batches.chain_anchors; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_destruction_batches.chain_anchors IS 'Hash metadata ({seq, prev_hash, row_hash}, no payload) of the rows this batch staged, archived at staging time — lets verify_audit_chain() bridge the gap while staged, after destruction, and across cancel-restores, without retaining destroyed content.';
 
 
 --
@@ -7804,7 +8022,10 @@ CREATE TABLE public.audit_logs (
     after jsonb,
     ip inet,
     user_agent text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
 );
 
 
@@ -7848,7 +8069,10 @@ CREATE TABLE public.audit_logs_pending_destruction (
     ip inet,
     user_agent text,
     original_created_at timestamp with time zone NOT NULL,
-    staged_at timestamp with time zone DEFAULT now() NOT NULL
+    staged_at timestamp with time zone DEFAULT now() NOT NULL,
+    original_seq bigint,
+    original_prev_hash text,
+    original_row_hash text
 );
 
 
@@ -7857,6 +8081,20 @@ CREATE TABLE public.audit_logs_pending_destruction (
 --
 
 COMMENT ON TABLE public.audit_logs_pending_destruction IS 'Expired audit_logs rows staged for destruction ("the locked bin"). Fully restorable until the owning batch gets its second destruction approval.';
+
+
+--
+-- Name: audit_logs_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.audit_logs_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
 
 
 --
@@ -13558,6 +13796,13 @@ CREATE INDEX idx_audit_logs_facility_id ON public.audit_logs USING btree (facili
 
 
 --
+-- Name: idx_audit_logs_facility_seq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_facility_seq ON public.audit_logs USING btree (facility_id, seq DESC);
+
+
+--
 -- Name: idx_audit_pending_destruction_batch; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -15529,6 +15774,20 @@ CREATE TRIGGER trg_audit_ice_depth_sessions AFTER INSERT OR DELETE OR UPDATE ON 
 --
 
 CREATE TRIGGER trg_audit_incident_reports AFTER INSERT OR DELETE OR UPDATE ON public.incident_reports FOR EACH ROW EXECUTE FUNCTION public.audit_row_change();
+
+
+--
+-- Name: audit_logs trg_audit_logs_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_logs_append_only BEFORE DELETE OR UPDATE ON public.audit_logs FOR EACH ROW EXECUTE FUNCTION public.audit_logs_append_only();
+
+
+--
+-- Name: audit_logs trg_audit_logs_hash_chain; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_logs_hash_chain BEFORE INSERT ON public.audit_logs FOR EACH ROW EXECUTE FUNCTION public.audit_logs_hash_chain();
 
 
 --
