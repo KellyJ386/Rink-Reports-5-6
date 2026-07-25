@@ -94,12 +94,3 @@ export async function checkAssignmentViolations(
   return (data ?? []) as string[]
 }
 
-/** Gate helper: ok unless the assignment violates a hard block. */
-export async function assertAssignable(
-  supabase: AnySupabase,
-  args: AssignmentCheckArgs
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const codes = await checkAssignmentViolations(supabase, args)
-  if (codes.length === 0) return { ok: true }
-  return { ok: false, error: formatViolations(codes) }
-}

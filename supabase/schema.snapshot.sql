@@ -3831,6 +3831,7 @@ declare
   v_open        public.schedule_open_shifts%rowtype;
   v_shift       public.schedule_shifts%rowtype;
   v_codes       text[];
+  v_blocking    text[];
   v_updated     int;
 begin
   if not (public.is_super_admin() or public.has_module_admin_access('scheduling')) then
@@ -3863,14 +3864,17 @@ begin
       'That employee isn''t part of your facility.');
   end if;
 
-  -- Hard block: re-validate (cert / overtime / time-off / overlap / ...).
+  -- Re-validate. Cert gaps always block; advisory codes (overtime, time-off,
+  -- overlap, …) block only under the facility's block_on_violations policy —
+  -- the same partition the scheduling-grid gate applies (migration 211).
   v_codes := public.scheduling_assignment_violations(
     v_open.facility_id, p_employee_id,
     v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
     v_shift.job_area_id, v_shift.id);
-  if array_length(v_codes, 1) is not null then
+  v_blocking := public.scheduling_blocking_violations(v_open.facility_id, v_codes);
+  if array_length(v_blocking, 1) is not null then
     return jsonb_build_object('ok', false, 'error', 'not_assignable',
-      'violations', to_jsonb(v_codes));
+      'violations', to_jsonb(v_blocking));
   end if;
 
   update public.schedule_shifts
@@ -4072,6 +4076,7 @@ declare
   v_req_shift   public.schedule_shifts%rowtype;
   v_tgt_shift   public.schedule_shifts%rowtype;
   v_codes       text[];
+  v_blocking    text[];
 begin
   if not (public.is_super_admin() or public.has_module_admin_access('scheduling')) then
     raise exception 'scheduling_apply_swap: scheduling admin required'
@@ -4134,16 +4139,18 @@ begin
     end if;
   end if;
 
-  -- Hard block: validate each employee against the shift they are moving onto,
-  -- excluding BOTH traded shifts so the counterpart doesn't false-positive
-  -- double-booking / weekly hours / min-rest.
+  -- Validate each employee against the shift they are moving onto, excluding
+  -- BOTH traded shifts so the counterpart doesn't false-positive
+  -- double-booking / weekly hours / min-rest. Cert gaps always block;
+  -- advisory codes block only under block_on_violations (migration 211).
   v_codes := public.scheduling_assignment_violations(
     v_swap.facility_id, v_swap.target_employee_id,
     v_req_shift.starts_at, v_req_shift.ends_at, v_req_shift.break_minutes,
     v_req_shift.job_area_id, v_req_shift.id, v_swap.target_shift_id);
-  if array_length(v_codes, 1) is not null then
+  v_blocking := public.scheduling_blocking_violations(v_swap.facility_id, v_codes);
+  if array_length(v_blocking, 1) is not null then
     return jsonb_build_object('ok', false,
-      'error', 'target_not_assignable', 'violations', to_jsonb(v_codes));
+      'error', 'target_not_assignable', 'violations', to_jsonb(v_blocking));
   end if;
 
   if v_swap.target_shift_id is not null then
@@ -4151,9 +4158,10 @@ begin
       v_swap.facility_id, v_swap.requester_employee_id,
       v_tgt_shift.starts_at, v_tgt_shift.ends_at, v_tgt_shift.break_minutes,
       v_tgt_shift.job_area_id, v_tgt_shift.id, v_req_shift.id);
-    if array_length(v_codes, 1) is not null then
+    v_blocking := public.scheduling_blocking_violations(v_swap.facility_id, v_codes);
+    if array_length(v_blocking, 1) is not null then
       return jsonb_build_object('ok', false,
-        'error', 'requester_not_assignable', 'violations', to_jsonb(v_codes));
+        'error', 'requester_not_assignable', 'violations', to_jsonb(v_blocking));
     end if;
   end if;
 
@@ -4213,6 +4221,8 @@ declare
   v_ids         uuid[];
   v_shift       record;
   v_codes       text[];
+  v_blocking    text[];
+  v_advisory    text[] := '{}';
   v_blocked     int := 0;
   v_count       int := 0;
   v_open_count  int := 0;
@@ -4270,7 +4280,15 @@ begin
       'No draft shifts remain in range. Reject this request instead.');
   end if;
 
-  -- Hard block: re-validate every assigned draft before publishing.
+  -- Re-validate every assigned draft before publishing. BLOCKING codes are
+  -- decided by scheduling_blocking_violations (migration 211): cert gaps
+  -- always block; advisory codes (overtime, min-rest, time-off, overlap, …)
+  -- block only when the facility's block_on_violations toggle is on —
+  -- the SAME policy the scheduling-grid gate applies at authoring time.
+  -- Before migration 211 this loop blocked on ANY code, so a draft that was
+  -- legal to save (warn-and-confirm) could make the whole week unpublishable.
+  -- Non-blocking advisory codes are collected and returned so the approver
+  -- still sees them.
   for v_shift in
     select id, employee_id, starts_at, ends_at, break_minutes, job_area_id
       from public.schedule_shifts
@@ -4281,8 +4299,12 @@ begin
       v_req.facility_id, v_shift.employee_id,
       v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
       v_shift.job_area_id, v_shift.id);
-    if array_length(v_codes, 1) is not null then
+    v_blocking := public.scheduling_blocking_violations(v_req.facility_id, v_codes);
+    if array_length(v_blocking, 1) is not null then
       v_blocked := v_blocked + 1;
+    elsif array_length(v_codes, 1) is not null then
+      v_advisory := array(
+        select distinct c from unnest(v_advisory || v_codes) as c order by c);
     end if;
   end loop;
   if v_blocked > 0 then
@@ -4356,7 +4378,10 @@ begin
          published_event_id      = v_event_id
    where id = p_request_id;
 
-  return jsonb_build_object('ok', true, 'shift_count', v_count, 'open_count', v_open_count);
+  return jsonb_build_object(
+    'ok', true, 'shift_count', v_count, 'open_count', v_open_count,
+    'advisory_warnings', to_jsonb(v_advisory),
+    'advisory_count', coalesce(array_length(v_advisory, 1), 0));
 end;
 $$;
 
@@ -4614,6 +4639,37 @@ COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, 
 
 
 --
+-- Name: scheduling_blocking_violations(uuid, text[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_blocking_violations(p_facility_id uuid, p_codes text[]) RETURNS text[]
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select case
+    when coalesce(
+           (select s.block_on_violations
+              from public.schedule_settings s
+             where s.facility_id = p_facility_id),
+           false)
+      then coalesce(p_codes, '{}')
+    else coalesce(
+           (select array_agg(c order by c)
+              from unnest(coalesce(p_codes, '{}')) as c
+             where c like 'cert_missing:%'),
+           '{}')
+  end
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_blocking_violations(p_facility_id uuid, p_codes text[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_blocking_violations(p_facility_id uuid, p_codes text[]) IS 'Filters scheduling_assignment_violations() codes down to the subset that must BLOCK a write for this facility: cert_missing:* always; everything else only when schedule_settings.block_on_violations is on. Single source of the hard/soft policy for the governed scheduling RPCs (migration 211).';
+
+
+--
 -- Name: scheduling_claim_open_shift(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4627,6 +4683,7 @@ declare
   v_open          public.schedule_open_shifts%rowtype;
   v_shift         public.schedule_shifts%rowtype;
   v_codes         text[];
+  v_blocking      text[];
 begin
   if v_employee_id is null then
     raise exception 'No current employee context.' using errcode = '28000';
@@ -4652,14 +4709,17 @@ begin
 
   select * into v_shift from public.schedule_shifts where id = v_open.shift_id;
 
-  -- Hard-block: a staff member may not claim a shift they are not allowed to work.
+  -- A staff member may not claim a shift they are not allowed to work.
+  -- Cert gaps always block; advisory codes block only under the facility's
+  -- block_on_violations policy (migration 211).
   v_codes := public.scheduling_assignment_violations(
     v_facility_id, v_employee_id,
     v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
     v_shift.job_area_id, v_shift.id
   );
-  if array_length(v_codes, 1) is not null then
-    raise exception 'Cannot claim this shift: %', array_to_string(v_codes, ', ')
+  v_blocking := public.scheduling_blocking_violations(v_facility_id, v_codes);
+  if array_length(v_blocking, 1) is not null then
+    raise exception 'Cannot claim this shift: %', array_to_string(v_blocking, ', ')
       using errcode = 'check_violation';
   end if;
 
@@ -4710,6 +4770,7 @@ declare
   v_open        public.schedule_open_shifts%rowtype;
   v_shift       public.schedule_shifts%rowtype;
   v_codes       text[];
+  v_blocking    text[];
 begin
   if not (public.is_super_admin() or public.has_module_admin_access('scheduling')) then
     raise exception 'scheduling_decide_open_claim: scheduling admin required'
@@ -4746,14 +4807,16 @@ begin
         'The shift was already assigned to someone else. Decline this claim.');
     end if;
 
-    -- Re-validate the claimant at decision time.
+    -- Re-validate the claimant at decision time. Cert gaps always block;
+    -- advisory codes block only under block_on_violations (migration 211).
     v_codes := public.scheduling_assignment_violations(
       v_open.facility_id, v_open.claimed_by_employee_id,
       v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
       v_shift.job_area_id, v_shift.id);
-    if array_length(v_codes, 1) is not null then
+    v_blocking := public.scheduling_blocking_violations(v_open.facility_id, v_codes);
+    if array_length(v_blocking, 1) is not null then
       return jsonb_build_object('ok', false,
-        'error', 'claimant_not_assignable', 'violations', to_jsonb(v_codes));
+        'error', 'claimant_not_assignable', 'violations', to_jsonb(v_blocking));
     end if;
 
     update public.schedule_shifts

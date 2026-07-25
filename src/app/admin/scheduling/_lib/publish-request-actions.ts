@@ -6,6 +6,7 @@ import { getCurrentUser, requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { formatDateOnly } from "./datetime"
+import { formatViolations } from "./enforcement"
 import { queueSchedulingEmails } from "./notify-email"
 import type { ActionState } from "./types"
 
@@ -107,6 +108,10 @@ type ApprovePublishRpcResult = {
   error?: string
   shift_count?: number
   open_count?: number
+  // Advisory violation codes present on published shifts that did NOT block
+  // (block_on_violations off) — surfaced so the approver still sees them.
+  advisory_warnings?: string[]
+  advisory_count?: number
 }
 
 export async function approveAndPublishRequest(
@@ -198,13 +203,14 @@ export async function approveAndPublishRequest(
   revalidatePath("/admin/scheduling/shifts")
   revalidatePath("/admin/scheduling/publish")
   revalidatePath("/admin/scheduling/publish/requests")
+  const advisory = result.advisory_warnings ?? []
   return {
     ok: true,
     message: `Approved. ${count} shift${count === 1 ? "" : "s"} published${
       openCount > 0
         ? `; ${openCount} unassigned shift${openCount === 1 ? "" : "s"} opened for claims`
         : ""
-    }.`,
+    }.${advisory.length > 0 ? ` Published with advisory warnings — ${formatViolations(advisory)}` : ""}`,
   }
 }
 

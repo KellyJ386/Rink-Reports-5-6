@@ -5760,6 +5760,169 @@ select pg_temp.expect_error(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- 2W. One violation policy for every scheduling door (migration 211).
+--
+-- Cert gaps (cert_missing:*) block every write path unconditionally;
+-- advisory codes (overtime, time-off, overlap, …) block only when
+-- schedule_settings.block_on_violations is on — the SAME policy the
+-- app-layer grid gate applies. Before migration 211 the governed RPCs
+-- (publish, open-shift assign, claim decide, swap, self-claim) blocked on
+-- ANY code, so a draft that was legal to save (warn-and-confirm) made the
+-- whole week unpublishable. These probes exercise the policy helper directly
+-- and the publish RPC end-to-end, at the DB boundary.
+--
+-- Fixtures reuse §2Q's cast: Alice (staff, employee aaaa…aaaa, holds no CPR)
+-- and Carol (scheduling admin, employee aaaa1111-ca01-…-0099, approver).
+-- Zamboni job area aaaa1111-30b1-…-0098 requires CPR (SCHED-148 fixtures).
+-- Windows sit 100+ days out so nothing else collides.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Approved time-off for Alice covering windows W1 (+100d) and W3 (+110d).
+insert into public.schedule_time_off_requests
+  (id, facility_id, employee_id, starts_at, ends_at, status)
+values
+  ('aaaa1111-7011-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '100 days', now() + interval '101 days', 'approved'),
+  ('aaaa1111-7012-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '110 days', now() + interval '111 days', 'approved')
+on conflict (id) do nothing;
+
+-- W1: assigned draft over Alice's time-off (advisory only — no job area).
+-- W2 (+105d): assigned draft on the CPR-requiring Zamboni area (cert gap).
+-- W3: same shape as W1, used for the toggle-ON probe.
+insert into public.schedule_shifts
+  (id, facility_id, department_id, job_area_id, employee_id, starts_at, ends_at, status)
+values
+  ('aaaa1111-5521-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091', null,
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '100 days 2 hours', now() + interval '100 days 6 hours', 'draft'),
+  ('aaaa1111-5522-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+   'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '105 days 2 hours', now() + interval '105 days 6 hours', 'draft'),
+  ('aaaa1111-5523-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091', null,
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '110 days 2 hours', now() + interval '110 days 6 hours', 'draft')
+on conflict (id) do nothing;
+
+-- One pending publish request (from Alice; Carol approves) per window.
+insert into public.schedule_publish_requests
+  (id, facility_id, requested_by_employee_id, range_starts_at, range_ends_at, status)
+values
+  ('aaaa1111-5821-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '100 days', now() + interval '101 days', 'pending'),
+  ('aaaa1111-5822-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '105 days', now() + interval '106 days', 'pending'),
+  ('aaaa1111-5823-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '110 days', now() + interval '111 days', 'pending')
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- Policy helper, toggle OFF (facility A has no schedule_settings row here;
+-- absent row = default false): advisory codes filtered out, cert codes kept.
+select pg_temp.expect_count(
+  $$select coalesce(array_length(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','overtime','double_booked']), 1), 0)$$,
+  0, 'SCHED-211: toggle OFF — advisory codes do not block');
+select pg_temp.expect_count(
+  $$select count(*) from unnest(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','cert_missing:CPR','overtime'])) as c
+    where c = 'cert_missing:CPR'$$,
+  1, 'SCHED-211: toggle OFF — cert_missing still blocks (and only it)');
+select pg_temp.expect_count(
+  $$select coalesce(array_length(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','cert_missing:CPR','overtime']), 1), 0)$$,
+  1, 'SCHED-211: toggle OFF — blocking set is exactly the cert codes');
+
+-- Publish door, toggle OFF: W1 (advisory time_off) publishes, and the RPC
+-- reports the advisory codes it waved through.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.scheduling_approve_publish_request(
+        'aaaa1111-5821-aaaa-aaaa-aaaa11110211') as r) x
+    where (x.r->>'ok') = 'true'
+      and (x.r->>'advisory_count')::int >= 1
+      and x.r->'advisory_warnings' ? 'time_off'$$,
+  1, 'SCHED-211: toggle OFF — advisory violation publishes WITH a warning summary');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5521-aaaa-aaaa-aaaa11110211' and status = 'published'$$,
+  1, 'SCHED-211: the advisory-flagged shift is published');
+
+-- Publish door, toggle OFF: W2 (cert gap) still hard-blocks.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.scheduling_approve_publish_request(
+        'aaaa1111-5822-aaaa-aaaa-aaaa11110211') as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'SCHED-211: toggle OFF — cert gap still blocks publish');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5522-aaaa-aaaa-aaaa11110211' and status = 'draft'$$,
+  1, 'SCHED-211: the cert-gapped shift stays draft');
+
+reset role;
+
+-- Toggle ON: the same advisory codes now block everywhere.
+set local role postgres;
+insert into public.schedule_settings (facility_id, block_on_violations)
+values ('11111111-1111-1111-1111-111111111111', true);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from unnest(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','overtime'])) as c$$,
+  2, 'SCHED-211: toggle ON — advisory codes DO block');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.scheduling_approve_publish_request(
+        'aaaa1111-5823-aaaa-aaaa-aaaa11110211') as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'SCHED-211: toggle ON — advisory violation blocks publish');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5523-aaaa-aaaa-aaaa11110211' and status = 'draft'$$,
+  1, 'SCHED-211: toggle ON — the advisory-flagged shift stays draft');
+
+reset role;
+
+-- Leave the toggle as we found it (no schedule_settings row for facility A)
+-- so later sections see the default policy.
+set local role postgres;
+delete from public.schedule_settings
+ where facility_id = '11111111-1111-1111-1111-111111111111';
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 2X. Retired-role drift guard (migration 209).
 --
 -- 'gm' and 'supervisor' were retired in migrations 58/87 and key-blocked by

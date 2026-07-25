@@ -35,7 +35,11 @@ through the service-worker queue.
 assign, swap approval, publish, self-claim) runs the same SQL function
 (`scheduling_assignment_violations`) checking certs, overtime, minor hours, rest periods,
 breaks, double-booking, time-off, unavailability, and job-area qualification. Missing certs
-hard-block with an audited override; everything else is warn-and-confirm. The publish lock is
+hard-block everywhere (grid overrides are audited); advisory codes are governed by one
+facility-wide policy — `schedule_settings.block_on_violations` — applied identically by the
+app-layer grid gate and, since migration 211 (`scheduling_blocking_violations`), by all five
+governed RPC doors. (Before 211, the RPCs blocked on ANY code regardless of the toggle, so a
+draft that was legal to save could make the whole week unpublishable.) The publish lock is
 closed on all three legs (INSERT/UPDATE/DELETE) and governed RPCs are atomic (`FOR UPDATE`).
 
 ---
@@ -163,6 +167,8 @@ closed on all three legs (INSERT/UPDATE/DELETE) and governed RPCs are atomic (`F
 ## Notable strengths (for balance)
 
 - Single-source validator called by every assignment path — rules cannot drift or be bypassed.
+  Since migration 211 the hard/soft blocking policy is also single-source
+  (`scheduling_blocking_violations`), so the grid and the governed RPCs agree on what blocks.
 - Two-person publish enforced at RLS **and** row-level CHECK constraints.
 - Publish lock closed on INSERT/UPDATE/DELETE (migrations 148/164); governed SECURITY DEFINER
   RPCs are atomic and race-safe (`FOR UPDATE` / `SKIP LOCKED`).

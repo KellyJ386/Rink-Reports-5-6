@@ -7979,6 +7979,10 @@ export type Database = {
         }
         Returns: string[]
       }
+      scheduling_blocking_violations: {
+        Args: { p_codes: string[]; p_facility_id: string }
+        Returns: string[]
+      }
       scheduling_claim_open_shift: {
         Args: { p_open_shift_id: string }
         Returns: boolean

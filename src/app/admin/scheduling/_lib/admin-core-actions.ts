@@ -678,6 +678,21 @@ export async function applyTemplateToWeek(
       }
     }
 
+    // INVARIANT: template application bulk-inserts WITHOUT running
+    // scheduling_assignment_violations. That is safe only while every row is
+    // unassigned (nothing to validate against an employee). If templates ever
+    // grow pre-assigned slots, this guard fails loudly instead of silently
+    // skipping cert/hour-cap enforcement — route assigned rows through
+    // createGridShift/gateShiftWrite instead.
+    const assigned = rows.filter((r) => r.employee_id !== null)
+    if (assigned.length > 0) {
+      return {
+        ok: false,
+        error:
+          "Template apply produced assigned shifts, which would bypass rule enforcement. This is a bug — report it.",
+      }
+    }
+
     const { error: insErr } = await supabase
       .from("schedule_shifts")
       .insert(rows)
