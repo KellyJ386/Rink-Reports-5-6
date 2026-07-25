@@ -5,14 +5,9 @@ import { headers } from "next/headers"
 import { getCurrentUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
-export type LogAuditInput = {
-  facilityId: string
-  action: string
-  entityType: string
-  entityId?: string | null
-  before?: Record<string, unknown> | null
-  after?: Record<string, unknown> | null
-}
+import { buildAuditRow, type LogAuditInput } from "./build"
+
+export type { LogAuditInput }
 
 /**
  * Append a row to audit_logs from app code.
@@ -22,10 +17,14 @@ export type LogAuditInput = {
  * "PDF emailed", "schedule published" with a business label, or "sensitive
  * report viewed".
  *
- * Fire-and-best-effort: never throws. A failure here must never block the
- * action it accompanies.
+ * Best-effort: never throws — a failure here must never block the action it
+ * accompanies — but failures are NEVER silent. Every failed write is logged
+ * with enough context to reconstruct the missing entry, and callers get a
+ * boolean so security-critical paths can escalate. (The original version
+ * discarded the insert result AND swallowed exceptions in an empty catch, so
+ * the audit trail could develop holes with no operational trace.)
  */
-export async function logAudit(input: LogAuditInput): Promise<void> {
+export async function logAudit(input: LogAuditInput): Promise<boolean> {
   try {
     const supabase = await createClient()
     const current = await getCurrentUser()
@@ -45,23 +44,35 @@ export async function logAudit(input: LogAuditInput): Promise<void> {
     }
 
     const h = await headers()
-    const ipRaw = h.get("x-forwarded-for") ?? null
-    const ip = ipRaw ? ipRaw.split(",")[0]?.trim() || null : null
-    const ua = h.get("user-agent") ?? null
+    const row = buildAuditRow(
+      input,
+      { authUserId, employeeId },
+      {
+        forwardedFor: h.get("x-forwarded-for"),
+        userAgent: h.get("user-agent"),
+      }
+    )
 
-    await supabase.from("audit_logs").insert({
-      facility_id: input.facilityId,
-      actor_user_id: authUserId,
-      actor_employee_id: employeeId,
-      action: input.action,
-      entity_type: input.entityType,
-      entity_id: input.entityId ?? null,
-      before: (input.before ?? null) as never,
-      after: (input.after ?? null) as never,
-      ip,
-      user_agent: ua,
+    const { error } = await supabase.from("audit_logs").insert({
+      ...row,
+      before: row.before as never,
+      after: row.after as never,
     })
-  } catch {
-    // Auditing is best-effort. Don't surface the failure.
+    if (error) {
+      console.error(
+        `[audit] failed to record ${input.action} on ${input.entityType}` +
+          `${input.entityId ? `/${input.entityId}` : ""} ` +
+          `(facility ${input.facilityId}): ${error.message}`
+      )
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error(
+      `[audit] failed to record ${input.action} on ${input.entityType} ` +
+        `(facility ${input.facilityId}):`,
+      err
+    )
+    return false
   }
 }

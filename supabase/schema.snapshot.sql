@@ -187,8 +187,13 @@ begin
 
   -- audit_logs.facility_id is NOT NULL. If we cannot resolve a tenant id
   -- (very unusual: orphaned row, table doesn't carry facility_id at all)
-  -- skip the audit entry rather than failing the original DML.
+  -- skip the audit entry rather than failing the original DML — but say so
+  -- in the server log. A silent skip here is a hole in the audit trail with
+  -- no operational trace (the sign-in sheet with the lazy attendant).
   if v_facility is null then
+    raise warning
+      'audit_row_change: skipped audit entry for % on %.% (facility unresolvable)',
+      tg_op, tg_table_schema, tg_table_name;
     return coalesce(new, old);
   end if;
 

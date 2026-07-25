@@ -1147,6 +1147,16 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT audit_logs from facility B');
 
+-- Audit logs: a cross-facility INSERT is RLS-denied. This is the exact
+-- failure mode the app helper (src/lib/audit/log.ts) must SURFACE, not
+-- swallow — it once discarded the insert error entirely (B2 review item),
+-- so a denial here produced a silent hole in the audit trail.
+select pg_temp.expect_error(
+  $$insert into public.audit_logs (facility_id, action, entity_type)
+    values ('22222222-2222-2222-2222-222222222222',
+            'test.cross_facility', 'employees')$$,
+  'alice CANNOT INSERT an audit_logs row into facility B');
+
 -- ---------------------------------------------------------------------------
 -- Daily Reports per-area submit boundary (migration 89, has_area_submit_access).
 -- Alice holds module-level daily submit (seeded above) but per-area can_submit
