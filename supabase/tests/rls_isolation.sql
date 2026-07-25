@@ -25,6 +25,18 @@
 
 begin;
 
+-- Pin the session timezone to the fixture facilities' timezone
+-- (facilities.timezone defaults to America/New_York; the fixtures below
+-- don't override it). The daily-report triggers under test (migrations
+-- 183/185) compute "today" as `now() at time zone f.timezone`, while the
+-- fixtures seed dates with `current_date`, which uses the SESSION timezone
+-- (UTC in CI). Between 00:00 and 04:00/05:00 UTC — i.e. every evening in
+-- Eastern time — those two calendars disagree by one day, and nine
+-- assertions (DAR stamping/past-day/resolution/re-sync) failed only during
+-- that window. Pinning the session zone makes `current_date` agree with the
+-- facility-local date at any wall-clock hour.
+set local time zone 'America/New_York';
+
 create temp table _rls_failures (msg text) on commit drop;
 
 create or replace function pg_temp.expect_count(
@@ -4836,7 +4848,7 @@ select pg_temp.expect_count(
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_issue_categories
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  20, 'DB0b: facilities trigger seeded 20 issue categories for a new facility');
+  25, 'DB0b: facilities trigger seeded 25 issue categories for a new facility');
 
 select pg_temp.expect_count(
   $$select count(*) from public.facility_modules
