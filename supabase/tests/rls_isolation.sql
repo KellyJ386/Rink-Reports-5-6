@@ -2562,11 +2562,216 @@ select pg_temp.expect_count(
 select pg_temp.expect_count(
   $$select count(*) from public.audit_logs
      where id = 'a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb'$$,
-  0, 'RET-212: 9-year-old row is purged under the default 7-year fallback');
--- Clean up the settings rows so later sections see defaults.
+  0, 'RET-212: 9-year-old row leaves audit_logs under the default 7-year fallback (staged for destruction, migration 213)');
+-- Clean up: the settings rows (so later sections see defaults) and the
+-- surviving 8-year probe row (so the next purge run — section 2k3 — doesn't
+-- sweep it into its batch once the 10-year setting is gone).
 delete from public.retention_settings
  where facility_id = '11111111-1111-1111-1111-111111111111'
    and module_key in ('audit_logs', 'daily_reports');
+delete from public.audit_logs
+ where id = 'a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa';
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2k3. Two-phase audit destruction (migration 213).
+--
+-- The retention purge now STAGES expired audit rows into a quarantine
+-- (audit_logs_pending_destruction, per-facility audit_destruction_batches)
+-- instead of deleting them. Destruction requires approval by TWO DIFFERENT
+-- facility admins; one admin can cancel, which restores every row with its
+-- original id and created_at. Probes: staging, RLS visibility, the
+-- self-second-approval refusal, the destroy, the restore, and that direct
+-- writes to the quarantine are RLS-inert even for admins.
+--
+-- Cast: Fred (facility-A admin, a0a0a0a0-…, seeded in the FDO section
+-- below — seeded here too, idempotently, since this section runs first)
+-- plus a second admin Gina, because the two-person rule needs two of them.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Fred (idempotent copy of the FDO fixture) + Gina, both facility-A admins.
+insert into auth.users (id, email) values
+  ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', 'fred@fac-a.test'),
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1', 'gina@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin) values
+  ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0',
+   '11111111-1111-1111-1111-111111111111', 'fred@fac-a.test', false),
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+   '11111111-1111-1111-1111-111111111111', 'gina@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select x.emp_id, '11111111-1111-1111-1111-111111111111'::uuid, x.user_id,
+       r.id, x.first_name, 'Admin', x.email, true
+from (values
+  ('a0a06666-a0a0-a0a0-a0a0-a0a0a0a0a0a0'::uuid,
+   'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0'::uuid, 'Fred', 'fred@fac-a.test'),
+  ('a1a17777-a1a1-a1a1-a1a1-a1a1a1a1a1a1'::uuid,
+   'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1'::uuid, 'Gina', 'gina@fac-a.test')
+) as x(emp_id, user_id, first_name, email)
+join public.roles r
+  on r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'admin'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values
+  ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0',
+   '11111111-1111-1111-1111-111111111111', 'admin', 'admin'::public.user_action, true),
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+   '11111111-1111-1111-1111-111111111111', 'admin', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- An expired audit row to stage.
+insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
+values ('a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'a3.probe', 'destruction_probe', now() - interval '8 years')
+on conflict (id) do nothing;
+reset role;
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_audit_logs()$$,
+  'A3: nightly purge stages expired audit rows');
+reset role;
+
+-- Staging moved the row out of the live log and into the quarantine.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  0, 'A3: expired row left audit_logs');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction
+     where original_id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  1, 'A3: expired row is quarantined, not deleted');
+-- Pin this batch's id where every later probe (any role) can read it.
+create temp table _a3_ctx on commit drop as
+select batch_id from public.audit_logs_pending_destruction
+ where original_id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa';
+grant select on _a3_ctx to public;
+reset role;
+
+-- Staff: quarantine is invisible and the approve RPC's admin gate raises.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches$$,
+  0, 'A3: staff alice CANNOT SELECT destruction batches');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction$$,
+  0, 'A3: staff alice CANNOT SELECT quarantined audit rows');
+select pg_temp.expect_error(
+  $$select public.approve_audit_destruction((select batch_id from _a3_ctx))$$,
+  'A3: staff alice CANNOT approve destruction (admin gate raises)');
+reset role;
+
+-- Admin #1 (Fred): sees the batch, first approval sticks, self-second refused,
+-- and nothing is destroyed on one signature. Direct quarantine writes are
+-- RLS-inert even for him.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches
+     where id = (select batch_id from _a3_ctx)$$,
+  1, 'A3: facility admin Fred CAN SELECT the staged batch');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.approve_audit_destruction((select batch_id from _a3_ctx)) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'state') = 'pending_second_approval'$$,
+  1, 'A3: first approval recorded (pending second)');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.approve_audit_destruction((select batch_id from _a3_ctx)) as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'A3: the SAME admin cannot give the second approval');
+select pg_temp.expect_ok(
+  $$delete from public.audit_logs_pending_destruction
+     where batch_id = (select batch_id from _a3_ctx)$$,
+  'A3: direct DELETE of quarantined rows runs (RLS scopes it to 0 rows)');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction
+     where batch_id = (select batch_id from _a3_ctx)$$,
+  1, 'A3: one signature destroyed nothing (and direct DELETE touched 0 rows)');
+reset role;
+
+-- Admin #2 (Gina): the second, different signature destroys the batch.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.approve_audit_destruction((select batch_id from _a3_ctx)) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'state') = 'destroyed'$$,
+  1, 'A3: a DIFFERENT admin''s second approval destroys the batch');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction
+     where batch_id = (select batch_id from _a3_ctx)$$,
+  0, 'A3: quarantined rows are gone after the second approval');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches
+     where id = (select batch_id from _a3_ctx) and status = 'destroyed'
+       and approved_by_1 is distinct from approved_by_2$$,
+  1, 'A3: batch is destroyed with two distinct approvers on record');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_id = (select batch_id from _a3_ctx)
+       and action in ('audit_destruction.approve_first', 'audit_destruction.execute')$$,
+  2, 'A3: both destruction steps self-audited');
+
+-- Cancel path: stage another expired row, then restore it.
+insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
+values ('a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb',
+        '11111111-1111-1111-1111-111111111111',
+        'a3.probe2', 'destruction_probe', now() - interval '8 years')
+on conflict (id) do nothing;
+reset role;
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_audit_logs()$$,
+  'A3: purge stages the second probe row');
+reset role;
+set local role postgres;
+create temp table _a3_ctx2 on commit drop as
+select batch_id from public.audit_logs_pending_destruction
+ where original_id = 'a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb';
+grant select on _a3_ctx2 to public;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.cancel_audit_destruction((select batch_id from _a3_ctx2)) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'restored_count')::int >= 1$$,
+  1, 'A3: a single admin can CANCEL a staged batch');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb'
+       and created_at < now() - interval '7 years'$$,
+  1, 'A3: cancel restored the row with its ORIGINAL id and created_at');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches
+     where id = (select batch_id from _a3_ctx2) and status = 'cancelled'$$,
+  1, 'A3: cancelled batch is closed');
+-- Restore the fixture state: drop the restored probe row so later audit
+-- assertions see the pre-section counts.
+delete from public.audit_logs
+ where id = 'a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb';
 reset role;
 
 -- ---------------------------------------------------------------------------

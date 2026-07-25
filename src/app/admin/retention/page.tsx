@@ -13,6 +13,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
+import { PendingDestructionCard } from "./_components/pending-destruction-card"
+import type { DestructionBatchView } from "./_components/pending-destruction-card"
 import { RetentionRowForm } from "./_components/retention-row"
 import type { RetentionRow } from "./types"
 import { MODULES } from "./types"
@@ -54,6 +56,39 @@ export default async function DataRetentionPage() {
 
   const rows = (data ?? []) as RetentionRow[]
   const byModule = new Map(rows.map((r) => [r.module_key, r]))
+
+  // Staged audit-destruction batches (migration 213): visible to facility
+  // admins via RLS; approvals go through the two-person RPCs.
+  const { data: batchRows } = await supabase
+    .from("audit_destruction_batches")
+    .select("id, staged_count, status, approved_by_1, approved_at_1, created_at")
+    .eq("facility_id", facilityId)
+    .eq("status", "staged")
+    .order("created_at", { ascending: false })
+
+  const approverIds = [
+    ...new Set(
+      (batchRows ?? [])
+        .map((b) => b.approved_by_1)
+        .filter((x): x is string => !!x)
+    ),
+  ]
+  const approverLabels = new Map<string, string>()
+  if (approverIds.length > 0) {
+    const { data: approvers } = await supabase
+      .from("users")
+      .select("id, email")
+      .in("id", approverIds)
+    for (const u of approvers ?? []) {
+      if (u.email) approverLabels.set(u.id, u.email)
+    }
+  }
+  const batches: DestructionBatchView[] = (batchRows ?? []).map((b) => ({
+    ...b,
+    first_approver_label: b.approved_by_1
+      ? (approverLabels.get(b.approved_by_1) ?? null)
+      : null,
+  }))
 
   const lastPurgeDate = (() => {
     const purgedRows = rows.filter((r) => r.last_purged_at)
@@ -129,6 +164,9 @@ export default async function DataRetentionPage() {
         </CardContent>
       </Card>
 
+      {/* Staged audit-destruction batches (two-person rule) */}
+      <PendingDestructionCard batches={batches} />
+
       {/* Danger notice */}
       <Card className="border-destructive/50 bg-destructive/5">
         <CardHeader className="flex-row items-start gap-3">
@@ -142,7 +180,10 @@ export default async function DataRetentionPage() {
               older than the configured threshold. Ensure you have reviewed your
               legal and regulatory retention obligations before enabling this
               feature — particularly for incident, accident, and workers&apos;
-              compensation records. Deleted records cannot be recovered.
+              compensation records. Deleted records cannot be recovered. Audit
+              log records are the exception: they are first staged under
+              &quot;pending destruction&quot; and only destroyed after two
+              different admins approve.
             </CardDescription>
           </div>
         </CardHeader>

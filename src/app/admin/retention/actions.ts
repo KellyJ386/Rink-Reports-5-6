@@ -94,6 +94,81 @@ export async function upsertRetentionSetting(
  * Manually triggers the purge function for a specific module.
  * Calls the DB-level purge function defined in migration 24.
  */
+/**
+ * Two-person audit-log destruction (migration 213). The first approval marks
+ * the batch; a second approval by a DIFFERENT admin performs the delete. The
+ * RPC enforces the admin gate, the distinct-approver rule, and self-audits.
+ */
+export async function approveAuditDestruction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const res = await resolveFacility()
+  if (!res.ok) return { ok: false, error: res.error }
+
+  const batchId = formData.get("batch_id")
+  if (typeof batchId !== "string" || !batchId.trim()) {
+    return { ok: false, error: "Batch id required." }
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc("approve_audit_destruction", {
+    p_batch_id: batchId.trim(),
+  })
+  if (error) return { ok: false, error: error.message }
+
+  const result = (data ?? {}) as { ok?: boolean; error?: string; state?: string; destroyed_count?: number }
+  if (result.ok !== true) {
+    return { ok: false, error: result.error ?? "Approval failed." }
+  }
+
+  revalidatePath("/admin/retention")
+  if (result.state === "destroyed") {
+    const n = result.destroyed_count ?? 0
+    return {
+      ok: true,
+      message: `Second approval recorded — batch destroyed (${n} record${n === 1 ? "" : "s"}).`,
+    }
+  }
+  return {
+    ok: true,
+    message:
+      "First approval recorded. A different admin must approve before anything is destroyed.",
+  }
+}
+
+/** Cancel a staged destruction batch: restores every row to the audit log. */
+export async function cancelAuditDestruction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const res = await resolveFacility()
+  if (!res.ok) return { ok: false, error: res.error }
+
+  const batchId = formData.get("batch_id")
+  if (typeof batchId !== "string" || !batchId.trim()) {
+    return { ok: false, error: "Batch id required." }
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc("cancel_audit_destruction", {
+    p_batch_id: batchId.trim(),
+  })
+  if (error) return { ok: false, error: error.message }
+
+  const result = (data ?? {}) as { ok?: boolean; error?: string; restored_count?: number }
+  if (result.ok !== true) {
+    return { ok: false, error: result.error ?? "Cancel failed." }
+  }
+
+  revalidatePath("/admin/retention")
+  const n = result.restored_count ?? 0
+  return {
+    ok: true,
+    message: `Batch cancelled — ${n} record${n === 1 ? "" : "s"} restored to the audit log.`,
+  }
+}
+
 export async function triggerManualPurge(
   _prev: ActionState,
   formData: FormData,

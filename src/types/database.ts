@@ -968,6 +968,80 @@ export type Database = {
           },
         ]
       }
+      audit_destruction_batches: {
+        Row: {
+          approved_at_1: string | null
+          approved_at_2: string | null
+          approved_by_1: string | null
+          approved_by_2: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          destroyed_at: string | null
+          facility_id: string
+          id: string
+          staged_count: number
+          status: string
+        }
+        Insert: {
+          approved_at_1?: string | null
+          approved_at_2?: string | null
+          approved_by_1?: string | null
+          approved_by_2?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          destroyed_at?: string | null
+          facility_id: string
+          id?: string
+          staged_count?: number
+          status?: string
+        }
+        Update: {
+          approved_at_1?: string | null
+          approved_at_2?: string | null
+          approved_by_1?: string | null
+          approved_by_2?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          destroyed_at?: string | null
+          facility_id?: string
+          id?: string
+          staged_count?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_destruction_batches_approved_by_1_fkey"
+            columns: ["approved_by_1"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_destruction_batches_approved_by_2_fkey"
+            columns: ["approved_by_2"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_destruction_batches_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_destruction_batches_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -1031,6 +1105,68 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs_pending_destruction: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          batch_id: string
+          before: Json | null
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          original_created_at: string
+          original_id: string
+          staged_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          batch_id: string
+          before?: Json | null
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          original_created_at: string
+          original_id: string
+          staged_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          batch_id?: string
+          before?: Json | null
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          original_created_at?: string
+          original_id?: string
+          staged_at?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_pending_destruction_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "audit_destruction_batches"
             referencedColumns: ["id"]
           },
         ]
@@ -7614,9 +7750,17 @@ export type Database = {
         Args: { p_facility_id: string; p_role_id: string; p_user_id: string }
         Returns: undefined
       }
+      approve_audit_destruction: {
+        Args: { p_batch_id: string }
+        Returns: Json
+      }
       can_edit_user_profile: {
         Args: { p_target_user_id: string }
         Returns: boolean
+      }
+      cancel_audit_destruction: {
+        Args: { p_batch_id: string }
+        Returns: Json
       }
       canonical_role_permission_grants: {
         Args: Record<PropertyKey, never>
@@ -8103,6 +8247,10 @@ export type Database = {
       }
       snapshot_daily_assignment_days: {
         Args: { p_facility_id: string }
+        Returns: number
+      }
+      stage_audit_logs_for_destruction: {
+        Args: { p_cutoff: string; p_facility_id: string }
         Returns: number
       }
       submit_incident_report: {

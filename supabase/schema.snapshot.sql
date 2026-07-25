@@ -138,6 +138,86 @@ COMMENT ON FUNCTION public.apply_role_permission_defaults(p_user_id uuid, p_faci
 
 
 --
+-- Name: approve_audit_destruction(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.approve_audit_destruction(p_batch_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_batch public.audit_destruction_batches%rowtype;
+  v_uid   uuid := auth.uid();
+  v_n     integer;
+begin
+  select * into v_batch
+    from public.audit_destruction_batches
+   where id = p_batch_id
+     for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Batch not found.');
+  end if;
+  if not (public.is_super_admin() or public.is_facility_admin(v_batch.facility_id)) then
+    raise exception 'approve_audit_destruction: admin access required'
+      using errcode = '42501';
+  end if;
+  if v_batch.status <> 'staged' then
+    return jsonb_build_object('ok', false, 'error',
+      format('Batch is already %s.', v_batch.status));
+  end if;
+
+  if v_batch.approved_by_1 is null then
+    update public.audit_destruction_batches
+       set approved_by_1 = v_uid,
+           approved_at_1 = now()
+     where id = p_batch_id;
+    insert into public.audit_logs
+      (facility_id, actor_user_id, actor_employee_id, action, entity_type, entity_id, after)
+    values
+      (v_batch.facility_id, v_uid, public.current_employee_id(),
+       'audit_destruction.approve_first', 'audit_destruction_batches', p_batch_id,
+       jsonb_build_object('staged_count', v_batch.staged_count));
+    return jsonb_build_object('ok', true, 'state', 'pending_second_approval');
+  end if;
+
+  if v_batch.approved_by_1 = v_uid then
+    return jsonb_build_object('ok', false, 'error',
+      'Destruction requires a second approval from a DIFFERENT admin.');
+  end if;
+
+  -- Second, distinct approver: destroy.
+  delete from public.audit_logs_pending_destruction
+   where batch_id = p_batch_id;
+  get diagnostics v_n = row_count;
+
+  update public.audit_destruction_batches
+     set approved_by_2 = v_uid,
+         approved_at_2 = now(),
+         status        = 'destroyed',
+         destroyed_at  = now()
+   where id = p_batch_id;
+
+  insert into public.audit_logs
+    (facility_id, actor_user_id, actor_employee_id, action, entity_type, entity_id, after)
+  values
+    (v_batch.facility_id, v_uid, public.current_employee_id(),
+     'audit_destruction.execute', 'audit_destruction_batches', p_batch_id,
+     jsonb_build_object('destroyed_count', v_n,
+                        'first_approved_by', v_batch.approved_by_1));
+
+  return jsonb_build_object('ok', true, 'state', 'destroyed', 'destroyed_count', v_n);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION approve_audit_destruction(p_batch_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.approve_audit_destruction(p_batch_id uuid) IS 'Two-person destruction of a staged audit batch: first call records approval, a second call by a DIFFERENT facility admin deletes the quarantined rows. Self-second-approval refused. Both steps self-audit.';
+
+
+--
 -- Name: audit_row_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -299,6 +379,74 @@ $$;
 --
 
 COMMENT ON FUNCTION public.can_edit_user_profile(p_target_user_id uuid) IS 'True iff the calling user may edit the given target user profile: self, super admin, or a strictly-higher-ranked editor in the same facility. Used by the users_update RLS policy and the account server action.';
+
+
+--
+-- Name: cancel_audit_destruction(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.cancel_audit_destruction(p_batch_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_batch public.audit_destruction_batches%rowtype;
+  v_uid   uuid := auth.uid();
+  v_n     integer;
+begin
+  select * into v_batch
+    from public.audit_destruction_batches
+   where id = p_batch_id
+     for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Batch not found.');
+  end if;
+  if not (public.is_super_admin() or public.is_facility_admin(v_batch.facility_id)) then
+    raise exception 'cancel_audit_destruction: admin access required'
+      using errcode = '42501';
+  end if;
+  if v_batch.status <> 'staged' then
+    return jsonb_build_object('ok', false, 'error',
+      format('Batch is already %s.', v_batch.status));
+  end if;
+
+  with restored as (
+    delete from public.audit_logs_pending_destruction
+     where batch_id = p_batch_id
+     returning *
+  )
+  insert into public.audit_logs
+    (id, facility_id, actor_user_id, actor_employee_id, action, entity_type,
+     entity_id, before, after, ip, user_agent, created_at)
+  select original_id, facility_id, actor_user_id, actor_employee_id, action,
+         entity_type, entity_id, before, after, ip, user_agent,
+         original_created_at
+    from restored;
+  get diagnostics v_n = row_count;
+
+  update public.audit_destruction_batches
+     set status       = 'cancelled',
+         cancelled_by = v_uid,
+         cancelled_at = now()
+   where id = p_batch_id;
+
+  insert into public.audit_logs
+    (facility_id, actor_user_id, actor_employee_id, action, entity_type, entity_id, after)
+  values
+    (v_batch.facility_id, v_uid, public.current_employee_id(),
+     'audit_destruction.cancel', 'audit_destruction_batches', p_batch_id,
+     jsonb_build_object('restored_count', v_n));
+
+  return jsonb_build_object('ok', true, 'state', 'cancelled', 'restored_count', v_n);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION cancel_audit_destruction(p_batch_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.cancel_audit_destruction(p_batch_id uuid) IS 'Restores every row of a staged audit-destruction batch back into audit_logs (original id and created_at preserved) and closes the batch. Single-admin: recovery is the safe direction.';
 
 
 --
@@ -2648,7 +2796,9 @@ begin
   if p_module_key = 'audit_logs' then
     -- Compliance window: per-facility retention_settings (default 7 years),
     -- clamped to the 2555-day floor; keep_days = 0 disables purging
-    -- (migration 212).
+    -- (migration 212). Since migration 213 expired rows are STAGED into
+    -- audit_logs_pending_destruction (recoverable until two admins approve
+    -- destruction) instead of deleted.
     select keep_days into v_keep_days
       from public.retention_settings
      where facility_id = p_facility_id
@@ -2657,11 +2807,9 @@ begin
     if v_keep_days = 0 then
       return 0;
     end if;
-    delete from public.audit_logs
-     where facility_id = p_facility_id
-       and created_at < now() - make_interval(days => greatest(v_keep_days, 2555));
-    get diagnostics v_deleted = row_count;
-    return v_deleted;
+    return public.stage_audit_logs_for_destruction(
+      p_facility_id,
+      now() - make_interval(days => greatest(v_keep_days, 2555)));
   end if;
 
   select keep_days into v_keep_days
@@ -2822,9 +2970,8 @@ CREATE FUNCTION public.purge_old_audit_logs() RETURNS integer
     SET search_path TO 'public', 'pg_temp'
     AS $$
 declare
-  v_deleted integer := 0;
-  v_n       integer;
-  f         record;
+  v_staged integer := 0;
+  f        record;
 begin
   for f in
     select fac.id,
@@ -2837,13 +2984,11 @@ begin
     if f.keep_days = 0 then
       continue; -- Forever (no purge)
     end if;
-    delete from public.audit_logs
-     where facility_id = f.id
-       and created_at < now() - make_interval(days => greatest(f.keep_days, 2555));
-    get diagnostics v_n = row_count;
-    v_deleted := v_deleted + v_n;
+    v_staged := v_staged + public.stage_audit_logs_for_destruction(
+      f.id,
+      now() - make_interval(days => greatest(f.keep_days, 2555)));
   end loop;
-  return v_deleted;
+  return v_staged;
 end;
 $$;
 
@@ -2852,7 +2997,7 @@ $$;
 -- Name: FUNCTION purge_old_audit_logs(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_old_audit_logs() IS 'Retention worker for audit_logs. Per-facility window from retention_settings (module_key=audit_logs), default 7 years, hard floor 2555 days (0 = never purge). Service-role only; called by the nightly retention cron.';
+COMMENT ON FUNCTION public.purge_old_audit_logs() IS 'Retention worker for audit_logs. Per-facility window from retention_settings (module_key=audit_logs), default 7 years, hard floor 2555 days (0 = never). Since migration 213 it STAGES expired rows into audit_logs_pending_destruction (recoverable) instead of deleting; actual destruction requires two-admin approval. Service-role only.';
 
 
 --
@@ -6664,6 +6809,50 @@ COMMENT ON FUNCTION public.snapshot_daily_assignment_days(p_facility_id uuid) IS
 
 
 --
+-- Name: stage_audit_logs_for_destruction(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.stage_audit_logs_for_destruction(p_facility_id uuid, p_cutoff timestamp with time zone) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_batch uuid;
+  v_n     integer;
+begin
+  select count(*) into v_n
+    from public.audit_logs
+   where facility_id = p_facility_id
+     and created_at < p_cutoff;
+  if v_n = 0 then
+    return 0;
+  end if;
+
+  insert into public.audit_destruction_batches (facility_id, staged_count)
+  values (p_facility_id, v_n)
+  returning id into v_batch;
+
+  with moved as (
+    delete from public.audit_logs
+     where facility_id = p_facility_id
+       and created_at < p_cutoff
+     returning *
+  )
+  insert into public.audit_logs_pending_destruction
+    (batch_id, original_id, facility_id, actor_user_id, actor_employee_id,
+     action, entity_type, entity_id, before, after, ip, user_agent,
+     original_created_at)
+  select v_batch, id, facility_id, actor_user_id, actor_employee_id,
+         action, entity_type, entity_id, before, after, ip, user_agent,
+         created_at
+    from moved;
+
+  return v_n;
+end;
+$$;
+
+
+--
 -- Name: submit_incident_report(uuid, uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, text, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -7571,6 +7760,35 @@ COMMENT ON TABLE public.area_default_owners IS 'Daily Reports routing: standing 
 
 
 --
+-- Name: audit_destruction_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_destruction_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    staged_count integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'staged'::text NOT NULL,
+    approved_by_1 uuid,
+    approved_at_1 timestamp with time zone,
+    approved_by_2 uuid,
+    approved_at_2 timestamp with time zone,
+    destroyed_at timestamp with time zone,
+    cancelled_by uuid,
+    cancelled_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT audit_destruction_batches_status_check CHECK ((status = ANY (ARRAY['staged'::text, 'destroyed'::text, 'cancelled'::text]))),
+    CONSTRAINT audit_destruction_two_person CHECK (((approved_by_2 IS NULL) OR (approved_by_1 IS NULL) OR (approved_by_2 <> approved_by_1)))
+);
+
+
+--
+-- Name: TABLE audit_destruction_batches; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.audit_destruction_batches IS 'One row per retention-purge staging run per facility. Audit rows moved to audit_logs_pending_destruction reference a batch; destroying the batch requires two different admins (approve RPC), cancelling restores the rows.';
+
+
+--
 -- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7609,6 +7827,36 @@ COMMENT ON COLUMN public.audit_logs.action IS 'Verb (e.g. ''create'', ''update''
 --
 
 COMMENT ON COLUMN public.audit_logs.entity_type IS 'Logical type (table or domain object) being acted upon.';
+
+
+--
+-- Name: audit_logs_pending_destruction; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_pending_destruction (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid NOT NULL,
+    original_id uuid NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    original_created_at timestamp with time zone NOT NULL,
+    staged_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE audit_logs_pending_destruction; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.audit_logs_pending_destruction IS 'Expired audit_logs rows staged for destruction ("the locked bin"). Fully restorable until the owning batch gets its second destruction approval.';
 
 
 --
@@ -11565,6 +11813,22 @@ ALTER TABLE ONLY public.area_default_owners
 
 
 --
+-- Name: audit_destruction_batches audit_destruction_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_logs_pending_destruction audit_logs_pending_destruction_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_pending_destruction
+    ADD CONSTRAINT audit_logs_pending_destruction_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13252,6 +13516,13 @@ CREATE INDEX idx_area_default_owners_facility ON public.area_default_owners USIN
 
 
 --
+-- Name: idx_audit_destruction_batches_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_destruction_batches_facility ON public.audit_destruction_batches USING btree (facility_id, status, created_at DESC);
+
+
+--
 -- Name: idx_audit_logs_actor_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13284,6 +13555,20 @@ CREATE INDEX idx_audit_logs_facility_created ON public.audit_logs USING btree (f
 --
 
 CREATE INDEX idx_audit_logs_facility_id ON public.audit_logs USING btree (facility_id);
+
+
+--
+-- Name: idx_audit_pending_destruction_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_pending_destruction_batch ON public.audit_logs_pending_destruction USING btree (batch_id);
+
+
+--
+-- Name: idx_audit_pending_destruction_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_pending_destruction_facility ON public.audit_logs_pending_destruction USING btree (facility_id, original_created_at);
 
 
 --
@@ -16401,6 +16686,38 @@ ALTER TABLE ONLY public.area_default_owners
 
 
 --
+-- Name: audit_destruction_batches audit_destruction_batches_approved_by_1_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_approved_by_1_fkey FOREIGN KEY (approved_by_1) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_approved_by_2_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_approved_by_2_fkey FOREIGN KEY (approved_by_2) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_cancelled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: audit_logs audit_logs_actor_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -16422,6 +16739,14 @@ ALTER TABLE ONLY public.audit_logs
 
 ALTER TABLE ONLY public.audit_logs
     ADD CONSTRAINT audit_logs_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: audit_logs_pending_destruction audit_logs_pending_destruction_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_pending_destruction
+    ADD CONSTRAINT audit_logs_pending_destruction_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.audit_destruction_batches(id) ON DELETE RESTRICT;
 
 
 --
@@ -19204,6 +19529,19 @@ CREATE POLICY area_default_owners_select ON public.area_default_owners FOR SELEC
 
 
 --
+-- Name: audit_destruction_batches; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_destruction_batches ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY audit_destruction_batches_select ON public.audit_destruction_batches FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.is_facility_admin(facility_id)));
+
+
+--
 -- Name: audit_logs; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -19217,10 +19555,23 @@ CREATE POLICY audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated
 
 
 --
+-- Name: audit_logs_pending_destruction; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_pending_destruction ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: audit_logs audit_logs_select; Type: POLICY; Schema: public; Owner: -
 --
 
 CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+
+
+--
+-- Name: audit_logs_pending_destruction audit_pending_destruction_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY audit_pending_destruction_select ON public.audit_logs_pending_destruction FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.is_facility_admin(facility_id)));
 
 
 --
