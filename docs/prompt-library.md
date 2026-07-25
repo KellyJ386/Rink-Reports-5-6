@@ -209,7 +209,23 @@ versions with a reason. That is feature work, not an urgent hole.
 Prior art for the fix: `superseded_at` on `report_area_assignments`
 (`supabase/migrations/00000000000182_daily_area_assignment_schema.sql`).
 
-### Defect 3 — Certification expiry is checked against today, not the shift date — **VERIFIED**
+### Defect 3 — Certification expiry is checked against today, not the shift date — **VERIFIED → CLOSED (migration 209)**
+
+> **Closed by `supabase/migrations/00000000000209_cert_expiry_vs_shift_date.sql`.**
+> The predicate now keys off `v_end_local::date` — the facility-local **end** of
+> the shift — so a certification must remain valid for the whole shift, and one
+> lapsing mid-shift blocks the assignment. That end-of-shift boundary is a
+> deliberate decision recorded in the migration header. One line; the signature
+> was unchanged, so none of the six SQL callers or the single TypeScript caller
+> needed touching.
+>
+> **The pre-existing test was a false positive worth remembering.** §2Q already
+> asserted *"EXPIRED required cert is treated as missing"* — but it seeded
+> `expires_at = '2020-01-01'`, which precedes every future shift date, so it
+> passed identically with and without the bug. Three `SCHED-209` assertions
+> replace that illusion: a cert expiring before the shift blocks, one still valid
+> does not, and one lapsing mid-shift blocks. All three were confirmed to FAIL
+> against the pre-209 schema before the fix was applied.
 
 `supabase/migrations/00000000000169_certification_types.sql` validates with
 `and (c.expires_at is null or c.expires_at >= current_date)`. A shift three weeks
@@ -252,12 +268,39 @@ The Massachusetts `sampling_rules` row is populated
   constraint on `threshold_overrides`, so a direct PostgREST update could write a
   loosened ceiling.
 
-### Defect 6 — Audit writes fail silently — **UNCONFIRMED — confirm first**
+### Defect 6 — App-level audit writes fail silently — **VERIFIED (scope narrowed)**
 
-`src/lib/audit/log.ts` is reportedly a best-effort insert wrapped in a try/catch
-that swallows failures, so gaps in `audit_logs` are silent. Tamper-evidence work
-(I-2) must cover write-failure surfacing, not just chaining — a chain proves no row
-was *altered*, and says nothing about rows that never arrived.
+`src/lib/audit/log.ts` wraps its insert in `try { … } catch { }` with the comment
+*"Auditing is best-effort. Don't surface the failure."* So a `logAudit()` write can
+vanish with no signal.
+
+**Scope is narrower than first stated.** This affects only *app-level* calls to
+`logAudit()`. The trigger-written rows — which is how every compliance table is
+audited (`audit_row_change()`, see the Defect 2 correction) — insert inline in the
+same transaction as the change, so they either commit with it or fail it. There is
+no silent-loss path there. I-2's chain substrate is therefore sound; surfacing
+`logAudit()` failures is a smaller, separate concern.
+
+### Defect 7 — Three harness assertions are time-of-day flaky — **VERIFIED**
+
+Found while running the suite for migration 209, not part of the original review.
+
+`DAR`, `DAR5` and `DAR7` in `supabase/tests/rls_isolation.sql` assert against
+`current_date - 1`, which psql evaluates in **UTC**, while the gate they exercise
+computes "today" in the **facility-local** timezone (fixtures use
+`America/Chicago`). Between UTC midnight and facility midnight, "yesterday UTC" is
+still *today* locally, so the insert the test expects to be rejected legitimately
+succeeds and the assertion fails.
+
+Observed directly: at 23:38 UTC the suite reported 1 failure; at 00:18 UTC the same
+suite on the same schema reported 4. Confirmed pre-existing by stashing all local
+changes and re-running. For `America/Chicago` (UTC−5 in summer) the bad window is
+roughly 00:00–05:00 UTC — about **5 hours in every 24**, so CI on a PR merged in
+that window fails for no real reason.
+
+Fix is to compute the test's date in the facility timezone rather than UTC, the
+same way the gate does. Not attempted here — out of scope for the change that
+found it.
 
 ---
 
@@ -877,7 +920,7 @@ the existing tier model and dispatch pipeline.
 
 ### N-4. Certification-aware scheduling
 
-**Status:** PARTIAL — largely built, with a real expiry bug. See Defect 3.
+**Status:** PARTIAL — the expiry bug is **fixed** (Defect 3, migration 209). Document upload, the coverage report, and DB-boundary enforcement remain open.
 
 **Current state (verified 2026-07-24):** `employee_certifications`
 (`supabase/migrations/00000000000057_employee_certifications.sql`),
@@ -1633,9 +1676,10 @@ the site dropped and the verification findings in hand, the real order is:
    correction: `audit_logs` is trigger-populated on every compliance table, so it
    is a sound substrate for a chain today. The original ordering assumed the log
    could be bypassed, which was wrong.
-4. **I-1 and N-4** — Defects 4 and 3, both scheduling integrity. Defect 4 still
-   needs confirming before it is acted on; Defect 3 (certification expiry checked
-   against `current_date` rather than the shift date) is verified and small.
+4. **I-1** — Defect 4 (publish-lock siblings: `schedule_open_shifts`,
+   `schedule_swap_requests`, and the cert-only violation filter in
+   `scheduling_admin_edit_published_shift`). **Still unconfirmed** — verify before
+   acting. Defect 3 under N-4 is done (migration 209).
 5. **I-3** — reclassified as feature work after the Defect 2 correction:
    immutability and amendment semantics (reason codes, linked versions,
    approval), plus closing the module change-log gap so a module's History tab

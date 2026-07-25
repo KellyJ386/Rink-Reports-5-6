@@ -2985,6 +2985,78 @@ select pg_temp.expect_count(
     ) c where code = 'cert_missing:CPR'$$,
   1, 'SCHED-148: EXPIRED required cert is treated as missing');
 
+-- ---------------------------------------------------------------------------
+-- Cert expiry is measured against the SHIFT, not against today (migration 209).
+--
+-- The assertion immediately above seeds expires_at = '2020-01-01'. A 2020 expiry
+-- precedes every future shift date, so it passes whether expiry is compared to
+-- current_date or to the shift — it looks like coverage of the expiry rule but
+-- discriminates nothing. The three cases below are the ones that actually pin
+-- the behaviour. Dana holds a CPR expiring in 7 days.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+insert into public.employees (id, facility_id, user_id, first_name, last_name, role_id, is_active)
+select 'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+       '11111111-1111-1111-1111-111111111111',
+       null, 'Dana', 'Expiry',
+       (select id from public.roles
+         where facility_id = '11111111-1111-1111-1111-111111111111'
+           and key = 'staff' limit 1),
+       true
+on conflict (id) do nothing;
+
+insert into public.employee_certifications (facility_id, employee_id, name, expires_at)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077', 'CPR',
+        (now() + interval '7 days')::date)
+on conflict do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- (a) THE BUG. Shift is 21 days out; the cert lapses in 7. Comparing against
+--     current_date wrongly passes this. Fails before migration 209.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+        now() + interval '21 days', now() + interval '21 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-209: cert expiring BEFORE the shift date hard-blocks');
+
+-- (b) The negative case, so the rule cannot be satisfied by blanket-blocking
+--     every cert that carries an expiry date at all.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+        now() + interval '3 days', now() + interval '3 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  0, 'SCHED-209: cert still valid on the shift date does NOT block');
+
+-- (c) The boundary. A shift STRADDLING the expiry blocks, because the predicate
+--     keys off the shift END. This is the deliberate product decision recorded
+--     in migration 209's header; if anyone "simplifies" it back to the shift
+--     start, this assertion is what fails.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+        (now() + interval '7 days')::date - interval '4 hours',
+        (now() + interval '7 days')::date + interval '30 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-209: cert lapsing MID-SHIFT hard-blocks (measured at shift end)');
+
 -- Override is manager-gated and audited; the audit log is admin-read-only.
 select pg_temp.expect_ok(
   $$select public.scheduling_log_cert_override(

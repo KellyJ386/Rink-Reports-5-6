@@ -4648,7 +4648,7 @@ begin
                and lower(btrim(c.name)) = lower(btrim(v_req.type_name))
              )
            )
-           and (c.expires_at is null or c.expires_at >= current_date)
+           and (c.expires_at is null or c.expires_at >= v_end_local::date)
       ) then
         v_codes := array_append(v_codes, 'cert_missing:' || v_req.type_name);
       end if;
@@ -4669,7 +4669,7 @@ $$;
 -- Name: FUNCTION scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid) IS 'Returns the array of hard-block violation codes for assigning an employee to a shift slot (empty = allowed). Single source of truth used by the admin server actions, the swap-apply / publish-approve / open-claim RPCs, and the staff self-claim RPC. Weekly windows and availability matching are computed on the facility''s local calendar (facilities.timezone, schedule_settings.week_start_day). Certification requirements join the certification_types catalog (id match, legacy name fallback for unlinked employee certs).';
+COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid) IS 'Returns the array of hard-block violation codes for assigning an employee to a shift slot (empty = allowed). Single source of truth used by the admin server actions, the swap-apply / publish-approve / open-claim RPCs, and the staff self-claim RPC. Weekly windows and availability matching are computed on the facility''s local calendar (facilities.timezone, schedule_settings.week_start_day). Certification requirements join the certification_types catalog (id match, legacy name fallback for unlinked employee certs); a certification must be unexpired through the facility-local END of the shift, so one lapsing mid-shift is treated as missing (migration 209).';
 
 
 --
