@@ -347,6 +347,23 @@ by the clock yet. A correct fix is a `pg_temp` facility-local-today helper plus 
 judged pass over the DAR block (≈3931–4721) deciding per site whether it should be
 UTC or facility-local. Not attempted here.
 
+### Defect 8 — Stale harness assertion kept the suite red on main — **VERIFIED → FIXED**
+
+Found while triaging PR #302's CI. The `DB0b` assertion in
+`supabase/tests/rls_isolation.sql` expected the facility-creation trigger to seed
+**20** dasher-boards issue categories, but migration
+`00000000000204_dasher_boards_staff_condition_logging.sql` redefined the seed
+function to **25** (adding the cleaning set — 3× "Needs cleaning", "Film/residue",
+"Debris/buildup") without updating the test. Result: **`rls-isolation` was red on
+every push to main from 2026-07-24 onward** (verified across the last four main
+runs), which is exactly the condition that trains people to ignore a failing gate.
+
+Fixed by updating the expectation to 25, with a comment explaining the arithmetic.
+Worth noting the shape: like the `expires_at = '2020-01-01'` case in Defect 3,
+this is a seed/assertion pair that drifted apart — I-8's probe suite should
+consider deriving such counts from the seed source rather than hardcoding them
+twice.
+
 ---
 
 ## Status legend

@@ -4905,10 +4905,14 @@ select pg_temp.expect_count(
       and asset_type = 'door'$$,
   4, 'DB0a: facilities trigger seeded 4 door subtypes for a new facility');
 
+-- 25 = the 20 repair categories from migration 194 plus the cleaning set added
+-- when migration 204 redefined the seed function (3x "Needs cleaning",
+-- "Film/residue", "Debris/buildup"). This expectation was left at 20 when 204
+-- landed, which made the whole suite red on main from 2026-07-24 onward.
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_issue_categories
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  20, 'DB0b: facilities trigger seeded 20 issue categories for a new facility');
+  25, 'DB0b: facilities trigger seeded 25 issue categories for a new facility');
 
 select pg_temp.expect_count(
   $$select count(*) from public.facility_modules
