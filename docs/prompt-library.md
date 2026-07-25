@@ -233,23 +233,60 @@ out validates against a certification expiring next week, and publish-time
 re-validation uses the same `current_date`. Nothing ever compares expiry to the
 shift's `starts_at`.
 
-### Defect 4 — Publish-lock siblings are unprotected — **UNCONFIRMED — confirm first**
+### Defect 4 — Publish-lock siblings are unprotected — **VERIFIED (A, B) → CLOSED (migration 210); C REFUTED**
 
-`schedule_shifts` itself is solid. Adjacent tables reportedly are not:
+> **Closed by `supabase/migrations/00000000000210_open_shift_and_swap_guards.sql`.**
+> Two guard triggers, cloning the exemption model of
+> `schedule_shifts_publish_lock` so all six SECURITY DEFINER scheduling RPCs pass
+> through untouched. No application change was needed. All five exploits were
+> **reproduced live** against the pre-210 schema before the guards were written —
+> see `SCHED-210` in `supabase/tests/rls_isolation.sql`.
 
-- `schedule_open_shifts` has full end-user write policies
-  (`supabase/migrations/00000000000098_consolidate_rls_policies.sql`) with no
-  publish lock — a scheduling admin could flip claim state or delete the listing
-  for a published shift directly, bypassing the governed RPCs.
-- `schedule_swap_requests.status` is directly writable by a scheduling admin
-  (`supabase/migrations/00000000000136_scheduling_swap_publish_rpcs_and_rls.sql`),
-  so a swap can be marked approved without `scheduling_apply_swap` ever
-  re-validating.
-- `scheduling_admin_edit_published_shift`
-  (`supabase/migrations/00000000000149_scheduling_edit_published_shift.sql`)
-  reportedly filters its violation codes to `cert_missing:%` only, silently
-  discarding overtime, rest, time-off, and not-qualified violations on a
-  published-shift edit.
+`schedule_shifts` itself is solid; its two satellite tables were not.
+
+**A — `schedule_open_shifts`: CONFIRMED, but narrower than first claimed.** Its
+RLS comes from migration 15 (loosened by 61), gating UPDATE/DELETE only on
+`has_module_admin_access('scheduling')` with no column restriction and no publish
+predicate. The one trigger was `set_updated_at`; the only CHECK enumerated legal
+`claim_status` *values*, not transitions.
+
+The original wording said an admin could bypass re-validation to *assign* someone.
+**That was wrong** — the parent shift stays frozen by the publish lock, so no
+assignment is possible this way. The real exposures were:
+
+- **Approval-gate bypass, the one that mattered.** `UPDATE … SET approval_required
+  = false` turned a manager-approval listing into first-come, and
+  `scheduling_claim_open_shift` branches purely on that column — so the next staff
+  claim auto-filled a published shift that policy required a human to approve.
+  Violations were still checked; the *approval step* vanished.
+- **Silent staffing desync** via `claim_status = 'filled'` — queue reads staffed,
+  shift stays unassigned, and both the staff queue and admin panel read the queue.
+- **Listing deletion / `expires_at` tampering** past the expiry sweeper.
+
+**B — `schedule_swap_requests`: CONFIRMED, impact is bricking.** The admin branch
+of the UPDATE policy was an unqualified `has_module_admin_access('scheduling')` on
+both `USING` and `WITH CHECK`, so `'manager_approved'` was one PATCH away. It moved
+no shift — but the divergence was **one-way and unrecoverable**:
+`scheduling_apply_swap` then refuses (`status not in ('pending','accepted')`), and
+`denySwap`/`cancelSwap` both refuse on `manager_approved`. The request sat reading
+"Approved & applied" while nothing had happened and neither employee was notified.
+
+**C — republish weaker than publish: REFUTED as framed.**
+`scheduling_admin_edit_published_shift` does filter to `cert_missing:%`, but that
+is **consistent** with the rest of the system rather than weaker: the app layer
+deliberately treats non-cert codes as advisory (`partitionViolations`), the edit
+still runs the full `gateShiftWrite` before calling the RPC, and `double_booked`
+has its own DB backstop (migration 140). The actual outlier is
+`scheduling_approve_publish_request`, which is *stricter* than the app's stated
+policy.
+
+Two smaller residual gaps remain, deliberately **not** fixed: that RPC ignores
+`schedule_settings.block_on_violations` (so a direct RPC call skips hard-blocking
+at a facility that opted in), and it discards advisory codes instead of returning
+them. Closing these means choosing a direction — make 149 honour
+`block_on_violations`, or make `approve_publish_request` cert-only so
+`block_on_violations` is the single knob across all five paths. That is a product
+decision, not a defect fix.
 
 ### Defect 5 — Air-quality rules are parsed but not enforced — **UNCONFIRMED — confirm first**
 
@@ -287,20 +324,28 @@ Found while running the suite for migration 209, not part of the original review
 
 `DAR`, `DAR5` and `DAR7` in `supabase/tests/rls_isolation.sql` assert against
 `current_date - 1`, which psql evaluates in **UTC**, while the gate they exercise
-computes "today" in the **facility-local** timezone (fixtures use
-`America/Chicago`). Between UTC midnight and facility midnight, "yesterday UTC" is
-still *today* locally, so the insert the test expects to be rejected legitimately
-succeeds and the assertion fails.
+computes "today" in the **facility-local** timezone
+(`supabase/migrations/00000000000183_daily_area_assignment_rls.sql:151`). Between
+UTC midnight and facility midnight, "yesterday UTC" is still *today* locally, so
+the insert the test expects to be rejected legitimately succeeds.
 
-Observed directly: at 23:38 UTC the suite reported 1 failure; at 00:18 UTC the same
-suite on the same schema reported 4. Confirmed pre-existing by stashing all local
-changes and re-running. For `America/Chicago` (UTC−5 in summer) the bad window is
-roughly 00:00–05:00 UTC — about **5 hours in every 24**, so CI on a PR merged in
-that window fails for no real reason.
+The relevant facility is **A**, which never sets a timezone in the fixtures and so
+inherits the `facilities.timezone` default of `'America/New_York'`
+(`supabase/migrations/00000000000002_backbone_schema.sql:36`). The bad window is
+therefore roughly **00:00–04:00 UTC** in summer — about **4 hours in every 24**.
+*(An earlier revision of this entry said ~5 hours from `America/Chicago`; that is
+the unrelated Seed Test Rink fixture, not the facility these tests use.)*
 
-Fix is to compute the test's date in the facility timezone rather than UTC, the
-same way the gate does. Not attempted here — out of scope for the change that
-found it.
+Observed across three runs on unchanged code — 23:38 UTC: 1 failure · 00:18 UTC:
+4 failures · 12:08 UTC: 1 failure. Same schema, same assertions, different clock.
+Also confirmed pre-existing by stashing all local changes and re-running.
+
+**Scope is larger than the three failing assertions.** The harness has 54 real
+`current_date` uses; `:1184` and `:1194` feed `business_date` into the same
+facility-local gate and are latently flaky too — they simply have not been caught
+by the clock yet. A correct fix is a `pg_temp` facility-local-today helper plus a
+judged pass over the DAR block (≈3931–4721) deciding per site whether it should be
+UTC or facility-local. Not attempted here.
 
 ---
 
@@ -1676,10 +1721,10 @@ the site dropped and the verification findings in hand, the real order is:
    correction: `audit_logs` is trigger-populated on every compliance table, so it
    is a sound substrate for a chain today. The original ordering assumed the log
    could be bypassed, which was wrong.
-4. **I-1** — Defect 4 (publish-lock siblings: `schedule_open_shifts`,
-   `schedule_swap_requests`, and the cert-only violation filter in
-   `scheduling_admin_edit_published_shift`). **Still unconfirmed** — verify before
-   acting. Defect 3 under N-4 is done (migration 209).
+4. ~~**I-1**~~ — **done** (migration 210). Defect 4 claims A and B were confirmed
+   and closed with guard triggers; claim C was refuted as framed. Defect 3 under
+   N-4 is done (migration 209). What remains under I-1 is only claim C's
+   unification choice, which needs a product decision — see Defect 4.
 5. **I-3** — reclassified as feature work after the Defect 2 correction:
    immutability and amendment semantics (reason codes, linked versions,
    approval), plus closing the module change-log gap so a module's History tab

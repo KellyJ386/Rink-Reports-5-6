@@ -3785,6 +3785,73 @@ COMMENT ON FUNCTION public.retention_settings_enforce_floor() IS 'BEFORE INSERT/
 
 
 --
+-- Name: schedule_open_shifts_lock(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.schedule_open_shifts_lock() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_changed text;
+begin
+  -- Governed contexts: the SECURITY DEFINER scheduling RPCs run as the table
+  -- owner, plus trusted backend roles and an explicit transaction-local bypass.
+  if current_user in ('postgres', 'supabase_admin', 'service_role')
+     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if tg_op = 'DELETE' then
+    -- Removing the listing for a published shift strands it: published,
+    -- unassigned, and with no claim path back.
+    if exists (
+      select 1 from public.schedule_shifts s
+       where s.id = old.shift_id
+         and s.status = 'published'
+    ) then
+      raise exception
+        'This open-shift listing belongs to a published shift and cannot be deleted directly. Cancel or fill it through the scheduling tools so the shift keeps a claim path.'
+        using errcode = '42501';
+    end if;
+    return old;
+  end if;
+
+  -- UPDATE. Named per column so a rejection says which field was refused;
+  -- updated_at is intentionally absent so the set_updated_at trigger's own
+  -- write passes.
+  v_changed := case
+    when new.shift_id                is distinct from old.shift_id                then 'shift_id'
+    when new.claim_status            is distinct from old.claim_status            then 'claim_status'
+    when new.claimed_by_employee_id  is distinct from old.claimed_by_employee_id  then 'claimed_by_employee_id'
+    when new.claimed_at              is distinct from old.claimed_at              then 'claimed_at'
+    when new.expires_at              is distinct from old.expires_at              then 'expires_at'
+    when new.approval_required       is distinct from old.approval_required       then 'approval_required'
+    when new.approved_by_employee_id is distinct from old.approved_by_employee_id then 'approved_by_employee_id'
+    when new.approved_at             is distinct from old.approved_at             then 'approved_at'
+    else null
+  end;
+
+  if v_changed is not null then
+    raise exception
+      'Open-shift listings are governed: "%" cannot be changed by a direct write. Use the scheduling RPCs (staff claim, admin decide, or admin assign), which re-validate the assignment, guard against lost updates, and notify the claimant.',
+      v_changed
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION schedule_open_shifts_lock(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.schedule_open_shifts_lock() IS 'BEFORE UPDATE/DELETE guard on schedule_open_shifts. For end-user roles the listing is immutable after creation and cannot be deleted while its parent shift is published; the SECURITY DEFINER scheduling RPCs are exempt because they run as the table owner. Closes the approval_required bypass, which let a scheduling admin turn a manager-approval listing into first-come with one direct PATCH (Defect 4A, migration 210).';
+
+
+--
 -- Name: schedule_shifts_publish_lock(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3855,6 +3922,42 @@ $$;
 --
 
 COMMENT ON FUNCTION public.schedule_shifts_publish_lock() IS 'Publish-lock backstop: rejects a direct INSERT of a published row, a direct UPDATE/DELETE of an already-published row, and a direct UPDATE transitioning a row TO published, all from an end-user PostgREST role. Governed SECURITY DEFINER RPCs (run as the table owner) and trusted backend roles are allowed, so swap/claim/publish/cancel/open-fill keep working. Closes the publish-lock bypass (create + edit + delete + direct-publish legs).';
+
+
+--
+-- Name: schedule_swap_requests_apply_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.schedule_swap_requests_apply_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if current_user in ('postgres', 'supabase_admin', 'service_role')
+     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+    return new;
+  end if;
+
+  -- Deliberately narrow: this rejects ONLY the transition into the applied
+  -- state. 'accepted', 'denied' and 'cancelled' are written directly by the app
+  -- as authenticated and must continue to work.
+  if new.status = 'manager_approved'
+     and old.status is distinct from 'manager_approved' then
+    raise exception
+      'A swap can only be applied through scheduling_apply_swap(), which exchanges the two shifts, re-validates both assignments, and notifies both employees. Marking it approved directly would leave the shifts unchanged and the swap permanently unrunnable.'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION schedule_swap_requests_apply_guard(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.schedule_swap_requests_apply_guard() IS 'BEFORE UPDATE guard on schedule_swap_requests. Rejects an end-user transition into ''manager_approved'', which previously bricked the request: scheduling_apply_swap refuses a swap that is not pending/accepted, and both deny and cancel refuse one already approved, so a direct write left it reading as applied while no shift had moved (Defect 4B, migration 210). Other transitions are untouched.';
 
 
 --
@@ -15980,6 +16083,13 @@ CREATE TRIGGER trg_schedule_notifications_updated_at BEFORE UPDATE ON public.sch
 
 
 --
+-- Name: schedule_open_shifts trg_schedule_open_shifts_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_schedule_open_shifts_lock BEFORE DELETE OR UPDATE ON public.schedule_open_shifts FOR EACH ROW EXECUTE FUNCTION public.schedule_open_shifts_lock();
+
+
+--
 -- Name: schedule_open_shifts trg_schedule_open_shifts_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -16012,6 +16122,13 @@ CREATE TRIGGER trg_schedule_shifts_publish_lock BEFORE INSERT OR DELETE OR UPDAT
 --
 
 CREATE TRIGGER trg_schedule_shifts_updated_at BEFORE UPDATE ON public.schedule_shifts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: schedule_swap_requests trg_schedule_swap_apply_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_schedule_swap_apply_guard BEFORE UPDATE ON public.schedule_swap_requests FOR EACH ROW EXECUTE FUNCTION public.schedule_swap_requests_apply_guard();
 
 
 --

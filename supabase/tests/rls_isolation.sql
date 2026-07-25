@@ -5896,6 +5896,134 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- 2y. Open-shift + swap guards (migration 210, prompt-library Defect 4).
+--
+-- schedule_shifts is locked by migrations 148/164/181, but the two satellite
+-- tables that describe HOW a published shift may be filled were not. Their RLS
+-- gates only on has_module_admin_access('scheduling') with no publish predicate
+-- and no column restriction, and neither had a guard trigger.
+--
+-- The exploit these pin is NOT unauthorized assignment — the parent shift stays
+-- frozen. It is that a scheduling admin could PATCH approval_required to false,
+-- turning a manager-approval listing into first-come so the next staff claim
+-- auto-fills a published shift; desync the queue with claim_status='filled';
+-- or mark a swap 'manager_approved' directly, which moves no shift and leaves
+-- the swap permanently unrunnable while reading as applied.
+--
+-- Carol (cccccccc-…) holds scheduling:admin in Facility A — she is exactly the
+-- caller the old policies trusted unconditionally.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- A published, unassigned shift with a manager-approval open listing.
+insert into public.schedule_shifts
+  (id, facility_id, department_id, employee_id, starts_at, ends_at, status)
+values ('aaaa1111-5521-aaaa-aaaa-aaaa11110210',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        null,
+        now() + interval '9 days', now() + interval '9 days 4 hours', 'published')
+on conflict (id) do nothing;
+
+insert into public.schedule_open_shifts
+  (id, facility_id, shift_id, claim_status, approval_required, expires_at)
+values ('aaaa1111-05a1-aaaa-aaaa-aaaa11110210',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-5521-aaaa-aaaa-aaaa11110210',
+        'open', true, now() + interval '2 days')
+on conflict (id) do nothing;
+
+-- Two pending swaps: one to attempt a direct apply on, one to deny normally.
+insert into public.schedule_swap_requests
+  (id, facility_id, requester_employee_id, requester_shift_id, target_employee_id, status)
+values
+  ('aaaa1111-5721-aaaa-aaaa-aaaa11110210',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending'),
+  ('aaaa1111-5722-aaaa-aaaa-aaaa11110210',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   'aaaa1111-5513-aaaa-aaaa-aaaa11110094',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending')
+on conflict (id) do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- THE approval-gate bypass. One PATCH used to turn manager-approval into
+-- first-come; scheduling_claim_open_shift branches purely on this column.
+select pg_temp.expect_error(
+  $$update public.schedule_open_shifts
+       set approval_required = false
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT flip approval_required on a listing');
+
+select pg_temp.expect_error(
+  $$update public.schedule_open_shifts
+       set claim_status = 'filled',
+           claimed_by_employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT mark a listing filled directly');
+
+select pg_temp.expect_error(
+  $$update public.schedule_open_shifts
+       set expires_at = now() + interval '400 days'
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT push a listing past the expiry sweeper');
+
+select pg_temp.expect_error(
+  $$delete from public.schedule_open_shifts
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: listing for a PUBLISHED shift cannot be deleted directly');
+
+-- Swap: only scheduling_apply_swap may apply. A direct write moved no shift and
+-- bricked the request (apply/deny/cancel all refuse afterwards).
+select pg_temp.expect_error(
+  $$update public.schedule_swap_requests
+       set status = 'manager_approved'
+     where id = 'aaaa1111-5721-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT mark a swap manager_approved directly');
+
+-- The guard must stay narrow. The app writes these two directly as
+-- authenticated (governance-actions.ts denySwap / cancelSwap), so breaking them
+-- would be a worse regression than the hole being closed.
+select pg_temp.expect_ok(
+  $$update public.schedule_swap_requests
+       set status = 'denied', decided_at = now()
+     where id = 'aaaa1111-5721-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CAN still deny a swap');
+select pg_temp.expect_ok(
+  $$update public.schedule_swap_requests
+       set status = 'cancelled', decided_at = now()
+     where id = 'aaaa1111-5722-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CAN still cancel a swap');
+
+-- The governed path must still work — a guard that blocks legitimate use is a
+-- worse outcome than the hole. The SECURITY DEFINER RPCs run as the table owner
+-- and are exempt by design.
+reset role;
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.scheduling_expire_open_claims(10)$$,
+  'SCHED-210: governed sweeper still updates listings (owner exemption holds)');
+
+reset role;
+set local role postgres;
+select pg_temp.expect_ok(
+  $$update public.schedule_open_shifts
+       set claim_status = 'cancelled'
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: table owner can still write a listing (RPC path unaffected)');
+
+reset role;
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
