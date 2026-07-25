@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Activity, ArrowLeft, Home, Settings } from "lucide-react"
+import { Activity, ArrowLeft, Home } from "lucide-react"
 import { useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -22,16 +22,10 @@ export type RecentActivityItem = {
 }
 
 type Props = {
-  isAdmin: boolean
-  configureHref: string
   recent: RecentActivityItem[]
 }
 
-export function IceOpsShell({
-  isAdmin,
-  configureHref,
-  recent,
-}: Props) {
+export function IceOpsShell({ recent }: Props) {
   const [showFeed, setShowFeed] = useState(false)
 
   return (
@@ -51,14 +45,6 @@ export function IceOpsShell({
         title="Ice Operations"
         actions={
           <>
-            {isAdmin ? (
-              <Button asChild variant="outline" size="sm">
-                <Link href={configureHref}>
-                  <Settings className="h-4 w-4" />
-                  Configure Forms
-                </Link>
-              </Button>
-            ) : null}
             <Button
               type="button"
               variant="outline"

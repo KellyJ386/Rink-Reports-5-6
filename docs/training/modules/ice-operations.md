@@ -35,9 +35,7 @@ To log an operation you must have an active employee account at the facility and
 ## 3. How to get there
 
 - **Staff side (logging jobs):** open **Ice Operations** from the left sidebar (or the **Menu** tab on mobile). The link only appears if the module is turned on for your facility and you have access. The URL is `/reports/ice-operations`; it lands you on the first enabled operation tab automatically.
-- **Admin side (configuring):** admins open the **Admin Center**, then **Ice Operations Admin** under Module Admin (`/admin/ice-operations`).
-
-From the staff screen, admins also get a **Configure Forms** button in the header that jumps straight to the admin Setup tab.
+- **Admin side (configuring):** admins open the **Admin Center**, then **Ice Operations Admin** under Module Admin (`/admin/ice-operations`). This is the only way in — form configuration lives entirely in the admin area, so there is no configuration shortcut on the staff screens.
 
 ## 4. Setup & configuration (admins)
 
@@ -69,7 +67,7 @@ The Setup tab is a stack of cards. Each card lists existing items with **Edit / 
 Every staff screen sits inside a shared shell:
 
 - A **page header** with the "Ice Operations" title and breadcrumb (Reports › Ice Operations).
-- Header buttons: **Show Activity Feed** (toggles a "Recent activity" panel of the last few submissions — each row shows the operation type, the rink/machine, a "failed" badge if a circle check had failures, and the time), **Back**, **Dashboard**, and — for admins only — **Configure Forms**.
+- Header buttons: **Show Activity Feed** (toggles a "Recent activity" panel of the last few submissions — each row shows the operation type, the rink/machine, a "failed" badge if a circle check had failures, and the time), **Back**, and **Dashboard**.
 - A **tab row** with one tab per **enabled** operation type. The tabs follow a fixed order: Ice Make, Circle Check, Edging, Blade Change.
 
 If a needed prerequisite is missing, you'll see a friendly notice inside the shell instead of a form — e.g. "No rinks configured" (Ice Make needs at least one rink), "No machines configured" (no equipment of the right type), or "No checklist items" (Circle Check with no items and no template). These point you to ask an administrator.
