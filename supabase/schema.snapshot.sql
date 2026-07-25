@@ -3737,6 +3737,121 @@ COMMENT ON FUNCTION public.resync_daily_area_assignments(p_date date) IS 'Daily 
 
 
 --
+-- Name: retention_settings_enforce_floor(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.retention_settings_enforce_floor() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_min_days integer;
+begin
+  -- keep_days = 0 is "keep forever": stricter than any floor, so it always
+  -- passes the floor check. But it MUST NOT be combined with auto_purge, or the
+  -- nightly cron would compute a cutoff of now() - '0 days' = now() and delete
+  -- the entire module. Every retention-driven purge function filters
+  -- `auto_purge = true`, so clearing the flag here is what makes keep-forever
+  -- safe across all of them — existing and future — without editing any.
+  if new.keep_days = 0 then
+    new.auto_purge := false;
+    return new;
+  end if;
+
+  select min_days into v_min_days
+    from public.retention_module_floors
+   where module_key = new.module_key;
+
+  -- A module with no floor row is unconstrained beyond the table CHECK. This is
+  -- deliberate: it lets a new module ship before its floor is decided, rather
+  -- than failing closed on an unrelated deploy.
+  if v_min_days is not null and new.keep_days < v_min_days then
+    raise exception
+      'Retention for % cannot be shorter than % days (regulatory minimum). Requested % days.',
+      new.module_key, v_min_days, new.keep_days
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION retention_settings_enforce_floor(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.retention_settings_enforce_floor() IS 'BEFORE INSERT/UPDATE guard on retention_settings. Enforces the per-module floor from retention_module_floors, and coerces auto_purge to false whenever keep_days = 0 so a keep-forever row can never be selected by a purge loop. Enforced for every role including service_role — the floor is a compliance minimum, not a permission check. Adjusting a floor requires super_admin rights on retention_module_floors.';
+
+
+--
+-- Name: schedule_open_shifts_lock(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.schedule_open_shifts_lock() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_changed text;
+begin
+  -- Governed contexts: the SECURITY DEFINER scheduling RPCs run as the table
+  -- owner, plus trusted backend roles and an explicit transaction-local bypass.
+  if current_user in ('postgres', 'supabase_admin', 'service_role')
+     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if tg_op = 'DELETE' then
+    -- Removing the listing for a published shift strands it: published,
+    -- unassigned, and with no claim path back.
+    if exists (
+      select 1 from public.schedule_shifts s
+       where s.id = old.shift_id
+         and s.status = 'published'
+    ) then
+      raise exception
+        'This open-shift listing belongs to a published shift and cannot be deleted directly. Cancel or fill it through the scheduling tools so the shift keeps a claim path.'
+        using errcode = '42501';
+    end if;
+    return old;
+  end if;
+
+  -- UPDATE. Named per column so a rejection says which field was refused;
+  -- updated_at is intentionally absent so the set_updated_at trigger's own
+  -- write passes.
+  v_changed := case
+    when new.shift_id                is distinct from old.shift_id                then 'shift_id'
+    when new.claim_status            is distinct from old.claim_status            then 'claim_status'
+    when new.claimed_by_employee_id  is distinct from old.claimed_by_employee_id  then 'claimed_by_employee_id'
+    when new.claimed_at              is distinct from old.claimed_at              then 'claimed_at'
+    when new.expires_at              is distinct from old.expires_at              then 'expires_at'
+    when new.approval_required       is distinct from old.approval_required       then 'approval_required'
+    when new.approved_by_employee_id is distinct from old.approved_by_employee_id then 'approved_by_employee_id'
+    when new.approved_at             is distinct from old.approved_at             then 'approved_at'
+    else null
+  end;
+
+  if v_changed is not null then
+    raise exception
+      'Open-shift listings are governed: "%" cannot be changed by a direct write. Use the scheduling RPCs (staff claim, admin decide, or admin assign), which re-validate the assignment, guard against lost updates, and notify the claimant.',
+      v_changed
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION schedule_open_shifts_lock(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.schedule_open_shifts_lock() IS 'BEFORE UPDATE/DELETE guard on schedule_open_shifts. For end-user roles the listing is immutable after creation and cannot be deleted while its parent shift is published; the SECURITY DEFINER scheduling RPCs are exempt because they run as the table owner. Closes the approval_required bypass, which let a scheduling admin turn a manager-approval listing into first-come with one direct PATCH (Defect 4A, migration 210).';
+
+
+--
 -- Name: schedule_shifts_publish_lock(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3807,6 +3922,42 @@ $$;
 --
 
 COMMENT ON FUNCTION public.schedule_shifts_publish_lock() IS 'Publish-lock backstop: rejects a direct INSERT of a published row, a direct UPDATE/DELETE of an already-published row, and a direct UPDATE transitioning a row TO published, all from an end-user PostgREST role. Governed SECURITY DEFINER RPCs (run as the table owner) and trusted backend roles are allowed, so swap/claim/publish/cancel/open-fill keep working. Closes the publish-lock bypass (create + edit + delete + direct-publish legs).';
+
+
+--
+-- Name: schedule_swap_requests_apply_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.schedule_swap_requests_apply_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if current_user in ('postgres', 'supabase_admin', 'service_role')
+     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+    return new;
+  end if;
+
+  -- Deliberately narrow: this rejects ONLY the transition into the applied
+  -- state. 'accepted', 'denied' and 'cancelled' are written directly by the app
+  -- as authenticated and must continue to work.
+  if new.status = 'manager_approved'
+     and old.status is distinct from 'manager_approved' then
+    raise exception
+      'A swap can only be applied through scheduling_apply_swap(), which exchanges the two shifts, re-validates both assignments, and notifies both employees. Marking it approved directly would leave the shifts unchanged and the swap permanently unrunnable.'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION schedule_swap_requests_apply_guard(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.schedule_swap_requests_apply_guard() IS 'BEFORE UPDATE guard on schedule_swap_requests. Rejects an end-user transition into ''manager_approved'', which previously bricked the request: scheduling_apply_swap refuses a swap that is not pending/accepted, and both deny and cancel refuse one already approved, so a direct write left it reading as applied while no shift had moved (Defect 4B, migration 210). Other transitions are untouched.';
 
 
 --
@@ -4600,7 +4751,7 @@ begin
                and lower(btrim(c.name)) = lower(btrim(v_req.type_name))
              )
            )
-           and (c.expires_at is null or c.expires_at >= current_date)
+           and (c.expires_at is null or c.expires_at >= v_end_local::date)
       ) then
         v_codes := array_append(v_codes, 'cert_missing:' || v_req.type_name);
       end if;
@@ -4621,7 +4772,7 @@ $$;
 -- Name: FUNCTION scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid) IS 'Returns the array of hard-block violation codes for assigning an employee to a shift slot (empty = allowed). Single source of truth used by the admin server actions, the swap-apply / publish-approve / open-claim RPCs, and the staff self-claim RPC. Weekly windows and availability matching are computed on the facility''s local calendar (facilities.timezone, schedule_settings.week_start_day). Certification requirements join the certification_types catalog (id match, legacy name fallback for unlinked employee certs).';
+COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, p_employee_id uuid, p_starts timestamp with time zone, p_ends timestamp with time zone, p_break_minutes integer, p_job_area_id uuid, p_exclude_shift_id uuid, p_exclude_shift_id2 uuid) IS 'Returns the array of hard-block violation codes for assigning an employee to a shift slot (empty = allowed). Single source of truth used by the admin server actions, the swap-apply / publish-approve / open-claim RPCs, and the staff self-claim RPC. Weekly windows and availability matching are computed on the facility''s local calendar (facilities.timezone, schedule_settings.week_start_day). Certification requirements join the certification_types catalog (id match, legacy name fallback for unlinked employee certs); a certification must be unexpired through the facility-local END of the shift, so one lapsing mid-shift is treated as missing (migration 209).';
 
 
 --
@@ -10562,6 +10713,34 @@ COMMENT ON COLUMN public.report_area_assignments.superseded_at IS 'NULL = active
 
 
 --
+-- Name: retention_module_floors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.retention_module_floors (
+    module_key text NOT NULL,
+    min_days integer NOT NULL,
+    note text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT retention_module_floors_min_days_sane CHECK ((min_days >= 30))
+);
+
+
+--
+-- Name: TABLE retention_module_floors; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.retention_module_floors IS 'Regulatory/business minimum retention per module, enforced by retention_settings_enforce_floor(). A facility may keep records LONGER than the floor, or forever (keep_days = 0), but never less. Previously these values lived only in the browser as a minDays prop, which is the defect this table closes. audit_logs is intentionally absent — it is fixed at 7 years by purge_old_audit_logs() and is not retention_settings-configurable.';
+
+
+--
+-- Name: COLUMN retention_module_floors.min_days; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.retention_module_floors.min_days IS 'Smallest permitted non-zero keep_days for this module. keep_days = 0 (keep forever) is always permitted — it is stricter than any floor.';
+
+
+--
 -- Name: retention_settings; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10575,7 +10754,7 @@ CREATE TABLE public.retention_settings (
     updated_at timestamp with time zone,
     last_purged_at timestamp with time zone,
     last_purge_count integer,
-    CONSTRAINT retention_settings_keep_days_min CHECK ((keep_days >= 30))
+    CONSTRAINT retention_settings_keep_days_min CHECK (((keep_days = 0) OR (keep_days >= 30)))
 );
 
 
@@ -10583,7 +10762,7 @@ CREATE TABLE public.retention_settings (
 -- Name: TABLE retention_settings; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.retention_settings IS 'Per-facility, per-module retention rules. keep_days=0 means keep forever (disabled).';
+COMMENT ON TABLE public.retention_settings IS 'Per-facility, per-module retention rules. keep_days = 0 means keep forever, which forces auto_purge = false (see retention_settings_enforce_floor). Non-zero values are floored per module by retention_module_floors.';
 
 
 --
@@ -12620,6 +12799,14 @@ ALTER TABLE ONLY public.refrigeration_thresholds
 
 ALTER TABLE ONLY public.report_area_assignments
     ADD CONSTRAINT report_area_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: retention_module_floors retention_module_floors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.retention_module_floors
+    ADD CONSTRAINT retention_module_floors_pkey PRIMARY KEY (module_key);
 
 
 --
@@ -15833,6 +16020,20 @@ CREATE TRIGGER trg_report_area_assignments_block_past BEFORE INSERT OR UPDATE ON
 
 
 --
+-- Name: retention_module_floors trg_retention_module_floors_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_retention_module_floors_updated_at BEFORE UPDATE ON public.retention_module_floors FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: retention_settings trg_retention_settings_enforce_floor; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_retention_settings_enforce_floor BEFORE INSERT OR UPDATE ON public.retention_settings FOR EACH ROW EXECUTE FUNCTION public.retention_settings_enforce_floor();
+
+
+--
 -- Name: retention_settings trg_retention_settings_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -15882,6 +16083,13 @@ CREATE TRIGGER trg_schedule_notifications_updated_at BEFORE UPDATE ON public.sch
 
 
 --
+-- Name: schedule_open_shifts trg_schedule_open_shifts_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_schedule_open_shifts_lock BEFORE DELETE OR UPDATE ON public.schedule_open_shifts FOR EACH ROW EXECUTE FUNCTION public.schedule_open_shifts_lock();
+
+
+--
 -- Name: schedule_open_shifts trg_schedule_open_shifts_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -15914,6 +16122,13 @@ CREATE TRIGGER trg_schedule_shifts_publish_lock BEFORE INSERT OR DELETE OR UPDAT
 --
 
 CREATE TRIGGER trg_schedule_shifts_updated_at BEFORE UPDATE ON public.schedule_shifts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: schedule_swap_requests trg_schedule_swap_apply_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_schedule_swap_apply_guard BEFORE UPDATE ON public.schedule_swap_requests FOR EACH ROW EXECUTE FUNCTION public.schedule_swap_requests_apply_guard();
 
 
 --
@@ -22103,6 +22318,26 @@ CREATE POLICY report_area_assignments_select ON public.report_area_assignments F
 CREATE POLICY report_area_assignments_update ON public.report_area_assignments FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
    FROM public.employees e
   WHERE ((e.id = report_area_assignments.employee_id) AND (e.facility_id = report_area_assignments.facility_id)))))));
+
+
+--
+-- Name: retention_module_floors; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.retention_module_floors ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: retention_module_floors retention_module_floors_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY retention_module_floors_select ON public.retention_module_floors FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: retention_module_floors retention_module_floors_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY retention_module_floors_write ON public.retention_module_floors TO authenticated USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
 
 
 --
