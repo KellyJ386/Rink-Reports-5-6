@@ -2646,10 +2646,20 @@ begin
   end if;
 
   if p_module_key = 'audit_logs' then
-    -- Fixed compliance window; not configurable via retention_settings.
+    -- Compliance window: per-facility retention_settings (default 7 years),
+    -- clamped to the 2555-day floor; keep_days = 0 disables purging
+    -- (migration 212).
+    select keep_days into v_keep_days
+      from public.retention_settings
+     where facility_id = p_facility_id
+       and module_key  = 'audit_logs';
+    v_keep_days := coalesce(v_keep_days, 2555);
+    if v_keep_days = 0 then
+      return 0;
+    end if;
     delete from public.audit_logs
      where facility_id = p_facility_id
-       and created_at < now() - interval '7 years';
+       and created_at < now() - make_interval(days => greatest(v_keep_days, 2555));
     get diagnostics v_deleted = row_count;
     return v_deleted;
   end if;
@@ -2740,7 +2750,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Facility-scoped manual purge for the admin Retention module. Authorization enforced internally (super admin or facility admin); keep_days read from retention_settings ignoring auto_purge; audit_logs fixed at 7 years.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Admin-triggered manual purge for one module in one facility. Deletes rows older than the facility''s retention_settings window. audit_logs is configurable since migration 212 with a 2555-day floor (0 = never purge). Requires super-admin or facility-admin; scheduling is not manually purgeable.';
 
 
 --
@@ -2812,14 +2822,37 @@ CREATE FUNCTION public.purge_old_audit_logs() RETURNS integer
     SET search_path TO 'public', 'pg_temp'
     AS $$
 declare
-  v_deleted integer;
+  v_deleted integer := 0;
+  v_n       integer;
+  f         record;
 begin
-  delete from public.audit_logs
-   where created_at < now() - interval '7 years';
-  get diagnostics v_deleted = row_count;
+  for f in
+    select fac.id,
+           coalesce(rs.keep_days, 2555) as keep_days
+      from public.facilities fac
+      left join public.retention_settings rs
+        on rs.facility_id = fac.id
+       and rs.module_key  = 'audit_logs'
+  loop
+    if f.keep_days = 0 then
+      continue; -- Forever (no purge)
+    end if;
+    delete from public.audit_logs
+     where facility_id = f.id
+       and created_at < now() - make_interval(days => greatest(f.keep_days, 2555));
+    get diagnostics v_n = row_count;
+    v_deleted := v_deleted + v_n;
+  end loop;
   return v_deleted;
 end;
 $$;
+
+
+--
+-- Name: FUNCTION purge_old_audit_logs(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_audit_logs() IS 'Retention worker for audit_logs. Per-facility window from retention_settings (module_key=audit_logs), default 7 years, hard floor 2555 days (0 = never purge). Service-role only; called by the nightly retention cron.';
 
 
 --
@@ -10627,6 +10660,7 @@ CREATE TABLE public.retention_settings (
     updated_at timestamp with time zone,
     last_purged_at timestamp with time zone,
     last_purge_count integer,
+    CONSTRAINT retention_settings_audit_floor CHECK (((module_key <> 'audit_logs'::text) OR (keep_days = 0) OR (keep_days >= 2555))),
     CONSTRAINT retention_settings_keep_days_min CHECK ((keep_days >= 30))
 );
 

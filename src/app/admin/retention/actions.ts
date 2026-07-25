@@ -60,6 +60,16 @@ export async function upsertRetentionSetting(
   if (!Number.isFinite(keepDays) || (keepDays !== 0 && keepDays < 30)) {
     return { ok: false, error: "Keep days must be 0 (forever) or at least 30." }
   }
+  // Audit-log retention has a compliance floor: 7 years, raisable, never
+  // lower (also enforced by the retention_settings_audit_floor CHECK and
+  // clamped inside both purge functions — migration 212).
+  if (moduleKey.trim() === "audit_logs" && keepDays !== 0 && keepDays < 2555) {
+    return {
+      ok: false,
+      error:
+        "Audit log retention cannot be set below 7 years (2555 days). Use 0 to keep forever.",
+    }
+  }
 
   const supabase = await createClient()
   const { error } = await supabase

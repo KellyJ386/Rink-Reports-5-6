@@ -78,8 +78,9 @@ export const MODULES: ReadonlyArray<{
   {
     key: "audit_logs",
     label: "Audit Log",
-    description: "System audit trail entries.",
-    minDays: 365,
+    description:
+      "System audit trail entries. Compliance floor: 7 years — the window can be raised, never shortened.",
+    minDays: 2555,
   },
 ]
 
@@ -91,5 +92,7 @@ export const PRESET_OPTIONS = [
   { label: "2 years", value: 730 },
   { label: "3 years", value: 1095 },
   { label: "5 years", value: 1825 },
+  { label: "7 years", value: 2555 },
+  { label: "10 years", value: 3650 },
   { label: "Forever (no purge)", value: 0 },
 ] as const

@@ -2504,6 +2504,72 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- 2k2. Audit-retention floor + configurable window (migration 212).
+--
+-- The audit-log retention window moved from a hard-coded 7 years to the
+-- per-facility retention_settings row — with a lock: the
+-- retention_settings_audit_floor CHECK forbids any value below 2555 days
+-- (0 = keep forever remains allowed), and both purge paths clamp with
+-- greatest(keep_days, 2555) as defense in depth. Probe the lock and the
+-- window arithmetic at the DB boundary.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- The lock: a sub-floor audit retention row is rejected by the CHECK even
+-- for the table owner.
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'audit_logs', 365)$$,
+  'RET-212: audit_logs retention below 2555 days is rejected (floor CHECK)');
+-- 0 (= forever) and >= 2555 are allowed.
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'audit_logs', 3650)
+    on conflict (facility_id, module_key) do update set keep_days = 3650$$,
+  'RET-212: a 10-year audit retention window is accepted');
+-- Non-audit modules keep the old 30-day floor semantics (CHECK untouched).
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'daily_reports', 30)
+    on conflict (facility_id, module_key) do update set keep_days = 30$$,
+  'RET-212: non-audit modules are unaffected by the audit floor');
+
+-- Window arithmetic: with a 10-year window configured, an 8-year-old audit
+-- row SURVIVES the nightly worker; a 9-year-old row under the default
+-- 7-year fallback (facility B, no settings row) is deleted.
+insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
+values
+  ('a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'ret212.probe', 'retention_probe', now() - interval '8 years'),
+  ('a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222',
+   'ret212.probe', 'retention_probe', now() - interval '9 years')
+on conflict (id) do nothing;
+reset role;
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_audit_logs()$$,
+  'RET-212: service_role runs the nightly audit purge');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  1, 'RET-212: 8-year-old row SURVIVES under the configured 10-year window');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb'$$,
+  0, 'RET-212: 9-year-old row is purged under the default 7-year fallback');
+-- Clean up the settings rows so later sections see defaults.
+delete from public.retention_settings
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_key in ('audit_logs', 'daily_reports');
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 2l. System-state purge functions (migration 134).
 --
 -- purge_old_notification_outbox / purge_old_offline_sync_queue are SECURITY
