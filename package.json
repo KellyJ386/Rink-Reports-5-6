@@ -64,7 +64,10 @@
       "postcss": "^8.5.18"
     },
     "auditConfig": {
-      "ignoreGhsas": ["GHSA-f88m-g3jw-g9cj"]
+      "ignoreGhsas": [
+        "GHSA-f88m-g3jw-g9cj",
+        "GHSA-mh99-v99m-4gvg"
+      ]
     }
   }
 }

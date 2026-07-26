@@ -44,12 +44,14 @@ describe("partitionViolations", () => {
 
 describe("describeViolation", () => {
   it("formats a cert gap with the cert name", () => {
+    // Wording must cover both a never-held cert and one expiring before the
+    // shift ends — migration 209 emits the same code for both.
     expect(describeViolation("cert_missing:CPR")).toBe(
-      "requires a certification the employee doesn't have (CPR)"
+      "requires a certification the employee is missing or that expires before this shift (CPR)"
     )
     // Cert names may contain colons/spaces — only the prefix is stripped.
     expect(describeViolation("cert_missing:Level 2: Ice")).toBe(
-      "requires a certification the employee doesn't have (Level 2: Ice)"
+      "requires a certification the employee is missing or that expires before this shift (Level 2: Ice)"
     )
   })
 
@@ -71,7 +73,7 @@ describe("formatViolations", () => {
   it("joins descriptions into one sentence", () => {
     expect(formatViolations(["overtime", "cert_missing:CPR"])).toBe(
       "This assignment pushes the employee past the overtime threshold; " +
-        "requires a certification the employee doesn't have (CPR)."
+        "requires a certification the employee is missing or that expires before this shift (CPR)."
     )
   })
 

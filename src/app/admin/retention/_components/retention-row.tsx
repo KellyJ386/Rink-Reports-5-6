@@ -183,15 +183,17 @@ export function RetentionRowForm({
         </div>
       </form>
 
-      {/* Manual purge */}
-      {existing && (
+      {/* Manual purge. Hidden entirely when records are kept forever — the DB
+          refuses that purge anyway, so offering the button (previously reading
+          "older than ∞ days") only invited a confusing failure. */}
+      {existing && currentKeepDays !== 0 && (
         <div className="rounded-md border border-destructive/40 p-4 flex flex-col gap-3">
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium text-destructive">
               Manual Purge
             </span>
             <span className="text-xs text-muted-foreground">
-              Immediately delete all {label} records older than {currentKeepDays === 0 ? "∞" : `${currentKeepDays}`} days.
+              Immediately delete all {label} records older than {currentKeepDays} days.
               This cannot be undone.
             </span>
           </div>
