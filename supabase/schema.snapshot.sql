@@ -79,6 +79,92 @@ CREATE TYPE public.user_action AS ENUM (
 
 
 --
+-- Name: _audit_chain_verify_impl(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public._audit_chain_verify_impl(p_facility_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  r          record;
+  v_prev     text := null;   -- row_hash of the previous SURVIVING row
+  v_checked  integer := 0;
+  v_first    boolean := true;
+  v_cursor   text;
+  v_hop_prev text;
+  v_hops     integer;
+  v_bridged  boolean;
+begin
+  for r in
+    select * from public.audit_logs
+     where facility_id = p_facility_id
+     order by seq
+  loop
+    if r.row_hash is distinct from public.audit_row_chain_hash(
+         r.prev_hash, r.facility_id, r.actor_user_id, r.actor_employee_id,
+         r.action, r.entity_type, r.entity_id, r.before, r.after,
+         r.ip, r.user_agent, r.created_at) then
+      return jsonb_build_object(
+        'ok', false, 'checked', v_checked,
+        'first_break_seq', r.seq, 'reason', 'row_hash mismatch (payload altered)');
+    end if;
+
+    if not v_first and r.prev_hash is distinct from v_prev then
+      v_bridged := false;
+      v_cursor  := r.prev_hash;
+      v_hops    := 0;
+      while v_cursor is not null and v_hops < 100000 loop
+        select a->>'prev_hash' into v_hop_prev
+          from public.audit_destruction_batches b
+               cross join lateral jsonb_array_elements(coalesce(b.chain_anchors, '[]'::jsonb)) as a
+         where b.facility_id = p_facility_id
+           and a->>'row_hash' = v_cursor
+         limit 1;
+        if not found then
+          exit;
+        end if;
+        v_hops   := v_hops + 1;
+        v_cursor := v_hop_prev;
+        if v_cursor is not distinct from v_prev then
+          v_bridged := true;
+          exit;
+        end if;
+      end loop;
+      if not v_bridged then
+        return jsonb_build_object(
+          'ok', false, 'checked', v_checked,
+          'first_break_seq', r.seq,
+          'reason', 'prev_hash linkage broken (row missing or reordered)');
+      end if;
+    end if;
+
+    if v_first and r.prev_hash is not null then
+      if not exists (
+        select 1
+          from public.audit_destruction_batches b
+               cross join lateral jsonb_array_elements(coalesce(b.chain_anchors, '[]'::jsonb)) as a
+         where b.facility_id = p_facility_id
+           and a->>'row_hash' = r.prev_hash
+      ) then
+        return jsonb_build_object(
+          'ok', false, 'checked', v_checked,
+          'first_break_seq', r.seq,
+          'reason', 'genesis prev_hash does not resolve to destroyed history');
+      end if;
+    end if;
+
+    v_first   := false;
+    v_prev    := r.row_hash;
+    v_checked := v_checked + 1;
+  end loop;
+
+  return jsonb_build_object('ok', true, 'checked', v_checked);
+end;
+$$;
+
+
+--
 -- Name: apply_role_permission_defaults(uuid, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -138,6 +224,160 @@ COMMENT ON FUNCTION public.apply_role_permission_defaults(p_user_id uuid, p_faci
 
 
 --
+-- Name: approve_audit_destruction(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.approve_audit_destruction(p_batch_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_batch public.audit_destruction_batches%rowtype;
+  v_uid   uuid := auth.uid();
+  v_n     integer;
+begin
+  select * into v_batch
+    from public.audit_destruction_batches
+   where id = p_batch_id
+     for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Batch not found.');
+  end if;
+  if not (public.is_super_admin() or public.is_facility_admin(v_batch.facility_id)) then
+    raise exception 'approve_audit_destruction: admin access required'
+      using errcode = '42501';
+  end if;
+  if v_batch.status <> 'staged' then
+    return jsonb_build_object('ok', false, 'error',
+      format('Batch is already %s.', v_batch.status));
+  end if;
+
+  if v_batch.approved_by_1 is null then
+    update public.audit_destruction_batches
+       set approved_by_1 = v_uid,
+           approved_at_1 = now()
+     where id = p_batch_id;
+    insert into public.audit_logs
+      (facility_id, actor_user_id, actor_employee_id, action, entity_type, entity_id, after)
+    values
+      (v_batch.facility_id, v_uid, public.current_employee_id(),
+       'audit_destruction.approve_first', 'audit_destruction_batches', p_batch_id,
+       jsonb_build_object('staged_count', v_batch.staged_count));
+    return jsonb_build_object('ok', true, 'state', 'pending_second_approval');
+  end if;
+
+  if v_batch.approved_by_1 = v_uid then
+    return jsonb_build_object('ok', false, 'error',
+      'Destruction requires a second approval from a DIFFERENT admin.');
+  end if;
+
+  -- Second, distinct approver: destroy (anchors already on the batch).
+  delete from public.audit_logs_pending_destruction
+   where batch_id = p_batch_id;
+  get diagnostics v_n = row_count;
+
+  update public.audit_destruction_batches
+     set approved_by_2 = v_uid,
+         approved_at_2 = now(),
+         status        = 'destroyed',
+         destroyed_at  = now()
+   where id = p_batch_id;
+
+  insert into public.audit_logs
+    (facility_id, actor_user_id, actor_employee_id, action, entity_type, entity_id, after)
+  values
+    (v_batch.facility_id, v_uid, public.current_employee_id(),
+     'audit_destruction.execute', 'audit_destruction_batches', p_batch_id,
+     jsonb_build_object('destroyed_count', v_n,
+                        'first_approved_by', v_batch.approved_by_1));
+
+  return jsonb_build_object('ok', true, 'state', 'destroyed', 'destroyed_count', v_n);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION approve_audit_destruction(p_batch_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.approve_audit_destruction(p_batch_id uuid) IS 'Two-person destruction of a staged audit batch: first call records approval, a second call by a DIFFERENT facility admin deletes the quarantined rows. Self-second-approval refused. Both steps self-audit.';
+
+
+--
+-- Name: audit_logs_append_only(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_logs_append_only() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if coalesce(current_setting('rr.audit_chain_bypass', true), '') = 'on' then
+    return coalesce(new, old);
+  end if;
+  raise exception
+    'audit_logs is append-only: % is not allowed (retention goes through the governed two-person destruction flow)',
+    tg_op
+    using errcode = '42501';
+end;
+$$;
+
+
+--
+-- Name: audit_logs_hash_chain(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_logs_hash_chain() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_prev text;
+begin
+  perform pg_advisory_xact_lock(
+    hashtextextended('audit_chain:' || new.facility_id::text, 42));
+
+  select row_hash into v_prev
+    from public.audit_logs
+   where facility_id = new.facility_id
+   order by seq desc
+   limit 1;
+
+  new.prev_hash := v_prev;
+  new.row_hash  := public.audit_row_chain_hash(
+    v_prev, new.facility_id, new.actor_user_id, new.actor_employee_id,
+    new.action, new.entity_type, new.entity_id, new.before, new.after,
+    new.ip, new.user_agent, new.created_at);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: audit_row_chain_hash(text, uuid, uuid, uuid, text, text, uuid, jsonb, jsonb, inet, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_row_chain_hash(p_prev_hash text, p_facility_id uuid, p_actor_user_id uuid, p_actor_employee_id uuid, p_action text, p_entity_type text, p_entity_id uuid, p_before jsonb, p_after jsonb, p_ip inet, p_user_agent text, p_created_at timestamp with time zone) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select public.audit_sha256(
+    coalesce(p_prev_hash, 'genesis')
+    || '|' || p_facility_id::text
+    || '|' || coalesce(p_actor_user_id::text, '')
+    || '|' || coalesce(p_actor_employee_id::text, '')
+    || '|' || p_action
+    || '|' || p_entity_type
+    || '|' || coalesce(p_entity_id::text, '')
+    || '|' || coalesce(p_before::text, '')
+    || '|' || coalesce(p_after::text, '')
+    || '|' || coalesce(p_ip::text, '')
+    || '|' || coalesce(p_user_agent, '')
+    || '|' || extract(epoch from p_created_at)::text)
+$$;
+
+
+--
 -- Name: audit_row_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -187,8 +427,13 @@ begin
 
   -- audit_logs.facility_id is NOT NULL. If we cannot resolve a tenant id
   -- (very unusual: orphaned row, table doesn't carry facility_id at all)
-  -- skip the audit entry rather than failing the original DML.
+  -- skip the audit entry rather than failing the original DML — but say so
+  -- in the server log. A silent skip here is a hole in the audit trail with
+  -- no operational trace (the sign-in sheet with the lazy attendant).
   if v_facility is null then
+    raise warning
+      'audit_row_change: skipped audit entry for % on %.% (facility unresolvable)',
+      tg_op, tg_table_schema, tg_table_name;
     return coalesce(new, old);
   end if;
 
@@ -222,6 +467,18 @@ $$;
 --
 
 COMMENT ON FUNCTION public.audit_row_change() IS 'Generic AFTER trigger function: appends a row to audit_logs describing the INSERT/UPDATE/DELETE. Pass the facility-id column name as the first trigger argument; defaults to ''facility_id''. Skips silently if facility cannot be resolved so it never blocks the underlying DML.';
+
+
+--
+-- Name: audit_sha256(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_sha256(p_input text) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'extensions', 'public', 'pg_temp'
+    AS $$
+  select encode(digest(convert_to(p_input, 'utf8'), 'sha256'), 'hex')
+$$;
 
 
 --
@@ -297,6 +554,74 @@ COMMENT ON FUNCTION public.can_edit_user_profile(p_target_user_id uuid) IS 'True
 
 
 --
+-- Name: cancel_audit_destruction(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.cancel_audit_destruction(p_batch_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_batch public.audit_destruction_batches%rowtype;
+  v_uid   uuid := auth.uid();
+  v_n     integer;
+begin
+  select * into v_batch
+    from public.audit_destruction_batches
+   where id = p_batch_id
+     for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Batch not found.');
+  end if;
+  if not (public.is_super_admin() or public.is_facility_admin(v_batch.facility_id)) then
+    raise exception 'cancel_audit_destruction: admin access required'
+      using errcode = '42501';
+  end if;
+  if v_batch.status <> 'staged' then
+    return jsonb_build_object('ok', false, 'error',
+      format('Batch is already %s.', v_batch.status));
+  end if;
+
+  with restored as (
+    delete from public.audit_logs_pending_destruction
+     where batch_id = p_batch_id
+     returning *
+  )
+  insert into public.audit_logs
+    (id, facility_id, actor_user_id, actor_employee_id, action, entity_type,
+     entity_id, before, after, ip, user_agent, created_at)
+  select original_id, facility_id, actor_user_id, actor_employee_id, action,
+         entity_type, entity_id, before, after, ip, user_agent,
+         original_created_at
+    from restored;
+  get diagnostics v_n = row_count;
+
+  update public.audit_destruction_batches
+     set status       = 'cancelled',
+         cancelled_by = v_uid,
+         cancelled_at = now()
+   where id = p_batch_id;
+
+  insert into public.audit_logs
+    (facility_id, actor_user_id, actor_employee_id, action, entity_type, entity_id, after)
+  values
+    (v_batch.facility_id, v_uid, public.current_employee_id(),
+     'audit_destruction.cancel', 'audit_destruction_batches', p_batch_id,
+     jsonb_build_object('restored_count', v_n));
+
+  return jsonb_build_object('ok', true, 'state', 'cancelled', 'restored_count', v_n);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION cancel_audit_destruction(p_batch_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.cancel_audit_destruction(p_batch_id uuid) IS 'Restores every row of a staged audit-destruction batch back into audit_logs (original id and created_at preserved) and closes the batch. Single-admin: recovery is the safe direction.';
+
+
+--
 -- Name: canonical_role_permission_grants(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -309,78 +634,59 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       -- admin (Control Center)
       ('super_admin','admin','admin'::public.user_action),
       ('admin','admin','admin'::public.user_action),
-      ('gm','admin','admin'::public.user_action),
       ('manager','admin','view'::public.user_action),
       -- daily_reports
       ('super_admin','daily_reports','admin'::public.user_action),
       ('admin','daily_reports','admin'::public.user_action),
-      ('gm','daily_reports','admin'::public.user_action),
       ('manager','daily_reports','admin'::public.user_action),
-      ('supervisor','daily_reports','edit'::public.user_action),
       ('staff','daily_reports','submit'::public.user_action),
       ('driver','daily_reports','submit'::public.user_action),
       -- ice_depth
       ('super_admin','ice_depth','admin'::public.user_action),
       ('admin','ice_depth','admin'::public.user_action),
-      ('gm','ice_depth','admin'::public.user_action),
       ('manager','ice_depth','admin'::public.user_action),
-      ('supervisor','ice_depth','edit'::public.user_action),
       ('staff','ice_depth','submit'::public.user_action),
       ('driver','ice_depth','submit'::public.user_action),
       -- ice_operations
       ('super_admin','ice_operations','admin'::public.user_action),
       ('admin','ice_operations','admin'::public.user_action),
-      ('gm','ice_operations','admin'::public.user_action),
       ('manager','ice_operations','admin'::public.user_action),
-      ('supervisor','ice_operations','edit'::public.user_action),
       ('staff','ice_operations','submit'::public.user_action),
       ('driver','ice_operations','edit'::public.user_action),
       -- refrigeration
       ('super_admin','refrigeration','admin'::public.user_action),
       ('admin','refrigeration','admin'::public.user_action),
-      ('gm','refrigeration','admin'::public.user_action),
       ('manager','refrigeration','admin'::public.user_action),
-      ('supervisor','refrigeration','edit'::public.user_action),
       ('staff','refrigeration','submit'::public.user_action),
       ('driver','refrigeration','submit'::public.user_action),
       -- incident_reports
       ('super_admin','incident_reports','admin'::public.user_action),
       ('admin','incident_reports','admin'::public.user_action),
-      ('gm','incident_reports','admin'::public.user_action),
       ('manager','incident_reports','admin'::public.user_action),
-      ('supervisor','incident_reports','edit'::public.user_action),
       ('staff','incident_reports','submit'::public.user_action),
       ('driver','incident_reports','submit'::public.user_action),
       -- accident_reports
       ('super_admin','accident_reports','admin'::public.user_action),
       ('admin','accident_reports','admin'::public.user_action),
-      ('gm','accident_reports','admin'::public.user_action),
       ('manager','accident_reports','admin'::public.user_action),
-      ('supervisor','accident_reports','edit'::public.user_action),
       ('staff','accident_reports','submit'::public.user_action),
       ('driver','accident_reports','submit'::public.user_action),
       -- air_quality
       ('super_admin','air_quality','admin'::public.user_action),
       ('admin','air_quality','admin'::public.user_action),
-      ('gm','air_quality','admin'::public.user_action),
       ('manager','air_quality','admin'::public.user_action),
-      ('supervisor','air_quality','edit'::public.user_action),
       ('staff','air_quality','submit'::public.user_action),
       ('driver','air_quality','view'::public.user_action),
       -- scheduling
       ('super_admin','scheduling','admin'::public.user_action),
       ('admin','scheduling','admin'::public.user_action),
-      ('gm','scheduling','admin'::public.user_action),
       ('manager','scheduling','admin'::public.user_action),
-      ('supervisor','scheduling','edit'::public.user_action),
       ('staff','scheduling','view'::public.user_action),
       ('driver','scheduling','view'::public.user_action),
       -- communications
       ('super_admin','communications','admin'::public.user_action),
       ('admin','communications','admin'::public.user_action),
-      ('gm','communications','admin'::public.user_action),
       ('manager','communications','admin'::public.user_action),
-      ('supervisor','communications','edit'::public.user_action),
       ('staff','communications','submit'::public.user_action),
       ('driver','communications','submit'::public.user_action),
       -- facility_paperwork (document library: manage for admin-tier roles,
@@ -388,17 +694,13 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       -- is_facility_admin regardless)
       ('super_admin','facility_paperwork','admin'::public.user_action),
       ('admin','facility_paperwork','admin'::public.user_action),
-      ('gm','facility_paperwork','admin'::public.user_action),
       ('manager','facility_paperwork','admin'::public.user_action),
-      ('supervisor','facility_paperwork','view'::public.user_action),
       ('staff','facility_paperwork','view'::public.user_action),
       ('driver','facility_paperwork','view'::public.user_action),
       -- dasher_boards (added migration 193; manager deliberately edit, not admin)
       ('super_admin','dasher_boards','admin'::public.user_action),
       ('admin','dasher_boards','admin'::public.user_action),
-      ('gm','dasher_boards','admin'::public.user_action),
       ('manager','dasher_boards','edit'::public.user_action),
-      ('supervisor','dasher_boards','edit'::public.user_action),
       ('staff','dasher_boards','submit'::public.user_action),
       ('driver','dasher_boards','submit'::public.user_action)
   ),
@@ -538,7 +840,7 @@ begin
     public.is_super_admin()
     or (
       v_tgt_facility = public.current_facility_id()
-      and public.current_user_role() in ('admin', 'gm', 'super_admin')
+      and public.current_user_role() in ('admin', 'super_admin')
     )
   ) then
     raise exception 'Not authorised';
@@ -589,12 +891,12 @@ declare
   v_valid_cnt int;
 begin
   -- AuthZ: caller must be in p_facility_id AND hold at least 'admin' role
-  -- key (admin, gm, super_admin), OR be a platform super_admin.
+  -- key (admin, super_admin), OR be a platform super_admin.
   if not public.is_super_admin() then
     if p_facility_id is null or p_facility_id <> public.current_facility_id() then
       raise exception 'create_employee_complete: facility mismatch';
     end if;
-    if public.current_user_role() not in ('admin', 'gm', 'super_admin') then
+    if public.current_user_role() not in ('admin', 'super_admin') then
       raise exception 'create_employee_complete: caller lacks admin privilege';
     end if;
   end if;
@@ -1602,12 +1904,12 @@ begin
     return;
   end if;
 
-  -- Authorisation: super_admin or facility-scoped admin/gm/super_admin.
+  -- Authorisation: super_admin or facility-scoped admin/super_admin.
   if not (
     public.is_super_admin()
     or (
       v_facility_id = public.current_facility_id()
-      and public.current_user_role() in ('admin', 'gm', 'super_admin')
+      and public.current_user_role() in ('admin', 'super_admin')
     )
   ) then
     return query select false, 0, 'Not authorised'::text;
@@ -2664,12 +2966,22 @@ begin
   end if;
 
   if p_module_key = 'audit_logs' then
-    -- Fixed compliance window; not configurable via retention_settings.
-    delete from public.audit_logs
+    -- Compliance window: per-facility retention_settings (default 7 years),
+    -- clamped to the 2555-day floor; keep_days = 0 disables purging
+    -- (migration 215). Since migration 216 expired rows are STAGED into
+    -- audit_logs_pending_destruction (recoverable until two admins approve
+    -- destruction) instead of deleted.
+    select keep_days into v_keep_days
+      from public.retention_settings
      where facility_id = p_facility_id
-       and created_at < now() - interval '7 years';
-    get diagnostics v_deleted = row_count;
-    return v_deleted;
+       and module_key  = 'audit_logs';
+    v_keep_days := coalesce(v_keep_days, 2555);
+    if v_keep_days = 0 then
+      return 0;
+    end if;
+    return public.stage_audit_logs_for_destruction(
+      p_facility_id,
+      now() - make_interval(days => greatest(v_keep_days, 2555)));
   end if;
 
   select keep_days into v_keep_days
@@ -2758,7 +3070,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Facility-scoped manual purge for the admin Retention module. Authorization enforced internally (super admin or facility admin); keep_days read from retention_settings ignoring auto_purge; audit_logs fixed at 7 years.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Admin-triggered manual purge for one module in one facility. Deletes rows older than the facility''s retention_settings window. audit_logs is configurable since migration 215 with a 2555-day floor (0 = never purge). Requires super-admin or facility-admin; scheduling is not manually purgeable.';
 
 
 --
@@ -2830,14 +3142,34 @@ CREATE FUNCTION public.purge_old_audit_logs() RETURNS integer
     SET search_path TO 'public', 'pg_temp'
     AS $$
 declare
-  v_deleted integer;
+  v_staged integer := 0;
+  f        record;
 begin
-  delete from public.audit_logs
-   where created_at < now() - interval '7 years';
-  get diagnostics v_deleted = row_count;
-  return v_deleted;
+  for f in
+    select fac.id,
+           coalesce(rs.keep_days, 2555) as keep_days
+      from public.facilities fac
+      left join public.retention_settings rs
+        on rs.facility_id = fac.id
+       and rs.module_key  = 'audit_logs'
+  loop
+    if f.keep_days = 0 then
+      continue; -- Forever (no purge)
+    end if;
+    v_staged := v_staged + public.stage_audit_logs_for_destruction(
+      f.id,
+      now() - make_interval(days => greatest(f.keep_days, 2555)));
+  end loop;
+  return v_staged;
 end;
 $$;
+
+
+--
+-- Name: FUNCTION purge_old_audit_logs(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_audit_logs() IS 'Retention worker for audit_logs. Per-facility window from retention_settings (module_key=audit_logs), default 7 years, hard floor 2555 days (0 = never). Since migration 216 it STAGES expired rows into audit_logs_pending_destruction (recoverable) instead of deleting; actual destruction requires two-admin approval. Service-role only.';
 
 
 --
@@ -3233,7 +3565,7 @@ begin
     public.is_super_admin()
     or (
       v_facility_id = public.current_facility_id()
-      and public.current_user_role() in ('admin', 'gm', 'super_admin')
+      and public.current_user_role() in ('admin', 'super_admin')
     )
   ) then
     return false;
@@ -3342,6 +3674,7 @@ CREATE FUNCTION public.resolve_daily_area_assignments(p_date date) RETURNS integ
 declare
   v_facility uuid;
   v_tz       text;
+  v_today    date;
   v_start    timestamptz;
   v_end      timestamptz;
   v_n        integer;
@@ -3358,10 +3691,15 @@ begin
     raise exception 'daily_reports access required' using errcode = '42501';
   end if;
 
-  -- Only today's window (facility-local "today" can differ from the server's
-  -- UTC date by a day in either direction). Past days are locked; far-future
-  -- materialization is meaningless because schedules/defaults still change.
-  if p_date is null or p_date < current_date - 2 or p_date > current_date + 2 then
+  -- Only today's window. The window is anchored to the FACILITY-LOCAL date
+  -- (everything else in this function uses f.timezone; the previous
+  -- current_date anchor used the session timezone — UTC on Supabase — which
+  -- skews one day off facility-local every evening).
+  select coalesce(f.timezone, 'UTC') into v_tz
+    from public.facilities f where f.id = v_facility;
+  v_today := (now() at time zone coalesce(v_tz, 'UTC'))::date;
+
+  if p_date is null or p_date < v_today - 2 or p_date > v_today + 2 then
     raise exception 'resolve_daily_area_assignments: date % out of range', p_date;
   end if;
 
@@ -3382,8 +3720,6 @@ begin
   -- queue up behind the first instead of double-inserting.
   perform pg_advisory_xact_lock(hashtextextended(v_facility::text || ':' || p_date::text, 42));
 
-  select coalesce(f.timezone, 'UTC') into v_tz
-    from public.facilities f where f.id = v_facility;
   v_start := (p_date::timestamp) at time zone v_tz;
   v_end   := v_start + interval '1 day';
 
@@ -3586,7 +3922,10 @@ begin
     from public.facilities f where f.id = v_facility;
   v_today := (now() at time zone v_tz)::date;
 
-  if p_date is null or p_date < v_today or p_date > current_date + 2 then
+  -- Both bounds anchored to the facility-local date (the upper bound
+  -- previously used session-timezone current_date — one day off facility-local
+  -- every evening on a UTC server).
+  if p_date is null or p_date < v_today or p_date > v_today + 2 then
     raise exception 'resync_daily_area_assignments: date % out of range', p_date;
   end if;
 
@@ -3993,6 +4332,7 @@ declare
   v_open        public.schedule_open_shifts%rowtype;
   v_shift       public.schedule_shifts%rowtype;
   v_codes       text[];
+  v_blocking    text[];
   v_updated     int;
 begin
   if not (public.is_super_admin() or public.has_module_admin_access('scheduling')) then
@@ -4025,14 +4365,17 @@ begin
       'That employee isn''t part of your facility.');
   end if;
 
-  -- Hard block: re-validate (cert / overtime / time-off / overlap / ...).
+  -- Re-validate. Cert gaps always block; advisory codes (overtime, time-off,
+  -- overlap, …) block only under the facility's block_on_violations policy —
+  -- the same partition the scheduling-grid gate applies (migration 214).
   v_codes := public.scheduling_assignment_violations(
     v_open.facility_id, p_employee_id,
     v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
     v_shift.job_area_id, v_shift.id);
-  if array_length(v_codes, 1) is not null then
+  v_blocking := public.scheduling_blocking_violations(v_open.facility_id, v_codes);
+  if array_length(v_blocking, 1) is not null then
     return jsonb_build_object('ok', false, 'error', 'not_assignable',
-      'violations', to_jsonb(v_codes));
+      'violations', to_jsonb(v_blocking));
   end if;
 
   update public.schedule_shifts
@@ -4234,6 +4577,7 @@ declare
   v_req_shift   public.schedule_shifts%rowtype;
   v_tgt_shift   public.schedule_shifts%rowtype;
   v_codes       text[];
+  v_blocking    text[];
 begin
   if not (public.is_super_admin() or public.has_module_admin_access('scheduling')) then
     raise exception 'scheduling_apply_swap: scheduling admin required'
@@ -4296,16 +4640,18 @@ begin
     end if;
   end if;
 
-  -- Hard block: validate each employee against the shift they are moving onto,
-  -- excluding BOTH traded shifts so the counterpart doesn't false-positive
-  -- double-booking / weekly hours / min-rest.
+  -- Validate each employee against the shift they are moving onto, excluding
+  -- BOTH traded shifts so the counterpart doesn't false-positive
+  -- double-booking / weekly hours / min-rest. Cert gaps always block;
+  -- advisory codes block only under block_on_violations (migration 214).
   v_codes := public.scheduling_assignment_violations(
     v_swap.facility_id, v_swap.target_employee_id,
     v_req_shift.starts_at, v_req_shift.ends_at, v_req_shift.break_minutes,
     v_req_shift.job_area_id, v_req_shift.id, v_swap.target_shift_id);
-  if array_length(v_codes, 1) is not null then
+  v_blocking := public.scheduling_blocking_violations(v_swap.facility_id, v_codes);
+  if array_length(v_blocking, 1) is not null then
     return jsonb_build_object('ok', false,
-      'error', 'target_not_assignable', 'violations', to_jsonb(v_codes));
+      'error', 'target_not_assignable', 'violations', to_jsonb(v_blocking));
   end if;
 
   if v_swap.target_shift_id is not null then
@@ -4313,9 +4659,10 @@ begin
       v_swap.facility_id, v_swap.requester_employee_id,
       v_tgt_shift.starts_at, v_tgt_shift.ends_at, v_tgt_shift.break_minutes,
       v_tgt_shift.job_area_id, v_tgt_shift.id, v_req_shift.id);
-    if array_length(v_codes, 1) is not null then
+    v_blocking := public.scheduling_blocking_violations(v_swap.facility_id, v_codes);
+    if array_length(v_blocking, 1) is not null then
       return jsonb_build_object('ok', false,
-        'error', 'requester_not_assignable', 'violations', to_jsonb(v_codes));
+        'error', 'requester_not_assignable', 'violations', to_jsonb(v_blocking));
     end if;
   end if;
 
@@ -4375,6 +4722,8 @@ declare
   v_ids         uuid[];
   v_shift       record;
   v_codes       text[];
+  v_blocking    text[];
+  v_advisory    text[] := '{}';
   v_blocked     int := 0;
   v_count       int := 0;
   v_open_count  int := 0;
@@ -4432,7 +4781,15 @@ begin
       'No draft shifts remain in range. Reject this request instead.');
   end if;
 
-  -- Hard block: re-validate every assigned draft before publishing.
+  -- Re-validate every assigned draft before publishing. BLOCKING codes are
+  -- decided by scheduling_blocking_violations (migration 214): cert gaps
+  -- always block; advisory codes (overtime, min-rest, time-off, overlap, …)
+  -- block only when the facility's block_on_violations toggle is on —
+  -- the SAME policy the scheduling-grid gate applies at authoring time.
+  -- Before migration 214 this loop blocked on ANY code, so a draft that was
+  -- legal to save (warn-and-confirm) could make the whole week unpublishable.
+  -- Non-blocking advisory codes are collected and returned so the approver
+  -- still sees them.
   for v_shift in
     select id, employee_id, starts_at, ends_at, break_minutes, job_area_id
       from public.schedule_shifts
@@ -4443,8 +4800,12 @@ begin
       v_req.facility_id, v_shift.employee_id,
       v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
       v_shift.job_area_id, v_shift.id);
-    if array_length(v_codes, 1) is not null then
+    v_blocking := public.scheduling_blocking_violations(v_req.facility_id, v_codes);
+    if array_length(v_blocking, 1) is not null then
       v_blocked := v_blocked + 1;
+    elsif array_length(v_codes, 1) is not null then
+      v_advisory := array(
+        select distinct c from unnest(v_advisory || v_codes) as c order by c);
     end if;
   end loop;
   if v_blocked > 0 then
@@ -4518,7 +4879,10 @@ begin
          published_event_id      = v_event_id
    where id = p_request_id;
 
-  return jsonb_build_object('ok', true, 'shift_count', v_count, 'open_count', v_open_count);
+  return jsonb_build_object(
+    'ok', true, 'shift_count', v_count, 'open_count', v_open_count,
+    'advisory_warnings', to_jsonb(v_advisory),
+    'advisory_count', coalesce(array_length(v_advisory, 1), 0));
 end;
 $$;
 
@@ -4776,6 +5140,37 @@ COMMENT ON FUNCTION public.scheduling_assignment_violations(p_facility_id uuid, 
 
 
 --
+-- Name: scheduling_blocking_violations(uuid, text[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_blocking_violations(p_facility_id uuid, p_codes text[]) RETURNS text[]
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select case
+    when coalesce(
+           (select s.block_on_violations
+              from public.schedule_settings s
+             where s.facility_id = p_facility_id),
+           false)
+      then coalesce(p_codes, '{}')
+    else coalesce(
+           (select array_agg(c order by c)
+              from unnest(coalesce(p_codes, '{}')) as c
+             where c like 'cert_missing:%'),
+           '{}')
+  end
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_blocking_violations(p_facility_id uuid, p_codes text[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_blocking_violations(p_facility_id uuid, p_codes text[]) IS 'Filters scheduling_assignment_violations() codes down to the subset that must BLOCK a write for this facility: cert_missing:* always; everything else only when schedule_settings.block_on_violations is on. Single source of the hard/soft policy for the governed scheduling RPCs (migration 214).';
+
+
+--
 -- Name: scheduling_claim_open_shift(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4789,6 +5184,7 @@ declare
   v_open          public.schedule_open_shifts%rowtype;
   v_shift         public.schedule_shifts%rowtype;
   v_codes         text[];
+  v_blocking      text[];
 begin
   if v_employee_id is null then
     raise exception 'No current employee context.' using errcode = '28000';
@@ -4814,14 +5210,17 @@ begin
 
   select * into v_shift from public.schedule_shifts where id = v_open.shift_id;
 
-  -- Hard-block: a staff member may not claim a shift they are not allowed to work.
+  -- A staff member may not claim a shift they are not allowed to work.
+  -- Cert gaps always block; advisory codes block only under the facility's
+  -- block_on_violations policy (migration 214).
   v_codes := public.scheduling_assignment_violations(
     v_facility_id, v_employee_id,
     v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
     v_shift.job_area_id, v_shift.id
   );
-  if array_length(v_codes, 1) is not null then
-    raise exception 'Cannot claim this shift: %', array_to_string(v_codes, ', ')
+  v_blocking := public.scheduling_blocking_violations(v_facility_id, v_codes);
+  if array_length(v_blocking, 1) is not null then
+    raise exception 'Cannot claim this shift: %', array_to_string(v_blocking, ', ')
       using errcode = 'check_violation';
   end if;
 
@@ -4872,6 +5271,7 @@ declare
   v_open        public.schedule_open_shifts%rowtype;
   v_shift       public.schedule_shifts%rowtype;
   v_codes       text[];
+  v_blocking    text[];
 begin
   if not (public.is_super_admin() or public.has_module_admin_access('scheduling')) then
     raise exception 'scheduling_decide_open_claim: scheduling admin required'
@@ -4908,14 +5308,16 @@ begin
         'The shift was already assigned to someone else. Decline this claim.');
     end if;
 
-    -- Re-validate the claimant at decision time.
+    -- Re-validate the claimant at decision time. Cert gaps always block;
+    -- advisory codes block only under block_on_violations (migration 214).
     v_codes := public.scheduling_assignment_violations(
       v_open.facility_id, v_open.claimed_by_employee_id,
       v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
       v_shift.job_area_id, v_shift.id);
-    if array_length(v_codes, 1) is not null then
+    v_blocking := public.scheduling_blocking_violations(v_open.facility_id, v_codes);
+    if array_length(v_blocking, 1) is not null then
       return jsonb_build_object('ok', false,
-        'error', 'claimant_not_assignable', 'violations', to_jsonb(v_codes));
+        'error', 'claimant_not_assignable', 'violations', to_jsonb(v_blocking));
     end if;
 
     update public.schedule_shifts
@@ -6730,6 +7132,70 @@ COMMENT ON FUNCTION public.snapshot_daily_assignment_days(p_facility_id uuid) IS
 
 
 --
+-- Name: stage_audit_logs_for_destruction(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.stage_audit_logs_for_destruction(p_facility_id uuid, p_cutoff timestamp with time zone) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_batch uuid;
+  v_n     integer;
+begin
+  select count(*) into v_n
+    from public.audit_logs
+   where facility_id = p_facility_id
+     and created_at < p_cutoff;
+  if v_n = 0 then
+    return 0;
+  end if;
+
+  insert into public.audit_destruction_batches (facility_id, staged_count)
+  values (p_facility_id, v_n)
+  returning id into v_batch;
+
+  -- Governed bypass of the append-only guard (transaction-local), mirroring
+  -- the schedule publish-lock pattern.
+  perform set_config('rr.audit_chain_bypass', 'on', true);
+
+  with moved as (
+    delete from public.audit_logs
+     where facility_id = p_facility_id
+       and created_at < p_cutoff
+     returning *
+  )
+  insert into public.audit_logs_pending_destruction
+    (batch_id, original_id, facility_id, actor_user_id, actor_employee_id,
+     action, entity_type, entity_id, before, after, ip, user_agent,
+     original_created_at, original_seq, original_prev_hash, original_row_hash)
+  select v_batch, id, facility_id, actor_user_id, actor_employee_id,
+         action, entity_type, entity_id, before, after, ip, user_agent,
+         created_at, seq, prev_hash, row_hash
+    from moved;
+
+  perform set_config('rr.audit_chain_bypass', '', true);
+
+  -- Archive the chain anchors NOW (not at destruction) so verification can
+  -- bridge the gap for as long as the batch exists in any state.
+  update public.audit_destruction_batches b
+     set chain_anchors = (
+       select jsonb_agg(
+                jsonb_build_object(
+                  'seq', p.original_seq,
+                  'prev_hash', p.original_prev_hash,
+                  'row_hash', p.original_row_hash)
+                order by p.original_seq)
+         from public.audit_logs_pending_destruction p
+        where p.batch_id = v_batch)
+   where b.id = v_batch;
+
+  return v_n;
+end;
+$$;
+
+
+--
 -- Name: submit_incident_report(uuid, uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, text, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6807,6 +7273,102 @@ $$;
 --
 
 COMMENT ON FUNCTION public.submit_incident_report(p_facility_id uuid, p_employee_id uuid, p_severity_level_id uuid, p_incident_type_id uuid, p_activity_id uuid, p_activity_other text, p_location_other text, p_immediate_actions text, p_occurred_at timestamp with time zone, p_reporter_name text, p_reporter_phone text, p_description text, p_ambulance_flag boolean, p_persons_involved integer, p_follow_up_required boolean, p_space_ids uuid[], p_witnesses jsonb) IS 'Atomic incident submission: report + spaces + witnesses + change log in one transaction. SECURITY INVOKER — RLS (008/103/104) still gates every write, so this grants no authority beyond the equivalent row-by-row inserts.';
+
+
+--
+-- Name: supersede_daily_report_submission(uuid, text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.supersede_daily_report_submission(p_original_id uuid, p_reason text, p_items jsonb) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_emp      uuid := public.current_employee_id();
+  v_original public.daily_report_submissions%rowtype;
+  v_new_id   uuid;
+  v_item     jsonb;
+  v_n        integer := 0;
+begin
+  if p_reason is null or btrim(p_reason) = '' then
+    return jsonb_build_object('ok', false, 'error',
+      'A correction reason is required.');
+  end if;
+
+  select * into v_original
+    from public.daily_report_submissions
+   where id = p_original_id
+     for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Submission not found.');
+  end if;
+
+  if not public.is_super_admin()
+     and v_original.facility_id is distinct from public.current_facility_id() then
+    raise exception 'supersede_daily_report_submission: cross-facility'
+      using errcode = '42501';
+  end if;
+
+  -- Module admin, or the original submitter (paper-logbook rule: the person
+  -- who wrote the entry may line-through-and-correct their own).
+  if not (
+    public.is_super_admin()
+    or public.has_module_admin_access('daily_reports')
+    or (v_emp is not null and v_original.employee_id = v_emp)
+  ) then
+    raise exception 'supersede_daily_report_submission: only a daily-reports admin or the original submitter may file a correction'
+      using errcode = '42501';
+  end if;
+
+  if v_original.superseded_at is not null then
+    return jsonb_build_object('ok', false, 'error',
+      'This submission was already corrected. Correct the latest version instead.');
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' then
+    return jsonb_build_object('ok', false, 'error',
+      'Corrected items payload is required.');
+  end if;
+
+  insert into public.daily_report_submissions
+    (facility_id, area_id, template_id, employee_id, submitted_at,
+     business_date, supersedes_id, correction_reason, corrected_by)
+  values
+    (v_original.facility_id, v_original.area_id, v_original.template_id,
+     v_emp, now(),
+     v_original.business_date, v_original.id, btrim(p_reason), v_emp)
+  returning id into v_new_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    if coalesce(btrim(v_item->>'label_snapshot'), '') = '' then
+      raise exception 'supersede_daily_report_submission: every item needs a label_snapshot';
+    end if;
+    insert into public.daily_report_submission_items
+      (facility_id, submission_id, checklist_item_id, label_snapshot, is_checked)
+    values
+      (v_original.facility_id, v_new_id,
+       nullif(v_item->>'checklist_item_id', '')::uuid,
+       v_item->>'label_snapshot',
+       coalesce((v_item->>'is_checked')::boolean, false));
+    v_n := v_n + 1;
+  end loop;
+
+  -- The line-through: stamp the original. (Audited by
+  -- trg_audit_daily_report_submissions like every other change here.)
+  update public.daily_report_submissions
+     set superseded_at = now(),
+         superseded_by = v_new_id
+   where id = v_original.id;
+
+  return jsonb_build_object('ok', true, 'correction_id', v_new_id, 'item_count', v_n);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION supersede_daily_report_submission(p_original_id uuid, p_reason text, p_items jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.supersede_daily_report_submission(p_original_id uuid, p_reason text, p_items jsonb) IS 'Files a correction for a (possibly day-locked) daily-report submission: inserts a new submission carrying the ORIGINAL business_date + required reason, and stamps the original superseded (never edited or deleted). Allowed for daily-reports module admins and the original submitter.';
 
 
 --
@@ -7051,10 +7613,22 @@ COMMENT ON FUNCTION public.update_incident_report(p_report_id uuid, p_severity_l
 --
 
 CREATE FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
-  select coalesce(
+begin
+  -- Internal gate: only reveal a permission bit the caller is entitled to see.
+  if not (
+    p_user_id = auth.uid()
+    or public.is_super_admin()
+    or (p_facility_id = public.current_facility_id()
+        and public.is_facility_admin(p_facility_id))
+  ) then
+    raise exception 'user_has_permission: not authorized to query this user/facility'
+      using errcode = '42501';
+  end if;
+
+  return coalesce(
     (select u.is_super_admin from public.users u where u.id = p_user_id),
     false
   )
@@ -7066,6 +7640,7 @@ CREATE FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p
       and action      = p_action
       and enabled     = true
   );
+end;
 $$;
 
 
@@ -7073,7 +7648,7 @@ $$;
 -- Name: FUNCTION user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) IS 'True iff (user, facility, module, action) is enabled, or the user is a global super_admin.';
+COMMENT ON FUNCTION public.user_has_permission(p_user_id uuid, p_facility_id uuid, p_module_name text, p_action public.user_action) IS 'Permission-bit lookup. Internally gated (migration 219): the caller may only query themselves, their own facility as its admin, or — as a super-admin — anyone. Prevents cross-tenant permission enumeration.';
 
 
 --
@@ -7105,6 +7680,82 @@ $$;
 --
 
 COMMENT ON FUNCTION public.validate_module_area_permission() IS 'BEFORE INSERT/UPDATE guard on module_area_permissions: the polymorphic area_id must reference an existing area in the same facility for the given module_key (daily_reports today). Added after 15 orphaned grants were found in production (2026-07-06 admin-area review).';
+
+
+--
+-- Name: verify_all_audit_chains(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.verify_all_audit_chains() RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  f        record;
+  v_res    jsonb;
+  v_broken jsonb := '[]'::jsonb;
+  v_facs   integer := 0;
+  v_rows   integer := 0;
+begin
+  if not (
+    public.is_super_admin()
+    or session_user in ('postgres', 'service_role', 'supabase_admin')
+  ) then
+    raise exception 'verify_all_audit_chains: service-role or super-admin only'
+      using errcode = '42501';
+  end if;
+
+  for f in select id from public.facilities loop
+    v_res  := public._audit_chain_verify_impl(f.id);
+    v_facs := v_facs + 1;
+    v_rows := v_rows + coalesce((v_res->>'checked')::int, 0);
+    if (v_res->>'ok') = 'false' then
+      v_broken := v_broken || jsonb_build_object(
+        'facility_id',     f.id,
+        'first_break_seq', v_res->'first_break_seq',
+        'reason',          v_res->>'reason');
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'ok', jsonb_array_length(v_broken) = 0,
+    'checked_facilities', v_facs,
+    'total_rows_checked', v_rows,
+    'broken', v_broken);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION verify_all_audit_chains(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.verify_all_audit_chains() IS 'Service-role sweep: runs the audit-chain verification across every facility and returns a compact break report. Called by /api/cron/verify-audit-chain so audit tamper-evidence is checked on a schedule, not only on demand.';
+
+
+--
+-- Name: verify_audit_chain(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.verify_audit_chain(p_facility_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if not (public.is_super_admin() or public.is_facility_admin(p_facility_id)) then
+    raise exception 'verify_audit_chain: admin access required'
+      using errcode = '42501';
+  end if;
+  return public._audit_chain_verify_impl(p_facility_id);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION verify_audit_chain(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.verify_audit_chain(p_facility_id uuid) IS 'Recomputes every audit_logs hash for a facility and walks the seq-ordered linkage, bridging destroyed spans via audit_destruction_batches.chain_anchors. Admin-gated. Any payload edit, missing row, or reorder returns ok=false with the first breaking seq.';
 
 
 --
@@ -7637,6 +8288,43 @@ COMMENT ON TABLE public.area_default_owners IS 'Daily Reports routing: standing 
 
 
 --
+-- Name: audit_destruction_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_destruction_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    staged_count integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'staged'::text NOT NULL,
+    approved_by_1 uuid,
+    approved_at_1 timestamp with time zone,
+    approved_by_2 uuid,
+    approved_at_2 timestamp with time zone,
+    destroyed_at timestamp with time zone,
+    cancelled_by uuid,
+    cancelled_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    chain_anchors jsonb,
+    CONSTRAINT audit_destruction_batches_status_check CHECK ((status = ANY (ARRAY['staged'::text, 'destroyed'::text, 'cancelled'::text]))),
+    CONSTRAINT audit_destruction_two_person CHECK (((approved_by_2 IS NULL) OR (approved_by_1 IS NULL) OR (approved_by_2 <> approved_by_1)))
+);
+
+
+--
+-- Name: TABLE audit_destruction_batches; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.audit_destruction_batches IS 'One row per retention-purge staging run per facility. Audit rows moved to audit_logs_pending_destruction reference a batch; destroying the batch requires two different admins (approve RPC), cancelling restores the rows.';
+
+
+--
+-- Name: COLUMN audit_destruction_batches.chain_anchors; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_destruction_batches.chain_anchors IS 'Hash metadata ({seq, prev_hash, row_hash}, no payload) of the rows this batch staged, archived at staging time — lets verify_audit_chain() bridge the gap while staged, after destruction, and across cancel-restores, without retaining destroyed content.';
+
+
+--
 -- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7652,29 +8340,388 @@ CREATE TABLE public.audit_logs (
     after jsonb,
     ip inet,
     user_agent text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+)
+PARTITION BY RANGE (created_at);
 
 
 --
 -- Name: TABLE audit_logs; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.audit_logs IS 'Append-only audit trail. No UPDATE/DELETE allowed by RLS.';
+COMMENT ON TABLE public.audit_logs IS 'Append-only audit trail (migration 2), hash-chained + append-only (214), RANGE-partitioned by created_at (yearly, migration 222). No UPDATE/DELETE except the governed retention-staging bypass.';
 
 
 --
--- Name: COLUMN audit_logs.action; Type: COMMENT; Schema: public; Owner: -
+-- Name: audit_logs_default; Type: TABLE; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.audit_logs.action IS 'Verb (e.g. ''create'', ''update'', ''delete'', ''login'').';
+CREATE TABLE public.audit_logs_default (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
 
 
 --
--- Name: COLUMN audit_logs.entity_type; Type: COMMENT; Schema: public; Owner: -
+-- Name: audit_logs_pending_destruction; Type: TABLE; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.audit_logs.entity_type IS 'Logical type (table or domain object) being acted upon.';
+CREATE TABLE public.audit_logs_pending_destruction (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid NOT NULL,
+    original_id uuid NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    original_created_at timestamp with time zone NOT NULL,
+    staged_at timestamp with time zone DEFAULT now() NOT NULL,
+    original_seq bigint,
+    original_prev_hash text,
+    original_row_hash text
+);
+
+
+--
+-- Name: TABLE audit_logs_pending_destruction; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.audit_logs_pending_destruction IS 'Expired audit_logs rows staged for destruction ("the locked bin"). Fully restorable until the owning batch gets its second destruction approval.';
+
+
+--
+-- Name: audit_logs_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.audit_logs_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: audit_logs_y2023; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2023 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2024; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2024 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2025; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2025 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2026; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2026 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2027; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2027 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2028; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2028 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2029; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2029 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2030; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2030 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2031; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2031 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2032; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2032 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2033; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2033 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2034; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2034 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
+
+
+--
+-- Name: audit_logs_y2035; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_y2035 (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    actor_user_id uuid,
+    actor_employee_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    before jsonb,
+    after jsonb,
+    ip inet,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    seq bigint NOT NULL,
+    prev_hash text,
+    row_hash text
+);
 
 
 --
@@ -8242,7 +9289,12 @@ CREATE TABLE public.daily_report_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    business_date date
+    business_date date,
+    superseded_at timestamp with time zone,
+    superseded_by uuid,
+    supersedes_id uuid,
+    correction_reason text,
+    corrected_by uuid
 );
 
 
@@ -8258,6 +9310,20 @@ COMMENT ON TABLE public.daily_report_submissions IS 'Daily Reports: a single sub
 --
 
 COMMENT ON COLUMN public.daily_report_submissions.business_date IS 'Facility-local date of the submission (set server-side at submit time). A grouping key for a day''s submissions; NOT unique -- daily reports are append-only, so a same-day correction is a new row.';
+
+
+--
+-- Name: COLUMN daily_report_submissions.superseded_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_submissions.superseded_at IS 'Set when a correction supersedes this submission. The row is never edited beyond this stamp; superseded_by links to the correction.';
+
+
+--
+-- Name: COLUMN daily_report_submissions.supersedes_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_submissions.supersedes_id IS 'Set on a correction row: the submission this one supersedes. correction_reason is required for corrections.';
 
 
 --
@@ -11458,6 +12524,104 @@ COMMENT ON COLUMN public.user_permissions.source IS 'role_default = written by a
 
 
 --
+-- Name: audit_logs_default; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_default DEFAULT;
+
+
+--
+-- Name: audit_logs_y2023; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2023 FOR VALUES FROM ('2023-01-01 00:00:00+00') TO ('2024-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2024; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2024 FOR VALUES FROM ('2024-01-01 00:00:00+00') TO ('2025-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2025; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2025 FOR VALUES FROM ('2025-01-01 00:00:00+00') TO ('2026-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2026; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2026 FOR VALUES FROM ('2026-01-01 00:00:00+00') TO ('2027-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2027; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2027 FOR VALUES FROM ('2027-01-01 00:00:00+00') TO ('2028-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2028; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2028 FOR VALUES FROM ('2028-01-01 00:00:00+00') TO ('2029-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2029; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2029 FOR VALUES FROM ('2029-01-01 00:00:00+00') TO ('2030-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2030; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2030 FOR VALUES FROM ('2030-01-01 00:00:00+00') TO ('2031-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2031; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2031 FOR VALUES FROM ('2031-01-01 00:00:00+00') TO ('2032-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2032; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2032 FOR VALUES FROM ('2032-01-01 00:00:00+00') TO ('2033-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2033; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2033 FOR VALUES FROM ('2033-01-01 00:00:00+00') TO ('2034-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2034; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2034 FOR VALUES FROM ('2034-01-01 00:00:00+00') TO ('2035-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_logs_y2035; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_y2035 FOR VALUES FROM ('2035-01-01 00:00:00+00') TO ('2036-01-01 00:00:00+00');
+
+
+--
 -- Name: accident_body_part_selections accident_body_part_selections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11658,11 +12822,139 @@ ALTER TABLE ONLY public.area_default_owners
 
 
 --
+-- Name: audit_destruction_batches audit_destruction_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.audit_logs
-    ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_default audit_logs_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_default
+    ADD CONSTRAINT audit_logs_default_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_pending_destruction audit_logs_pending_destruction_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_pending_destruction
+    ADD CONSTRAINT audit_logs_pending_destruction_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_logs_y2023 audit_logs_y2023_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2023
+    ADD CONSTRAINT audit_logs_y2023_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2024 audit_logs_y2024_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2024
+    ADD CONSTRAINT audit_logs_y2024_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2025 audit_logs_y2025_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2025
+    ADD CONSTRAINT audit_logs_y2025_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2026 audit_logs_y2026_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2026
+    ADD CONSTRAINT audit_logs_y2026_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2027 audit_logs_y2027_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2027
+    ADD CONSTRAINT audit_logs_y2027_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2028 audit_logs_y2028_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2028
+    ADD CONSTRAINT audit_logs_y2028_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2029 audit_logs_y2029_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2029
+    ADD CONSTRAINT audit_logs_y2029_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2030 audit_logs_y2030_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2030
+    ADD CONSTRAINT audit_logs_y2030_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2031 audit_logs_y2031_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2031
+    ADD CONSTRAINT audit_logs_y2031_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2032 audit_logs_y2032_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2032
+    ADD CONSTRAINT audit_logs_y2032_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2033 audit_logs_y2033_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2033
+    ADD CONSTRAINT audit_logs_y2033_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2034 audit_logs_y2034_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2034
+    ADD CONSTRAINT audit_logs_y2034_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_y2035 audit_logs_y2035_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_y2035
+    ADD CONSTRAINT audit_logs_y2035_pkey PRIMARY KEY (id, created_at);
 
 
 --
@@ -13066,6 +14358,636 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: idx_audit_logs_actor_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_actor_user_id ON ONLY public.audit_logs USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_default_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_default_actor_user_id_idx ON public.audit_logs_default USING btree (actor_user_id);
+
+
+--
+-- Name: idx_audit_logs_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_created_at ON ONLY public.audit_logs USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_default_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_default_created_at_idx ON public.audit_logs_default USING btree (created_at DESC);
+
+
+--
+-- Name: idx_audit_logs_entity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_entity ON ONLY public.audit_logs USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_default_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_default_entity_type_entity_id_idx ON public.audit_logs_default USING btree (entity_type, entity_id);
+
+
+--
+-- Name: idx_audit_logs_facility_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_facility_created ON ONLY public.audit_logs USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_default_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_default_facility_id_created_at_idx ON public.audit_logs_default USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: idx_audit_logs_facility_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_facility_id ON ONLY public.audit_logs USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_default_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_default_facility_id_idx ON public.audit_logs_default USING btree (facility_id);
+
+
+--
+-- Name: idx_audit_logs_facility_seq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_logs_facility_seq ON ONLY public.audit_logs USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_default_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_default_facility_id_seq_idx ON public.audit_logs_default USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2023_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2023_actor_user_id_idx ON public.audit_logs_y2023 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2023_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2023_created_at_idx ON public.audit_logs_y2023 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2023_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2023_entity_type_entity_id_idx ON public.audit_logs_y2023 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2023_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2023_facility_id_created_at_idx ON public.audit_logs_y2023 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2023_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2023_facility_id_idx ON public.audit_logs_y2023 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2023_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2023_facility_id_seq_idx ON public.audit_logs_y2023 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2024_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2024_actor_user_id_idx ON public.audit_logs_y2024 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2024_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2024_created_at_idx ON public.audit_logs_y2024 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2024_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2024_entity_type_entity_id_idx ON public.audit_logs_y2024 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2024_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2024_facility_id_created_at_idx ON public.audit_logs_y2024 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2024_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2024_facility_id_idx ON public.audit_logs_y2024 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2024_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2024_facility_id_seq_idx ON public.audit_logs_y2024 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2025_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2025_actor_user_id_idx ON public.audit_logs_y2025 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2025_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2025_created_at_idx ON public.audit_logs_y2025 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2025_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2025_entity_type_entity_id_idx ON public.audit_logs_y2025 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2025_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2025_facility_id_created_at_idx ON public.audit_logs_y2025 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2025_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2025_facility_id_idx ON public.audit_logs_y2025 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2025_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2025_facility_id_seq_idx ON public.audit_logs_y2025 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2026_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2026_actor_user_id_idx ON public.audit_logs_y2026 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2026_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2026_created_at_idx ON public.audit_logs_y2026 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2026_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2026_entity_type_entity_id_idx ON public.audit_logs_y2026 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2026_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2026_facility_id_created_at_idx ON public.audit_logs_y2026 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2026_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2026_facility_id_idx ON public.audit_logs_y2026 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2026_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2026_facility_id_seq_idx ON public.audit_logs_y2026 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2027_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2027_actor_user_id_idx ON public.audit_logs_y2027 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2027_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2027_created_at_idx ON public.audit_logs_y2027 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2027_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2027_entity_type_entity_id_idx ON public.audit_logs_y2027 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2027_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2027_facility_id_created_at_idx ON public.audit_logs_y2027 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2027_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2027_facility_id_idx ON public.audit_logs_y2027 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2027_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2027_facility_id_seq_idx ON public.audit_logs_y2027 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2028_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2028_actor_user_id_idx ON public.audit_logs_y2028 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2028_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2028_created_at_idx ON public.audit_logs_y2028 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2028_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2028_entity_type_entity_id_idx ON public.audit_logs_y2028 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2028_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2028_facility_id_created_at_idx ON public.audit_logs_y2028 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2028_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2028_facility_id_idx ON public.audit_logs_y2028 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2028_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2028_facility_id_seq_idx ON public.audit_logs_y2028 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2029_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2029_actor_user_id_idx ON public.audit_logs_y2029 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2029_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2029_created_at_idx ON public.audit_logs_y2029 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2029_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2029_entity_type_entity_id_idx ON public.audit_logs_y2029 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2029_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2029_facility_id_created_at_idx ON public.audit_logs_y2029 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2029_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2029_facility_id_idx ON public.audit_logs_y2029 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2029_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2029_facility_id_seq_idx ON public.audit_logs_y2029 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2030_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2030_actor_user_id_idx ON public.audit_logs_y2030 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2030_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2030_created_at_idx ON public.audit_logs_y2030 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2030_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2030_entity_type_entity_id_idx ON public.audit_logs_y2030 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2030_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2030_facility_id_created_at_idx ON public.audit_logs_y2030 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2030_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2030_facility_id_idx ON public.audit_logs_y2030 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2030_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2030_facility_id_seq_idx ON public.audit_logs_y2030 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2031_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2031_actor_user_id_idx ON public.audit_logs_y2031 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2031_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2031_created_at_idx ON public.audit_logs_y2031 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2031_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2031_entity_type_entity_id_idx ON public.audit_logs_y2031 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2031_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2031_facility_id_created_at_idx ON public.audit_logs_y2031 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2031_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2031_facility_id_idx ON public.audit_logs_y2031 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2031_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2031_facility_id_seq_idx ON public.audit_logs_y2031 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2032_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2032_actor_user_id_idx ON public.audit_logs_y2032 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2032_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2032_created_at_idx ON public.audit_logs_y2032 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2032_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2032_entity_type_entity_id_idx ON public.audit_logs_y2032 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2032_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2032_facility_id_created_at_idx ON public.audit_logs_y2032 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2032_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2032_facility_id_idx ON public.audit_logs_y2032 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2032_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2032_facility_id_seq_idx ON public.audit_logs_y2032 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2033_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2033_actor_user_id_idx ON public.audit_logs_y2033 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2033_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2033_created_at_idx ON public.audit_logs_y2033 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2033_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2033_entity_type_entity_id_idx ON public.audit_logs_y2033 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2033_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2033_facility_id_created_at_idx ON public.audit_logs_y2033 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2033_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2033_facility_id_idx ON public.audit_logs_y2033 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2033_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2033_facility_id_seq_idx ON public.audit_logs_y2033 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2034_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2034_actor_user_id_idx ON public.audit_logs_y2034 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2034_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2034_created_at_idx ON public.audit_logs_y2034 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2034_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2034_entity_type_entity_id_idx ON public.audit_logs_y2034 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2034_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2034_facility_id_created_at_idx ON public.audit_logs_y2034 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2034_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2034_facility_id_idx ON public.audit_logs_y2034 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2034_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2034_facility_id_seq_idx ON public.audit_logs_y2034 USING btree (facility_id, seq DESC);
+
+
+--
+-- Name: audit_logs_y2035_actor_user_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2035_actor_user_id_idx ON public.audit_logs_y2035 USING btree (actor_user_id);
+
+
+--
+-- Name: audit_logs_y2035_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2035_created_at_idx ON public.audit_logs_y2035 USING btree (created_at DESC);
+
+
+--
+-- Name: audit_logs_y2035_entity_type_entity_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2035_entity_type_entity_id_idx ON public.audit_logs_y2035 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_y2035_facility_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2035_facility_id_created_at_idx ON public.audit_logs_y2035 USING btree (facility_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_y2035_facility_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2035_facility_id_idx ON public.audit_logs_y2035 USING btree (facility_id);
+
+
+--
+-- Name: audit_logs_y2035_facility_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_y2035_facility_id_seq_idx ON public.audit_logs_y2035 USING btree (facility_id, seq DESC);
+
+
+--
 -- Name: certification_types_ci_uniq; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13353,38 +15275,24 @@ CREATE INDEX idx_area_default_owners_facility ON public.area_default_owners USIN
 
 
 --
--- Name: idx_audit_logs_actor_user_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_audit_destruction_batches_facility; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_audit_logs_actor_user_id ON public.audit_logs USING btree (actor_user_id);
-
-
---
--- Name: idx_audit_logs_created_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_audit_logs_created_at ON public.audit_logs USING btree (created_at DESC);
+CREATE INDEX idx_audit_destruction_batches_facility ON public.audit_destruction_batches USING btree (facility_id, status, created_at DESC);
 
 
 --
--- Name: idx_audit_logs_entity; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_audit_pending_destruction_batch; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_audit_logs_entity ON public.audit_logs USING btree (entity_type, entity_id);
-
-
---
--- Name: idx_audit_logs_facility_created; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_audit_logs_facility_created ON public.audit_logs USING btree (facility_id, created_at DESC);
+CREATE INDEX idx_audit_pending_destruction_batch ON public.audit_logs_pending_destruction USING btree (batch_id);
 
 
 --
--- Name: idx_audit_logs_facility_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_audit_pending_destruction_facility; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_audit_logs_facility_id ON public.audit_logs USING btree (facility_id);
+CREATE INDEX idx_audit_pending_destruction_facility ON public.audit_logs_pending_destruction USING btree (facility_id, original_created_at);
 
 
 --
@@ -13686,6 +15594,13 @@ CREATE INDEX idx_daily_report_submissions_facility_created ON public.daily_repor
 --
 
 CREATE INDEX idx_daily_report_submissions_facility_submitted ON public.daily_report_submissions USING btree (facility_id, submitted_at DESC);
+
+
+--
+-- Name: idx_daily_report_submissions_supersedes; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_submissions_supersedes ON public.daily_report_submissions USING btree (supersedes_id) WHERE (supersedes_id IS NOT NULL);
 
 
 --
@@ -15075,6 +16990,13 @@ CREATE UNIQUE INDEX uniq_communication_ack_message_employee ON public.communicat
 
 
 --
+-- Name: uniq_daily_report_submission_active_correction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_daily_report_submission_active_correction ON public.daily_report_submissions USING btree (supersedes_id) WHERE ((supersedes_id IS NOT NULL) AND (superseded_at IS NULL));
+
+
+--
 -- Name: uniq_daily_report_submission_items_sub_item; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -15128,6 +17050,692 @@ CREATE INDEX user_permissions_facility_module_idx ON public.user_permissions USI
 --
 
 CREATE INDEX user_permissions_lookup_idx ON public.user_permissions USING btree (user_id, facility_id, module_name) WHERE (enabled = true);
+
+
+--
+-- Name: audit_logs_default_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_default_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_default_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_default_created_at_idx;
+
+
+--
+-- Name: audit_logs_default_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_default_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_default_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_default_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_default_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_default_facility_id_idx;
+
+
+--
+-- Name: audit_logs_default_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_default_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_default_pkey;
+
+
+--
+-- Name: audit_logs_y2023_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2023_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2023_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2023_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2023_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2023_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2023_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2023_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2023_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2023_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2023_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2023_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2023_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2023_pkey;
+
+
+--
+-- Name: audit_logs_y2024_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2024_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2024_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2024_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2024_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2024_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2024_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2024_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2024_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2024_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2024_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2024_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2024_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2024_pkey;
+
+
+--
+-- Name: audit_logs_y2025_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2025_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2025_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2025_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2025_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2025_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2025_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2025_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2025_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2025_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2025_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2025_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2025_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2025_pkey;
+
+
+--
+-- Name: audit_logs_y2026_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2026_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2026_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2026_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2026_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2026_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2026_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2026_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2026_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2026_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2026_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2026_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2026_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2026_pkey;
+
+
+--
+-- Name: audit_logs_y2027_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2027_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2027_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2027_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2027_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2027_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2027_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2027_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2027_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2027_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2027_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2027_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2027_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2027_pkey;
+
+
+--
+-- Name: audit_logs_y2028_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2028_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2028_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2028_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2028_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2028_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2028_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2028_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2028_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2028_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2028_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2028_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2028_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2028_pkey;
+
+
+--
+-- Name: audit_logs_y2029_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2029_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2029_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2029_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2029_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2029_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2029_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2029_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2029_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2029_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2029_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2029_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2029_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2029_pkey;
+
+
+--
+-- Name: audit_logs_y2030_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2030_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2030_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2030_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2030_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2030_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2030_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2030_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2030_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2030_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2030_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2030_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2030_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2030_pkey;
+
+
+--
+-- Name: audit_logs_y2031_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2031_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2031_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2031_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2031_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2031_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2031_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2031_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2031_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2031_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2031_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2031_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2031_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2031_pkey;
+
+
+--
+-- Name: audit_logs_y2032_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2032_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2032_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2032_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2032_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2032_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2032_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2032_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2032_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2032_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2032_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2032_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2032_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2032_pkey;
+
+
+--
+-- Name: audit_logs_y2033_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2033_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2033_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2033_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2033_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2033_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2033_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2033_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2033_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2033_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2033_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2033_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2033_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2033_pkey;
+
+
+--
+-- Name: audit_logs_y2034_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2034_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2034_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2034_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2034_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2034_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2034_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2034_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2034_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2034_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2034_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2034_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2034_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2034_pkey;
+
+
+--
+-- Name: audit_logs_y2035_actor_user_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_actor_user_id ATTACH PARTITION public.audit_logs_y2035_actor_user_id_idx;
+
+
+--
+-- Name: audit_logs_y2035_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_created_at ATTACH PARTITION public.audit_logs_y2035_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2035_entity_type_entity_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_entity ATTACH PARTITION public.audit_logs_y2035_entity_type_entity_id_idx;
+
+
+--
+-- Name: audit_logs_y2035_facility_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_created ATTACH PARTITION public.audit_logs_y2035_facility_id_created_at_idx;
+
+
+--
+-- Name: audit_logs_y2035_facility_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_id ATTACH PARTITION public.audit_logs_y2035_facility_id_idx;
+
+
+--
+-- Name: audit_logs_y2035_facility_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_logs_facility_seq ATTACH PARTITION public.audit_logs_y2035_facility_id_seq_idx;
+
+
+--
+-- Name: audit_logs_y2035_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2035_pkey;
 
 
 --
@@ -15345,6 +17953,20 @@ CREATE TRIGGER trg_audit_ice_depth_sessions AFTER INSERT OR DELETE OR UPDATE ON 
 --
 
 CREATE TRIGGER trg_audit_incident_reports AFTER INSERT OR DELETE OR UPDATE ON public.incident_reports FOR EACH ROW EXECUTE FUNCTION public.audit_row_change();
+
+
+--
+-- Name: audit_logs trg_audit_logs_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_logs_append_only BEFORE DELETE OR UPDATE ON public.audit_logs FOR EACH ROW EXECUTE FUNCTION public.audit_logs_append_only();
+
+
+--
+-- Name: audit_logs trg_audit_logs_hash_chain; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_logs_hash_chain BEFORE INSERT ON public.audit_logs FOR EACH ROW EXECUTE FUNCTION public.audit_logs_hash_chain();
 
 
 --
@@ -16530,10 +19152,42 @@ ALTER TABLE ONLY public.area_default_owners
 
 
 --
+-- Name: audit_destruction_batches audit_destruction_batches_approved_by_1_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_approved_by_1_fkey FOREIGN KEY (approved_by_1) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_approved_by_2_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_approved_by_2_fkey FOREIGN KEY (approved_by_2) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_cancelled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_destruction_batches
+    ADD CONSTRAINT audit_destruction_batches_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: audit_logs audit_logs_actor_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.audit_logs
+ALTER TABLE public.audit_logs
     ADD CONSTRAINT audit_logs_actor_employee_id_fkey FOREIGN KEY (actor_employee_id) REFERENCES public.employees(id) ON DELETE SET NULL;
 
 
@@ -16541,7 +19195,7 @@ ALTER TABLE ONLY public.audit_logs
 -- Name: audit_logs audit_logs_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.audit_logs
+ALTER TABLE public.audit_logs
     ADD CONSTRAINT audit_logs_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
@@ -16549,8 +19203,16 @@ ALTER TABLE ONLY public.audit_logs
 -- Name: audit_logs audit_logs_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.audit_logs
+ALTER TABLE public.audit_logs
     ADD CONSTRAINT audit_logs_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: audit_logs_pending_destruction audit_logs_pending_destruction_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_pending_destruction
+    ADD CONSTRAINT audit_logs_pending_destruction_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.audit_destruction_batches(id) ON DELETE RESTRICT;
 
 
 --
@@ -16938,6 +19600,14 @@ ALTER TABLE ONLY public.daily_report_submissions
 
 
 --
+-- Name: daily_report_submissions daily_report_submissions_corrected_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_submissions
+    ADD CONSTRAINT daily_report_submissions_corrected_by_fkey FOREIGN KEY (corrected_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
 -- Name: daily_report_submissions daily_report_submissions_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -16951,6 +19621,22 @@ ALTER TABLE ONLY public.daily_report_submissions
 
 ALTER TABLE ONLY public.daily_report_submissions
     ADD CONSTRAINT daily_report_submissions_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_submissions daily_report_submissions_superseded_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_submissions
+    ADD CONSTRAINT daily_report_submissions_superseded_by_fkey FOREIGN KEY (superseded_by) REFERENCES public.daily_report_submissions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_submissions daily_report_submissions_supersedes_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_submissions
+    ADD CONSTRAINT daily_report_submissions_supersedes_id_fkey FOREIGN KEY (supersedes_id) REFERENCES public.daily_report_submissions(id) ON DELETE SET NULL;
 
 
 --
@@ -19218,7 +21904,9 @@ CREATE POLICY air_quality_readings_delete ON public.air_quality_readings FOR DEL
 -- Name: air_quality_readings air_quality_readings_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY air_quality_readings_insert ON public.air_quality_readings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('air_quality'::text))));
+CREATE POLICY air_quality_readings_insert ON public.air_quality_readings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('air_quality'::text) OR public.has_module_edit_access('air_quality'::text) OR ((public.current_employee_module_permission('air_quality'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.air_quality_reports r
+  WHERE ((r.id = air_quality_readings.report_id) AND (r.facility_id = air_quality_readings.facility_id) AND (r.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -19333,6 +22021,19 @@ CREATE POLICY area_default_owners_select ON public.area_default_owners FOR SELEC
 
 
 --
+-- Name: audit_destruction_batches; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_destruction_batches ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_destruction_batches audit_destruction_batches_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY audit_destruction_batches_select ON public.audit_destruction_batches FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.is_facility_admin(facility_id)));
+
+
+--
 -- Name: audit_logs; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -19346,10 +22047,23 @@ CREATE POLICY audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated
 
 
 --
+-- Name: audit_logs_pending_destruction; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_pending_destruction ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: audit_logs audit_logs_select; Type: POLICY; Schema: public; Owner: -
 --
 
 CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+
+
+--
+-- Name: audit_logs_pending_destruction audit_pending_destruction_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY audit_pending_destruction_select ON public.audit_logs_pending_destruction FOR SELECT TO authenticated USING ((public.is_super_admin() OR public.is_facility_admin(facility_id)));
 
 
 --
@@ -19932,7 +22646,9 @@ CREATE POLICY daily_report_submission_items_delete ON public.daily_report_submis
 -- Name: daily_report_submission_items daily_report_submission_items_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY daily_report_submission_items_insert ON public.daily_report_submission_items FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level))));
+CREATE POLICY daily_report_submission_items_insert ON public.daily_report_submission_items FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.daily_report_submissions s
+  WHERE ((s.id = daily_report_submission_items.submission_id) AND (s.facility_id = daily_report_submission_items.facility_id) AND (s.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -19975,7 +22691,7 @@ CREATE POLICY daily_report_submissions_insert ON public.daily_report_submissions
 -- Name: daily_report_submissions daily_report_submissions_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY daily_report_submissions_select ON public.daily_report_submissions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id) AND (public.has_module_edit_access('daily_reports'::text) OR public.daily_area_assignment_allows(area_id, business_date)))))));
+CREATE POLICY daily_report_submissions_select ON public.daily_report_submissions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((employee_id IS NOT NULL) AND (employee_id = public.current_employee_id())) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id) AND (public.has_module_edit_access('daily_reports'::text) OR public.daily_area_assignment_allows(area_id, business_date)))))));
 
 
 --
@@ -20417,14 +23133,14 @@ ALTER TABLE public.employee_certifications ENABLE ROW LEVEL SECURITY;
 -- Name: employee_certifications employee_certifications_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_certifications_delete ON public.employee_certifications FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY employee_certifications_delete ON public.employee_certifications FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: employee_certifications employee_certifications_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_certifications_insert ON public.employee_certifications FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY employee_certifications_insert ON public.employee_certifications FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -20438,7 +23154,7 @@ CREATE POLICY employee_certifications_select ON public.employee_certifications F
 -- Name: employee_certifications employee_certifications_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_certifications_update ON public.employee_certifications FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY employee_certifications_update ON public.employee_certifications FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -21054,7 +23770,9 @@ CREATE POLICY ice_depth_measurements_delete ON public.ice_depth_measurements FOR
 -- Name: ice_depth_measurements ice_depth_measurements_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ice_depth_measurements_insert ON public.ice_depth_measurements FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_depth'::text))));
+CREATE POLICY ice_depth_measurements_insert ON public.ice_depth_measurements FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('ice_depth'::text) OR public.has_module_edit_access('ice_depth'::text) OR ((public.current_employee_module_permission('ice_depth'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.ice_depth_sessions s
+  WHERE ((s.id = ice_depth_measurements.session_id) AND (s.facility_id = ice_depth_measurements.facility_id) AND (s.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -21258,7 +23976,9 @@ CREATE POLICY ice_operations_circle_check_results_delete ON public.ice_operation
 -- Name: ice_operations_circle_check_results ice_operations_circle_check_results_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ice_operations_circle_check_results_insert ON public.ice_operations_circle_check_results FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('ice_operations'::text))));
+CREATE POLICY ice_operations_circle_check_results_insert ON public.ice_operations_circle_check_results FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('ice_operations'::text) OR public.has_module_edit_access('ice_operations'::text) OR ((public.current_employee_module_permission('ice_operations'::text) >= 'submit'::public.module_permission_level) AND (EXISTS ( SELECT 1
+   FROM public.ice_operations_submissions o
+  WHERE ((o.id = ice_operations_circle_check_results.submission_id) AND (o.facility_id = ice_operations_circle_check_results.facility_id) AND (o.employee_id = public.current_employee_id())))))))));
 
 
 --
@@ -22418,14 +25138,14 @@ ALTER TABLE public.role_permission_defaults ENABLE ROW LEVEL SECURITY;
 -- Name: role_permission_defaults role_permission_defaults_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: role_permission_defaults role_permission_defaults_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -22439,7 +25159,7 @@ CREATE POLICY role_permission_defaults_select ON public.role_permission_defaults
 -- Name: role_permission_defaults role_permission_defaults_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'gm'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --

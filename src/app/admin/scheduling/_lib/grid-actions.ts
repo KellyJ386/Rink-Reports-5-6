@@ -473,11 +473,9 @@ function truncateLines(lines: string[], max = 10): string[] {
 /**
  * Create a shift painted on the grid (drag-to-create) or dropped from a
  * template. facility_id is injected from the session. Returns the created row
- * so the client can reconcile its optimistic event.
- *
- * NOTE: Phase 3 folds the existing assignment-eligibility gate
- * (assertAssignable) in here; Phase 4 layers advisory warnings. For now this is
- * the foundational typed write.
+ * so the client can reconcile its optimistic event. Assignment enforcement
+ * (cert hard-block + toggle-governed advisory warnings) runs in
+ * gateShiftWrite.
  */
 export async function createGridShift(
   input: CreateGridShiftInput
@@ -1169,8 +1167,10 @@ export async function previewShiftWarnings(
 /**
  * Save a painted/selected block as a reusable single-slot template. Writes a
  * schedule_templates header + one schedule_template_shifts row (times as
- * time-of-day). Applying a template re-uses createGridShift, so the Phase 4
- * checks run on apply. Returns the template DTO for the side panel.
+ * time-of-day). Applying a template (applyTemplateToWeek) bulk-inserts
+ * UNASSIGNED draft rows without re-running assignment checks — safe because
+ * there is no assignee to validate, and guarded by an explicit invariant
+ * check at the insert site. Returns the template DTO for the side panel.
  */
 export async function saveGridTemplate(
   input: SaveGridTemplateInput

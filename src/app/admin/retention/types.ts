@@ -25,14 +25,14 @@ export type ActionState =
  * enforcement point — it living here alone, unenforced server-side, was the
  * data-loss defect migration 208 closed.
  *
- * Two modules are deliberately absent:
- *  - `audit_logs`   — fixed at a 7-year compliance window by
- *                     purge_old_audit_logs() and purge_module_data(); it never
- *                     read retention_settings, so the row shown here was a
- *                     setting that did nothing.
- *  - `scheduling`   — purge_module_data() raises "Manual purge is not supported
- *                     for scheduling" and no purge_old_scheduling() exists, so
- *                     the row was settable but permanently inert.
+ * `audit_logs` IS configurable (review decision A2, migration 215): its purge
+ * functions read retention_settings, and a 2555-day (7-year) floor is enforced
+ * through the same retention_module_floors trigger as every other module. The
+ * dial can be raised (10y, forever) but never lowered below 7 years.
+ *
+ * `scheduling` is deliberately absent — purge_module_data() raises "Manual
+ * purge is not supported for scheduling" and no purge_old_scheduling() exists,
+ * so the row was settable but permanently inert.
  */
 export const MODULES: ReadonlyArray<{
   key: string
@@ -88,6 +88,13 @@ export const MODULES: ReadonlyArray<{
     description: "Messages and alerts.",
     minDays: 30,
   },
+  {
+    key: "audit_logs",
+    label: "Audit Log",
+    description:
+      "System audit trail entries. Compliance floor: 7 years — the window can be raised, never shortened.",
+    minDays: 2555,
+  },
 ]
 
 export const PRESET_OPTIONS = [
@@ -98,5 +105,7 @@ export const PRESET_OPTIONS = [
   { label: "2 years", value: 730 },
   { label: "3 years", value: 1095 },
   { label: "5 years", value: 1825 },
+  { label: "7 years", value: 2555 },
+  { label: "10 years", value: 3650 },
   { label: "Forever (no purge)", value: 0 },
 ] as const

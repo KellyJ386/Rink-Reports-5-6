@@ -264,7 +264,7 @@ export function ComplianceProfilePanel({
                       id="view-roles"
                       name="view_roles"
                       defaultValue={viewRoles.join(", ")}
-                      placeholder="e.g. admin, gm"
+                      placeholder="e.g. admin, manager"
                     />
                   </div>
                 </div>

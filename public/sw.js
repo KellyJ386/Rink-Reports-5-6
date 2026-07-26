@@ -33,8 +33,11 @@ const STORE_NAME = "submissions"
 // ---------------------------------------------------------------------------
 // Replay retry policy — INLINE MIRROR of src/lib/offline/retry-policy.ts
 // (a classic SW can't import ES modules). Keep the two in sync; the .ts copy
-// is unit-tested. See retry-policy.test.ts.
+// is unit-tested, and retry-policy-parity.test.ts extracts THIS block (via
+// the BEGIN/END markers) and asserts behavioral equality with the .ts module
+// — editing either copy alone fails CI. Don't rename or move the markers.
 // ---------------------------------------------------------------------------
+// BEGIN retry-policy mirror
 const MAX_REPLAY_RETRIES = 4
 const RETRY_BACKOFF_MS = [5000, 15000, 60000, 300000]
 const TRANSIENT_4XX = new Set([401, 408, 409, 425, 429])
@@ -59,6 +62,7 @@ function classifyReplayResult(ok, status, retryCount, now) {
   const delayMs = RETRY_BACKOFF_MS[Math.min(nextCount - 1, RETRY_BACKOFF_MS.length - 1)]
   return { kind: "retry", retryCount: nextCount, nextAttemptAt: now + delayMs, delayMs }
 }
+// END retry-policy mirror
 
 // ---------------------------------------------------------------------------
 // Install: do NOT call skipWaiting() here. A staff member mid-shift filling

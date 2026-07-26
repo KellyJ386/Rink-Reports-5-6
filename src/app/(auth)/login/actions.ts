@@ -3,6 +3,7 @@
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
+import { checkRateLimit } from "@/lib/rate-limit/check"
 import { createClient } from "@/lib/supabase/server"
 
 import { isSafeRedirectPath } from "./redirect-safe"
@@ -62,17 +63,19 @@ export async function loginAction(
     ["login_ip", ip, LOGIN_MAX_PER_IP],
     ["login_email", email.toLowerCase(), LOGIN_MAX_PER_EMAIL],
   ]
+  // check_rate_limit is service-role-only (migration 216) — it runs through the
+  // service-role client so clients can't forge counters (e.g. pre-exhaust a
+  // victim's login_email window). failOpen: true — a limiter blip must never
+  // lock everyone out, and GoTrue still applies its own caps.
   for (const [bucket, identifier, max] of buckets) {
-    const { data: allowed, error: rateError } = await supabase.rpc(
-      "check_rate_limit",
-      {
-        p_bucket: bucket,
-        p_identifier: identifier,
-        p_max: max,
-        p_window_seconds: LOGIN_WINDOW_SECONDS,
-      },
-    )
-    if (!rateError && allowed === false) {
+    const allowed = await checkRateLimit({
+      bucket,
+      identifier,
+      max,
+      windowSeconds: LOGIN_WINDOW_SECONDS,
+      failOpen: true,
+    })
+    if (allowed === false) {
       return {
         error: "Too many attempts. Please wait a few minutes and try again.",
         email,

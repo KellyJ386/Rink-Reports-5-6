@@ -5,8 +5,9 @@
 // IMPORTANT: public/sw.js cannot import this module (it's a classic service
 // worker, not an ES-module worker), so it carries an INLINE COPY of these two
 // functions and MAX_REPLAY_RETRIES. If you change the policy here, update the
-// mirror in public/sw.js (search "retry-policy.ts") and vice versa — the test
-// suite guards this module's half.
+// mirror in public/sw.js (search "retry-policy mirror") and vice versa —
+// retry-policy-parity.test.ts extracts the sw.js block and asserts behavioral
+// equality with this module, so editing either copy alone fails CI.
 
 /** Max transient retries before a queued submission is parked as "failed". */
 export const MAX_REPLAY_RETRIES = 4

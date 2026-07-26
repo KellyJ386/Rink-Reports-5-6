@@ -157,6 +157,17 @@ export function dayKeyInTz(iso: string | Date, timeZone: string | null): string 
 }
 
 /**
+ * The viewer-local calendar day key ("YYYY-MM-DD"), optionally offset by
+ * whole days. For client components defaulting date filters/ranges: the
+ * device clock is facility-local for on-site staff, whereas
+ * `toISOString().slice(0, 10)` is the UTC date — one day ahead of a
+ * US-Eastern viewer every evening.
+ */
+export function localDayKey(offsetDays = 0): string {
+  return dayKeyInTz(new Date(Date.now() + offsetDays * 86_400_000), null)
+}
+
+/**
  * Day-of-week (0 = Sunday) and day-of-month of a UTC instant as seen in
  * `timeZone` — for rendering "FRI 12"-style chips on the correct
  * facility-local day.

@@ -22,6 +22,8 @@ import type {
   EmployeeLite,
 } from "../types"
 
+import { localDayKey } from "@/lib/timezone"
+
 import { HistoryFilters } from "./history-filters"
 import { ReportDetail } from "./report-detail"
 
@@ -51,9 +53,7 @@ const FILTER_KEYS = [
 ] as const
 
 function defaultFromDate(): string {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - 30)
-  return d.toISOString().slice(0, 10)
+  return localDayKey(-30)
 }
 
 function fmt(ts: string | null | undefined): string {

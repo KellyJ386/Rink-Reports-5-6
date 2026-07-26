@@ -25,6 +25,18 @@
 
 begin;
 
+-- Pin the session timezone to the fixture facilities' timezone
+-- (facilities.timezone defaults to America/New_York; the fixtures below
+-- don't override it). The daily-report triggers under test (migrations
+-- 183/185) compute "today" as `now() at time zone f.timezone`, while the
+-- fixtures seed dates with `current_date`, which uses the SESSION timezone
+-- (UTC in CI). Between 00:00 and 04:00/05:00 UTC — i.e. every evening in
+-- Eastern time — those two calendars disagree by one day, and nine
+-- assertions (DAR stamping/past-day/resolution/re-sync) failed only during
+-- that window. Pinning the session zone makes `current_date` agree with the
+-- facility-local date at any wall-clock hour.
+set local time zone 'America/New_York';
+
 create temp table _rls_failures (msg text) on commit drop;
 
 create or replace function pg_temp.expect_count(
@@ -1135,6 +1147,16 @@ select pg_temp.expect_count(
     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
   0, 'alice CANNOT SELECT audit_logs from facility B');
 
+-- Audit logs: a cross-facility INSERT is RLS-denied. This is the exact
+-- failure mode the app helper (src/lib/audit/log.ts) must SURFACE, not
+-- swallow — it once discarded the insert error entirely (B2 review item),
+-- so a denial here produced a silent hole in the audit trail.
+select pg_temp.expect_error(
+  $$insert into public.audit_logs (facility_id, action, entity_type)
+    values ('22222222-2222-2222-2222-222222222222',
+            'test.cross_facility', 'employees')$$,
+  'alice CANNOT INSERT an audit_logs row into facility B');
+
 -- ---------------------------------------------------------------------------
 -- Daily Reports per-area submit boundary (migration 89, has_area_submit_access).
 -- Alice holds module-level daily submit (seeded above) but per-area can_submit
@@ -1434,39 +1456,44 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- RL: rate limiting (migration 92).
+-- RL: rate limiting (migration 92; hardened in migration 216).
 --
--- The public lead form (src/app/api/information-requests/route.ts) calls
--- public.check_rate_limit() via the anon client. Verify:
---   (a) anon CAN call the function and is blocked after p_max within a window;
---   (b) anon CANNOT touch public.rate_limit_counters directly (the only policy
---       targets service_role (migration 180); anon/authenticated have none, so
---       direct access is denied — reachable only through the SECURITY DEFINER
---       function).
+-- check_rate_limit() is now SERVICE-ROLE ONLY: the login action and public
+-- lead-form route call it through the service-role client (migration 216
+-- closed a client-callable counter-forgery/lockout oracle). Verify:
+--   (a) service_role CAN call it and is blocked after p_max within a window;
+--   (b) anon CANNOT call it at all (grant revoked);
+--   (c) anon cannot touch public.rate_limit_counters directly.
 -- ---------------------------------------------------------------------------
 reset role;
-set local role anon;
+set local role service_role;
 
 -- (a) First p_max (=3) calls in a fresh window are allowed; the next is blocked.
--- A unique identifier keeps this independent of any other test's hits.
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  1, 'RL: anon call #1 allowed');
+  1, 'RL: service_role call #1 allowed');
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  1, 'RL: anon call #2 allowed');
+  1, 'RL: service_role call #2 allowed');
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  1, 'RL: anon call #3 allowed (at the cap)');
+  1, 'RL: service_role call #3 allowed (at the cap)');
 select pg_temp.expect_count(
   $$select case when public.check_rate_limit('rls_test', 'rl-ident-1', 3, 600)
       then 1 else 0 end$$,
-  0, 'RL: anon call #4 BLOCKED (over the cap)');
+  0, 'RL: service_role call #4 BLOCKED (over the cap)');
+reset role;
 
--- (b) anon cannot read or write the counters table directly. The only policy on
+-- (b) anon can no longer call the function (migration 216 revoke).
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.check_rate_limit('rls_test', 'rl-ident-2', 3, 600)$$,
+  'RL: anon CANNOT call check_rate_limit (service-role only since migration 216)');
+
+-- (c) anon cannot read or write the counters table directly. The only policy on
 -- the table targets service_role (migration 180), so anon has no applicable
 -- policy: SELECT returns 0 rows (no error) and INSERT is blocked.
 select pg_temp.expect_count(
@@ -2479,6 +2506,435 @@ select pg_temp.expect_error(
       '22222222-2222-2222-2222-222222222222', 'daily_reports')$$,
   'PURGE: staff alice CANNOT manually purge facility B (cross-tenant)');
 
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2k2. Audit-retention floor + configurable window (migration 215).
+--
+-- The audit-log retention window moved from a hard-coded 7 years to the
+-- per-facility retention_settings row — with a lock: the audit_logs floor row
+-- in retention_module_floors (2555 days) makes the migration-208
+-- retention_settings_enforce_floor trigger reject any value below 7 years
+-- (0 = keep forever remains allowed), and both purge paths clamp with
+-- greatest(keep_days, 2555) as defense in depth. Probe the lock and the
+-- window arithmetic at the DB boundary.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- The lock: a sub-floor audit retention row is rejected by the floor trigger
+-- even for the table owner.
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'audit_logs', 365)$$,
+  'RET-215: audit_logs retention below 2555 days is rejected (floor trigger)');
+-- 0 (= forever) and >= 2555 are allowed.
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'audit_logs', 3650)
+    on conflict (facility_id, module_key) do update set keep_days = 3650$$,
+  'RET-215: a 10-year audit retention window is accepted');
+-- Non-audit modules keep their own floors (daily_reports floor = 30).
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'daily_reports', 30)
+    on conflict (facility_id, module_key) do update set keep_days = 30$$,
+  'RET-215: non-audit modules keep their own floor');
+
+-- Window arithmetic: with a 10-year window configured, an 8-year-old audit
+-- row SURVIVES the nightly worker; a 9-year-old row under the default
+-- 7-year fallback (facility B, no settings row) is deleted.
+insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
+values
+  ('a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'ret212.probe', 'retention_probe', now() - interval '8 years'),
+  ('a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb',
+   '22222222-2222-2222-2222-222222222222',
+   'ret212.probe', 'retention_probe', now() - interval '9 years')
+-- audit_logs PK is (id, created_at) since the partitioning pilot (migration 219).
+on conflict (id, created_at) do nothing;
+reset role;
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_audit_logs()$$,
+  'RET-215: service_role runs the nightly audit purge');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  1, 'RET-215: 8-year-old row SURVIVES under the configured 10-year window');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb'$$,
+  0, 'RET-215: 9-year-old row leaves audit_logs under the default 7-year fallback (staged for destruction, migration 213)');
+-- Clean up the settings rows so later sections see defaults. (The surviving
+-- 8-year probe row is left in place — audit_logs is append-only at the
+-- trigger level since migration 214; section 2k3's purge run sweeps it into
+-- its staged batch, which that section's probes account for.)
+delete from public.retention_settings
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_key in ('audit_logs', 'daily_reports');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2k3. Two-phase audit destruction (migration 213).
+--
+-- The retention purge now STAGES expired audit rows into a quarantine
+-- (audit_logs_pending_destruction, per-facility audit_destruction_batches)
+-- instead of deleting them. Destruction requires approval by TWO DIFFERENT
+-- facility admins; one admin can cancel, which restores every row with its
+-- original id and created_at. Probes: staging, RLS visibility, the
+-- self-second-approval refusal, the destroy, the restore, and that direct
+-- writes to the quarantine are RLS-inert even for admins.
+--
+-- Cast: Fred (facility-A admin, a0a0a0a0-…, seeded in the FDO section
+-- below — seeded here too, idempotently, since this section runs first)
+-- plus a second admin Gina, because the two-person rule needs two of them.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Fred (idempotent copy of the FDO fixture) + Gina, both facility-A admins.
+insert into auth.users (id, email) values
+  ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', 'fred@fac-a.test'),
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1', 'gina@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin) values
+  ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0',
+   '11111111-1111-1111-1111-111111111111', 'fred@fac-a.test', false),
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+   '11111111-1111-1111-1111-111111111111', 'gina@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select x.emp_id, '11111111-1111-1111-1111-111111111111'::uuid, x.user_id,
+       r.id, x.first_name, 'Admin', x.email, true
+from (values
+  ('a0a06666-a0a0-a0a0-a0a0-a0a0a0a0a0a0'::uuid,
+   'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0'::uuid, 'Fred', 'fred@fac-a.test'),
+  ('a1a17777-a1a1-a1a1-a1a1-a1a1a1a1a1a1'::uuid,
+   'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1'::uuid, 'Gina', 'gina@fac-a.test')
+) as x(emp_id, user_id, first_name, email)
+join public.roles r
+  on r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'admin'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values
+  ('a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0',
+   '11111111-1111-1111-1111-111111111111', 'admin', 'admin'::public.user_action, true),
+  ('a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1',
+   '11111111-1111-1111-1111-111111111111', 'admin', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- An expired audit row to stage.
+insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
+values ('a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'a3.probe', 'destruction_probe', now() - interval '8 years')
+on conflict (id, created_at) do nothing;
+reset role;
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_audit_logs()$$,
+  'A3: nightly purge stages expired audit rows');
+reset role;
+
+-- Staging moved the row out of the live log and into the quarantine.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  0, 'A3: expired row left audit_logs');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction
+     where original_id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  1, 'A3: expired row is quarantined, not deleted');
+-- Pin this batch's id where every later probe (any role) can read it.
+create temp table _a3_ctx on commit drop as
+select batch_id from public.audit_logs_pending_destruction
+ where original_id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa';
+grant select on _a3_ctx to public;
+reset role;
+
+-- Staff: quarantine is invisible and the approve RPC's admin gate raises.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches$$,
+  0, 'A3: staff alice CANNOT SELECT destruction batches');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction$$,
+  0, 'A3: staff alice CANNOT SELECT quarantined audit rows');
+select pg_temp.expect_error(
+  $$select public.approve_audit_destruction((select batch_id from _a3_ctx))$$,
+  'A3: staff alice CANNOT approve destruction (admin gate raises)');
+reset role;
+
+-- Admin #1 (Fred): sees the batch, first approval sticks, self-second refused,
+-- and nothing is destroyed on one signature. Direct quarantine writes are
+-- RLS-inert even for him.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches
+     where id = (select batch_id from _a3_ctx)$$,
+  1, 'A3: facility admin Fred CAN SELECT the staged batch');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.approve_audit_destruction((select batch_id from _a3_ctx)) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'state') = 'pending_second_approval'$$,
+  1, 'A3: first approval recorded (pending second)');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.approve_audit_destruction((select batch_id from _a3_ctx)) as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'A3: the SAME admin cannot give the second approval');
+select pg_temp.expect_ok(
+  $$delete from public.audit_logs_pending_destruction
+     where batch_id = (select batch_id from _a3_ctx)$$,
+  'A3: direct DELETE of quarantined rows runs (RLS scopes it to 0 rows)');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction
+     where original_id = 'a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  1, 'A3: one signature destroyed nothing (and direct DELETE touched 0 rows)');
+reset role;
+
+-- Admin #2 (Gina): the second, different signature destroys the batch.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.approve_audit_destruction((select batch_id from _a3_ctx)) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'state') = 'destroyed'$$,
+  1, 'A3: a DIFFERENT admin''s second approval destroys the batch');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs_pending_destruction
+     where batch_id = (select batch_id from _a3_ctx)$$,
+  0, 'A3: quarantined rows are gone after the second approval');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches
+     where id = (select batch_id from _a3_ctx) and status = 'destroyed'
+       and approved_by_1 is distinct from approved_by_2$$,
+  1, 'A3: batch is destroyed with two distinct approvers on record');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_id = (select batch_id from _a3_ctx)
+       and action in ('audit_destruction.approve_first', 'audit_destruction.execute')$$,
+  2, 'A3: both destruction steps self-audited');
+
+-- Cancel path: stage another expired row, then restore it.
+insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
+values ('a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb',
+        '11111111-1111-1111-1111-111111111111',
+        'a3.probe2', 'destruction_probe', now() - interval '8 years')
+on conflict (id, created_at) do nothing;
+reset role;
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_audit_logs()$$,
+  'A3: purge stages the second probe row');
+reset role;
+set local role postgres;
+create temp table _a3_ctx2 on commit drop as
+select batch_id from public.audit_logs_pending_destruction
+ where original_id = 'a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb';
+grant select on _a3_ctx2 to public;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.cancel_audit_destruction((select batch_id from _a3_ctx2)) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'restored_count')::int >= 1$$,
+  1, 'A3: a single admin can CANCEL a staged batch');
+reset role;
+
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where id = 'a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb'
+       and created_at < now() - interval '7 years'$$,
+  1, 'A3: cancel restored the row with its ORIGINAL id and created_at');
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_destruction_batches
+     where id = (select batch_id from _a3_ctx2) and status = 'cancelled'$$,
+  1, 'A3: cancelled batch is closed');
+-- The restored probe row is deliberately left in place: audit_logs is
+-- append-only at the trigger level (migration 214), and the I2 section
+-- verifies the facility-A chain INCLUDING this restore.
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2k4. Audit-log hash chain (migration 214) — the numbered logbook.
+--
+-- Every audit_logs insert is chained (prev_hash/row_hash under a
+-- per-facility advisory lock); verify_audit_chain() recomputes every hash
+-- and walks the linkage, bridging retention-staged/destroyed spans via the
+-- batches' archived hash metadata. UPDATE/DELETE raise for everyone —
+-- including service_role — outside the governed staging bypass.
+--
+-- By this point in the file facility A's chain has real history: fixture
+-- DML audits, a destroyed batch, a cancelled batch with a tail-restored
+-- row. Verifying it here exercises genesis, bridges, and restores at once.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+-- Chained columns are being populated by the insert trigger.
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and (row_hash is null or seq is null)$$,
+  0, 'I2: every facility-A audit row carries seq + row_hash');
+reset role;
+
+-- Staff cannot run verification (admin gate raises).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.verify_audit_chain('11111111-1111-1111-1111-111111111111')$$,
+  'I2: staff alice CANNOT run verify_audit_chain');
+reset role;
+
+-- Admin: both facilities verify clean — across the destroyed batch (bridge),
+-- the cancelled batch (bridge + tail restore), and facility B's staged batch.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'checked')::int > 0$$,
+  1, 'I2: facility-A chain verifies (incl. destroyed + cancelled batch bridges)');
+reset role;
+
+-- Append-only: even service_role cannot UPDATE or DELETE audit rows.
+set local role service_role;
+select pg_temp.expect_error(
+  $$update public.audit_logs set after = '{"tampered":true}'::jsonb
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'I2: service_role CANNOT UPDATE audit rows (append-only trigger)');
+select pg_temp.expect_error(
+  $$delete from public.audit_logs
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'I2: service_role CANNOT DELETE audit rows (append-only trigger)');
+reset role;
+
+-- Tamper detection: a payload edit by someone who CAN bypass the guard
+-- (owner-level, bypass GUC — i.e. exactly the attacker the chain exists
+-- for) breaks verification, and restoring the value heals it.
+set local role postgres;
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after || '{"__tampered":true}'::jsonb
+ where id = (
+   select id from public.audit_logs
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and after is not null
+    order by seq desc limit 1);
+select set_config('rr.audit_chain_bypass', '', true);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
+    where (x.r->>'ok') = 'false'
+      and (x.r->>'reason') like 'row_hash mismatch%'$$,
+  1, 'I2: a tampered payload is DETECTED by verify_audit_chain');
+reset role;
+
+set local role postgres;
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after - '__tampered'
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and after ? '__tampered';
+select set_config('rr.audit_chain_bypass', '', true);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
+    where (x.r->>'ok') = 'true'$$,
+  1, 'I2: restoring the payload heals verification');
+reset role;
+
+-- Partitioning pilot (migration 219): audit_logs is now RANGE-partitioned by
+-- created_at, but RLS lives on the parent and applies to every partition.
+-- Confirm the partitioned parent still enforces cross-facility isolation
+-- (the plan's required assertion) and is actually partitioned.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from pg_class
+     where relname = 'audit_logs'
+       and relnamespace = 'public'::regnamespace
+       and relkind = 'p'$$,
+  1, 'PART-222: audit_logs is a partitioned table');
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.audit_logs (facility_id, action, entity_type)
+    values ('22222222-2222-2222-2222-222222222222', 'part.probe', 'employees')$$,
+  'PART-222: cross-facility INSERT still blocked on the partitioned table');
+reset role;
+
+-- Cron sweep (migration 218): verify_all_audit_chains verifies every facility
+-- and reports breaks. Its service-role/super-admin negative gate can't be
+-- exercised here — like drain_notification_outbox (M5 above), the gate keys
+-- on session_user, which SET ROLE doesn't change (it stays postgres in this
+-- harness); the EXECUTE revoke + the CRON_SECRET route are the real gate.
+-- Positive coverage:
+set local role service_role;
+select pg_temp.expect_count(
+  $$select count(*) from (select public.verify_all_audit_chains() as r) x
+    where (x.r->>'ok') = 'true'
+      and (x.r->>'checked_facilities')::int >= 2$$,
+  1, 'I2-cron: service_role sweep verifies every facility clean');
+-- A bypass-level tamper is caught by the sweep too (not just the per-facility
+-- verifier). Set the append-only bypass, corrupt a row, sweep, then heal.
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after || '{"__swept":true}'::jsonb
+ where id = (
+   select id from public.audit_logs
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and after is not null
+    order by seq desc limit 1);
+select set_config('rr.audit_chain_bypass', '', true);
+select pg_temp.expect_count(
+  $$select count(*) from (select public.verify_all_audit_chains() as r) x
+    where (x.r->>'ok') = 'false'
+      and jsonb_array_length(x.r->'broken') = 1
+      and (x.r->'broken'->0->>'facility_id') = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'I2-cron: the sweep flags the tampered facility (and only it)');
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after - '__swept'
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and after ? '__swept';
+select set_config('rr.audit_chain_bypass', '', true);
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -5814,6 +6270,409 @@ select pg_temp.expect_error(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- 2W. One violation policy for every scheduling door (migration 211).
+--
+-- Cert gaps (cert_missing:*) block every write path unconditionally;
+-- advisory codes (overtime, time-off, overlap, …) block only when
+-- schedule_settings.block_on_violations is on — the SAME policy the
+-- app-layer grid gate applies. Before migration 211 the governed RPCs
+-- (publish, open-shift assign, claim decide, swap, self-claim) blocked on
+-- ANY code, so a draft that was legal to save (warn-and-confirm) made the
+-- whole week unpublishable. These probes exercise the policy helper directly
+-- and the publish RPC end-to-end, at the DB boundary.
+--
+-- Fixtures reuse §2Q's cast: Alice (staff, employee aaaa…aaaa, holds no CPR)
+-- and Carol (scheduling admin, employee aaaa1111-ca01-…-0099, approver).
+-- Zamboni job area aaaa1111-30b1-…-0098 requires CPR (SCHED-148 fixtures).
+-- Windows sit 100+ days out so nothing else collides.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Approved time-off for Alice covering windows W1 (+100d) and W3 (+110d).
+insert into public.schedule_time_off_requests
+  (id, facility_id, employee_id, starts_at, ends_at, status)
+values
+  ('aaaa1111-7011-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '100 days', now() + interval '101 days', 'approved'),
+  ('aaaa1111-7012-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '110 days', now() + interval '111 days', 'approved')
+on conflict (id) do nothing;
+
+-- W1: assigned draft over Alice's time-off (advisory only — no job area).
+-- W2 (+105d): assigned draft on the CPR-requiring Zamboni area (cert gap).
+-- W3: same shape as W1, used for the toggle-ON probe.
+insert into public.schedule_shifts
+  (id, facility_id, department_id, job_area_id, employee_id, starts_at, ends_at, status)
+values
+  ('aaaa1111-5521-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091', null,
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '100 days 2 hours', now() + interval '100 days 6 hours', 'draft'),
+  ('aaaa1111-5522-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+   'aaaa1111-30b1-aaaa-aaaa-aaaa11110098',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '105 days 2 hours', now() + interval '105 days 6 hours', 'draft'),
+  ('aaaa1111-5523-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-de71-aaaa-aaaa-aaaa11110091', null,
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '110 days 2 hours', now() + interval '110 days 6 hours', 'draft')
+on conflict (id) do nothing;
+
+-- One pending publish request (from Alice; Carol approves) per window.
+insert into public.schedule_publish_requests
+  (id, facility_id, requested_by_employee_id, range_starts_at, range_ends_at, status)
+values
+  ('aaaa1111-5821-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '100 days', now() + interval '101 days', 'pending'),
+  ('aaaa1111-5822-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '105 days', now() + interval '106 days', 'pending'),
+  ('aaaa1111-5823-aaaa-aaaa-aaaa11110211',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '110 days', now() + interval '111 days', 'pending')
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- Policy helper, toggle OFF (facility A has no schedule_settings row here;
+-- absent row = default false): advisory codes filtered out, cert codes kept.
+select pg_temp.expect_count(
+  $$select coalesce(array_length(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','overtime','double_booked']), 1), 0)$$,
+  0, 'SCHED-214: toggle OFF — advisory codes do not block');
+select pg_temp.expect_count(
+  $$select count(*) from unnest(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','cert_missing:CPR','overtime'])) as c
+    where c = 'cert_missing:CPR'$$,
+  1, 'SCHED-214: toggle OFF — cert_missing still blocks (and only it)');
+select pg_temp.expect_count(
+  $$select coalesce(array_length(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','cert_missing:CPR','overtime']), 1), 0)$$,
+  1, 'SCHED-214: toggle OFF — blocking set is exactly the cert codes');
+
+-- Publish door, toggle OFF: W1 (advisory time_off) publishes, and the RPC
+-- reports the advisory codes it waved through.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.scheduling_approve_publish_request(
+        'aaaa1111-5821-aaaa-aaaa-aaaa11110211') as r) x
+    where (x.r->>'ok') = 'true'
+      and (x.r->>'advisory_count')::int >= 1
+      and x.r->'advisory_warnings' ? 'time_off'$$,
+  1, 'SCHED-214: toggle OFF — advisory violation publishes WITH a warning summary');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5521-aaaa-aaaa-aaaa11110211' and status = 'published'$$,
+  1, 'SCHED-214: the advisory-flagged shift is published');
+
+-- Publish door, toggle OFF: W2 (cert gap) still hard-blocks.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.scheduling_approve_publish_request(
+        'aaaa1111-5822-aaaa-aaaa-aaaa11110211') as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'SCHED-214: toggle OFF — cert gap still blocks publish');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5522-aaaa-aaaa-aaaa11110211' and status = 'draft'$$,
+  1, 'SCHED-214: the cert-gapped shift stays draft');
+
+reset role;
+
+-- Toggle ON: the same advisory codes now block everywhere.
+set local role postgres;
+insert into public.schedule_settings (facility_id, block_on_violations)
+values ('11111111-1111-1111-1111-111111111111', true);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from unnest(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','overtime'])) as c$$,
+  2, 'SCHED-214: toggle ON — advisory codes DO block');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.scheduling_approve_publish_request(
+        'aaaa1111-5823-aaaa-aaaa-aaaa11110211') as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'SCHED-214: toggle ON — advisory violation blocks publish');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5523-aaaa-aaaa-aaaa11110211' and status = 'draft'$$,
+  1, 'SCHED-214: toggle ON — the advisory-flagged shift stays draft');
+
+reset role;
+
+-- Leave the toggle as we found it (no schedule_settings row for facility A)
+-- so later sections see the default policy.
+set local role postgres;
+delete from public.schedule_settings
+ where facility_id = '11111111-1111-1111-1111-111111111111';
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2Y. Daily-report corrections (migration 215) — the paper-logbook rule.
+--
+-- A locked (past-day) submission can be corrected by its ORIGINAL SUBMITTER
+-- or a daily-reports module admin, through one SECURITY DEFINER RPC: a new
+-- submission supersedes the original, which is stamped but never edited or
+-- deleted. Probes reuse the DAR cast (zoe = staff submitter, sam = edit-tier
+-- staff who is NOT the submitter, mona = daily module admin fixtures exist
+-- above; Fred = facility admin) and the migration-183 area/template
+-- fixtures.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- A locked submission: zoe submitted YESTERDAY (facility-local) with 2 items.
+insert into public.daily_report_submissions
+  (id, facility_id, area_id, template_id, employee_id, submitted_at, business_date)
+values ('c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+        'dada1111-0000-4000-8000-000000000002',
+        now() - interval '1 day', current_date - 1)
+on conflict (id) do nothing;
+insert into public.daily_report_submission_items
+  (id, facility_id, submission_id, label_snapshot, is_checked)
+values
+  ('c0121500-0002-4aaa-8aaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Nets secured', true),
+  ('c0121500-0003-4aaa-8aaa-aaaaaaaaaaaa',
+   '11111111-1111-1111-1111-111111111111',
+   'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Ice depth logged', false)
+on conflict (id) do nothing;
+reset role;
+
+-- Non-owner, non-admin (sam, edit tier): the RPC's gate raises.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"ed17ed17-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'ed17ed17-0000-4000-8000-000000000001', true);
+select pg_temp.expect_error(
+  $$select public.supersede_daily_report_submission(
+      'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'not mine',
+      '[]'::jsonb)$$,
+  'I3: non-owner staff CANNOT file a correction (RPC gate raises)');
+reset role;
+
+-- Owner (zoe): direct UPDATE of the locked row is still RLS-inert, the
+-- reason is mandatory, and the governed supersede works.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dada1111-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dada1111-0000-4000-8000-000000000001', true);
+select pg_temp.expect_ok(
+  $$update public.daily_report_submissions
+       set correction_reason = 'sneaky edit'
+     where id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
+  'I3: owner''s direct UPDATE runs (RLS scopes it to 0 rows — migration 161 lesson)');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', '   ', '[]'::jsonb) as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'I3: a blank correction reason is rejected');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        'Wrong ice depth recorded',
+        '[{"checklist_item_id": null, "label_snapshot": "Nets secured", "is_checked": true},
+          {"checklist_item_id": null, "label_snapshot": "Ice depth logged", "is_checked": true}]'::jsonb) as r) x
+    where (x.r->>'ok') = 'true' and (x.r->>'item_count')::int = 2$$,
+  1, 'I3: the ORIGINAL SUBMITTER can correct their own locked report');
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'again', '[]'::jsonb) as r) x
+    where (x.r->>'ok') = 'false'$$,
+  1, 'I3: a submission cannot be superseded twice');
+reset role;
+
+-- Ledger shape (as owner-bypassing postgres): the line-through happened, the
+-- direct-edit attempt did NOT land, the correction belongs to the ORIGINAL
+-- day, and both versions exist.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions
+     where id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'
+       and superseded_at is not null
+       and superseded_by is not null
+       and correction_reason is null$$,
+  1, 'I3: original is stamped superseded, otherwise untouched');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submissions c
+      join public.daily_report_submissions o on o.superseded_by = c.id
+     where o.id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'
+       and c.supersedes_id = o.id
+       and c.business_date = o.business_date
+       and c.correction_reason = 'Wrong ice depth recorded'
+       and c.employee_id = 'dada1111-0000-4000-8000-000000000002'
+       and c.corrected_by = 'dada1111-0000-4000-8000-000000000002'$$,
+  1, 'I3: correction links both ways, keeps the original business_date, and names the corrector');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_submission_items i
+      join public.daily_report_submissions o
+        on o.superseded_by = i.submission_id
+     where o.id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'
+       and i.is_checked$$,
+  2, 'I3: the correction carries the corrected item states');
+reset role;
+
+-- A daily-reports module admin (mona) can correct someone ELSE''s submission:
+-- file a second-generation correction against zoe''s correction.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select public.supersede_daily_report_submission(
+        (select superseded_by from public.daily_report_submissions
+          where id = 'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa'),
+        'Admin follow-up correction', '[]'::jsonb) as r) x
+    where (x.r->>'ok') = 'true'$$,
+  1, 'I3: a daily-reports module admin can correct someone else''s submission');
+reset role;
+
+-- GAP (migration 217): a submit-holder cannot inject child items into a
+-- submission they do NOT own. Alice holds daily submit + access to zoe's area
+-- but is not the submitter of zoe's report, so the tightened
+-- daily_report_submission_items INSERT policy rejects her. (Before 217 the
+-- child insert only needed view-level access — a cross-user integrity hole.)
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.daily_report_submission_items
+      (facility_id, submission_id, label_snapshot, is_checked)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Injected row', true)$$,
+  'GAP-220: a submit-holder CANNOT add items to another user''s submission');
+reset role;
+
+-- Positive path preserved: the OWNER can still add items to their OWN
+-- submission (this is exactly what every module's submit.ts does).
+set local role postgres;
+insert into public.daily_report_submissions
+  (id, facility_id, area_id, template_id, employee_id, business_date)
+values ('c0217000-0001-4aaa-8aaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+        'aaaa1111-d701-aaaa-aaaa-aaaa11110013',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_date)
+on conflict (id) do nothing;
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_submission_items
+      (facility_id, submission_id, label_snapshot, is_checked)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0217000-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Own item', true)$$,
+  'GAP-220: the OWNER can still add items to their own submission');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2Z. Authorization-audit hardening (migration 216).
+--
+-- user_has_permission() was a cross-tenant permission oracle (SECURITY
+-- DEFINER, no internal gate); check_rate_limit() let any client forge
+-- counters. Probe the new gate and the revoked grant.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- Alice may ask about HERSELF.
+select pg_temp.expect_ok(
+  $$select public.user_has_permission(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit')$$,
+  'AUTHZ-219: a user CAN query their own permission bit');
+-- Alice (plain staff) CANNOT probe another user in another facility.
+select pg_temp.expect_error(
+  $$select public.user_has_permission(
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      '22222222-2222-2222-2222-222222222222', 'admin', 'admin')$$,
+  'AUTHZ-219: a user CANNOT probe another user/facility permission bit');
+-- check_rate_limit EXECUTE is revoked from authenticated.
+select pg_temp.expect_error(
+  $$select public.check_rate_limit('login_email', 'victim@x.test', 1, 3600)$$,
+  'AUTHZ-219: authenticated CANNOT call check_rate_limit (service-role only)');
+reset role;
+
+-- A facility admin CAN query bits within their own facility; service_role
+-- retains the rate-limit grant.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_ok(
+  $$select public.user_has_permission(
+      'dada1111-0000-4000-8000-000000000001',
+      '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit')$$,
+  'AUTHZ-219: a facility admin CAN query bits within their own facility');
+reset role;
+
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.check_rate_limit('probe', 'x', 5, 60)$$,
+  'AUTHZ-219: service_role CAN call check_rate_limit');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2X. Retired-role drift guard (migration 209).
+--
+-- 'gm' and 'supervisor' were retired in migrations 58/87 and key-blocked by
+-- the roles_key_not_retired CHECK (migration 188), yet quoted references
+-- kept resurfacing in RLS policies (migration 119 re-added 'gm' to the
+-- employee_certifications write policies) and in SECURITY DEFINER role
+-- gates / seed matrices. These probes scan the LIVE catalog — not the
+-- migration files — so any future policy or function that quotes a retired
+-- role key fails CI here.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from pg_policies
+     where schemaname = 'public'
+       and (coalesce(qual, '')       ~ '''gm'''
+         or coalesce(with_check, '') ~ '''gm'''
+         or coalesce(qual, '')       ~ '''supervisor'''
+         or coalesce(with_check, '') ~ '''supervisor''')$$,
+  0, 'RRD: no public RLS policy references a retired role key');
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and (p.prosrc ~ '''gm''' or p.prosrc ~ '''supervisor''')$$,
+  0, 'RRD: no public function body references a retired role key');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.canonical_role_permission_grants()
+     where role_key in ('gm', 'supervisor')$$,
+  0, 'RRD: canonical grant matrix has no retired-role rows');
 -- 2z. Retention floors + keep-forever invariant (migration 208).
 --
 -- The defect this closes: the per-module retention floor (365 days for

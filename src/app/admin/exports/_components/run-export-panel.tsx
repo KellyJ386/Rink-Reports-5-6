@@ -19,15 +19,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { localDayKey } from "@/lib/timezone"
 
 type ModuleOption = { key: string; label: string }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return localDayKey()
 }
 
 function daysAgoIso(days: number): string {
-  return new Date(Date.now() - days * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  return localDayKey(-days)
 }
 
 /**

@@ -81,7 +81,18 @@ export async function stopPreview(): Promise<void> {
 
   if (existing) {
     const current = await requireAdmin()
-    const facilityId = current.profile?.facility_id ?? null
+    // Log to the impersonation TARGET's facility (matching preview.start).
+    // The admin's own facility_id is null for super admins, which used to
+    // skip the stop event entirely — an impersonation session with a start
+    // record and no end.
+    const supabase = await createClient()
+    const { data: target } = await supabase
+      .from("employees")
+      .select("facility_id")
+      .eq("id", existing)
+      .maybeSingle<{ facility_id: string }>()
+    const facilityId =
+      target?.facility_id ?? current.profile?.facility_id ?? null
     if (facilityId) {
       await logAudit({
         facilityId,
@@ -89,6 +100,11 @@ export async function stopPreview(): Promise<void> {
         entityType: "employees",
         entityId: existing,
       })
+    } else {
+      console.error(
+        `[audit] preview.stop for employee ${existing} not recorded: ` +
+          "no resolvable facility (target missing and caller has none)"
+      )
     }
   }
 

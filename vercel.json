@@ -24,6 +24,10 @@
     {
       "path": "/api/cron/snapshot-daily-assignments",
       "schedule": "27 * * * *"
+    },
+    {
+      "path": "/api/cron/verify-audit-chain",
+      "schedule": "47 4 * * *"
     }
   ]
 }
