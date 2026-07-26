@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000211_scheduling_toggle_governs_all_doors.sql
+-- 00000000000214_scheduling_toggle_governs_all_doors.sql
 --
 -- One violation policy for every scheduling door.
 --
@@ -54,7 +54,7 @@ comment on function public.scheduling_blocking_violations(uuid, text[]) is
   'Filters scheduling_assignment_violations() codes down to the subset that '
   'must BLOCK a write for this facility: cert_missing:* always; everything '
   'else only when schedule_settings.block_on_violations is on. Single source '
-  'of the hard/soft policy for the governed scheduling RPCs (migration 211).';
+  'of the hard/soft policy for the governed scheduling RPCs (migration 214).';
 
 revoke execute on function public.scheduling_blocking_violations(uuid, text[]) from public, anon;
 grant  execute on function public.scheduling_blocking_violations(uuid, text[]) to authenticated, service_role;
@@ -133,11 +133,11 @@ begin
   end if;
 
   -- Re-validate every assigned draft before publishing. BLOCKING codes are
-  -- decided by scheduling_blocking_violations (migration 211): cert gaps
+  -- decided by scheduling_blocking_violations (migration 214): cert gaps
   -- always block; advisory codes (overtime, min-rest, time-off, overlap, …)
   -- block only when the facility's block_on_violations toggle is on —
   -- the SAME policy the scheduling-grid gate applies at authoring time.
-  -- Before migration 211 this loop blocked on ANY code, so a draft that was
+  -- Before migration 214 this loop blocked on ANY code, so a draft that was
   -- legal to save (warn-and-confirm) could make the whole week unpublishable.
   -- Non-blocking advisory codes are collected and returned so the approver
   -- still sees them.
@@ -286,7 +286,7 @@ begin
 
   -- Re-validate. Cert gaps always block; advisory codes (overtime, time-off,
   -- overlap, …) block only under the facility's block_on_violations policy —
-  -- the same partition the scheduling-grid gate applies (migration 211).
+  -- the same partition the scheduling-grid gate applies (migration 214).
   v_codes := public.scheduling_assignment_violations(
     v_open.facility_id, p_employee_id,
     v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
@@ -370,7 +370,7 @@ begin
     end if;
 
     -- Re-validate the claimant at decision time. Cert gaps always block;
-    -- advisory codes block only under block_on_violations (migration 211).
+    -- advisory codes block only under block_on_violations (migration 214).
     v_codes := public.scheduling_assignment_violations(
       v_open.facility_id, v_open.claimed_by_employee_id,
       v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,
@@ -503,7 +503,7 @@ begin
   -- Validate each employee against the shift they are moving onto, excluding
   -- BOTH traded shifts so the counterpart doesn't false-positive
   -- double-booking / weekly hours / min-rest. Cert gaps always block;
-  -- advisory codes block only under block_on_violations (migration 211).
+  -- advisory codes block only under block_on_violations (migration 214).
   v_codes := public.scheduling_assignment_violations(
     v_swap.facility_id, v_swap.target_employee_id,
     v_req_shift.starts_at, v_req_shift.ends_at, v_req_shift.break_minutes,
@@ -600,7 +600,7 @@ begin
 
   -- A staff member may not claim a shift they are not allowed to work.
   -- Cert gaps always block; advisory codes block only under the facility's
-  -- block_on_violations policy (migration 211).
+  -- block_on_violations policy (migration 214).
   v_codes := public.scheduling_assignment_violations(
     v_facility_id, v_employee_id,
     v_shift.starts_at, v_shift.ends_at, v_shift.break_minutes,

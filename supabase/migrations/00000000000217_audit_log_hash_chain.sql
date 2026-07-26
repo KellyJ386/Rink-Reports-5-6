@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000214_audit_log_hash_chain.sql
+-- 00000000000217_audit_log_hash_chain.sql
 --
 -- Tamper-evident audit log (review project I-2): number the logbook pages.
 --
@@ -17,7 +17,7 @@
 -- out, rewriting one, or reordering now breaks the numbering:
 -- verify_audit_chain() recomputes every hash and walks the linkage.
 --
--- Interplay with two-phase destruction (migration 213): retention staging
+-- Interplay with two-phase destruction (migration 216): retention staging
 -- legitimately removes chain links. At STAGING time the hash METADATA of the
 -- moved rows ({seq, prev_hash, row_hash} — no payload) is archived on the
 -- batch as chain_anchors, and verification "bridges" a linkage gap by
@@ -354,7 +354,7 @@ begin
 end;
 $$;
 
--- (grants for approve_audit_destruction carry over from migration 213)
+-- (grants for approve_audit_destruction carry over from migration 216)
 
 -- Cancel RPC: unchanged logic, but the restore INSERT flows through the
 -- chain trigger, which re-links restored rows at the tail of the chain

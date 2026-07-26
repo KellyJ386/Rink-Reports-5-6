@@ -9,6 +9,7 @@ upstream fix lands.
 | GHSA | Package | Path | Why accepted | Remediation |
 |------|---------|------|--------------|-------------|
 | [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) | sharp | `.>next>sharp` | libvips codec-parsing CVEs (CVE-2026-33327, -33328, -35590, -35591). `sharp` is bundled transitively by Next for `next/image` optimization — the app never routes user-uploaded images through it, only build-time and static assets served via `next/image`. Still unpatched (`sharp@0.34.5` bundled by `next@16.2.11`) as of 2026-07-24. | Re-run `pnpm audit --prod` after each `next` patch bump; drop this entry once Next updates its internal `sharp` pin to ≥0.35.0 (the patched version). |
+| [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg) | brace-expansion | `.>exceljs>archiver>…>minimatch>brace-expansion` (1.1.16 and 2.1.2) | DoS via unbounded expansion length. The only patched line is ≥5.0.8 — **no backport exists for the 1.x/2.x majors this tree uses**, and a `pnpm.overrides` force-bump is not viable: 5.x exports `{ expand }` as a named export while `minimatch@3/@5` call the module itself as a function (verified empirically — `require('brace-expansion')('a{b,c}')` throws `be is not a function` on 5.0.8), so an override would break exceljs's zip path at runtime. No upstream escape either: `exceljs@4.4.0` (latest) still pins `archiver ^5`. Reachability: the vulnerable `expand()` needs an attacker-controlled brace pattern; the only paths are `archiver`'s glob helpers, which exceljs feeds internal workbook part names, never user input — and the module is admin-only, lazy-loaded (`src/components/admin/bulk-upload/`), same posture as the `uuid` entry below. | Drop when exceljs releases with `archiver ≥6` (whose `readdir-glob@3` pulls `minimatch@10` → `brace-expansion@5`), or when 1.x/2.x backports land. Re-check on each `pnpm audit --prod` run. |
 
 ## Below the CI gate — tracked, not ignored
 
@@ -16,6 +17,13 @@ The advisories below are **low/moderate**, so the high-only CI gate passes
 without any `ignoreGhsas` entry. They are recorded here so they get revisited
 instead of riding along silently. Inventory as of **2026-07-08**
 (`pnpm audit --prod --json`).
+
+**`dompurify` 3.4.11 via `.>posthog-js>dompurify`** — GHSA-c2j3-45gr-mqc4 (low,
+patched > 3.4.11): `CUSTOM_ELEMENT_HANDLING` bypass. The app does not use
+DOMPurify's custom-element handling anywhere (posthog-js bundles it for its own
+session-replay sanitization). Noticed 2026-07-25 while clearing the
+brace-expansion advisory. *Remediation trigger:* clears on the next `posthog-js`
+bump that carries a patched DOMPurify — same route as the 2026-07-08 cleanup.
 
 **`uuid` 8.3.2 via `.>exceljs>uuid`** — GHSA-w5hq-g745-h8pq (moderate,
 patched ≥ 11.1.1): missing buffer bounds check in v3/v5/v6 when a `buf`

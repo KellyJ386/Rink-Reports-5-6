@@ -60,7 +60,12 @@ export function partitionViolations(codes: string[]): {
 export function describeViolation(code: string): string {
   if (code.startsWith(CERT_CODE_PREFIX)) {
     const cert = code.slice(CERT_CODE_PREFIX.length)
-    return `requires a certification the employee doesn't have (${cert})`
+    // A cert_missing code covers two cases: the employee never held the
+    // certification, or holds one that expires before the shift ends
+    // (migration 209 measures expiry against the shift, not against today).
+    // The wording must fit both — "doesn't have" reads as wrong to a scheduler
+    // looking at an employee whose cert is right there in their profile.
+    return `requires a certification the employee is missing or that expires before this shift (${cert})`
   }
   return VIOLATION_LABELS[code] ?? code
 }

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000217_child_row_insert_submit_gate.sql
+-- 00000000000220_child_row_insert_submit_gate.sql
 --
 -- I-5 authorization audit, GAP: four child/measurement tables accepted
 -- VIEW-level inserts while their parent report required SUBMIT.

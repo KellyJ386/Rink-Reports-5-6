@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000212_audit_retention_configurable_floor.sql
+-- 00000000000215_audit_retention_configurable_floor.sql
 --
 -- Audit-log retention: a dial with a lock (review decision A2).
 --
@@ -11,20 +11,24 @@
 -- already surfaces), falling back to the historical 7 years when no row
 -- exists — so behavior is unchanged until a facility opts to KEEP MORE.
 --
--- The lock: a table-level CHECK forbids configuring audit retention below
--- 2555 days (7 years). keep_days = 0 keeps the UI's "Forever (no purge)"
--- meaning. Defense in depth, both purge paths ALSO clamp to the floor with
--- greatest(keep_days, 2555), so a pre-CHECK row (or a future constraint
--- regression) can never shorten the window. The server action enforces the
--- same floor (the old server-side minimum was a module-agnostic 30 days —
--- the UI's 365-day minimum was decorative).
+-- The lock reuses the general per-module floor mechanism that landed in
+-- migration 208 (retention_module_floors + retention_settings_enforce_floor):
+-- registering an 'audit_logs' floor of 2555 days makes that trigger reject any
+-- keep_days below 7 years (keep_days = 0 = "forever" is always permitted, being
+-- stricter than any floor). Migration 208 had deliberately left audit_logs OUT
+-- of the floors table because audit retention was hardcoded and un-configurable;
+-- this migration makes it configurable (per review decision A2), so it belongs
+-- in the floors table like every other module. Defense in depth: both purge
+-- paths ALSO clamp with greatest(keep_days, 2555) so no row can ever shorten
+-- the window even if the floor row were removed.
 -- =============================================================================
 
-alter table public.retention_settings
-  drop constraint if exists retention_settings_audit_floor;
-alter table public.retention_settings
-  add constraint retention_settings_audit_floor
-  check (module_key <> 'audit_logs' or keep_days = 0 or keep_days >= 2555);
+-- Register the audit-log compliance floor in the migration-208 floors table.
+insert into public.retention_module_floors (module_key, min_days, note) values
+  ('audit_logs', 2555,
+   'Audit trail — 7-year compliance floor. May be raised (10y, forever), never lowered.')
+on conflict (module_key) do update
+  set min_days = excluded.min_days, note = excluded.note;
 
 create or replace function public.purge_old_audit_logs()
 returns integer
@@ -92,7 +96,7 @@ begin
   if p_module_key = 'audit_logs' then
     -- Compliance window: per-facility retention_settings (default 7 years),
     -- clamped to the 2555-day floor; keep_days = 0 disables purging
-    -- (migration 212).
+    -- (migration 215).
     select keep_days into v_keep_days
       from public.retention_settings
      where facility_id = p_facility_id
@@ -192,4 +196,4 @@ $function$
 ;
 
 comment on function public.purge_module_data(uuid, text) is
-  'Admin-triggered manual purge for one module in one facility. Deletes rows older than the facility''s retention_settings window. audit_logs is configurable since migration 212 with a 2555-day floor (0 = never purge). Requires super-admin or facility-admin; scheduling is not manually purgeable.';
+  'Admin-triggered manual purge for one module in one facility. Deletes rows older than the facility''s retention_settings window. audit_logs is configurable since migration 215 with a 2555-day floor (0 = never purge). Requires super-admin or facility-admin; scheduling is not manually purgeable.';

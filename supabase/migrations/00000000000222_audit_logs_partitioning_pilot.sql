@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000219_audit_logs_partitioning_pilot.sql
+-- 00000000000222_audit_logs_partitioning_pilot.sql
 --
 -- Phase-5 pilot (docs/phase5-partitioning-plan.md): convert audit_logs to a
 -- RANGE-partitioned table keyed on created_at. audit_logs is the pilot — pure
@@ -73,7 +73,7 @@ create table public.audit_logs (
 
 comment on table public.audit_logs is
   'Append-only audit trail (migration 2), hash-chained + append-only (214), '
-  'RANGE-partitioned by created_at (yearly, migration 219). No UPDATE/DELETE '
+  'RANGE-partitioned by created_at (yearly, migration 222). No UPDATE/DELETE '
   'except the governed retention-staging bypass.';
 
 alter table public.audit_logs

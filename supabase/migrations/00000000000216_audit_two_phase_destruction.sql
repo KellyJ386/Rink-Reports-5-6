@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000213_audit_two_phase_destruction.sql
+-- 00000000000216_audit_two_phase_destruction.sql
 --
 -- Two-phase destruction for audit logs (review decision A3).
 --
@@ -190,12 +190,12 @@ grant  execute on function public.purge_old_audit_logs() to service_role;
 comment on function public.purge_old_audit_logs() is
   'Retention worker for audit_logs. Per-facility window from retention_settings '
   '(module_key=audit_logs), default 7 years, hard floor 2555 days (0 = never). '
-  'Since migration 213 it STAGES expired rows into '
+  'Since migration 216 it STAGES expired rows into '
   'audit_logs_pending_destruction (recoverable) instead of deleting; actual '
   'destruction requires two-admin approval. Service-role only.';
 
 -- Manual per-facility purge: audit branch stages through the same helper.
--- Body otherwise identical to live (migration 212 version).
+-- Body otherwise identical to live (migration 215 version).
 CREATE OR REPLACE FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text)
  RETURNS integer
  LANGUAGE plpgsql
@@ -222,7 +222,7 @@ begin
   if p_module_key = 'audit_logs' then
     -- Compliance window: per-facility retention_settings (default 7 years),
     -- clamped to the 2555-day floor; keep_days = 0 disables purging
-    -- (migration 212). Since migration 213 expired rows are STAGED into
+    -- (migration 215). Since migration 216 expired rows are STAGED into
     -- audit_logs_pending_destruction (recoverable until two admins approve
     -- destruction) instead of deleted.
     select keep_days into v_keep_days

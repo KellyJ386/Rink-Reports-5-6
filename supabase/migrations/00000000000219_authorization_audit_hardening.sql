@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000216_authorization_audit_hardening.sql
+-- 00000000000219_authorization_audit_hardening.sql
 --
 -- Two DB-side gaps found by the I-5 authorization audit
 -- (docs/authorization-audit-2026-07.md). Both are SECURITY DEFINER functions
@@ -64,7 +64,7 @@ end;
 $$;
 
 comment on function public.user_has_permission(uuid, uuid, text, public.user_action) is
-  'Permission-bit lookup. Internally gated (migration 216): the caller may '
+  'Permission-bit lookup. Internally gated (migration 219): the caller may '
   'only query themselves, their own facility as its admin, or — as a '
   'super-admin — anyone. Prevents cross-tenant permission enumeration.';
 

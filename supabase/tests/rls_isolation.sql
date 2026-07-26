@@ -2509,35 +2509,36 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 2k2. Audit-retention floor + configurable window (migration 212).
+-- 2k2. Audit-retention floor + configurable window (migration 215).
 --
 -- The audit-log retention window moved from a hard-coded 7 years to the
--- per-facility retention_settings row — with a lock: the
--- retention_settings_audit_floor CHECK forbids any value below 2555 days
+-- per-facility retention_settings row — with a lock: the audit_logs floor row
+-- in retention_module_floors (2555 days) makes the migration-208
+-- retention_settings_enforce_floor trigger reject any value below 7 years
 -- (0 = keep forever remains allowed), and both purge paths clamp with
 -- greatest(keep_days, 2555) as defense in depth. Probe the lock and the
 -- window arithmetic at the DB boundary.
 -- ---------------------------------------------------------------------------
 set local role postgres;
 
--- The lock: a sub-floor audit retention row is rejected by the CHECK even
--- for the table owner.
+-- The lock: a sub-floor audit retention row is rejected by the floor trigger
+-- even for the table owner.
 select pg_temp.expect_error(
   $$insert into public.retention_settings (facility_id, module_key, keep_days)
     values ('11111111-1111-1111-1111-111111111111', 'audit_logs', 365)$$,
-  'RET-212: audit_logs retention below 2555 days is rejected (floor CHECK)');
+  'RET-215: audit_logs retention below 2555 days is rejected (floor trigger)');
 -- 0 (= forever) and >= 2555 are allowed.
 select pg_temp.expect_ok(
   $$insert into public.retention_settings (facility_id, module_key, keep_days)
     values ('11111111-1111-1111-1111-111111111111', 'audit_logs', 3650)
     on conflict (facility_id, module_key) do update set keep_days = 3650$$,
-  'RET-212: a 10-year audit retention window is accepted');
--- Non-audit modules keep the old 30-day floor semantics (CHECK untouched).
+  'RET-215: a 10-year audit retention window is accepted');
+-- Non-audit modules keep their own floors (daily_reports floor = 30).
 select pg_temp.expect_ok(
   $$insert into public.retention_settings (facility_id, module_key, keep_days)
     values ('11111111-1111-1111-1111-111111111111', 'daily_reports', 30)
     on conflict (facility_id, module_key) do update set keep_days = 30$$,
-  'RET-212: non-audit modules are unaffected by the audit floor');
+  'RET-215: non-audit modules keep their own floor');
 
 -- Window arithmetic: with a 10-year window configured, an 8-year-old audit
 -- row SURVIVES the nightly worker; a 9-year-old row under the default
@@ -2557,18 +2558,18 @@ reset role;
 set local role service_role;
 select pg_temp.expect_ok(
   $$select public.purge_old_audit_logs()$$,
-  'RET-212: service_role runs the nightly audit purge');
+  'RET-215: service_role runs the nightly audit purge');
 reset role;
 
 set local role postgres;
 select pg_temp.expect_count(
   $$select count(*) from public.audit_logs
      where id = 'a2121111-0001-4aaa-8aaa-aaaaaaaaaaaa'$$,
-  1, 'RET-212: 8-year-old row SURVIVES under the configured 10-year window');
+  1, 'RET-215: 8-year-old row SURVIVES under the configured 10-year window');
 select pg_temp.expect_count(
   $$select count(*) from public.audit_logs
      where id = 'a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb'$$,
-  0, 'RET-212: 9-year-old row leaves audit_logs under the default 7-year fallback (staged for destruction, migration 213)');
+  0, 'RET-215: 9-year-old row leaves audit_logs under the default 7-year fallback (staged for destruction, migration 213)');
 -- Clean up the settings rows so later sections see defaults. (The surviving
 -- 8-year probe row is left in place — audit_logs is append-only at the
 -- trigger level since migration 214; section 2k3's purge run sweeps it into
@@ -2888,7 +2889,7 @@ select pg_temp.expect_count(
      where relname = 'audit_logs'
        and relnamespace = 'public'::regnamespace
        and relkind = 'p'$$,
-  1, 'PART-219: audit_logs is a partitioned table');
+  1, 'PART-222: audit_logs is a partitioned table');
 reset role;
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
@@ -2896,7 +2897,7 @@ select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 select pg_temp.expect_error(
   $$insert into public.audit_logs (facility_id, action, entity_type)
     values ('22222222-2222-2222-2222-222222222222', 'part.probe', 'employees')$$,
-  'PART-219: cross-facility INSERT still blocked on the partitioned table');
+  'PART-222: cross-facility INSERT still blocked on the partitioned table');
 reset role;
 
 -- Cron sweep (migration 218): verify_all_audit_chains verifies every facility
@@ -3439,6 +3440,78 @@ select pg_temp.expect_count(
         'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
     ) c where code = 'cert_missing:CPR'$$,
   1, 'SCHED-148: EXPIRED required cert is treated as missing');
+
+-- ---------------------------------------------------------------------------
+-- Cert expiry is measured against the SHIFT, not against today (migration 209).
+--
+-- The assertion immediately above seeds expires_at = '2020-01-01'. A 2020 expiry
+-- precedes every future shift date, so it passes whether expiry is compared to
+-- current_date or to the shift — it looks like coverage of the expiry rule but
+-- discriminates nothing. The three cases below are the ones that actually pin
+-- the behaviour. Dana holds a CPR expiring in 7 days.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+insert into public.employees (id, facility_id, user_id, first_name, last_name, role_id, is_active)
+select 'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+       '11111111-1111-1111-1111-111111111111',
+       null, 'Dana', 'Expiry',
+       (select id from public.roles
+         where facility_id = '11111111-1111-1111-1111-111111111111'
+           and key = 'staff' limit 1),
+       true
+on conflict (id) do nothing;
+
+insert into public.employee_certifications (facility_id, employee_id, name, expires_at)
+values ('11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077', 'CPR',
+        (now() + interval '7 days')::date)
+on conflict do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- (a) THE BUG. Shift is 21 days out; the cert lapses in 7. Comparing against
+--     current_date wrongly passes this. Fails before migration 209.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+        now() + interval '21 days', now() + interval '21 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-209: cert expiring BEFORE the shift date hard-blocks');
+
+-- (b) The negative case, so the rule cannot be satisfied by blanket-blocking
+--     every cert that carries an expiry date at all.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+        now() + interval '3 days', now() + interval '3 days 4 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  0, 'SCHED-209: cert still valid on the shift date does NOT block');
+
+-- (c) The boundary. A shift STRADDLING the expiry blocks, because the predicate
+--     keys off the shift END. This is the deliberate product decision recorded
+--     in migration 209's header; if anyone "simplifies" it back to the shift
+--     start, this assertion is what fails.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select unnest(public.scheduling_assignment_violations(
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-da7a-aaaa-aaaa-aaaa11110077',
+        (now() + interval '7 days')::date - interval '4 hours',
+        (now() + interval '7 days')::date + interval '30 hours', 0,
+        'aaaa1111-30b1-aaaa-aaaa-aaaa11110098', null)) as code
+    ) c where code = 'cert_missing:CPR'$$,
+  1, 'SCHED-209: cert lapsing MID-SHIFT hard-blocks (measured at shift end)');
 
 -- Override is manager-gated and audited; the audit log is admin-read-only.
 select pg_temp.expect_ok(
@@ -5288,6 +5361,10 @@ select pg_temp.expect_count(
       and asset_type = 'door'$$,
   4, 'DB0a: facilities trigger seeded 4 door subtypes for a new facility');
 
+-- 25 = the 20 repair categories from migration 194 plus the cleaning set added
+-- when migration 204 redefined the seed function (3x "Needs cleaning",
+-- "Film/residue", "Debris/buildup"). This expectation was left at 20 when 204
+-- landed, which made the whole suite red on main from 2026-07-24 onward.
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_issue_categories
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
@@ -6278,18 +6355,18 @@ select pg_temp.expect_count(
   $$select coalesce(array_length(public.scheduling_blocking_violations(
       '11111111-1111-1111-1111-111111111111',
       array['time_off','overtime','double_booked']), 1), 0)$$,
-  0, 'SCHED-211: toggle OFF — advisory codes do not block');
+  0, 'SCHED-214: toggle OFF — advisory codes do not block');
 select pg_temp.expect_count(
   $$select count(*) from unnest(public.scheduling_blocking_violations(
       '11111111-1111-1111-1111-111111111111',
       array['time_off','cert_missing:CPR','overtime'])) as c
     where c = 'cert_missing:CPR'$$,
-  1, 'SCHED-211: toggle OFF — cert_missing still blocks (and only it)');
+  1, 'SCHED-214: toggle OFF — cert_missing still blocks (and only it)');
 select pg_temp.expect_count(
   $$select coalesce(array_length(public.scheduling_blocking_violations(
       '11111111-1111-1111-1111-111111111111',
       array['time_off','cert_missing:CPR','overtime']), 1), 0)$$,
-  1, 'SCHED-211: toggle OFF — blocking set is exactly the cert codes');
+  1, 'SCHED-214: toggle OFF — blocking set is exactly the cert codes');
 
 -- Publish door, toggle OFF: W1 (advisory time_off) publishes, and the RPC
 -- reports the advisory codes it waved through.
@@ -6300,11 +6377,11 @@ select pg_temp.expect_count(
     where (x.r->>'ok') = 'true'
       and (x.r->>'advisory_count')::int >= 1
       and x.r->'advisory_warnings' ? 'time_off'$$,
-  1, 'SCHED-211: toggle OFF — advisory violation publishes WITH a warning summary');
+  1, 'SCHED-214: toggle OFF — advisory violation publishes WITH a warning summary');
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_shifts
      where id = 'aaaa1111-5521-aaaa-aaaa-aaaa11110211' and status = 'published'$$,
-  1, 'SCHED-211: the advisory-flagged shift is published');
+  1, 'SCHED-214: the advisory-flagged shift is published');
 
 -- Publish door, toggle OFF: W2 (cert gap) still hard-blocks.
 select pg_temp.expect_count(
@@ -6312,11 +6389,11 @@ select pg_temp.expect_count(
       select public.scheduling_approve_publish_request(
         'aaaa1111-5822-aaaa-aaaa-aaaa11110211') as r) x
     where (x.r->>'ok') = 'false'$$,
-  1, 'SCHED-211: toggle OFF — cert gap still blocks publish');
+  1, 'SCHED-214: toggle OFF — cert gap still blocks publish');
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_shifts
      where id = 'aaaa1111-5522-aaaa-aaaa-aaaa11110211' and status = 'draft'$$,
-  1, 'SCHED-211: the cert-gapped shift stays draft');
+  1, 'SCHED-214: the cert-gapped shift stays draft');
 
 reset role;
 
@@ -6334,17 +6411,17 @@ select pg_temp.expect_count(
   $$select count(*) from unnest(public.scheduling_blocking_violations(
       '11111111-1111-1111-1111-111111111111',
       array['time_off','overtime'])) as c$$,
-  2, 'SCHED-211: toggle ON — advisory codes DO block');
+  2, 'SCHED-214: toggle ON — advisory codes DO block');
 select pg_temp.expect_count(
   $$select count(*) from (
       select public.scheduling_approve_publish_request(
         'aaaa1111-5823-aaaa-aaaa-aaaa11110211') as r) x
     where (x.r->>'ok') = 'false'$$,
-  1, 'SCHED-211: toggle ON — advisory violation blocks publish');
+  1, 'SCHED-214: toggle ON — advisory violation blocks publish');
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_shifts
      where id = 'aaaa1111-5523-aaaa-aaaa-aaaa11110211' and status = 'draft'$$,
-  1, 'SCHED-211: toggle ON — the advisory-flagged shift stays draft');
+  1, 'SCHED-214: toggle ON — the advisory-flagged shift stays draft');
 
 reset role;
 
@@ -6492,7 +6569,7 @@ select pg_temp.expect_error(
       (facility_id, submission_id, label_snapshot, is_checked)
     values ('11111111-1111-1111-1111-111111111111',
             'c0121500-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Injected row', true)$$,
-  'GAP-217: a submit-holder CANNOT add items to another user''s submission');
+  'GAP-220: a submit-holder CANNOT add items to another user''s submission');
 reset role;
 
 -- Positive path preserved: the OWNER can still add items to their OWN
@@ -6515,7 +6592,7 @@ select pg_temp.expect_ok(
       (facility_id, submission_id, label_snapshot, is_checked)
     values ('11111111-1111-1111-1111-111111111111',
             'c0217000-0001-4aaa-8aaa-aaaaaaaaaaaa', 'Own item', true)$$,
-  'GAP-217: the OWNER can still add items to their own submission');
+  'GAP-220: the OWNER can still add items to their own submission');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -6534,17 +6611,17 @@ select pg_temp.expect_ok(
   $$select public.user_has_permission(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit')$$,
-  'AUTHZ-216: a user CAN query their own permission bit');
+  'AUTHZ-219: a user CAN query their own permission bit');
 -- Alice (plain staff) CANNOT probe another user in another facility.
 select pg_temp.expect_error(
   $$select public.user_has_permission(
       'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
       '22222222-2222-2222-2222-222222222222', 'admin', 'admin')$$,
-  'AUTHZ-216: a user CANNOT probe another user/facility permission bit');
+  'AUTHZ-219: a user CANNOT probe another user/facility permission bit');
 -- check_rate_limit EXECUTE is revoked from authenticated.
 select pg_temp.expect_error(
   $$select public.check_rate_limit('login_email', 'victim@x.test', 1, 3600)$$,
-  'AUTHZ-216: authenticated CANNOT call check_rate_limit (service-role only)');
+  'AUTHZ-219: authenticated CANNOT call check_rate_limit (service-role only)');
 reset role;
 
 -- A facility admin CAN query bits within their own facility; service_role
@@ -6556,13 +6633,13 @@ select pg_temp.expect_ok(
   $$select public.user_has_permission(
       'dada1111-0000-4000-8000-000000000001',
       '11111111-1111-1111-1111-111111111111', 'daily_reports', 'submit')$$,
-  'AUTHZ-216: a facility admin CAN query bits within their own facility');
+  'AUTHZ-219: a facility admin CAN query bits within their own facility');
 reset role;
 
 set local role service_role;
 select pg_temp.expect_ok(
   $$select public.check_rate_limit('probe', 'x', 5, 60)$$,
-  'AUTHZ-216: service_role CAN call check_rate_limit');
+  'AUTHZ-219: service_role CAN call check_rate_limit');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -6596,6 +6673,218 @@ select pg_temp.expect_count(
   $$select count(*) from public.canonical_role_permission_grants()
      where role_key in ('gm', 'supervisor')$$,
   0, 'RRD: canonical grant matrix has no retired-role rows');
+-- 2z. Retention floors + keep-forever invariant (migration 208).
+--
+-- The defect this closes: the per-module retention floor (365 days for
+-- accident/incident reports) lived ONLY in the browser as a `minDays` prop,
+-- while the server action accepted a flat keep_days >= 30 for every module. A
+-- crafted POST wrote accident_reports = 30 days, and because purge_module_data
+-- ignores auto_purge, the admin "Purge now" button then hard-deleted against it
+-- immediately. These assertions are the regression gate.
+--
+-- Run as postgres (BYPASSRLS) so it is the trigger — not a policy — doing the
+-- rejecting. The trigger is deliberately NOT role-exempt: a retention floor is
+-- a compliance minimum, not a permission check.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'accident_reports', 30)$$,
+  'RETENTION-208: accident_reports CANNOT be set below its 365-day floor');
+
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'incident_reports', 90)$$,
+  'RETENTION-208: incident_reports CANNOT be set below its 365-day floor');
+
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'accident_reports', 365)
+    on conflict (facility_id, module_key)
+    do update set keep_days = 365$$,
+  'RETENTION-208: accident_reports CAN be set at its 365-day floor');
+
+select pg_temp.expect_error(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'refrigeration', 60)$$,
+  'RETENTION-208: refrigeration CANNOT be set below its 90-day floor');
+
+-- keep_days = 0 is "keep forever": always permitted (stricter than any floor),
+-- and MUST force auto_purge off. Every retention-driven purge function filters
+-- `auto_purge = true`, so this coercion is what stops a keep-forever row from
+-- computing a cutoff of now() - '0 days' = now() and deleting the whole module.
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days, auto_purge)
+    values ('11111111-1111-1111-1111-111111111111', 'daily_reports', 0, true)
+    on conflict (facility_id, module_key)
+    do update set keep_days = 0, auto_purge = true$$,
+  'RETENTION-208: keep_days=0 (keep forever) is accepted');
+
+select pg_temp.expect_count(
+  $$select count(*)::int from public.retention_settings
+     where keep_days = 0 and auto_purge = true$$,
+  0,
+  'RETENTION-208: INVARIANT — no row can hold keep_days=0 AND auto_purge=true');
+
+select pg_temp.expect_ok(
+  $$insert into public.retention_settings (facility_id, module_key, keep_days)
+    values ('11111111-1111-1111-1111-111111111111', 'accident_reports', 0)
+    on conflict (facility_id, module_key)
+    do update set keep_days = 0$$,
+  'RETENTION-208: keep_days=0 accepted even where a 365-day floor applies');
+
+-- The floors table itself must not be lowerable by a facility admin, or the
+-- defect simply moves up one level.
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*)::int from public.retention_module_floors
+     where module_key = 'accident_reports' and min_days = 365$$,
+  1,
+  'RETENTION-208: floors are readable by an authenticated user');
+
+select pg_temp.expect_count(
+  $$with attempted as (
+      update public.retention_module_floors set min_days = 30
+       where module_key = 'accident_reports'
+      returning 1
+    ) select count(*)::int from attempted$$,
+  0,
+  'RETENTION-208: non-super-admin CANNOT lower a retention floor');
+
+reset role;
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
+-- 2y. Open-shift + swap guards (migration 210, prompt-library Defect 4).
+--
+-- schedule_shifts is locked by migrations 148/164/181, but the two satellite
+-- tables that describe HOW a published shift may be filled were not. Their RLS
+-- gates only on has_module_admin_access('scheduling') with no publish predicate
+-- and no column restriction, and neither had a guard trigger.
+--
+-- The exploit these pin is NOT unauthorized assignment — the parent shift stays
+-- frozen. It is that a scheduling admin could PATCH approval_required to false,
+-- turning a manager-approval listing into first-come so the next staff claim
+-- auto-fills a published shift; desync the queue with claim_status='filled';
+-- or mark a swap 'manager_approved' directly, which moves no shift and leaves
+-- the swap permanently unrunnable while reading as applied.
+--
+-- Carol (cccccccc-…) holds scheduling:admin in Facility A — she is exactly the
+-- caller the old policies trusted unconditionally.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+
+-- A published, unassigned shift with a manager-approval open listing.
+insert into public.schedule_shifts
+  (id, facility_id, department_id, employee_id, starts_at, ends_at, status)
+values ('aaaa1111-5521-aaaa-aaaa-aaaa11110210',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        null,
+        now() + interval '9 days', now() + interval '9 days 4 hours', 'published')
+on conflict (id) do nothing;
+
+insert into public.schedule_open_shifts
+  (id, facility_id, shift_id, claim_status, approval_required, expires_at)
+values ('aaaa1111-05a1-aaaa-aaaa-aaaa11110210',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-5521-aaaa-aaaa-aaaa11110210',
+        'open', true, now() + interval '2 days')
+on conflict (id) do nothing;
+
+-- Two pending swaps: one to attempt a direct apply on, one to deny normally.
+insert into public.schedule_swap_requests
+  (id, facility_id, requester_employee_id, requester_shift_id, target_employee_id, status)
+values
+  ('aaaa1111-5721-aaaa-aaaa-aaaa11110210',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   'aaaa1111-5511-aaaa-aaaa-aaaa11110092',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending'),
+  ('aaaa1111-5722-aaaa-aaaa-aaaa11110210',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   'aaaa1111-5513-aaaa-aaaa-aaaa11110094',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'pending')
+on conflict (id) do nothing;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- THE approval-gate bypass. One PATCH used to turn manager-approval into
+-- first-come; scheduling_claim_open_shift branches purely on this column.
+select pg_temp.expect_error(
+  $$update public.schedule_open_shifts
+       set approval_required = false
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT flip approval_required on a listing');
+
+select pg_temp.expect_error(
+  $$update public.schedule_open_shifts
+       set claim_status = 'filled',
+           claimed_by_employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT mark a listing filled directly');
+
+select pg_temp.expect_error(
+  $$update public.schedule_open_shifts
+       set expires_at = now() + interval '400 days'
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT push a listing past the expiry sweeper');
+
+select pg_temp.expect_error(
+  $$delete from public.schedule_open_shifts
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: listing for a PUBLISHED shift cannot be deleted directly');
+
+-- Swap: only scheduling_apply_swap may apply. A direct write moved no shift and
+-- bricked the request (apply/deny/cancel all refuse afterwards).
+select pg_temp.expect_error(
+  $$update public.schedule_swap_requests
+       set status = 'manager_approved'
+     where id = 'aaaa1111-5721-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CANNOT mark a swap manager_approved directly');
+
+-- The guard must stay narrow. The app writes these two directly as
+-- authenticated (governance-actions.ts denySwap / cancelSwap), so breaking them
+-- would be a worse regression than the hole being closed.
+select pg_temp.expect_ok(
+  $$update public.schedule_swap_requests
+       set status = 'denied', decided_at = now()
+     where id = 'aaaa1111-5721-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CAN still deny a swap');
+select pg_temp.expect_ok(
+  $$update public.schedule_swap_requests
+       set status = 'cancelled', decided_at = now()
+     where id = 'aaaa1111-5722-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: scheduling admin CAN still cancel a swap');
+
+-- The governed path must still work — a guard that blocks legitimate use is a
+-- worse outcome than the hole. The SECURITY DEFINER RPCs run as the table owner
+-- and are exempt by design.
+reset role;
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.scheduling_expire_open_claims(10)$$,
+  'SCHED-210: governed sweeper still updates listings (owner exemption holds)');
+
+reset role;
+set local role postgres;
+select pg_temp.expect_ok(
+  $$update public.schedule_open_shifts
+       set claim_status = 'cancelled'
+     where id = 'aaaa1111-05a1-aaaa-aaaa-aaaa11110210'$$,
+  'SCHED-210: table owner can still write a listing (RPC path unaffected)');
+
+reset role;
+set local role postgres;
 
 -- ---------------------------------------------------------------------------
 -- 3. Surface results.

@@ -1,7 +1,7 @@
 -- =============================================================================
--- 00000000000218_verify_audit_chain_service_role.sql
+-- 00000000000221_verify_audit_chain_service_role.sql
 --
--- Make the audit hash chain (migration 214) actually CHECKED, not just
+-- Make the audit hash chain (migration 217) actually CHECKED, not just
 -- checkable, on a schedule.
 --
 -- verify_audit_chain(facility) is admin-gated, so a cron running as
@@ -13,7 +13,7 @@
 --
 --   _audit_chain_verify_impl(facility)  — the walk; no gate; revoked from all.
 --   verify_audit_chain(facility)        — admin gate, then the impl (unchanged
---                                         external contract, migration 214).
+--                                         external contract, migration 217).
 --   verify_all_audit_chains()           — service-role/super-admin sweep across
 --                                         every facility; the cron entry point.
 -- =============================================================================
@@ -107,7 +107,7 @@ $$;
 
 revoke execute on function public._audit_chain_verify_impl(uuid) from public, anon, authenticated, service_role;
 
--- Admin-gated wrapper (unchanged external contract from migration 214).
+-- Admin-gated wrapper (unchanged external contract from migration 217).
 create or replace function public.verify_audit_chain(p_facility_id uuid)
 returns jsonb
 language plpgsql

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000209_strip_retired_role_references.sql
+-- 00000000000212_strip_retired_role_references.sql
 --
 -- Remove the last live references to the retired 'gm' and 'supervisor' role
 -- keys. The roles were retired in migrations 58/87 ('gm' folded into 'admin'),
