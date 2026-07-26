@@ -2550,7 +2550,8 @@ values
   ('a2122222-0002-4bbb-8bbb-bbbbbbbbbbbb',
    '22222222-2222-2222-2222-222222222222',
    'ret212.probe', 'retention_probe', now() - interval '9 years')
-on conflict (id) do nothing;
+-- audit_logs PK is (id, created_at) since the partitioning pilot (migration 219).
+on conflict (id, created_at) do nothing;
 reset role;
 
 set local role service_role;
@@ -2632,7 +2633,7 @@ insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
 values ('a2131111-0001-4aaa-8aaa-aaaaaaaaaaaa',
         '11111111-1111-1111-1111-111111111111',
         'a3.probe', 'destruction_probe', now() - interval '8 years')
-on conflict (id) do nothing;
+on conflict (id, created_at) do nothing;
 reset role;
 
 set local role service_role;
@@ -2738,7 +2739,7 @@ insert into public.audit_logs (id, facility_id, action, entity_type, created_at)
 values ('a2132222-0002-4bbb-8bbb-bbbbbbbbbbbb',
         '11111111-1111-1111-1111-111111111111',
         'a3.probe2', 'destruction_probe', now() - interval '8 years')
-on conflict (id) do nothing;
+on conflict (id, created_at) do nothing;
 reset role;
 set local role service_role;
 select pg_temp.expect_ok(
@@ -2875,6 +2876,64 @@ select pg_temp.expect_count(
       select public.verify_audit_chain('11111111-1111-1111-1111-111111111111') as r) x
     where (x.r->>'ok') = 'true'$$,
   1, 'I2: restoring the payload heals verification');
+reset role;
+
+-- Partitioning pilot (migration 219): audit_logs is now RANGE-partitioned by
+-- created_at, but RLS lives on the parent and applies to every partition.
+-- Confirm the partitioned parent still enforces cross-facility isolation
+-- (the plan's required assertion) and is actually partitioned.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from pg_class
+     where relname = 'audit_logs'
+       and relnamespace = 'public'::regnamespace
+       and relkind = 'p'$$,
+  1, 'PART-219: audit_logs is a partitioned table');
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.audit_logs (facility_id, action, entity_type)
+    values ('22222222-2222-2222-2222-222222222222', 'part.probe', 'employees')$$,
+  'PART-219: cross-facility INSERT still blocked on the partitioned table');
+reset role;
+
+-- Cron sweep (migration 218): verify_all_audit_chains verifies every facility
+-- and reports breaks. Its service-role/super-admin negative gate can't be
+-- exercised here — like drain_notification_outbox (M5 above), the gate keys
+-- on session_user, which SET ROLE doesn't change (it stays postgres in this
+-- harness); the EXECUTE revoke + the CRON_SECRET route are the real gate.
+-- Positive coverage:
+set local role service_role;
+select pg_temp.expect_count(
+  $$select count(*) from (select public.verify_all_audit_chains() as r) x
+    where (x.r->>'ok') = 'true'
+      and (x.r->>'checked_facilities')::int >= 2$$,
+  1, 'I2-cron: service_role sweep verifies every facility clean');
+-- A bypass-level tamper is caught by the sweep too (not just the per-facility
+-- verifier). Set the append-only bypass, corrupt a row, sweep, then heal.
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after || '{"__swept":true}'::jsonb
+ where id = (
+   select id from public.audit_logs
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and after is not null
+    order by seq desc limit 1);
+select set_config('rr.audit_chain_bypass', '', true);
+select pg_temp.expect_count(
+  $$select count(*) from (select public.verify_all_audit_chains() as r) x
+    where (x.r->>'ok') = 'false'
+      and jsonb_array_length(x.r->'broken') = 1
+      and (x.r->'broken'->0->>'facility_id') = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'I2-cron: the sweep flags the tampered facility (and only it)');
+select set_config('rr.audit_chain_bypass', 'on', true);
+update public.audit_logs
+   set after = after - '__swept'
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and after ? '__swept';
+select set_config('rr.audit_chain_bypass', '', true);
 reset role;
 
 -- ---------------------------------------------------------------------------

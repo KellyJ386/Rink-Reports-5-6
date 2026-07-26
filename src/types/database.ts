@@ -1121,6 +1121,60 @@ export type Database = {
           },
         ]
       }
+      audit_logs_default: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       audit_logs_pending_destruction: {
         Row: {
           action: string
@@ -1191,6 +1245,708 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      audit_logs_y2023: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2024: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2025: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2026: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2027: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2028: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2029: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2030: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2031: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2032: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2033: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2034: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      audit_logs_y2035: {
+        Row: {
+          action: string
+          actor_employee_id: string | null
+          actor_user_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          facility_id: string
+          id: string
+          ip: unknown | null
+          prev_hash: string | null
+          row_hash: string | null
+          seq: number
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          facility_id: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq: number
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_employee_id?: string | null
+          actor_user_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          facility_id?: string
+          id?: string
+          ip?: unknown | null
+          prev_hash?: string | null
+          row_hash?: string | null
+          seq?: number
+          user_agent?: string | null
+        }
+        Relationships: []
       }
       certification_types: {
         Row: {
@@ -7803,6 +8559,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _audit_chain_verify_impl: {
+        Args: { p_facility_id: string }
+        Returns: Json
+      }
       apply_role_permission_defaults: {
         Args: { p_facility_id: string; p_role_id: string; p_user_id: string }
         Returns: undefined
@@ -8384,6 +9144,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: boolean
+      }
+      verify_all_audit_chains: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
       verify_audit_chain: {
         Args: { p_facility_id: string }
