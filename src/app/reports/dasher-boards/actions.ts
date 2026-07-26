@@ -3,6 +3,7 @@
 import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
+import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 import { isUuid } from "./_lib/compute"
@@ -340,5 +341,74 @@ export async function completeWalkAction(
   } catch (e) {
     logServerError("reports/dasher-boards/completeWalk", e)
     return { ok: false, error: "Failed to sign off the walk." }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Post-submit send (submit tier)
+// ---------------------------------------------------------------------------
+
+export type SendResult =
+  | { ok: true; count: number }
+  | { ok: false; error: string }
+
+/**
+ * Sends an already-signed-off walk to the send list configured in Admin
+ * (Communications routing rules, source_module = "dasher_boards"). Invoked
+ * from the done page's "Send Report" button — dasher boards does not auto-send
+ * on sign-off, so distribution stays under the walker's control. Returns the
+ * number of recipients enqueued.
+ */
+export async function sendDasherBoardsReport(
+  inspectionId: string,
+): Promise<SendResult> {
+  try {
+    if (!isUuid(inspectionId)) {
+      return { ok: false, error: "Invalid report." }
+    }
+    const ctx = await resolveContext()
+    if (!ctx.ok) return ctx
+    if (!(await currentUserCan(ctx.supabase, "dasher_boards", "submit"))) {
+      return {
+        ok: false,
+        error: "You don't have permission to send dasher boards reports.",
+      }
+    }
+
+    // Confirm the walk exists, is signed off, and belongs to the caller's
+    // facility (RLS also enforces the facility scope; this gives a clearer
+    // error and the rink name for the subject).
+    const { data: inspection, error: inspErr } = await ctx.supabase
+      .from("dasher_boards_inspections")
+      .select("id, facility_id, rink_id, completed_at")
+      .eq("id", inspectionId)
+      .maybeSingle()
+    if (inspErr) {
+      return { ok: false, error: "Failed to load the report." }
+    }
+    if (!inspection || inspection.facility_id !== ctx.facilityId) {
+      return { ok: false, error: "Report not found." }
+    }
+    if (!inspection.completed_at) {
+      return { ok: false, error: "This walk hasn't been signed off yet." }
+    }
+
+    const { data: rink } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .select("name")
+      .eq("id", inspection.rink_id)
+      .maybeSingle()
+
+    const count = await dispatchRulesForSubmission({
+      facilityId: ctx.facilityId,
+      sourceModule: "dasher_boards",
+      sourceRecordId: inspectionId,
+      subject: `Dasher boards walk completed${rink?.name ? ` (${rink.name})` : ""}`,
+    })
+
+    return { ok: true, count }
+  } catch (e) {
+    logServerError("reports/dasher-boards/sendReport", e)
+    return { ok: false, error: "Failed to send the report." }
   }
 }
