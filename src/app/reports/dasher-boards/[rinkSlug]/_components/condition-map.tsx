@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { Footprints } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -52,9 +53,13 @@ import {
 } from "../../actions"
 import {
   combineDisplayCondition,
+  firstPendingIndex,
   thicknessToFraction,
+  type GuidedStep,
   type IssueSeverity,
 } from "../../_lib/compute"
+import { GuidedWalk, type GuidedPhase } from "./guided-walk"
+import { CompleteWalkForm, DuePanel } from "./walk-panels"
 import type {
   ChecklistItemRow,
   DueChecklist,
@@ -181,6 +186,29 @@ export function ConditionMap(props: ConditionMapProps) {
   const [cacheSavedAt, setCacheSavedAt] = useState<number | null>(null)
   const [walkPending, startWalkTransition] = useTransition()
 
+  // Guided stepped mode. Position state (phase / index / visited) lives HERE,
+  // not in GuidedWalk, so exiting back to the free-tap map and re-entering
+  // never loses the user's place. "visited" is the set of positioned assets
+  // the user advanced past — implicit passes, tracked locally only (nothing
+  // is written to the server per untouched asset; sign-off attests them OK).
+  const [guided, setGuided] = useState(false)
+  const [guidedPhase, setGuidedPhase] = useState<GuidedPhase>("assets")
+  const [guidedIndex, setGuidedIndex] = useState(0)
+  const [guidedVisited, setGuidedVisited] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+
+  // One guided step per positioned board/door; the board's active glass child
+  // rides on the same step (fail on either piece fails the step).
+  const guidedSteps = useMemo<GuidedStep[]>(
+    () =>
+      positioned.map((a) => {
+        const glass = glassByParent[a.id]
+        return { id: a.id, glassChildId: glass?.isActive ? glass.id : null }
+      }),
+    [positioned, glassByParent],
+  )
+
   // Walk-scoped state must not leak into the NEXT walk (complete one, start
   // another in the same session): re-seed when the server walk id changes.
   const [seenWalkId, setSeenWalkId] = useState(walk?.id ?? null)
@@ -190,6 +218,10 @@ export function ConditionMap(props: ConditionMapProps) {
     setAssetChecks(walkAssetChecks)
     setLocallyLinkedItems([])
     setOfflineWalk(false)
+    setGuided(false)
+    setGuidedPhase("assets")
+    setGuidedIndex(0)
+    setGuidedVisited(new Set())
   }
 
   function saveAssetCheck(
@@ -240,6 +272,26 @@ export function ConditionMap(props: ConditionMapProps) {
   const dueItems = (due?.items ?? []).filter((i) => i.due)
   const linkedItems = new Set([...walkIssueItemIds, ...locallyLinkedItems])
 
+  // Enter guided mode, resuming at the first still-pending asset (skipping
+  // explicit checks and locally-implicit passes). Nothing pending → straight
+  // to the checklist/review phase.
+  function enterGuided() {
+    if (guidedPhase === "assets") {
+      const statusById: Record<string, "pass" | "fail"> = {}
+      for (const [id, check] of Object.entries(assetChecks)) {
+        statusById[id] = check.status
+      }
+      const idx = firstPendingIndex(guidedSteps, statusById, guidedVisited)
+      if (idx >= guidedSteps.length) {
+        setGuidedPhase(dueItems.length > 0 ? "checklist" : "review")
+        setGuidedIndex(Math.max(0, guidedSteps.length - 1))
+      } else {
+        setGuidedIndex(idx)
+      }
+    }
+    setGuided(true)
+  }
+
   function startWalk() {
     startWalkTransition(async () => {
       if (!online) {
@@ -280,6 +332,9 @@ export function ConditionMap(props: ConditionMapProps) {
         })
         if (ok) {
           setOfflineWalk(false)
+          // Queued sign-off stays on the map (there's no walk id to show a
+          // done page for yet); guided mode has nothing left to step through.
+          setGuided(false)
           toast.success(
             "Sign-off queued. It is validated when it syncs — unacknowledged severity-A issues or unanswered due items will reject it.",
           )
@@ -293,7 +348,7 @@ export function ConditionMap(props: ConditionMapProps) {
       if (!r.ok) toast.error(r.error)
       else {
         toast.success("Walk signed off. Untapped assets are attested OK.")
-        router.refresh()
+        router.push(`/reports/dasher-boards/${rink.slug}/done?id=${walk.id}`)
       }
     })
   }
@@ -340,86 +395,131 @@ export function ConditionMap(props: ConditionMapProps) {
         </div>
       )}
 
-      {/* Walk banner */}
-      <Card className="gap-3 py-4">
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle>
-                {activeWalk ? "Walk in progress" : "Inspection walk"}
-              </CardTitle>
-              <CardDescription>
-                {activeWalk
-                  ? "Tap only the assets with problems — untapped assets are attested OK when you sign off."
-                  : "Walk the perimeter and tap problem assets. A signed walk with no issues means all clear."}
-              </CardDescription>
-            </div>
-            {!activeWalk && can.submit && (
-              <Button onClick={startWalk} disabled={walkPending}>
-                Start walk
-              </Button>
+      {guided && activeWalk ? (
+        /* Guided stepped mode: one asset at a time in sequence order, then
+           the due checklist, then a review summary + the same sign-off. */
+        <GuidedWalk
+          rink={rink}
+          positioned={positioned}
+          steps={guidedSteps}
+          glassByParent={glassByParent}
+          conditionByAssetId={conditionByAssetId}
+          assetChecks={assetChecks}
+          dueItems={dueItems}
+          responses={responses}
+          linkedItems={linkedItems}
+          openIssues={openIssues}
+          walkId={walk?.id ?? null}
+          pending={walkPending}
+          phase={guidedPhase}
+          index={guidedIndex}
+          visited={guidedVisited}
+          onPhaseChange={setGuidedPhase}
+          onIndexChange={setGuidedIndex}
+          onVisit={(id) =>
+            setGuidedVisited((prev) => {
+              if (prev.has(id)) return prev
+              const next = new Set(prev)
+              next.add(id)
+              return next
+            })
+          }
+          onSaveCheck={saveAssetCheck}
+          onAnswerItem={answerItem}
+          onOpenAsset={(id) => setDialog({ kind: "asset", assetId: id })}
+          onComplete={completeWalk}
+          onExit={() => setGuided(false)}
+        />
+      ) : (
+        <>
+          {/* Walk banner */}
+          <Card className="gap-3 py-4">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle>
+                    {activeWalk ? "Walk in progress" : "Inspection walk"}
+                  </CardTitle>
+                  <CardDescription>
+                    {activeWalk
+                      ? "Tap only the assets with problems — untapped assets are attested OK when you sign off."
+                      : "Walk the perimeter and tap problem assets. A signed walk with no issues means all clear."}
+                  </CardDescription>
+                </div>
+                {!activeWalk && can.submit && (
+                  <Button onClick={startWalk} disabled={walkPending}>
+                    Start walk
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            {activeWalk && (
+              <CardContent className="flex flex-col gap-4">
+                {can.submit && (
+                  <Button variant="outline" onClick={enterGuided}>
+                    <Footprints aria-hidden />
+                    Guided walk — step through each asset
+                  </Button>
+                )}
+                {dueItems.length > 0 && (
+                  <DuePanel
+                    dueItems={dueItems}
+                    responses={responses}
+                    linkedItems={linkedItems}
+                    onAnswer={answerItem}
+                  />
+                )}
+                <CompleteWalkForm
+                  pending={walkPending}
+                  onComplete={completeWalk}
+                  missingCount={
+                    // Mirror the server sign-off gates: an item is still outstanding
+                    // if it's unanswered OR flagged without a linked issue (gate c).
+                    dueItems.filter(
+                      (i) =>
+                        !responses[i.id] ||
+                        (responses[i.id] === "flag" && !linkedItems.has(i.id)),
+                    ).length
+                  }
+                />
+              </CardContent>
             )}
-          </div>
-        </CardHeader>
-        {activeWalk && (
-          <CardContent className="flex flex-col gap-4">
-            {dueItems.length > 0 && (
-              <DuePanel
-                dueItems={dueItems}
-                responses={responses}
-                linkedItems={linkedItems}
-                onAnswer={answerItem}
-              />
-            )}
-            <CompleteWalkForm
-              pending={walkPending}
-              onComplete={completeWalk}
-              missingCount={
-                // Mirror the server sign-off gates: an item is still outstanding
-                // if it's unanswered OR flagged without a linked issue (gate c).
-                dueItems.filter(
-                  (i) =>
-                    !responses[i.id] ||
-                    (responses[i.id] === "flag" && !linkedItems.has(i.id)),
-                ).length
-              }
-            />
-          </CardContent>
-        )}
-      </Card>
+          </Card>
 
-      {/* Diagram */}
-      <Card className="gap-3 py-4">
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardDescription>
-              Red = open severity A · yellow = open B/C · coral = flagged
-              fail (no issue yet) · lime = door
-            </CardDescription>
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={showGlass} onCheckedChange={setShowGlass} />
-              Glass
-            </label>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <RinkPerimeter
-            className="w-full"
-            positioned={positioned.map((a) => ({
-              id: a.id,
-              label: a.label,
-              asset_type: a.asset_type as "board_panel" | "door",
-            }))}
-            direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
-            anchorOffsetFraction={rink.perimeter_anchor_offset}
-            glassByParent={glassByParent}
-            conditionByAssetId={conditionByAssetId}
-            selectedAssetId={selectedAssetId}
-            onSelectAsset={(id) => setDialog({ kind: "asset", assetId: id })}
-            showGlassLayer={showGlass}
-          />
-        </CardContent>
-      </Card>
+          {/* Diagram */}
+          <Card className="gap-3 py-4">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardDescription>
+                  Red = open severity A · yellow = open B/C · coral = flagged
+                  fail (no issue yet) · lime = door
+                </CardDescription>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={showGlass} onCheckedChange={setShowGlass} />
+                  Glass
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <RinkPerimeter
+                className="w-full"
+                positioned={positioned.map((a) => ({
+                  id: a.id,
+                  label: a.label,
+                  asset_type: a.asset_type as "board_panel" | "door",
+                }))}
+                direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
+                anchorOffsetFraction={rink.perimeter_anchor_offset}
+                glassByParent={glassByParent}
+                conditionByAssetId={conditionByAssetId}
+                selectedAssetId={selectedAssetId}
+                onSelectAsset={(id) => setDialog({ kind: "asset", assetId: id })}
+                showGlassLayer={showGlass}
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <AssetSheet
         {...props}
@@ -439,108 +539,8 @@ export function ConditionMap(props: ConditionMapProps) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Due-today checklist panel (grouped by cadence)
-// ---------------------------------------------------------------------------
-
-function DuePanel({
-  dueItems,
-  responses,
-  linkedItems,
-  onAnswer,
-}: {
-  dueItems: Array<ChecklistItemRow & { due: boolean }>
-  responses: Record<string, "pass" | "flag">
-  linkedItems: Set<string>
-  onAnswer: (item: ChecklistItemRow, status: "pass" | "flag") => void
-}) {
-  const groups = (["daily", "weekly", "monthly", "yearly"] as const)
-    .map((cadence) => ({
-      cadence,
-      items: dueItems.filter((i) => i.cadence === cadence),
-    }))
-    .filter((g) => g.items.length > 0)
-
-  return (
-    <div className="flex flex-col gap-3 rounded-md border border-dashed p-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Due today</span>
-        <span className="text-muted-foreground text-xs">
-          {dueItems.filter((i) => responses[i.id]).length}/{dueItems.length}{" "}
-          answered
-        </span>
-      </div>
-      {groups.map((group) => (
-        <div key={group.cadence} className="flex flex-col gap-1.5">
-          <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            {group.cadence}
-          </span>
-          {group.items.map((item) => {
-            const answer = responses[item.id]
-            return (
-              <div
-                key={item.id}
-                className="bg-muted/30 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
-              >
-                <span className="text-sm">{item.label}</span>
-                <span className="flex items-center gap-1.5">
-                  {answer === "flag" && !linkedItems.has(item.id) && (
-                    <Badge variant="warning">needs issue</Badge>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={answer === "pass" ? "default" : "outline"}
-                    onClick={() => onAnswer(item, "pass")}
-                  >
-                    Pass
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={answer === "flag" ? "destructive" : "outline"}
-                    onClick={() => onAnswer(item, "flag")}
-                  >
-                    Flag
-                  </Button>
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function CompleteWalkForm({
-  pending,
-  missingCount,
-  onComplete,
-}: {
-  pending: boolean
-  missingCount: number
-  onComplete: (notes: string) => void
-}) {
-  const [notes, setNotes] = useState("")
-  return (
-    <div className="flex flex-col gap-2">
-      <Textarea
-        placeholder="Walk notes (optional)…"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={2}
-      />
-      <Button onClick={() => onComplete(notes)} disabled={pending}>
-        {pending ? "Signing off…" : "Complete walk"}
-      </Button>
-      {missingCount > 0 && (
-        <p className="text-muted-foreground text-xs">
-          {missingCount} due checklist item(s) still need an answer before
-          sign-off.
-        </p>
-      )}
-    </div>
-  )
-}
+// DuePanel and CompleteWalkForm live in ./walk-panels.tsx (shared with the
+// guided stepped mode in ./guided-walk.tsx).
 
 // ---------------------------------------------------------------------------
 // Asset / checklist-item bottom sheet: spec block, open issues, report flow,

@@ -46,12 +46,14 @@ export function getModulePdfRenderer(
 import { renderAccidentReportPdf } from "./templates/accident"
 import { renderAirQualityPdf } from "./templates/air-quality"
 import { renderDailyReportPdf } from "./templates/daily"
+import { renderDasherBoardsPdf } from "./templates/dasher-boards"
 import { renderIceDepthPdf } from "./templates/ice-depth"
 import { renderIncidentReportPdf } from "./templates/incident"
 import { renderRefrigerationPdf } from "./templates/refrigeration"
 registerModulePdfRenderer("accident_reports", renderAccidentReportPdf)
 registerModulePdfRenderer("air_quality", renderAirQualityPdf)
 registerModulePdfRenderer("daily_reports", renderDailyReportPdf)
+registerModulePdfRenderer("dasher_boards", renderDasherBoardsPdf)
 registerModulePdfRenderer("ice_depth", renderIceDepthPdf)
 registerModulePdfRenderer("incident_reports", renderIncidentReportPdf)
 registerModulePdfRenderer("refrigeration", renderRefrigerationPdf)

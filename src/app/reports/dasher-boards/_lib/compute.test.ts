@@ -4,11 +4,16 @@ import {
   combineAssetAndChildCheckStatus,
   combineDisplayCondition,
   computeDueItemIds,
+  firstPendingIndex,
+  guidedStepStatus,
   latestCheckStatus,
   nextLabel,
+  summarizeGuidedWalk,
   thicknessToFraction,
   worstOpenSeverity,
+  type AssetCheckStatus,
   type ChecklistItemLite,
+  type GuidedStep,
 } from "./compute"
 
 describe("nextLabel", () => {
@@ -218,6 +223,120 @@ describe("combineDisplayCondition", () => {
     expect(
       combineDisplayCondition({ worstOpenSeverity: null, latestCheckStatus: null }),
     ).toBeNull()
+  })
+})
+
+describe("guidedStepStatus", () => {
+  const board: GuidedStep = { id: "b1" }
+  const boardWithGlass: GuidedStep = { id: "b2", glassChildId: "g2" }
+  const none = new Set<string>()
+
+  it("is pending when untouched and unvisited", () => {
+    expect(guidedStepStatus(board, {}, none)).toBe("pending")
+  })
+
+  it("is implicit when visited without an explicit check", () => {
+    expect(guidedStepStatus(board, {}, new Set(["b1"]))).toBe("implicit")
+  })
+
+  it("an explicit check always wins over visited", () => {
+    expect(guidedStepStatus(board, { b1: "pass" }, new Set(["b1"]))).toBe("pass")
+    expect(guidedStepStatus(board, { b1: "fail" }, new Set(["b1"]))).toBe("fail")
+  })
+
+  it("a glass-child fail makes the step fail, even with a board pass", () => {
+    expect(
+      guidedStepStatus(boardWithGlass, { b2: "pass", g2: "fail" }, none),
+    ).toBe("fail")
+  })
+
+  it("a glass-child pass alone makes the step pass", () => {
+    expect(guidedStepStatus(boardWithGlass, { g2: "pass" }, none)).toBe("pass")
+  })
+
+  it("visits on the glass child do not mark the step visited", () => {
+    // Visited-ness is tracked by the positioned (board/door) id only.
+    expect(guidedStepStatus(boardWithGlass, {}, new Set(["g2"]))).toBe("pending")
+  })
+})
+
+describe("summarizeGuidedWalk", () => {
+  const steps: GuidedStep[] = [
+    { id: "b1" },
+    { id: "b2", glassChildId: "g2" },
+    { id: "b3" },
+    { id: "d1" },
+  ]
+
+  it("everything untouched is an implicit pass", () => {
+    expect(summarizeGuidedWalk(steps, {})).toEqual({
+      explicitPass: 0,
+      fail: 0,
+      implicitPass: 4,
+      total: 4,
+    })
+  })
+
+  it("counts explicit passes, fails, and the untouched remainder", () => {
+    const checks: Record<string, AssetCheckStatus> = {
+      b1: "pass",
+      b3: "fail",
+    }
+    expect(summarizeGuidedWalk(steps, checks)).toEqual({
+      explicitPass: 1,
+      fail: 1,
+      implicitPass: 2,
+      total: 4,
+    })
+  })
+
+  it("a glass-child fail counts the whole step as fail (not pass)", () => {
+    const checks: Record<string, AssetCheckStatus> = {
+      b2: "pass",
+      g2: "fail",
+    }
+    expect(summarizeGuidedWalk(steps, checks)).toEqual({
+      explicitPass: 0,
+      fail: 1,
+      implicitPass: 3,
+      total: 4,
+    })
+  })
+
+  it("empty step list", () => {
+    expect(summarizeGuidedWalk([], {})).toEqual({
+      explicitPass: 0,
+      fail: 0,
+      implicitPass: 0,
+      total: 0,
+    })
+  })
+})
+
+describe("firstPendingIndex", () => {
+  const steps: GuidedStep[] = [
+    { id: "b1" },
+    { id: "b2", glassChildId: "g2" },
+    { id: "b3" },
+  ]
+
+  it("starts at 0 on a fresh walk", () => {
+    expect(firstPendingIndex(steps, {}, new Set())).toBe(0)
+  })
+
+  it("skips explicitly checked steps (including via the glass child)", () => {
+    expect(firstPendingIndex(steps, { b1: "pass", g2: "fail" }, new Set())).toBe(2)
+  })
+
+  it("skips steps already advanced past this session", () => {
+    expect(firstPendingIndex(steps, { b1: "pass" }, new Set(["b2"]))).toBe(2)
+  })
+
+  it("returns steps.length when nothing is pending", () => {
+    expect(
+      firstPendingIndex(steps, { b1: "pass", b3: "fail" }, new Set(["b2"])),
+    ).toBe(3)
+    expect(firstPendingIndex([], {}, new Set())).toBe(0)
   })
 })
 
