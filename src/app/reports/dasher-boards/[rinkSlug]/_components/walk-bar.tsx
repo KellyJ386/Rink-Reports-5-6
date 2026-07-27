@@ -1,17 +1,106 @@
 "use client"
 
-// Walk sub-panels shared by the free-tap condition map and the guided
-// stepped walk: the due-today checklist (grouped by cadence) and the
-// sign-off form. Split out of condition-map.tsx so guided-walk.tsx can
-// reuse them without a circular import.
+// The inspection-walk companion bar. A walk no longer changes how logging
+// works — the map stays fully interactive and tap-to-log is the same path —
+// so the walk UI collapses to one persistent bar: walk state, any due
+// checklist items (most days there are none — the daily cadence ships
+// unseeded by design), and the sign-off that attests "everything I didn't
+// tap is OK". Sticky at the bottom so it never blocks the diagram.
 
 import { useState } from "react"
+import { Footprints, ChevronDown, ChevronUp } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 
 import type { ChecklistItemRow } from "../../_lib/queries"
+
+export function WalkBar({
+  startedAt,
+  synced,
+  dueItems,
+  responses,
+  linkedItems,
+  missingCount,
+  pending,
+  onAnswer,
+  onComplete,
+}: {
+  /** Server started_at, or null for an offline-started walk awaiting sync. */
+  startedAt: string | null
+  /** False while the walk only exists in the offline queue. */
+  synced: boolean
+  dueItems: Array<ChecklistItemRow & { due: boolean }>
+  responses: Record<string, "pass" | "flag">
+  linkedItems: Set<string>
+  missingCount: number
+  pending: boolean
+  onAnswer: (item: ChecklistItemRow, status: "pass" | "flag") => void
+  onComplete: (notes: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const answered = dueItems.filter((i) => responses[i.id]).length
+
+  return (
+    <div className="sticky bottom-3 z-10">
+      <div className="bg-card border-primary/40 flex flex-col gap-3 rounded-xl border p-3 shadow-lg">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Footprints className="text-primary size-4 shrink-0" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Walk in progress</p>
+              <p className="text-muted-foreground truncate text-xs">
+                {synced && startedAt
+                  ? `Started ${new Date(startedAt).toLocaleTimeString()}`
+                  : "Started offline — syncs when you reconnect"}
+                {" · tap problem assets; untapped assets are attested OK at sign-off"}
+              </p>
+            </div>
+          </div>
+          <span className="flex items-center gap-2">
+            {dueItems.length > 0 && (
+              <Badge variant={answered < dueItems.length ? "warning" : "success"}>
+                {answered}/{dueItems.length} due items
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              variant={expanded ? "outline" : "default"}
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+            >
+              {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
+              Sign off
+            </Button>
+          </span>
+        </div>
+
+        {expanded && (
+          <div className="flex flex-col gap-3">
+            {dueItems.length > 0 ? (
+              <DuePanel
+                dueItems={dueItems}
+                responses={responses}
+                linkedItems={linkedItems}
+                onAnswer={onAnswer}
+              />
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                No checklist items due today.
+              </p>
+            )}
+            <CompleteWalkForm
+              pending={pending}
+              missingCount={missingCount}
+              onComplete={onComplete}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Due-today checklist panel (grouped by cadence)
