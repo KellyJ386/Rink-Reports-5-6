@@ -13,7 +13,7 @@
 // semantics are unchanged. All step/summary math lives in _lib/compute.ts
 // (guidedStepStatus / summarizeGuidedWalk / firstPendingIndex).
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { ArrowLeft, ArrowRight, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -80,10 +80,16 @@ export type GuidedWalkProps = {
     note: string | null,
   ) => void
   onAnswerItem: (item: ChecklistItemRow, status: "pass" | "flag") => void
-  /** Opens the existing asset bottom sheet (notes / issue reporting). */
+  /** Opens the segment-anchored asset detail (notes / issue reporting). */
   onOpenAsset: (assetId: string) => void
   onComplete: (notes: string) => void
   onExit: () => void
+  /**
+   * Rendered inside a `relative` wrapper around the rink diagram — the
+   * condition map passes the segment popover anchor through here so the
+   * asset detail popover can pin to the tapped segment in guided mode too.
+   */
+  diagramOverlay?: ReactNode
 }
 
 function StepStatusBadge({ status }: { status: GuidedStepStatus }) {
@@ -123,6 +129,7 @@ export function GuidedWalk({
   onOpenAsset,
   onComplete,
   onExit,
+  diagramOverlay,
 }: GuidedWalkProps) {
   const checkStatusById = useMemo(() => {
     const map: Record<string, AssetCheckStatus> = {}
@@ -253,27 +260,30 @@ export function GuidedWalk({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <RinkPerimeter
-            className="w-full"
-            positioned={positioned.map((a) => ({
-              id: a.id,
-              label: a.label,
-              asset_type: a.asset_type as "board_panel" | "door",
-            }))}
-            direction={
-              rink.perimeter_direction as "clockwise" | "counterclockwise"
-            }
-            anchorOffsetFraction={rink.perimeter_anchor_offset}
-            glassByParent={glassByParent}
-            conditionByAssetId={conditionByAssetId}
-            selectedAssetId={currentAsset?.id ?? null}
-            onSelectAsset={(id) => {
-              const idx = positioned.findIndex((a) => a.id === id)
-              if (idx < 0) return
-              onPhaseChange("assets")
-              onIndexChange(idx)
-            }}
-          />
+          <div className="relative">
+            <RinkPerimeter
+              className="w-full"
+              positioned={positioned.map((a) => ({
+                id: a.id,
+                label: a.label,
+                asset_type: a.asset_type as "board_panel" | "door",
+              }))}
+              direction={
+                rink.perimeter_direction as "clockwise" | "counterclockwise"
+              }
+              anchorOffsetFraction={rink.perimeter_anchor_offset}
+              glassByParent={glassByParent}
+              conditionByAssetId={conditionByAssetId}
+              selectedAssetId={currentAsset?.id ?? null}
+              onSelectAsset={(id) => {
+                const idx = positioned.findIndex((a) => a.id === id)
+                if (idx < 0) return
+                onPhaseChange("assets")
+                onIndexChange(idx)
+              }}
+            />
+            {diagramOverlay}
+          </div>
         </CardContent>
       </Card>
 
