@@ -1,17 +1,63 @@
 "use client"
 
-// Walk sub-panels shared by the free-tap condition map and the guided
-// stepped walk: the due-today checklist (grouped by cadence) and the
-// sign-off form. Split out of condition-map.tsx so guided-walk.tsx can
-// reuse them without a circular import.
-
-import { useState } from "react"
+// Standalone due-items view, independent of the perimeter walk. The checklist
+// is no longer coupled to walk mode: this card renders whenever items are due
+// (most days there are none — the daily cadence ships unseeded by design),
+// and answering an item silently resumes/creates today's inspection record as
+// the response container (the schema stores responses per inspection).
+// Recording is finalized by the walk sign-off — the single completion
+// surface, in walk-bar.tsx.
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 import type { ChecklistItemRow } from "../../_lib/queries"
+
+export function DueCard({
+  dueItems,
+  responses,
+  linkedItems,
+  onAnswer,
+}: {
+  dueItems: Array<ChecklistItemRow & { due: boolean }>
+  responses: Record<string, "pass" | "flag">
+  linkedItems: Set<string>
+  onAnswer: (item: ChecklistItemRow, status: "pass" | "flag") => void
+}) {
+  const outstanding = dueItems.filter(
+    (i) =>
+      !responses[i.id] ||
+      (responses[i.id] === "flag" && !linkedItems.has(i.id)),
+  ).length
+
+  return (
+    <Card className="gap-3 py-4">
+      <CardHeader>
+        <CardTitle>Checklist — due today</CardTitle>
+        <CardDescription>
+          {outstanding > 0
+            ? "Answers save to today's inspection record and are finalized when it's signed off."
+            : "All answered — sign off below to record them."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DuePanel
+          dueItems={dueItems}
+          responses={responses}
+          linkedItems={linkedItems}
+          onAnswer={onAnswer}
+        />
+      </CardContent>
+    </Card>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Due-today checklist panel (grouped by cadence)
@@ -81,41 +127,6 @@ export function DuePanel({
           })}
         </div>
       ))}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Sign-off form (walk notes + complete button)
-// ---------------------------------------------------------------------------
-
-export function CompleteWalkForm({
-  pending,
-  missingCount,
-  onComplete,
-}: {
-  pending: boolean
-  missingCount: number
-  onComplete: (notes: string) => void
-}) {
-  const [notes, setNotes] = useState("")
-  return (
-    <div className="flex flex-col gap-2">
-      <Textarea
-        placeholder="Walk notes (optional)…"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={2}
-      />
-      <Button onClick={() => onComplete(notes)} disabled={pending}>
-        {pending ? "Signing off…" : "Complete walk"}
-      </Button>
-      {missingCount > 0 && (
-        <p className="text-muted-foreground text-xs">
-          {missingCount} due checklist item(s) still need an answer before
-          sign-off.
-        </p>
-      )}
     </div>
   )
 }

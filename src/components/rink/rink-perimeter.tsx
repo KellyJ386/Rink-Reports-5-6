@@ -22,6 +22,8 @@
 import { useId, useMemo, useRef } from "react"
 
 import { RinkMarkings } from "@/components/ice-depth/usa-rink"
+import { useDiagramZoom } from "./use-diagram-zoom"
+import { ZoomControls } from "./zoom-controls"
 
 import {
   boundaryPathD,
@@ -66,6 +68,13 @@ export type RinkPerimeterProps = {
   onSelectAsset?: (assetId: string) => void
   showGlassLayer?: boolean
   showLabels?: boolean
+  /**
+   * Pinch-zoom / pan for phone-sized viewports. At a full perimeter (30–64
+   * positions) an individual segment's rendered hit target drops well below
+   * the 44px minimum on a 380px screen; zooming restores reliable taps.
+   * Enabled on the staff condition map; admin editors are desktop-first.
+   */
+  zoomable?: boolean
   className?: string
   /**
    * When set, the diagram enters "pick a start point" mode: the whole
@@ -117,11 +126,13 @@ export function RinkPerimeter({
   onSelectAsset,
   showGlassLayer = false,
   showLabels = true,
+  zoomable = false,
   className,
   onPickAnchor,
 }: RinkPerimeterProps) {
   const uid = useId()
   const svgRef = useRef<SVGSVGElement>(null)
+  const zoom = useDiagramZoom(RINK_W, RINK_H)
   const anchorOffset = anchorOffsetFraction * PERIMETER_LENGTH
   const segments = useMemo(
     () => buildPerimeterSegments(positioned, direction, anchorOffset),
@@ -150,13 +161,29 @@ export function RinkPerimeter({
   }
 
   return (
-    <div className={className} style={{ aspectRatio: `${RINK_W}/${RINK_H}` }}>
+    <div
+      className={zoomable ? `relative ${className ?? ""}` : className}
+      style={{ aspectRatio: `${RINK_W}/${RINK_H}` }}
+    >
       <svg
-        ref={svgRef}
-        viewBox={`0 0 ${RINK_W} ${RINK_H}`}
+        ref={(el) => {
+          svgRef.current = el
+          if (zoomable) zoom.svgProps.ref(el)
+        }}
+        viewBox={zoomable ? zoom.viewBox : `0 0 ${RINK_W} ${RINK_H}`}
         className={pickingAnchor ? "h-auto w-full cursor-crosshair" : "h-auto w-full"}
         preserveAspectRatio="xMidYMid meet"
         aria-label="Rink perimeter diagram"
+        {...(zoomable
+          ? {
+              style: zoom.svgProps.style,
+              onPointerDown: zoom.svgProps.onPointerDown,
+              onPointerMove: zoom.svgProps.onPointerMove,
+              onPointerUp: zoom.svgProps.onPointerUp,
+              onPointerCancel: zoom.svgProps.onPointerCancel,
+              onClickCapture: zoom.svgProps.onClickCapture,
+            }
+          : {})}
       >
         {/* The SAME USA Hockey ice surface the Ice Depth diagram renders
             (shared markup, imported) — the board ring wraps around it.
@@ -426,6 +453,8 @@ export function RinkPerimeter({
         </g>
         <title id={`${uid}-title`}>Rink perimeter</title>
       </svg>
+
+      {zoomable && <ZoomControls zoom={zoom} />}
     </div>
   )
 }
