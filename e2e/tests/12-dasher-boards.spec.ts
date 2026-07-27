@@ -66,7 +66,7 @@ test.describe("12. Dasher Boards", () => {
     }
   })
 
-  test("tap-to-log without a walk: sheet opens ready with severity B preselected", async ({
+  test("tap-to-log without a walk: compact popover opens ready with severity B preselected", async ({
     page,
   }) => {
     const opened = await openModule(page)
@@ -79,14 +79,14 @@ test.describe("12. Dasher Boards", () => {
     const tapped = await tapFirstSegment(page)
     test.skip(!tapped, "No positioned perimeter assets")
 
-    const sheet = page.getByRole("dialog")
-    await expect(sheet).toBeVisible()
-    // The report form is expanded and ready — no walk was started.
-    await expect(sheet.getByText("Report issue")).toBeVisible()
+    // The compact anchored popover (ice-depth-reading sized) — not the full
+    // sheet — with the report form expanded and ready. No walk was started.
+    const popover = page.getByRole("dialog", { name: /log issue on/i })
+    await expect(popover).toBeVisible()
     await expect(
-      sheet.getByRole("button", { name: /b — needs repair/i }),
+      popover.getByRole("button", { name: /b — needs repair/i }),
     ).toHaveAttribute("aria-pressed", "true")
-    await expect(sheet.getByPlaceholder(/describe the issue/i)).toBeVisible()
+    await expect(popover.getByPlaceholder(/describe the issue/i)).toBeVisible()
   })
 
   test("severity A surfaces supervisor + action-taken requirements before typing", async ({
@@ -97,14 +97,14 @@ test.describe("12. Dasher Boards", () => {
     const tapped = await tapFirstSegment(page)
     test.skip(!tapped, "No positioned perimeter assets")
 
-    const sheet = page.getByRole("dialog")
-    await sheet.getByRole("button", { name: /a — safety critical/i }).click()
-    await expect(sheet.getByText(/safety-critical/i)).toBeVisible()
+    const popover = page.getByRole("dialog", { name: /log issue on/i })
+    await popover.getByRole("button", { name: /a — safety critical/i }).click()
+    await expect(popover.getByText(/safety-critical/i)).toBeVisible()
     await expect(
-      sheet.getByPlaceholder(/action taken \(required for a\)/i),
+      popover.getByPlaceholder(/action taken \(required for a\)/i),
     ).toBeVisible()
     await expect(
-      sheet.getByRole("combobox", { name: "Supervisor" }),
+      popover.getByRole("combobox", { name: "Supervisor" }),
     ).toBeVisible()
   })
 
@@ -116,7 +116,13 @@ test.describe("12. Dasher Boards", () => {
     const tapped = await tapFirstSegment(page)
     test.skip(!tapped, "No positioned perimeter assets")
 
-    const sheet = page.getByRole("dialog")
+    // Popover has no admin controls…
+    const popover = page.getByRole("dialog", { name: /log issue on/i })
+    await expect(popover).toBeVisible()
+    await expect(popover.getByText(/this is a door/i)).toHaveCount(0)
+    // …and neither does the full Details sheet.
+    await popover.getByRole("button", { name: /details/i }).click()
+    const sheet = page.getByRole("dialog").last()
     await expect(sheet).toBeVisible()
     await expect(sheet.getByText(/this is a door/i)).toHaveCount(0)
     await expect(
@@ -155,21 +161,27 @@ test.describe("12. Dasher Boards", () => {
     const tapped = await tapFirstSegment(page)
     test.skip(!tapped, "No positioned perimeter assets")
 
-    const sheet = page.getByRole("dialog")
-    const category = sheet.getByRole("combobox", { name: "Category" })
+    const popover = page.getByRole("dialog", { name: /log issue on/i })
+    const category = popover.getByRole("combobox", { name: "Category" })
     const options = await category.locator("option").count()
     test.skip(options < 2, "TODO(seed): no issue categories configured")
 
     await category.selectOption({ index: 1 })
-    await sheet
+    await popover
       .getByPlaceholder(/describe the issue/i)
       .fill("E2E tap-to-log check — safe to resolve")
-    await sheet.getByRole("button", { name: /submit issue/i }).click()
-    await expect(sheet.getByText(/issue reported/i).first()).toBeVisible({
+    await popover.getByRole("button", { name: /submit issue/i }).click()
+    await expect(popover.getByText(/issue reported/i).first()).toBeVisible({
       timeout: 10_000,
     })
 
-    // Clean up: staff may resolve their own B-severity issue.
+    // Clean up: the issue now shows on the asset — resolve it from the
+    // Details sheet (staff may resolve their own B-severity issue).
+    await expect(
+      popover.getByRole("button", { name: /open issue\(s\) — view/i }),
+    ).toBeVisible({ timeout: 10_000 })
+    await popover.getByRole("button", { name: /open issue\(s\) — view/i }).click()
+    const sheet = page.getByRole("dialog").last()
     await expect(
       sheet.getByRole("button", { name: /mark fixed/i }).first(),
     ).toBeVisible({ timeout: 10_000 })

@@ -27,6 +27,8 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { RinkPerimeter } from "@/components/rink/rink-perimeter"
 import type { PerimeterCondition } from "@/components/rink/rink-perimeter"
+import { useDiagramZoom } from "@/components/rink/use-diagram-zoom"
+import { RINK_H, RINK_W } from "@/components/rink/perimeter-geometry"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
 
@@ -37,6 +39,7 @@ import {
   startWalkAction,
 } from "../../actions"
 import { combineDisplayCondition } from "../../_lib/compute"
+import { AssetPopover } from "./asset-popover"
 import { AssetSheet } from "./asset-sheet"
 import { DueCard } from "./due-card"
 import { ItemSheet } from "./item-sheet"
@@ -144,7 +147,10 @@ export function ConditionMap(props: ConditionMapProps) {
   }, [assets])
 
   const [dialog, setDialog] = useState<DialogTarget | null>(null)
+  // Full-detail bottom sheet, opened from the compact popover's "Details".
+  const [sheetAssetId, setSheetAssetId] = useState<string | null>(null)
   const [showGlass, setShowGlass] = useState(false)
+  const zoom = useDiagramZoom(RINK_W, RINK_H)
   // Walk state: the server walk, or a locally-started offline walk awaiting sync.
   const [offlineWalk, setOfflineWalk] = useState(false)
   const activeWalk = walk ?? (offlineWalk ? { id: null, startedAt: null } : null)
@@ -348,6 +354,15 @@ export function ConditionMap(props: ConditionMapProps) {
       ? (assets.find((a) => a.id === dialog.assetId) ?? null)
       : null
   const selectedItem = dialog?.kind === "item" ? dialog.item : null
+  const sheetAsset = sheetAssetId
+    ? (assets.find((a) => a.id === sheetAssetId) ?? null)
+    : null
+  const glassChildOf = (a: PerimeterAsset | null) =>
+    a && a.asset_type === "board_panel"
+      ? (assets.find(
+          (g) => g.asset_type === "glass_panel" && g.parent_board_id === a.id,
+        ) ?? null)
+      : null
 
   const positionedLite = useMemo(
     () =>
@@ -425,18 +440,61 @@ export function ConditionMap(props: ConditionMapProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <RinkPerimeter
-            className="w-full"
-            positioned={positionedLite}
-            direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
-            anchorOffsetFraction={rink.perimeter_anchor_offset}
-            glassByParent={glassByParent}
-            conditionByAssetId={conditionByAssetId}
-            selectedAssetId={selectedAsset?.id ?? null}
-            onSelectAsset={(id) => setDialog({ kind: "asset", assetId: id })}
-            showGlassLayer={showGlass}
-            zoomable
-          />
+          <div className="relative">
+            <RinkPerimeter
+              className="w-full"
+              positioned={positionedLite}
+              direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
+              anchorOffsetFraction={rink.perimeter_anchor_offset}
+              glassByParent={glassByParent}
+              conditionByAssetId={conditionByAssetId}
+              selectedAssetId={selectedAsset?.id ?? null}
+              onSelectAsset={(id) =>
+                setDialog((cur) =>
+                  cur?.kind === "asset" && cur.assetId === id
+                    ? null
+                    : { kind: "asset", assetId: id },
+                )
+              }
+              showGlassLayer={showGlass}
+              zoom={zoom}
+            />
+            {/* Compact tap-to-log popover, pinned to the tapped segment
+                (ice-depth-reading sized). "Details" opens the full sheet. */}
+            {selectedAsset && (
+              <AssetPopover
+                asset={selectedAsset}
+                glassChild={glassChildOf(selectedAsset)}
+                positioned={positionedLite}
+                direction={
+                  rink.perimeter_direction as "clockwise" | "counterclockwise"
+                }
+                anchorOffsetFraction={rink.perimeter_anchor_offset}
+                view={zoom.view}
+                openIssueCount={
+                  openIssues.filter(
+                    (i) =>
+                      i.asset_id === selectedAsset.id ||
+                      i.asset_id === glassChildOf(selectedAsset)?.id,
+                  ).length
+                }
+                categories={categories}
+                supervisors={supervisors}
+                can={can}
+                online={online}
+                walkActive={!!activeWalk}
+                checkStatus={assetChecks[selectedAsset.id]?.status ?? null}
+                checkPending={walkPending}
+                onSaveCheck={saveAssetCheck}
+                onIssueReported={handleIssueReported}
+                onOpenDetails={() => {
+                  setSheetAssetId(selectedAsset.id)
+                  setDialog(null)
+                }}
+                onClose={closeDialog}
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -464,7 +522,7 @@ export function ConditionMap(props: ConditionMapProps) {
       )}
 
       <AssetSheet
-        asset={selectedAsset}
+        asset={sheetAsset}
         assets={assets}
         openIssues={openIssues}
         categories={categories}
@@ -477,7 +535,7 @@ export function ConditionMap(props: ConditionMapProps) {
         checkPending={walkPending}
         onSaveCheck={saveAssetCheck}
         onIssueReported={handleIssueReported}
-        onClose={closeDialog}
+        onClose={() => setSheetAssetId(null)}
       />
 
       <ItemSheet

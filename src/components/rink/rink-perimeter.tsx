@@ -22,7 +22,7 @@
 import { useId, useMemo, useRef } from "react"
 
 import { RinkMarkings } from "@/components/ice-depth/usa-rink"
-import { useDiagramZoom } from "./use-diagram-zoom"
+import { useDiagramZoom, type DiagramZoom } from "./use-diagram-zoom"
 import { ZoomControls } from "./zoom-controls"
 
 import {
@@ -75,6 +75,12 @@ export type RinkPerimeterProps = {
    * Enabled on the staff condition map; admin editors are desktop-first.
    */
   zoomable?: boolean
+  /**
+   * Externally-owned zoom state (useDiagramZoom in the parent) — for callers
+   * that anchor overlays (e.g. the tap-to-log popover) on diagram
+   * coordinates and need the live view window. Implies zoomable.
+   */
+  zoom?: DiagramZoom
   className?: string
   /**
    * When set, the diagram enters "pick a start point" mode: the whole
@@ -127,12 +133,15 @@ export function RinkPerimeter({
   showGlassLayer = false,
   showLabels = true,
   zoomable = false,
+  zoom: externalZoom,
   className,
   onPickAnchor,
 }: RinkPerimeterProps) {
   const uid = useId()
   const svgRef = useRef<SVGSVGElement>(null)
-  const zoom = useDiagramZoom(RINK_W, RINK_H)
+  const internalZoom = useDiagramZoom(RINK_W, RINK_H)
+  const zoom = externalZoom ?? internalZoom
+  const zoomActive = zoomable || externalZoom !== undefined
   const anchorOffset = anchorOffsetFraction * PERIMETER_LENGTH
   const segments = useMemo(
     () => buildPerimeterSegments(positioned, direction, anchorOffset),
@@ -162,19 +171,19 @@ export function RinkPerimeter({
 
   return (
     <div
-      className={zoomable ? `relative ${className ?? ""}` : className}
+      className={zoomActive ? `relative ${className ?? ""}` : className}
       style={{ aspectRatio: `${RINK_W}/${RINK_H}` }}
     >
       <svg
         ref={(el) => {
           svgRef.current = el
-          if (zoomable) zoom.svgProps.ref(el)
+          if (zoomActive) zoom.svgProps.ref(el)
         }}
-        viewBox={zoomable ? zoom.viewBox : `0 0 ${RINK_W} ${RINK_H}`}
+        viewBox={zoomActive ? zoom.viewBox : `0 0 ${RINK_W} ${RINK_H}`}
         className={pickingAnchor ? "h-auto w-full cursor-crosshair" : "h-auto w-full"}
         preserveAspectRatio="xMidYMid meet"
         aria-label="Rink perimeter diagram"
-        {...(zoomable
+        {...(zoomActive
           ? {
               style: zoom.svgProps.style,
               onPointerDown: zoom.svgProps.onPointerDown,
@@ -454,7 +463,7 @@ export function RinkPerimeter({
         <title id={`${uid}-title`}>Rink perimeter</title>
       </svg>
 
-      {zoomable && <ZoomControls zoom={zoom} />}
+      {zoomActive && <ZoomControls zoom={zoom} />}
     </div>
   )
 }

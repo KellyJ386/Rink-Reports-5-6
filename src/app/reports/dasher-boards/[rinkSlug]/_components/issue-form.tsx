@@ -131,6 +131,7 @@ export function ReportIssueForm({
   categories,
   supervisors,
   online,
+  compact = false,
   onReported,
 }: {
   asset: PerimeterAsset | null
@@ -139,6 +140,12 @@ export function ReportIssueForm({
   categories: CategoryRow[]
   supervisors: Array<{ id: string; name: string }>
   online: boolean
+  /**
+   * Dense layout for the small tap popover (ice-depth-reading sized): no
+   * card chrome or heading, letter-only severity pills. Same fields, same
+   * submit path.
+   */
+  compact?: boolean
   onReported: (checklistItemId: string | null) => void
 }) {
   // A board position's issue can be on the board OR its glass.
@@ -232,8 +239,14 @@ export function ReportIssueForm({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border p-3">
-      <Label>Report issue</Label>
+    <div
+      className={
+        compact
+          ? "flex flex-col gap-2"
+          : "flex flex-col gap-3 rounded-md border p-3"
+      }
+    >
+      {!compact && <Label>Report issue</Label>}
       {asset && glassChild && glassChild.is_active && (
         <div className="flex gap-2">
           <Button
@@ -263,6 +276,7 @@ export function ReportIssueForm({
           <Button
             key={s}
             size="sm"
+            className={compact ? "flex-1" : undefined}
             variant={
               severity === s
                 ? s === "a"
@@ -271,9 +285,10 @@ export function ReportIssueForm({
                 : "outline"
             }
             aria-pressed={severity === s}
+            aria-label={SEVERITY_LABEL[s]}
             onClick={() => setSeverity(s)}
           >
-            {SEVERITY_LABEL[s]}
+            {compact ? s.toUpperCase() : SEVERITY_LABEL[s]}
           </Button>
         ))}
       </div>

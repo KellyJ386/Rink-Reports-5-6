@@ -35,6 +35,8 @@ export type DiagramZoom = {
   /** Current viewBox string for the svg. */
   viewBox: string
   scale: number
+  /** Raw view window (viewBox origin + scale) for overlay positioning math. */
+  view: { vx: number; vy: number; scale: number }
   isZoomed: boolean
   zoomIn: () => void
   zoomOut: () => void
@@ -223,6 +225,7 @@ export function useDiagramZoom(w: number, h: number): DiagramZoom {
   return {
     viewBox,
     scale: view.scale,
+    view,
     isZoomed: view.scale > 1.001,
     zoomIn: () => zoomBy(BUTTON_STEP),
     zoomOut: () => zoomBy(1 / BUTTON_STEP),
