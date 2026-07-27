@@ -1,11 +1,11 @@
 "use client"
 
-// The inspection-walk companion bar. A walk no longer changes how logging
-// works — the map stays fully interactive and tap-to-log is the same path —
-// so the walk UI collapses to one persistent bar: walk state, any due
-// checklist items (most days there are none — the daily cadence ships
-// unseeded by design), and the sign-off that attests "everything I didn't
-// tap is OK". Sticky at the bottom so it never blocks the diagram.
+// The inspection-walk companion bar — the single sign-off surface. A walk no
+// longer changes how logging works (the map stays fully interactive and
+// tap-to-log is the same path) and the due checklist lives in its own card
+// (due-card.tsx), so this bar is just: walk state, sign-off readiness, and
+// the completion that attests "everything I didn't tap is OK". Sticky at the
+// bottom so it never blocks the diagram.
 
 import { useState } from "react"
 import { Footprints, ChevronDown, ChevronUp } from "lucide-react"
@@ -21,10 +21,8 @@ export function WalkBar({
   synced,
   dueItems,
   responses,
-  linkedItems,
   missingCount,
   pending,
-  onAnswer,
   onComplete,
 }: {
   /** Server started_at, or null for an offline-started walk awaiting sync. */
@@ -33,10 +31,9 @@ export function WalkBar({
   synced: boolean
   dueItems: Array<ChecklistItemRow & { due: boolean }>
   responses: Record<string, "pass" | "flag">
-  linkedItems: Set<string>
+  /** Due items unanswered or flagged without a linked issue (sign-off gate). */
   missingCount: number
   pending: boolean
-  onAnswer: (item: ChecklistItemRow, status: "pass" | "flag") => void
   onComplete: (notes: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -77,99 +74,13 @@ export function WalkBar({
         </div>
 
         {expanded && (
-          <div className="flex flex-col gap-3">
-            {dueItems.length > 0 ? (
-              <DuePanel
-                dueItems={dueItems}
-                responses={responses}
-                linkedItems={linkedItems}
-                onAnswer={onAnswer}
-              />
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                No checklist items due today.
-              </p>
-            )}
-            <CompleteWalkForm
-              pending={pending}
-              missingCount={missingCount}
-              onComplete={onComplete}
-            />
-          </div>
+          <CompleteWalkForm
+            pending={pending}
+            missingCount={missingCount}
+            onComplete={onComplete}
+          />
         )}
       </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Due-today checklist panel (grouped by cadence)
-// ---------------------------------------------------------------------------
-
-export function DuePanel({
-  dueItems,
-  responses,
-  linkedItems,
-  onAnswer,
-}: {
-  dueItems: Array<ChecklistItemRow & { due: boolean }>
-  responses: Record<string, "pass" | "flag">
-  linkedItems: Set<string>
-  onAnswer: (item: ChecklistItemRow, status: "pass" | "flag") => void
-}) {
-  const groups = (["daily", "weekly", "monthly", "yearly"] as const)
-    .map((cadence) => ({
-      cadence,
-      items: dueItems.filter((i) => i.cadence === cadence),
-    }))
-    .filter((g) => g.items.length > 0)
-
-  return (
-    <div className="flex flex-col gap-3 rounded-md border border-dashed p-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Due today</span>
-        <span className="text-muted-foreground text-xs">
-          {dueItems.filter((i) => responses[i.id]).length}/{dueItems.length}{" "}
-          answered
-        </span>
-      </div>
-      {groups.map((group) => (
-        <div key={group.cadence} className="flex flex-col gap-1.5">
-          <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            {group.cadence}
-          </span>
-          {group.items.map((item) => {
-            const answer = responses[item.id]
-            return (
-              <div
-                key={item.id}
-                className="bg-muted/30 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
-              >
-                <span className="text-sm">{item.label}</span>
-                <span className="flex items-center gap-1.5">
-                  {answer === "flag" && !linkedItems.has(item.id) && (
-                    <Badge variant="warning">needs issue</Badge>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={answer === "pass" ? "default" : "outline"}
-                    onClick={() => onAnswer(item, "pass")}
-                  >
-                    Pass
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={answer === "flag" ? "destructive" : "outline"}
-                    onClick={() => onAnswer(item, "flag")}
-                  >
-                    Flag
-                  </Button>
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      ))}
     </div>
   )
 }
@@ -201,8 +112,8 @@ export function CompleteWalkForm({
       </Button>
       {missingCount > 0 && (
         <p className="text-muted-foreground text-xs">
-          {missingCount} due checklist item(s) still need an answer before
-          sign-off.
+          {missingCount} due checklist item(s) still need an answer (flags need
+          a reported issue) before sign-off.
         </p>
       )}
     </div>

@@ -124,6 +124,27 @@ test.describe("12. Dasher Boards", () => {
     ).toHaveCount(0)
   })
 
+  test("due checklist renders as its own card, independent of any walk", async ({
+    page,
+  }) => {
+    const opened = await openModule(page)
+    test.skip(!opened, "TODO(seed): dasher boards not configured / no access")
+    test.skip(
+      await page.getByText(/walk in progress/i).isVisible().catch(() => false),
+      "Account has a leftover open walk — cannot cover the no-walk path",
+    )
+
+    const dueCard = page.getByText(/checklist — due today/i)
+    test.skip(
+      !(await dueCard.isVisible().catch(() => false)),
+      "TODO(seed): no checklist items due today (daily cadence ships unseeded)",
+    )
+    // Answerable with no walk started; Pass/Flag buttons are live.
+    await expect(
+      page.getByRole("button", { name: "Pass" }).first(),
+    ).toBeVisible()
+  })
+
   test("report → resolve round trip without a walk", async ({ page }) => {
     const opened = await openModule(page)
     test.skip(!opened, "TODO(seed): dasher boards not configured / no access")

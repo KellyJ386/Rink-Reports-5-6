@@ -6,8 +6,13 @@
 // opt-in overlay (see walk-bar.tsx): start it from the toolbar, keep tapping
 // the same map, then sign off to attest "everything I didn't tap is OK"
 // (the exception-based model the schema documents).
+//
+// The due checklist is its own lightweight view (due-card.tsx), independent
+// of the walk. Answering an item with no walk open silently resumes/creates
+// today's inspection as the response container (the schema stores responses
+// per inspection); the walk bar stays the single sign-off surface.
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Footprints } from "lucide-react"
 import { toast } from "sonner"
@@ -33,6 +38,7 @@ import {
 } from "../../actions"
 import { combineDisplayCondition } from "../../_lib/compute"
 import { AssetSheet } from "./asset-sheet"
+import { DueCard } from "./due-card"
 import { ItemSheet } from "./item-sheet"
 import { WalkBar } from "./walk-bar"
 import type {
@@ -150,6 +156,10 @@ export function ConditionMap(props: ConditionMapProps) {
   const [locallyLinkedItems, setLocallyLinkedItems] = useState<string[]>([])
   const [cacheSavedAt, setCacheSavedAt] = useState<number | null>(null)
   const [walkPending, startWalkTransition] = useTransition()
+  // Inspection auto-created as the container for checklist answers given
+  // outside an explicit walk (until router.refresh delivers it as `walk`).
+  const [autoWalkId, setAutoWalkId] = useState<string | null>(null)
+  const startInFlight = useRef<Promise<string | null> | null>(null)
 
   // Walk-scoped state must not leak into the NEXT walk (complete one, start
   // another in the same session): re-seed when the server walk id changes.
@@ -160,6 +170,7 @@ export function ConditionMap(props: ConditionMapProps) {
     setAssetChecks(walkAssetChecks)
     setLocallyLinkedItems([])
     setOfflineWalk(false)
+    setAutoWalkId(null)
   }
 
   function saveAssetCheck(
@@ -268,12 +279,47 @@ export function ConditionMap(props: ConditionMapProps) {
     })
   }
 
+  // The checklist doesn't require a walk: answers need an inspection row as
+  // their container (schema), so the first answer outside an explicit walk
+  // resumes/creates today's inspection quietly. Deduped so two quick answers
+  // never race two creates (the server resumes the open walk anyway).
+  async function ensureWalkId(): Promise<string | null> {
+    if (walk) return walk.id
+    if (autoWalkId) return autoWalkId
+    if (!startInFlight.current) {
+      startInFlight.current = startWalkAction(rink.id).then((r) => {
+        startInFlight.current = null
+        if (!r.ok) {
+          toast.error(r.error)
+          return null
+        }
+        setAutoWalkId(r.inspectionId)
+        return r.inspectionId
+      })
+    }
+    return startInFlight.current
+  }
+
   function answerItem(item: ChecklistItemRow, status: "pass" | "flag") {
     setResponses((cur) => ({ ...cur, [item.id]: status }))
     const persist = async () => {
-      // Queue whenever there is no server walk id yet — otherwise an answer
-      // given in the online-but-unsynced-walk window would be silently lost.
-      if (!online || !walk) {
+      // Offline, or an offline-started walk not yet flushed: queue. The
+      // container walk is queued once too — FIFO replay creates it before
+      // the answers land on it.
+      if (!online || offlineWalk) {
+        if (!activeWalk) {
+          const started = enqueueSubmission({
+            localId: genLocalId(),
+            moduleKey: "dasher_boards",
+            action: "start_walk",
+            payload: { rinkId: rink.id },
+          })
+          if (!started) {
+            toast.error("Offline queue unavailable — answer not saved.")
+            return
+          }
+          setOfflineWalk(true)
+        }
         const ok = enqueueSubmission({
           localId: genLocalId(),
           moduleKey: "dasher_boards",
@@ -283,10 +329,13 @@ export function ConditionMap(props: ConditionMapProps) {
         if (!ok) toast.error("Offline queue unavailable — answer not saved.")
         return
       }
-      const r = await saveChecklistResponsesAction(walk.id, [
+      const walkId = await ensureWalkId()
+      if (!walkId) return
+      const r = await saveChecklistResponsesAction(walkId, [
         { itemId: item.id, status },
       ])
       if (!r.ok) toast.error(r.error)
+      else router.refresh()
     }
     void persist()
     if (status === "flag" && !linkedItems.has(item.id)) {
@@ -391,6 +440,16 @@ export function ConditionMap(props: ConditionMapProps) {
         </CardContent>
       </Card>
 
+      {/* Due checklist — its own view, walk or no walk. */}
+      {can.submit && dueItems.length > 0 && (
+        <DueCard
+          dueItems={dueItems}
+          responses={responses}
+          linkedItems={linkedItems}
+          onAnswer={answerItem}
+        />
+      )}
+
       {/* Persistent walk companion — only while a walk is open. */}
       {activeWalk && (
         <WalkBar
@@ -398,10 +457,8 @@ export function ConditionMap(props: ConditionMapProps) {
           synced={!!walk}
           dueItems={dueItems}
           responses={responses}
-          linkedItems={linkedItems}
           missingCount={missingCount}
           pending={walkPending}
-          onAnswer={answerItem}
           onComplete={completeWalk}
         />
       )}
