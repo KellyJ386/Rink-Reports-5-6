@@ -10494,10 +10494,6 @@ CREATE TABLE public.ice_depth_sessions (
     total_measurements integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    board_pass boolean,
-    board_fail_notes text,
-    glass_pass boolean,
-    glass_fail_notes text,
     CONSTRAINT ice_depth_sessions_measurement_unit_snapshot_check CHECK ((measurement_unit_snapshot = ANY (ARRAY['inches'::text, 'mm'::text])))
 );
 
@@ -10535,34 +10531,6 @@ COMMENT ON COLUMN public.ice_depth_sessions.has_high_reading IS 'Denormalized: t
 --
 
 COMMENT ON COLUMN public.ice_depth_sessions.total_measurements IS 'Count of recorded child measurements. May be less than the layout''s active point count -- incomplete submissions are allowed.';
-
-
---
--- Name: COLUMN ice_depth_sessions.board_pass; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.board_pass IS 'Pass/Fail checkoff for the dasher boards, recorded as part of this ice-depth session. Null = not answered.';
-
-
---
--- Name: COLUMN ice_depth_sessions.board_fail_notes; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.board_fail_notes IS 'Required free-text note describing the issue when board_pass = false.';
-
-
---
--- Name: COLUMN ice_depth_sessions.glass_pass; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.glass_pass IS 'Pass/Fail checkoff for the rink glass, recorded as part of this ice-depth session. Null = not answered.';
-
-
---
--- Name: COLUMN ice_depth_sessions.glass_fail_notes; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.glass_fail_notes IS 'Required free-text note describing the issue when glass_pass = false.';
 
 
 --
