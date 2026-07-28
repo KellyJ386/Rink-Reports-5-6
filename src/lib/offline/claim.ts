@@ -27,6 +27,15 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>
  *
  * On persist failure the claim is released (delete) so a later retry re-attempts;
  * on success the row is flipped to `synced`.
+ *
+ * Every post-claim read/write here is ALSO scoped to the calling employee, not
+ * just `local_id`. `local_id` is globally unique across users/facilities, so
+ * without that scoping a caller whose id matched another user's already-synced
+ * row (a facility admin can SELECT every facility row) would be told
+ * "duplicate" — and the SW would delete their queued report unsynced — and the
+ * release/synced writes could touch a row the caller never owned. Users may
+ * also delete their own queue rows directly, so a row vanishing between calls
+ * is normal, not an error.
  */
 
 export type ClaimSlotArgs = {
@@ -90,39 +99,62 @@ export async function claimQueueSlot(args: ClaimSlotArgs): Promise<ClaimResult> 
   }
 
   // Zero rows → a row already exists for this local_id. Only treat it as a true
-  // duplicate if it actually reached `synced`; a still-`pending` row is a crash
-  // orphan and must be re-driven (E-03).
+  // duplicate if it actually reached `synced` AND belongs to the calling
+  // employee; a still-`pending` own row is a crash orphan and must be re-driven
+  // (E-03). A row held by a DIFFERENT employee can be neither claimed (unique
+  // key) nor marked synced (the writes below are employee-scoped), so
+  // persisting under it would not be idempotent across retries — surface a
+  // transient error instead of false success, keeping the item queued on the
+  // device rather than letting the SW delete it.
   const { data: existing, error: readErr } = await supabase
     .from("offline_sync_queue")
-    .select("sync_status")
+    .select("sync_status, employee_id")
     .eq("local_id", localId)
-    .maybeSingle<{ sync_status: string | null }>()
+    .maybeSingle<{ sync_status: string | null; employee_id: string | null }>()
 
   if (readErr) {
     return { kind: "error", message: readErr.message }
   }
+  if (existing && existing.employee_id !== employeeId) {
+    return { kind: "error", message: "Queue slot is held by another user" }
+  }
   if (existing && existing.sync_status === "synced") {
     return { kind: "duplicate" }
   }
-  // Orphaned pending row (or row vanished) → take ownership and re-persist.
+  // Orphaned own pending row (or row vanished) → take ownership and re-persist.
   return { kind: "claimed" }
 }
 
-/** Release the claim so a future retry re-attempts the persist. */
+/**
+ * Release the claim so a future retry re-attempts the persist. Scoped to the
+ * calling employee as well as local_id so a colliding id can never delete
+ * another user's row.
+ */
 export async function releaseClaim(
   supabase: SupabaseClient,
-  localId: string
+  localId: string,
+  employeeId: string
 ): Promise<void> {
-  await supabase.from("offline_sync_queue").delete().eq("local_id", localId)
+  await supabase
+    .from("offline_sync_queue")
+    .delete()
+    .eq("local_id", localId)
+    .eq("employee_id", employeeId)
 }
 
-/** Mark the claim `synced` once the report has been persisted. */
+/**
+ * Mark the claim `synced` once the report has been persisted. Scoped to the
+ * calling employee as well as local_id so a colliding id can never flip
+ * another user's still-pending row to `synced`.
+ */
 export async function markClaimSynced(
   supabase: SupabaseClient,
-  localId: string
+  localId: string,
+  employeeId: string
 ): Promise<void> {
   await supabase
     .from("offline_sync_queue")
     .update({ sync_status: "synced", synced_at: new Date().toISOString() })
     .eq("local_id", localId)
+    .eq("employee_id", employeeId)
 }

@@ -204,6 +204,25 @@ export async function renameRole(
     }
 
     const supabase = await createClient()
+
+    // Resolve the target role's facility first so the floor reflects the
+    // caller's rank inside that facility specifically (mirrors
+    // setRoleHierarchy). RLS on roles also ensures cross-facility admins
+    // can't load the row at all.
+    const { data: existing } = await supabase
+      .from("roles")
+      .select("facility_id, hierarchy_level")
+      .eq("id", roleId)
+      .maybeSingle()
+    if (!existing) return err("Role not found")
+
+    // Block relabeling a role that outranks the caller (e.g. a facility admin
+    // renaming the super_admin role).
+    const floor = await callerHierarchyFloor(existing.facility_id)
+    if (floor !== null && existing.hierarchy_level < floor) {
+      return err("Cannot modify a role that already outranks you.")
+    }
+
     const update = {
       display_name: trimmed,
       ...(description !== undefined ? { description: description.trim() || null } : {}),

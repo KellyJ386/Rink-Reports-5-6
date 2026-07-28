@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "@/lib/auth"
+import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import { wallTimeToUtc } from "@/lib/timezone"
 import type { Json } from "@/types/database"
@@ -339,7 +340,16 @@ async function handleIncidentReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // Claim errors carry raw PostgREST text (constraint/column names); keep
+    // that server-side and return an opaque body — 500 keeps the SW retrying.
+    logServerError("api/offline-sync", new Error(claim.message), {
+      step: "claim",
+      module: "incident_reports",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -353,12 +363,20 @@ async function handleIncidentReplay({
   })
 
   if (!result.ok) {
-    // Release the claim so a future retry re-attempts the persist.
-    await releaseClaim(supabase, localId)
-    return NextResponse.json({ error: result.error }, { status: 500 })
+    // Release the claim so a future retry re-attempts the persist. The raw
+    // error can echo DB internals, so log it and keep the body opaque.
+    await releaseClaim(supabase, localId, employeeId)
+    logServerError("api/offline-sync", new Error(result.error), {
+      step: "persist",
+      module: "incident_reports",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }
@@ -422,7 +440,16 @@ async function handleRefrigerationReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // Claim errors carry raw PostgREST text (constraint/column names); keep
+    // that server-side and return an opaque body — 500 keeps the SW retrying.
+    logServerError("api/offline-sync", new Error(claim.message), {
+      step: "claim",
+      module: "refrigeration",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -435,12 +462,20 @@ async function handleRefrigerationReplay({
   })
 
   if (!result.ok) {
-    // Release the claim so a future retry re-attempts the persist.
-    await releaseClaim(supabase, localId)
-    return NextResponse.json({ error: result.error }, { status: 500 })
+    // Release the claim so a future retry re-attempts the persist. The raw
+    // error can echo DB internals, so log it and keep the body opaque.
+    await releaseClaim(supabase, localId, employeeId)
+    logServerError("api/offline-sync", new Error(result.error), {
+      step: "persist",
+      module: "refrigeration",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }
@@ -643,7 +678,16 @@ async function handleSchedulingReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // Claim errors carry raw PostgREST text (constraint/column names); keep
+    // that server-side and return an opaque body — 500 keeps the SW retrying.
+    logServerError("api/offline-sync", new Error(claim.message), {
+      step: "claim",
+      module: "scheduling",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -653,16 +697,24 @@ async function handleSchedulingReplay({
 
   if (writeError) {
     // Release the claim so a future retry re-attempts the persist.
-    await releaseClaim(supabase, localId)
+    await releaseClaim(supabase, localId, employeeId)
     // A permanent write failure (E-08: the edited row is gone) parks the item
-    // immediately with 422 instead of burning transient 500 retries.
+    // immediately with 422 instead of burning transient 500 retries. Permanent
+    // messages are hand-crafted for the Pending Sync Queue page; transient
+    // ones are raw Postgres text, so those are logged and the body stays opaque.
+    if (!permanent) {
+      logServerError("api/offline-sync", new Error(writeError.message), {
+        step: "write",
+        module: "scheduling",
+      })
+    }
     return NextResponse.json(
-      { error: writeError.message },
+      { error: permanent ? writeError.message : "Failed to save the submission." },
       { status: permanent ? 422 : 500 }
     )
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true })
 }
@@ -714,7 +766,16 @@ async function handleAirQualityReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // Claim errors carry raw PostgREST text (constraint/column names); keep
+    // that server-side and return an opaque body — 500 keeps the SW retrying.
+    logServerError("api/offline-sync", new Error(claim.message), {
+      step: "claim",
+      module: "air_quality",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -727,12 +788,20 @@ async function handleAirQualityReplay({
   })
 
   if (!result.ok) {
-    // Release the claim so a future retry re-attempts the persist.
-    await releaseClaim(supabase, localId)
-    return NextResponse.json({ error: result.error }, { status: 500 })
+    // Release the claim so a future retry re-attempts the persist. The raw
+    // error can echo DB internals, so log it and keep the body opaque.
+    await releaseClaim(supabase, localId, employeeId)
+    logServerError("api/offline-sync", new Error(result.error), {
+      step: "persist",
+      module: "air_quality",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 }
+    )
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }

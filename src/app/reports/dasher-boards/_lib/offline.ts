@@ -22,6 +22,7 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
+import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
 import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
@@ -249,7 +250,15 @@ export async function handleDasherBoardsReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // Claim errors carry raw PostgREST text (constraint/column names); keep
+    // that server-side and return an opaque body — 500 keeps the SW retrying.
+    logServerError("reports/dasher-boards/offline-replay", new Error(claim.message), {
+      step: "claim",
+    })
+    return NextResponse.json(
+      { error: "Failed to save the submission." },
+      { status: 500 },
+    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -259,15 +268,23 @@ export async function handleDasherBoardsReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist (transient),
-    // or park permanently with 422 (the SW stops retrying).
-    await releaseClaim(supabase, localId)
+    // or park permanently with 422 (the SW stops retrying). Permanent messages
+    // are hand-crafted gate/terminal copy for the Pending Sync Queue page;
+    // transient ones can echo raw DB internals, so log those and keep the body
+    // opaque.
+    await releaseClaim(supabase, localId, employeeId)
+    if (!result.permanent) {
+      logServerError("reports/dasher-boards/offline-replay", new Error(result.error), {
+        step: "write",
+      })
+    }
     return NextResponse.json(
-      { error: result.error },
+      { error: result.permanent ? result.error : "Failed to save the submission." },
       { status: result.permanent ? 422 : 500 },
     )
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true })
 }
