@@ -72,7 +72,7 @@ jobs:
     steps:
       # Check out the branch tip (not the PR merge commit) so the self-seed step
       # can commit the baseline back to the PR branch when it's missing.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
           echo "Rebuilt schema: $(wc -l < /tmp/fresh.snapshot.sql) lines."
 
       - name: Upload rebuilt schema artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: schema-snapshot
           path: /tmp/fresh.snapshot.sql
