@@ -354,7 +354,7 @@ export async function reactivateRole(roleId: string): Promise<ActionResult> {
 export async function copyRolePermissionDefaults(
   sourceRoleId: string,
   targetRoleId: string,
-): Promise<ActionResult<{ copied: number }>> {
+): Promise<ActionResult<{ copied: number; skipped: number }>> {
   try {
     const { profile } = await requireAdmin()
     if (sourceRoleId === targetRoleId) return err("Source and target must differ")
@@ -385,19 +385,40 @@ export async function copyRolePermissionDefaults(
     // Escalation guard: these defaults are re-applied onto every employee
     // holding the target role, so copying an *enabled* admin/admin cell would
     // mint peer facility admins. Mirror the guard on every other
-    // role_permission_defaults write path (setRoleModuleAction): only a super
-    // admin may propagate Admin Center access (RLS only fences by facility).
+    // role_permission_defaults write path (setRoleModuleAction) exactly: only
+    // a super admin may propagate Admin Center access (RLS only fences by
+    // facility), and the denial is a hard error — silently downgrading the
+    // cell would report a full copy while the target never got the grant.
     const isSuperAdmin = profile?.is_super_admin ?? false
-    const rows = (srcRows ?? []).map((r) => ({
-      facility_id: tgt.facility_id,
-      role_id: targetRoleId,
-      module_name: r.module_name,
-      action: r.action,
-      enabled:
-        !isSuperAdmin && r.enabled && isAdminConsoleGrant(r.module_name, r.action)
-          ? false
-          : r.enabled,
-    }))
+    if (
+      !isSuperAdmin &&
+      (srcRows ?? []).some(
+        (r) => r.enabled && isAdminConsoleGrant(r.module_name, r.action),
+      )
+    ) {
+      return err("Only a super admin can grant Admin Center access.")
+    }
+
+    // The revoke direction needs the same fence: writing an explicit
+    // admin/admin `enabled: false` default would make
+    // apply_role_permission_defaults DISABLE the matching user_permissions
+    // rows — copying a non-admin grid onto the `admin` role would strip Admin
+    // Center access from every admin in the facility (a self-inflicted
+    // lockout). For a non-super-admin, OMIT the cell from the copy entirely so
+    // the target's existing admin/admin default is left untouched; a super
+    // admin copies the full grid as-is.
+    const rows = (srcRows ?? [])
+      .filter(
+        (r) => isSuperAdmin || !isAdminConsoleGrant(r.module_name, r.action),
+      )
+      .map((r) => ({
+        facility_id: tgt.facility_id,
+        role_id: targetRoleId,
+        module_name: r.module_name,
+        action: r.action,
+        enabled: r.enabled,
+      }))
+    const skipped = (srcRows ?? []).length - rows.length
 
     if (rows.length > 0) {
       const { error: upErr } = await supabase
@@ -414,7 +435,7 @@ export async function copyRolePermissionDefaults(
     if (reapplyErr) return err(reapplyErr.message)
 
     revalidate()
-    return { ok: true, value: { copied: rows.length } }
+    return { ok: true, value: { copied: rows.length, skipped } }
   } catch (e) {
     logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")
