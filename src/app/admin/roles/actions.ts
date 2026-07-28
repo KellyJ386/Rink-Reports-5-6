@@ -337,7 +337,7 @@ export async function copyRolePermissionDefaults(
   targetRoleId: string,
 ): Promise<ActionResult<{ copied: number }>> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
     if (sourceRoleId === targetRoleId) return err("Source and target must differ")
 
     const supabase = await createClient()
@@ -363,12 +363,21 @@ export async function copyRolePermissionDefaults(
       .eq("role_id", sourceRoleId)
     if (srcErr) return err(srcErr.message)
 
+    // Escalation guard: these defaults are re-applied onto every employee
+    // holding the target role, so copying an *enabled* admin/admin cell would
+    // mint peer facility admins. Mirror the guard on every other
+    // role_permission_defaults write path (setRoleModuleAction): only a super
+    // admin may propagate Admin Center access (RLS only fences by facility).
+    const isSuperAdmin = profile?.is_super_admin ?? false
     const rows = (srcRows ?? []).map((r) => ({
       facility_id: tgt.facility_id,
       role_id: targetRoleId,
       module_name: r.module_name,
       action: r.action,
-      enabled: r.enabled,
+      enabled:
+        !isSuperAdmin && r.enabled && isAdminConsoleGrant(r.module_name, r.action)
+          ? false
+          : r.enabled,
     }))
 
     if (rows.length > 0) {
