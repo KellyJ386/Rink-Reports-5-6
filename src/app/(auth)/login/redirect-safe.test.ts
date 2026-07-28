@@ -28,6 +28,7 @@ describe("isSafeRedirectPath", () => {
 
   it("rejects the backslash protocol-relative variant", () => {
     expect(isSafeRedirectPath("/\\evil.com")).toBeNull()
+    expect(isSafeRedirectPath("/\\/evil.com")).toBeNull()
   })
 
   it("rejects absolute URLs with a scheme", () => {
