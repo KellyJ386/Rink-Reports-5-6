@@ -22,10 +22,10 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
 import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
+import { opaqueReplayFailure } from "@/lib/offline/replay-error"
 
 import { isUuid } from "./compute"
 import {
@@ -252,13 +252,9 @@ export async function handleDasherBoardsReplay({
   if (claim.kind === "error") {
     // Claim errors carry raw PostgREST text (constraint/column names); keep
     // that server-side and return an opaque body — 500 keeps the SW retrying.
-    logServerError("reports/dasher-boards/offline-replay", new Error(claim.message), {
+    return opaqueReplayFailure("reports/dasher-boards/offline-replay", new Error(claim.message), {
       step: "claim",
     })
-    return NextResponse.json(
-      { error: "Failed to save the submission." },
-      { status: 500 },
-    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -273,15 +269,12 @@ export async function handleDasherBoardsReplay({
     // transient ones can echo raw DB internals, so log those and keep the body
     // opaque.
     await releaseClaim(supabase, localId, employeeId)
-    if (!result.permanent) {
-      logServerError("reports/dasher-boards/offline-replay", new Error(result.error), {
-        step: "write",
-      })
+    if (result.permanent) {
+      return NextResponse.json({ error: result.error }, { status: 422 })
     }
-    return NextResponse.json(
-      { error: result.permanent ? result.error : "Failed to save the submission." },
-      { status: result.permanent ? 422 : 500 },
-    )
+    return opaqueReplayFailure("reports/dasher-boards/offline-replay", new Error(result.error), {
+      step: "write",
+    })
   }
 
   await markClaimSynced(supabase, localId, employeeId)

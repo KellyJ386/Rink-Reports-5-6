@@ -9,10 +9,10 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
 import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
+import { opaqueReplayFailure } from "@/lib/offline/replay-error"
 
 import {
   buildInputFromPayload,
@@ -78,13 +78,9 @@ export async function handleAccidentReplay({
   if (claim.kind === "error") {
     // Claim errors carry raw PostgREST text (constraint/column names); keep
     // that server-side and return an opaque body — 500 keeps the SW retrying.
-    logServerError("reports/accidents/offline-replay", new Error(claim.message), {
+    return opaqueReplayFailure("reports/accidents/offline-replay", new Error(claim.message), {
       step: "claim",
     })
-    return NextResponse.json(
-      { error: "Failed to save the submission." },
-      { status: 500 }
-    )
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -100,13 +96,9 @@ export async function handleAccidentReplay({
     // Release the claim so a future retry re-attempts the persist. The raw
     // error can echo DB internals, so log it and keep the body opaque.
     await releaseClaim(supabase, localId, employeeId)
-    logServerError("reports/accidents/offline-replay", new Error(result.error), {
+    return opaqueReplayFailure("reports/accidents/offline-replay", new Error(result.error), {
       step: "persist",
     })
-    return NextResponse.json(
-      { error: "Failed to save the submission." },
-      { status: 500 }
-    )
   }
 
   await markClaimSynced(supabase, localId, employeeId)
