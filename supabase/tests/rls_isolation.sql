@@ -7350,6 +7350,154 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- E-1 sibling (migration 230): employees.role_id assignment is fenced by the
+-- caller's own hierarchy floor via a BEFORE UPDATE trigger.
+--
+-- Pre-230 any facility admin could PATCH /rest/v1/employees?id=eq.<peer> setting
+-- role_id to the facility's `admin` role, then reapply_role_defaults_for_role()
+-- (granted to authenticated) would seed an enabled admin/admin user_permissions
+-- row for that peer AS postgres — minting a peer admin past 226/227. The rank
+-- rule (canAssignRoleLevel / assertCanAssignRole, ADMIN_TIER_LEVEL = 1) lived
+-- only in the console server actions; the role change is a plain
+-- .from("employees").update({role_id}) under the invoker's RLS, which had no
+-- rank check. LOWER number = HIGHER rank; Fred's employee role is `admin`, floor
+-- 1. The guard fires ONLY when role_id actually changes, is exempt for backend /
+-- SECURITY DEFINER owner callers and super admins, and requires the NEW role's
+-- hierarchy_level to be strictly greater than the caller's floor (null floor =>
+-- 1, null target level => 0).
+--
+-- Cast (all facility A): Fred (admin, floor 1), Sue (platform super admin), Zoe
+-- & Sam (staff, level 3), Mona (manager, level 2), plus Ada — a fresh peer who
+-- already HOLDS the `admin` role (level 1), the "edit a peer admin's non-role
+-- field" target.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+-- Ada: an existing peer admin (no auth/user row needed — an invited-but-unlinked
+-- employee). Used to prove a non-role edit on an admin peer is NOT blocked.
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'adada000-0000-4000-8000-000000000002'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       null,
+       r.id, 'Ada', 'Adminson', 'ada@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'admin'
+on conflict (id) do update set role_id = excluded.role_id, is_active = true;
+reset role;
+
+-- ---- as Fred (facility admin, floor 1) ------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+
+-- THE hole: promote a peer to the `admin` role (level 1, == floor -> denied).
+select pg_temp.expect_error(
+  $$update public.employees
+       set role_id = (select id from public.roles
+                       where facility_id = '11111111-1111-1111-1111-111111111111'
+                         and key = 'admin')
+     where id = 'dada1111-0000-4000-8000-000000000002'$$,
+  'E-1/employees: facility admin CANNOT change a peer''s role to the admin tier (level 1)');
+
+-- And cannot leapfrog straight to super_admin (level 0).
+select pg_temp.expect_error(
+  $$update public.employees
+       set role_id = (select id from public.roles
+                       where facility_id = '11111111-1111-1111-1111-111111111111'
+                         and key = 'super_admin')
+     where id = 'dada1111-0000-4000-8000-000000000002'$$,
+  'E-1/employees: facility admin CANNOT change a peer''s role to super_admin (level 0)');
+
+-- The rejected attempts left Zoe on `staff`.
+select pg_temp.expect_count(
+  $$select r.hierarchy_level from public.employees e
+      join public.roles r on r.id = e.role_id
+     where e.id = 'dada1111-0000-4000-8000-000000000002'$$,
+  3, 'E-1/employees: Zoe is still `staff` (level 3) after the rejected promotions');
+
+-- Legitimate downward assignments (level >= 2) still work.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'manager')
+       where id = 'ed17ed17-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: facility admin CAN assign a peer the manager role (level 2)');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'staff')
+       where id = 'cccc3333-cccc-cccc-cccc-cccccccccccc'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: facility admin CAN assign a peer the staff role (level 3)');
+
+-- The "only when role_id changes" guarantee: a NON-role edit on a peer who
+-- ALREADY holds `admin` (level 1 == Fred's floor) is NOT blocked.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees set is_active = true
+       where id = 'adada000-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: facility admin CAN still edit a non-role field on a peer who already holds admin');
+
+reset role;
+
+-- ---- as Sue (platform super admin) — the rank guard does not apply ---------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e2260000-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'e2260000-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'admin')
+       where id = 'dada1111-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: a SUPER ADMIN CAN reassign a peer to the admin role');
+
+reset role;
+
+-- ---- backend / SECURITY DEFINER owner path (current_user = postgres) -------
+-- Proves the exemption that keeps create_employee_complete() and other owner
+-- flows working: as `postgres`, setting an admin role is allowed.
+set local role postgres;
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'admin')
+       where id = 'ed17ed17-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: the table-owner (postgres) path CAN set an admin role (SECURITY DEFINER exemption)');
+
+-- Restore the fixture roles so nothing downstream inherits a surprise admin.
+update public.employees e set role_id = r.id
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+   and e.id in ('dada1111-0000-4000-8000-000000000002',
+                'ed17ed17-0000-4000-8000-000000000002');
+update public.employees e set role_id = r.id
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'manager'
+   and e.id = 'cccc3333-cccc-cccc-cccc-cccccccccccc';
+delete from public.employees where id = 'adada000-0000-4000-8000-000000000002';
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- E-2 (migration 228): copy_role_permission_defaults(uuid,uuid) is no longer
 -- callable from the client.
 --
