@@ -32,7 +32,6 @@ interface QueueItem {
   lastStatus?: number | null
   permanent?: boolean
   lastError: string | null
-  payload: Record<string, unknown>
 }
 
 const MODULE_LABELS: Record<string, string> = {

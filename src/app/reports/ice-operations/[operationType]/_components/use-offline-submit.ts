@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
+import { toast } from "sonner"
 
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
@@ -29,9 +30,15 @@ export function useOfflineSubmit(
   const [queued, setQueued] = useState(false)
 
   // Wrap a form's onSubmit. When offline, prevent the network action and queue
-  // the submission instead, flipping into the "saved on this device" state.
+  // the submission instead, flipping into the "saved on this device" state. If
+  // the queue can't take it (no SW controlling the page yet, or no owner
+  // recorded on this device), we must NOT fall through to the server action —
+  // the browser already reports itself offline, so that POST would fail with a
+  // confusing network error and the log would be lost. Block the submit and say
+  // so.
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
+      e.preventDefault()
       const ok = enqueueSubmission({
         localId,
         moduleKey: "ice_operations",
@@ -43,8 +50,11 @@ export function useOfflineSubmit(
         },
       })
       if (ok) {
-        e.preventDefault()
         setQueued(true)
+      } else {
+        toast.error(
+          "You're offline and the offline queue isn't ready yet. Keep this page open and try again — your entries are still here."
+        )
       }
     }
   }

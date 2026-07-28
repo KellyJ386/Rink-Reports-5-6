@@ -52,14 +52,18 @@ export type ClaimSlotArgs = {
 export type ClaimResult =
   | { kind: "claimed" }
   | { kind: "duplicate" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; permanent?: boolean }
 
 /**
  * Claim the queue slot for `localId`. Returns:
  *  - `claimed`   — this request owns the slot; proceed to persist.
  *  - `duplicate` — the slot is already `synced`; the caller should report
  *                  `{ ok: true, duplicate: true }` and let the SW delete it.
- *  - `error`     — a DB error occurred (transient; surface as 500).
+ *  - `error`     — the slot could not be claimed. `permanent: true` means it
+ *                  never can be, so the caller must surface it as 422 (the
+ *                  replay queue parks the item) with `message` shown verbatim;
+ *                  otherwise it is a transient DB error — log it and surface an
+ *                  opaque 500 so the service worker keeps retrying.
  */
 export async function claimQueueSlot(args: ClaimSlotArgs): Promise<ClaimResult> {
   const {
@@ -103,9 +107,9 @@ export async function claimQueueSlot(args: ClaimSlotArgs): Promise<ClaimResult> 
   // employee; a still-`pending` own row is a crash orphan and must be re-driven
   // (E-03). A row held by a DIFFERENT employee can be neither claimed (unique
   // key) nor marked synced (the writes below are employee-scoped), so
-  // persisting under it would not be idempotent across retries — surface a
-  // transient error instead of false success, keeping the item queued on the
-  // device rather than letting the SW delete it.
+  // persisting under it would not be idempotent across retries — refuse instead
+  // of reporting false success, keeping the item on the device rather than
+  // letting the SW delete it.
   const { data: existing, error: readErr } = await supabase
     .from("offline_sync_queue")
     .select("sync_status, employee_id")
@@ -116,7 +120,19 @@ export async function claimQueueSlot(args: ClaimSlotArgs): Promise<ClaimResult> 
     return { kind: "error", message: readErr.message }
   }
   if (existing && existing.employee_id !== employeeId) {
-    return { kind: "error", message: "Queue slot is held by another user" }
+    // PERMANENT, not transient (R-3). The slot's holder never changes, so every
+    // retry re-reads the same foreign row: reporting this as a transient error
+    // made the service worker burn its whole backoff schedule and then park the
+    // item as "retryable" when it can never resolve. It is reachable without a
+    // UUID collision — `employeeId` is resolved per-facility, so an employee
+    // record replaced by a transfer orphans an already-queued item under the old
+    // id. The message is written for the Pending Sync Queue page.
+    return {
+      kind: "error",
+      message:
+        "This submission is already queued under a different employee record, so it can't be synced from this account.",
+      permanent: true,
+    }
   }
   if (existing && existing.sync_status === "synced") {
     return { kind: "duplicate" }

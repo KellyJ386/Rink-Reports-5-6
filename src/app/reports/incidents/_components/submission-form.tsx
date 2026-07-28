@@ -328,10 +328,16 @@ export function SubmissionForm({
       })
       if (ok) {
         setQueued(true)
-        return
+      } else {
+        // The queue can't take it (no SW controlling the page yet, or no owner
+        // recorded on this device). Do NOT fall through to the server action —
+        // the browser already reports itself offline, so that POST would fail
+        // with a confusing network error and the report would be lost.
+        toast.error(
+          "You're offline and the offline queue isn't ready yet. Keep this page open and try again — your entries are still here."
+        )
       }
-      // Service worker not controlling this page yet — fall through and let the
-      // normal submit attempt surface a connection error.
+      return
     }
     formRef.current?.requestSubmit()
   }

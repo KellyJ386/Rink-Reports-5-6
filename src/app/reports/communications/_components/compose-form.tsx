@@ -140,15 +140,18 @@ export function ComposeForm({ groups, templates, replyTo = null }: Props) {
 
   // Offline submit: queue in the service worker; it replays to /api/offline-sync
   // (which re-runs the same group/permission checks via persistMessage, and
-  // resolves admin status from the session) once back online. If the SW isn't
-  // controlling the page yet, fall through to the normal action so the network
-  // error surfaces instead of silently dropping the message.
+  // resolves admin status from the session) once back online. If the queue can't
+  // take it (no SW controlling the page yet, or no owner recorded on this
+  // device), we must NOT fall through to the server action — the browser already
+  // reports itself offline, so that POST would fail with a confusing network
+  // error and the message would be lost. Block the submit and say so.
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       // Mirror the action's required-field guard so an empty offline compose
       // still shows inline errors instead of queueing a doomed submission.
       if (body.trim().length === 0) return
       if (!replyTo && groupIds.size === 0) return
+      e.preventDefault()
       const ok = enqueueSubmission({
         localId,
         moduleKey: "communications",
@@ -156,8 +159,11 @@ export function ComposeForm({ groups, templates, replyTo = null }: Props) {
         payload: buildPayload(),
       })
       if (ok) {
-        e.preventDefault()
         setQueued(true)
+      } else {
+        toast.error(
+          "You're offline and the offline queue isn't ready yet. Keep this page open and try again — your message is still here."
+        )
       }
     }
   }

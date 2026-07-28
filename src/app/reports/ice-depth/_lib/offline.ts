@@ -66,8 +66,14 @@ export async function handleIceDepthReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    // Claim errors carry raw PostgREST text (constraint/column names); keep
-    // that server-side and return an opaque body — 500 keeps the SW retrying.
+    // A permanent claim failure (the slot is held by another employee record —
+    // see claim.ts) can never succeed on retry, so park it with 422 and show
+    // its hand-written message on the Pending Sync Queue page. Transient claim
+    // errors carry raw PostgREST text (constraint/column names); keep that
+    // server-side behind an opaque body — 500 keeps the SW retrying.
+    if (claim.permanent) {
+      return NextResponse.json({ error: claim.message }, { status: 422 })
+    }
     return opaqueReplayFailure("reports/ice-depth/offline-replay", new Error(claim.message), {
       step: "claim",
     })
