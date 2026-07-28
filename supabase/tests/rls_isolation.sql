@@ -6596,6 +6596,174 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- GAP-220 (migration 220), remaining siblings. The child-insert submit gate was
+-- verified above for daily_report_submission_items; the same tightening covers
+-- three more measurement/child tables that previously accepted a view-level
+-- insert against ANOTHER user's parent. Alice holds view+submit on every module
+-- (fixture near the top) but is NOT the owner of zoe's reports, so the tightened
+-- child INSERT policies must reject her while still admitting her OWN child rows.
+--
+-- Parents (one zoe-owned, one alice-owned per module) are minted as the postgres
+-- BYPASSRLS role, exactly as the daily positive above does.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- air_quality: zoe's report (foreign) + alice's report (own). location_id is the
+-- shared facility_spaces "Space A1" seeded for facility A.
+insert into public.air_quality_reports (id, facility_id, employee_id, location_id)
+values
+  ('c0220a91-0001-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dada1111-0000-4000-8000-000000000002',
+   'aaaa1111-0a01-aaaa-aaaa-aaaa11110021'),
+  ('c0220a91-0002-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'aaaa1111-0a01-aaaa-aaaa-aaaa11110021')
+on conflict (id) do nothing;
+
+-- ice_depth: zoe's session (foreign) + alice's session (own).
+insert into public.ice_depth_sessions (
+  id, facility_id, layout_id, employee_id,
+  measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot
+) values
+  ('c0220d51-0001-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+   'dada1111-0000-4000-8000-000000000002', 'inches', 1.0, 2.0),
+  ('c0220d51-0002-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'inches', 1.0, 2.0)
+on conflict (id) do nothing;
+
+-- ice_operations: zoe's submission (foreign) + alice's submission (own).
+insert into public.ice_operations_submissions (id, facility_id, employee_id, operation_type)
+values
+  ('c0221c01-0001-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dada1111-0000-4000-8000-000000000002', 'ice_make'),
+  ('c0221c01-0002-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_make')
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- air_quality_readings ------------------------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.air_quality_readings
+      (facility_id, report_id, key_snapshot, label_snapshot, unit_snapshot, value_numeric)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220a91-0001-4000-8000-000000000001', 'co', 'CO', 'ppm', 1.0)$$,
+  'GAP-220: a submit-holder CANNOT add a reading to another user''s air_quality report');
+select pg_temp.expect_ok(
+  $$insert into public.air_quality_readings
+      (facility_id, report_id, key_snapshot, label_snapshot, unit_snapshot, value_numeric)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220a91-0002-4000-8000-000000000002', 'co', 'CO', 'ppm', 1.0)$$,
+  'GAP-220: the OWNER can still add a reading to their own air_quality report');
+
+-- ice_depth_measurements ----------------------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_measurements
+      (facility_id, session_id, point_number_snapshot, x_snapshot, y_snapshot, depth_value, severity)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220d51-0001-4000-8000-000000000001', 1, 0.5, 0.5, 1.5, 'ok')$$,
+  'GAP-220: a submit-holder CANNOT add a measurement to another user''s ice_depth session');
+select pg_temp.expect_ok(
+  $$insert into public.ice_depth_measurements
+      (facility_id, session_id, point_number_snapshot, x_snapshot, y_snapshot, depth_value, severity)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220d51-0002-4000-8000-000000000002', 1, 0.5, 0.5, 1.5, 'ok')$$,
+  'GAP-220: the OWNER can still add a measurement to their own ice_depth session');
+
+-- ice_operations_circle_check_results ---------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.ice_operations_circle_check_results
+      (facility_id, submission_id, label_snapshot, passed)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0221c01-0001-4000-8000-000000000001', 'Blades OK', true)$$,
+  'GAP-220: a submit-holder CANNOT add a circle-check result to another user''s ice_operations submission');
+select pg_temp.expect_ok(
+  $$insert into public.ice_operations_circle_check_results
+      (facility_id, submission_id, label_snapshot, passed)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0221c01-0002-4000-8000-000000000002', 'Blades OK', true)$$,
+  'GAP-220: the OWNER can still add a circle-check result to their own ice_operations submission');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- D-1 (migration 223): audit_logs INSERT must name the caller as the actor.
+-- A non-super-admin (alice) may append an audit row for HERSELF, but cannot
+-- forge one attributed to a colleague (zoe, a same-facility user) — closing the
+-- "frame a coworker" hole the old facility-only WITH CHECK left open.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.audit_logs (facility_id, actor_user_id, action, entity_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dada1111-0000-4000-8000-000000000001', 'test.frame', 'test')$$,
+  'D-1: alice CANNOT insert an audit_logs row attributed to another user');
+select pg_temp.expect_ok(
+  $$insert into public.audit_logs (facility_id, actor_user_id, action, entity_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'test.self', 'test')$$,
+  'D-1: alice CAN insert an audit_logs row attributed to herself (logAudit path)');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- D-2 (migration 224): offline_sync_queue owner DELETE. Before this policy only
+-- super_admin could delete, so releaseClaim() (deleting one's own row by
+-- local_id) was a silent no-op. A user may now delete their OWN queue row but
+-- not another user's — even a same-facility colleague's.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.offline_sync_queue
+  (local_id, facility_id, employee_id, module_key, action, payload)
+values
+  ('c0224000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dada1111-0000-4000-8000-000000000002', 'daily_reports', 'submit', '{}'::jsonb),
+  ('c0224000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'daily_reports', 'submit', '{}'::jsonb)
+on conflict (local_id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.offline_sync_queue
+       where local_id = 'c0224000-0000-4000-8000-000000000001'
+       returning 1)
+    select count(*) from d$$,
+  0, 'D-2: alice CANNOT delete another user''s offline_sync_queue row (RLS scopes it to 0 rows)');
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.offline_sync_queue
+       where local_id = 'c0224000-0000-4000-8000-000000000002'
+       returning 1)
+    select count(*) from d$$,
+  1, 'D-2: alice CAN delete her OWN offline_sync_queue row (releaseClaim now works)');
+reset role;
+
+-- The colleague's row must have survived alice's delete attempt.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.offline_sync_queue
+     where local_id = 'c0224000-0000-4000-8000-000000000001'$$,
+  1, 'D-2: zoe''s queue row is untouched by alice''s rejected delete');
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 2Z. Authorization-audit hardening (migration 216).
 --
 -- user_has_permission() was a cross-tenant permission oracle (SECURITY
