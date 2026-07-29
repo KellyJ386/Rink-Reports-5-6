@@ -133,11 +133,15 @@ export default async function ShiftsPage({
       .maybeSingle<{ settings: unknown; timezone: string | null }>(),
     supabase
       .from("schedule_settings")
-      .select("week_start_day, default_hourly_rate")
+      .select(
+        "week_start_day, default_hourly_rate, operating_hours_start_minute, operating_hours_end_minute"
+      )
       .eq("facility_id", facilityId)
       .maybeSingle<{
         week_start_day: number
         default_hourly_rate: number | null
+        operating_hours_start_minute: number | null
+        operating_hours_end_minute: number | null
       }>(),
     supabase
       .from("schedule_shifts")
@@ -185,7 +189,10 @@ export default async function ShiftsPage({
     employee_code: string | null
   })[]
   const jobAreas = (jobAreasRes.data ?? []) as JobAreaLite[]
-  const operatingHours = resolveOperatingHours(facilityRes.data?.settings)
+  const operatingHours = resolveOperatingHours(
+    settingsRes.data,
+    facilityRes.data?.settings
+  )
   const weekStartDay = settingsRes.data?.week_start_day ?? 0
   const defaultHourlyRate = settingsRes.data?.default_hourly_rate ?? null
   const wageByEmployee: Record<string, number> = {}
@@ -306,6 +313,11 @@ export default async function ShiftsPage({
     ? params.date
     : dayKeyInTz(new Date(), tz)
   const week = weekWindowInTz(anchorKey, weekStartDay, tz)
+  // The board's anchor day must be the SAME facility-local day this window was
+  // built from. Deriving it from the UTC clock instead (as the ±42-day fetch
+  // anchor does, where a day either way is immaterial) would let the grid show
+  // one week while "Request publish for window" filed for another.
+  const boardAnchorIso = `${anchorKey}T00:00:00.000Z`
   const weekLabel = `week of ${week.startKey}`
 
   const fmtKey = (key: string) => {
@@ -328,14 +340,15 @@ export default async function ShiftsPage({
         description="Drag in a day column to create a shift; drag a block to move it, or its edges to resize. Click a shift to assign, duplicate, or delete."
       />
       <WeekBoard
-        key={anchor.toISOString()}
+        key={boardAnchorIso}
         initialShifts={initialShifts}
         employees={employees}
         jobAreas={jobAreas}
         templates={templateRows}
         operatingHours={operatingHours}
         weekStartDay={weekStartDay}
-        defaultDateIso={anchor.toISOString()}
+        timeZone={tz}
+        defaultDateIso={boardAnchorIso}
         weekStartsAtIso={week.startUtc.toISOString()}
         weekEndsAtIso={week.endUtc.toISOString()}
         weekLabel={weekLabel}

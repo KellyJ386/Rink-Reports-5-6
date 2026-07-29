@@ -54,4 +54,8 @@ export type SchedulingSettingsInput = {
   block_on_violations: boolean
   /** Facility-wide fallback rate for labor-cost estimates (null = none). */
   default_hourly_rate: number | null
+  /** Opening time, minutes since local midnight (0–1439). */
+  operating_hours_start_minute: number
+  /** Closing time, minutes since local midnight (1–1440; 1440 = midnight). */
+  operating_hours_end_minute: number
 }

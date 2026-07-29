@@ -15,6 +15,10 @@ import {
 import type { Tables } from "@/types/database"
 
 import { updateSchedulingSettings } from "../../_lib/governance-actions"
+import {
+  hhmmToMinutes,
+  resolveOperatingHours,
+} from "../../_lib/operating-hours"
 
 type Settings = Tables<"schedule_settings">
 
@@ -87,6 +91,17 @@ export function SettingsForm({ settings }: { settings: Settings }) {
   const [blockOnViolations, setBlockOnViolations] = useState<boolean>(
     settings.block_on_violations
   )
+  // Operating hours are stored as minutes-since-midnight (migration 232) so a
+  // midnight close is expressible; <input type="time"> speaks "HH:MM", and it
+  // caps at 23:59 — hence the separate "closes at midnight" toggle.
+  const initialHours = resolveOperatingHours(settings)
+  const [openTime, setOpenTime] = useState<string>(initialHours.start)
+  const [closeTime, setCloseTime] = useState<string>(
+    initialHours.end === "24:00" ? "23:59" : initialHours.end
+  )
+  const [closesAtMidnight, setClosesAtMidnight] = useState<boolean>(
+    initialHours.end === "24:00"
+  )
   const [pending, startTransition] = useTransition()
 
   function submit() {
@@ -98,6 +113,16 @@ export function SettingsForm({ settings }: { settings: Settings }) {
     const seh = Number(swapExpiryHours)
     if (!Number.isInteger(seh) || seh <= 0) {
       toast.error("Swap expiry hours must be a positive whole number.")
+      return
+    }
+    const ohStart = hhmmToMinutes(openTime)
+    const ohEnd = closesAtMidnight ? 1440 : hhmmToMinutes(closeTime)
+    if (!Number.isFinite(ohStart) || !Number.isFinite(ohEnd)) {
+      toast.error("Enter valid opening and closing times.")
+      return
+    }
+    if (ohEnd <= ohStart) {
+      toast.error("Closing time must be after opening time.")
       return
     }
     startTransition(async () => {
@@ -117,6 +142,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         require_job_area_qualification: requireJobAreaQualification,
         block_on_violations: blockOnViolations,
         default_hourly_rate: nullableNumber(defaultHourlyRate),
+        operating_hours_start_minute: ohStart,
+        operating_hours_end_minute: ohEnd,
       })
       if (r.ok === true) toast.success(r.message ?? "Saved.")
       else if (r.ok === false) toast.error(r.error)
@@ -214,6 +241,34 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             Fallback for labor-cost estimates when an employee has no
             individual wage (set wages on the Employees page). Admin-only.
           </p>
+        </Field>
+        <Field label="Opens at">
+          <Input
+            type="time"
+            value={openTime}
+            onChange={(e) => setOpenTime(e.target.value)}
+          />
+          <p className="text-muted-foreground text-xs">
+            The first hour the scheduling grid shows. Shifts outside these
+            hours still save — they just raise a confirmable advisory.
+          </p>
+        </Field>
+        <Field label="Closes at">
+          <Input
+            type="time"
+            value={closeTime}
+            disabled={closesAtMidnight}
+            onChange={(e) => setCloseTime(e.target.value)}
+          />
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={closesAtMidnight}
+              onChange={(e) => setClosesAtMidnight(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Closes at midnight
+          </label>
         </Field>
       </div>
 

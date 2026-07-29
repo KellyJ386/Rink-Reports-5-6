@@ -12,11 +12,15 @@
 // actions call it with their own RLS-scoped Supabase client.
 
 import type { createClient } from "@/lib/supabase/server"
-import { minutesOfDayInTz } from "@/lib/timezone"
+import { dayKeyInTz, minutesOfDayInTz } from "@/lib/timezone"
 
 import { complianceWeekWindow } from "./compliance"
 import { checkAssignmentViolations, describeViolation } from "./enforcement"
-import { hhmmToMinutes, resolveOperatingHours } from "./operating-hours"
+import { daysBetween } from "../shifts/_lib/recurrence"
+import {
+  isOutsideOperatingHours,
+  resolveOperatingHours,
+} from "./operating-hours"
 import { shiftDurationHours } from "./weekly-hours"
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>
@@ -35,9 +39,10 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
 }
 
-/** "HH:MM" (24h) → a compact 12h label like "6 AM" / "11:30 PM". */
+/** "HH:MM" (24h) → a compact 12h label like "6 AM" / "11:30 PM" / "midnight". */
 function fmt12(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number)
+  if (h === 24 || (h === 0 && m === 0)) return "midnight"
   const ampm = h >= 12 ? "PM" : "AM"
   const hh = ((h + 11) % 12) + 1
   return m ? `${hh}:${String(m).padStart(2, "0")} ${ampm}` : `${hh} ${ampm}`
@@ -54,8 +59,9 @@ export type ShiftSignals = {
   capWarning: string | null
   /**
    * Advisory when the shift falls outside the facility's configured operating
-   * hours (facilities.settings → scheduling.operating_hours), compared in the
-   * facility's timezone. Null when within hours. Surfaced as a confirm-to-save
+   * hours (schedule_settings.operating_hours_*_minute, with the legacy
+   * facilities.settings jsonb as a fallback), compared in the facility's
+   * timezone. Null when within hours. Surfaced as a confirm-to-save
    * advisory (or a hard block when the facility opts into block_on_violations) —
    * NOT a standalone hard block, so legitimate before-open / after-close shifts
    * (setup, maintenance) remain savable with acknowledgement.
@@ -93,22 +99,29 @@ export async function computeShiftSignals(
         .maybeSingle<{ timezone: string | null; settings: unknown }>(),
       supabase
         .from("schedule_settings")
-        .select("week_start_day")
+        .select(
+          "week_start_day, operating_hours_start_minute, operating_hours_end_minute"
+        )
         .eq("facility_id", args.facilityId)
-        .maybeSingle<{ week_start_day: number | null }>(),
+        .maybeSingle<{
+          week_start_day: number | null
+          operating_hours_start_minute: number | null
+          operating_hours_end_minute: number | null
+        }>(),
     ])
 
   // 3. Operating-hours bounds (facility-local). Advisory only.
-  const oh = resolveOperatingHours(facility?.settings)
-  const openMin = hhmmToMinutes(oh.start)
-  const closeMin = hhmmToMinutes(oh.end)
+  const oh = resolveOperatingHours(settings, facility?.settings)
   const tz = facility?.timezone ?? null
-  const startMin = minutesOfDayInTz(args.startsAt, tz)
-  const endMin = minutesOfDayInTz(args.endsAt, tz)
-  // Outside if it starts before open, ends after close, or wraps past midnight
-  // (endMin <= startMin for a same-day shift means it crossed into the next day).
-  const outsideHours =
-    startMin < openMin || endMin > closeMin || endMin <= startMin
+  const outsideHours = isOutsideOperatingHours({
+    startMinute: minutesOfDayInTz(args.startsAt, tz),
+    endMinute: minutesOfDayInTz(args.endsAt, tz),
+    endDayOffset: daysBetween(
+      dayKeyInTz(args.startsAt, tz),
+      dayKeyInTz(args.endsAt, tz)
+    ),
+    hours: oh,
+  })
   const boundsWarning = outsideHours
     ? `Falls outside operating hours (${fmt12(oh.start)}–${fmt12(oh.end)}).`
     : null

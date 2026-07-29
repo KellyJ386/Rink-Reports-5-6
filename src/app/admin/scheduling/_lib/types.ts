@@ -89,7 +89,8 @@ export type CreateTemplateInput = {
 
 export type CreateTemplateShiftInput = {
   template_id: string
-  department_id: string
+  /** Nullable since migration 130; the grid's template save writes null. */
+  department_id: string | null
   job_area_id: string | null
   day_of_week: number
   start_time: string // HH:MM[:SS]

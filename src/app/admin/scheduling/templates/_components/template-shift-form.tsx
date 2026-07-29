@@ -30,8 +30,9 @@ import type {
 
 const INITIAL_STATE: ActionState = { ok: null }
 
-// Sentinel for "no job area" — Radix Select disallows an empty-string value.
+// Sentinels for "none" — Radix Select disallows an empty-string value.
 const NO_JOB_AREA = "__none__"
+const NO_DEPARTMENT = "__none__"
 
 type Props = {
   templateId: string
@@ -92,16 +93,20 @@ export function TemplateShiftForm(props: Props) {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ts_dept">Department<RequiredMark /></Label>
+          {/* Optional since migration 130 — slots saved from the scheduling
+              grid carry no department, and requiring one here made them
+              uneditable. */}
+          <Label htmlFor="ts_dept">Department</Label>
           <input type="hidden" name="department_id" value={departmentId} />
           <Select
             value={departmentId || undefined}
-            onValueChange={(v) => setDepartmentId(v)}
+            onValueChange={(v) => setDepartmentId(v === NO_DEPARTMENT ? "" : v)}
           >
             <SelectTrigger id="ts_dept">
-              <SelectValue placeholder="Select…" />
+              <SelectValue placeholder="None" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={NO_DEPARTMENT}>None</SelectItem>
               {props.departments.map((d) => (
                 <SelectItem key={d.id} value={d.id}>
                   {d.name}

@@ -207,17 +207,25 @@ export async function cancelShift(id: string): Promise<ActionState> {
     if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing shift id." }
     const supabase = await createClient()
-    // Read the assignment before cancelling so the email can name the window.
-    const { data: cur } = await supabase
-      .from("schedule_shifts")
-      .select("employee_id, starts_at, ends_at")
-      .eq("id", id)
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle<{
-        employee_id: string | null
-        starts_at: string
-        ends_at: string
-      }>()
+    // Read the assignment before cancelling so the email can name the window,
+    // plus the facility zone so it names it in the RINK's local time.
+    const [{ data: cur }, { data: facilityRow }] = await Promise.all([
+      supabase
+        .from("schedule_shifts")
+        .select("employee_id, starts_at, ends_at")
+        .eq("id", id)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle<{
+          employee_id: string | null
+          starts_at: string
+          ends_at: string
+        }>(),
+      supabase
+        .from("facilities")
+        .select("timezone")
+        .eq("id", ctx.facilityId)
+        .maybeSingle<{ timezone: string | null }>(),
+    ])
     // Cancelling a PUBLISHED shift is a governed status transition; the
     // publish-lock rejects a direct UPDATE, so go through the SECURITY DEFINER
     // RPC (also works for drafts).
@@ -238,7 +246,7 @@ export async function cancelShift(id: string): Promise<ActionState> {
           facilityId: ctx.facilityId,
           employeeId: cur.employee_id,
           subject: "Your shift was cancelled",
-          body: `Your shift on ${formatShiftWindow(cur.starts_at, cur.ends_at)} was cancelled by a manager.`,
+          body: `Your shift on ${formatShiftWindow(cur.starts_at, cur.ends_at, facilityRow?.timezone ?? null)} was cancelled by a manager.`,
           sourceRecordId: id,
         },
       ])
@@ -400,8 +408,10 @@ function parseTemplateShiftInput(
   | { ok: false; error: string } {
   const template_id = nonEmpty(formData.get("template_id"))
   if (!template_id) return { ok: false, error: "Template is required." }
+  // Nullable since migration 130 — and saveGridTemplate (the grid's "save as
+  // template" action) already writes null. Requiring it here made templates
+  // created from the grid uneditable in the templates console.
   const department_id = nonEmpty(formData.get("department_id"))
-  if (!department_id) return { ok: false, error: "Department is required." }
   const dowRaw = parseInt0(formData.get("day_of_week"))
   if (dowRaw === null || dowRaw < 0 || dowRaw > 6) {
     return { ok: false, error: "Day of week is required." }
@@ -601,6 +611,23 @@ export async function applyTemplateToWeek(
       -((weekdayOfKey(pickedKey) - weekStartDay + 7) % 7)
     )
 
+    // Only a live template may be applied; an archived one is still reachable
+    // by id from a stale page. This also pins the template to the caller's
+    // facility before any of its slots are read.
+    const { data: templateRow, error: tplErr } = await supabase
+      .from("schedule_templates")
+      .select("id, is_active")
+      .eq("id", templateId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle<{ id: string; is_active: boolean }>()
+    if (tplErr) {
+      return { ok: false, error: dbError(tplErr, "Failed to load template.") }
+    }
+    if (!templateRow) return { ok: false, error: "Template not found." }
+    if (!templateRow.is_active) {
+      return { ok: false, error: "That template is archived. Reactivate it first." }
+    }
+
     const { data: slotsRaw, error: selErr } = await supabase
       .from("schedule_template_shifts")
       .select(
@@ -615,7 +642,7 @@ export async function applyTemplateToWeek(
 
     const slots = (slotsRaw ?? []) as Array<{
       id: string
-      department_id: string
+      department_id: string | null
       job_area_id: string | null
       day_of_week: number
       start_time: string
@@ -631,7 +658,7 @@ export async function applyTemplateToWeek(
 
     const rows: Array<{
       facility_id: string
-      department_id: string
+      department_id: string | null
       job_area_id: string | null
       employee_id: null
       starts_at: string

@@ -7987,6 +7987,8 @@ export type Database = {
           notify_on_overtime: boolean
           notify_on_publish: boolean
           open_shift_first_come: boolean
+          operating_hours_end_minute: number
+          operating_hours_start_minute: number
           overtime_weekly_hours: number | null
           require_job_area_qualification: boolean
           swap_expiry_hours: number
@@ -8008,6 +8010,8 @@ export type Database = {
           notify_on_overtime?: boolean
           notify_on_publish?: boolean
           open_shift_first_come?: boolean
+          operating_hours_end_minute?: number
+          operating_hours_start_minute?: number
           overtime_weekly_hours?: number | null
           require_job_area_qualification?: boolean
           swap_expiry_hours?: number
@@ -8029,6 +8033,8 @@ export type Database = {
           notify_on_overtime?: boolean
           notify_on_publish?: boolean
           open_shift_first_come?: boolean
+          operating_hours_end_minute?: number
+          operating_hours_start_minute?: number
           overtime_weekly_hours?: number | null
           require_job_area_qualification?: boolean
           swap_expiry_hours?: number
@@ -9006,6 +9012,10 @@ export type Database = {
           p_violation_codes: string[]
         }
         Returns: string
+      }
+      scheduling_move_compliance_rule: {
+        Args: { p_delta: number; p_rule_id: string }
+        Returns: Json
       }
       scheduling_notify_swap_request: {
         Args: { p_swap_id: string }

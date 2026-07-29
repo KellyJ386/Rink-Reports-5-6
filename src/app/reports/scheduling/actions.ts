@@ -379,6 +379,16 @@ export async function submitSwapRequest(
   if (!auth.ok) return { status: "error", error: auth.error }
   const supabase = await createClient()
 
+  // Permission parity with submitTimeOffRequest / upsertAvailability: without
+  // this the caller falls through to a raw RLS rejection and sees the generic
+  // "permission denied" text instead of an actionable message.
+  if (!(await currentUserCan(supabase, "scheduling", "submit"))) {
+    return {
+      status: "error",
+      error: "You don't have permission to submit swap requests.",
+    }
+  }
+
   const requesterShiftId = String(
     formData.get("requester_shift_id") ?? ""
   ).trim()
@@ -397,6 +407,9 @@ export async function submitSwapRequest(
     .from("schedule_shifts")
     .select("id, employee_id, facility_id")
     .eq("id", requesterShiftId)
+    // Defense-in-depth: explicit facility scope alongside RLS and the
+    // ownership check below, matching the target-shift lookup further down.
+    .eq("facility_id", auth.employee.facility_id)
     .maybeSingle()
   if (shiftErr || !shift) {
     return { status: "error", error: "Shift not found." }
@@ -586,6 +599,13 @@ export async function claimOpenShift(
   if (!auth.ok) return { status: "error", error: auth.error }
   const supabase = await createClient()
 
+  if (!(await currentUserCan(supabase, "scheduling", "submit"))) {
+    return {
+      status: "error",
+      error: "You don't have permission to claim open shifts.",
+    }
+  }
+
   const openShiftId = String(formData.get("open_shift_id") ?? "").trim()
   if (!openShiftId) {
     return { status: "error", error: "Missing open shift id." }
@@ -717,10 +737,10 @@ export async function getOrCreateIcsToken(): Promise<
 > {
   const auth = await getActiveEmployee()
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (!(await currentUserCan(await createClient(), "scheduling", "view"))) {
+  const supabase = await createClient()
+  if (!(await currentUserCan(supabase, "scheduling", "view"))) {
     return { ok: false, error: "You don't have access to scheduling." }
   }
-  const supabase = await createClient()
 
   const { data: existing } = await supabase
     .from("schedule_ics_tokens")

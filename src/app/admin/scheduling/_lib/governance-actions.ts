@@ -300,8 +300,17 @@ export async function decideTimeOffRequest(
       },
     })
 
-    const range = `${formatDateOnly(existing.starts_at)} – ${formatDateOnly(
-      existing.ends_at
+    // Facility zone, not the server's: a time-off window that starts in the
+    // evening renders on the wrong DATE when formatted in UTC.
+    const { data: facilityRow } = await supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", ctx.facilityId)
+      .maybeSingle<{ timezone: string | null }>()
+    const tz = facilityRow?.timezone ?? null
+    const range = `${formatDateOnly(existing.starts_at, tz)} – ${formatDateOnly(
+      existing.ends_at,
+      tz
     )}`
     await queueSchedulingEmails([
       {
@@ -467,7 +476,12 @@ export async function assignSwapTarget(
       }
     }
 
-    const { error } = await supabase
+    // Assigning a target records acceptance ON THE EMPLOYEE'S BEHALF (the
+    // manager is making the call), which is why this lands on `accepted` and
+    // not `pending`. Manager approval via approveSwap is still required, and
+    // that step re-validates the assignment from scratch. Guarded on
+    // `pending` so a concurrent accept/cancel can't be overwritten.
+    const { data: assigned, error } = await supabase
       .from("schedule_swap_requests")
       .update({
         target_employee_id: targetEmployeeId,
@@ -476,8 +490,13 @@ export async function assignSwapTarget(
       })
       .eq("id", id)
       .eq("facility_id", ctx.facilityId)
+      .eq("status", "pending")
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to assign target.") }
+    }
+    if (!assigned || assigned.length === 0) {
+      return { ok: false, error: "This swap is no longer pending." }
     }
 
     // Best-effort heads-up to the assigned employee.
@@ -488,7 +507,9 @@ export async function assignSwapTarget(
       swap_id: id,
       payload: {
         message:
-          "A manager assigned you to cover a coworker's shift — pending final approval.",
+          "A manager assigned you to cover a coworker's shift and accepted on "
+          + "your behalf. It still needs final manager approval before your "
+          + "schedule changes.",
       },
     })
 
@@ -579,7 +600,10 @@ export async function denySwap(
 
     const supabase = await createClient()
     const nowIso = new Date().toISOString()
-    const { error } = await supabase
+    // Guard on the still-deniable statuses so an approve/cancel that landed
+    // between the read above and this write isn't silently overwritten — the
+    // same optimistic-concurrency pattern the staff-side actions use.
+    const { data: denied, error } = await supabase
       .from("schedule_swap_requests")
       .update({
         status: "denied",
@@ -589,8 +613,13 @@ export async function denySwap(
       })
       .eq("id", id)
       .eq("facility_id", ctx.facilityId)
+      .in("status", ["pending", "accepted"])
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to deny swap.") }
+    }
+    if (!denied || denied.length === 0) {
+      return { ok: false, error: "This swap can no longer be denied." }
     }
 
     // Notify the requester — and the target too, if one had accepted.
@@ -632,7 +661,9 @@ export async function cancelSwap(id: string): Promise<ActionState> {
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // Same optimistic guard as denySwap: never clobber a decision that landed
+    // between the loadSwap read and this write.
+    const { data: cancelled, error } = await supabase
       .from("schedule_swap_requests")
       .update({
         status: "cancelled",
@@ -640,8 +671,13 @@ export async function cancelSwap(id: string): Promise<ActionState> {
       })
       .eq("id", id)
       .eq("facility_id", ctx.facilityId)
+      .in("status", ["pending", "accepted"])
+      .select("id")
     if (error) {
       return { ok: false, error: dbError(error, "Failed to cancel swap.") }
+    }
+    if (!cancelled || cancelled.length === 0) {
+      return { ok: false, error: "This swap can no longer be cancelled." }
     }
     revalidateGovernance()
     return { ok: true, message: "Swap cancelled." }
@@ -833,56 +869,23 @@ export async function moveComplianceRule(
     if (!ctx.ok) return { ok: false, error: ctx.error }
     if (!id) return { ok: false, error: "Missing rule id." }
 
+    // One statement in the database (migration 232). The previous
+    // implementation issued three sequential UPDATEs — park A at a negative
+    // placeholder, move B, move A — so a failure between them left the rule
+    // stranded at that placeholder and the facility's rule order corrupted.
+    // The RPC locks the facility's rules, finds the neighbour in the same
+    // ordering the console shows, and swaps both rows atomically.
     const supabase = await createClient()
-    const { data: rules, error: selErr } = await supabase
-      .from("schedule_compliance_rules")
-      .select("id, sort_order")
-      .eq("facility_id", ctx.facilityId)
-      .order("sort_order", { ascending: true, nullsFirst: true })
-      .order("id", { ascending: true })
-    if (selErr) {
-      return { ok: false, error: dbError(selErr, "Failed to load rules.") }
+    const { data, error } = await supabase.rpc(
+      "scheduling_move_compliance_rule",
+      { p_rule_id: id, p_delta: delta }
+    )
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to reorder.") }
     }
-    const list = (rules ?? []) as Array<{
-      id: string
-      sort_order: number | null
-    }>
-    const idx = list.findIndex((r) => r.id === id)
-    if (idx < 0) return { ok: false, error: "Rule not found." }
-    const swapIdx = idx + delta
-    if (swapIdx < 0 || swapIdx >= list.length) {
-      return { ok: false, error: "Cannot move further." }
-    }
-    const a = list[idx]
-    const b = list[swapIdx]
-    const aOrder = a.sort_order ?? idx
-    const bOrder = b.sort_order ?? swapIdx
-
-    // Two-phase swap to dodge any unique-on-sort_order constraints.
-    const tmp = -1 - idx
-    const r1 = await supabase
-      .from("schedule_compliance_rules")
-      .update({ sort_order: tmp })
-      .eq("id", a.id)
-      .eq("facility_id", ctx.facilityId)
-    if (r1.error) {
-      return { ok: false, error: dbError(r1.error, "Failed to reorder.") }
-    }
-    const r2 = await supabase
-      .from("schedule_compliance_rules")
-      .update({ sort_order: aOrder })
-      .eq("id", b.id)
-      .eq("facility_id", ctx.facilityId)
-    if (r2.error) {
-      return { ok: false, error: dbError(r2.error, "Failed to reorder.") }
-    }
-    const r3 = await supabase
-      .from("schedule_compliance_rules")
-      .update({ sort_order: bOrder })
-      .eq("id", a.id)
-      .eq("facility_id", ctx.facilityId)
-    if (r3.error) {
-      return { ok: false, error: dbError(r3.error, "Failed to reorder.") }
+    const result = (data ?? {}) as { ok?: boolean; error?: string }
+    if (result.ok !== true) {
+      return { ok: false, error: result.error ?? "Failed to reorder." }
     }
     revalidateGovernance()
     return { ok: true, message: "Order updated." }
@@ -933,6 +936,60 @@ export async function updateSchedulingSettings(
       dhr = Math.round(n * 100) / 100
     }
 
+    // Operating hours (migration 232). Mirrors the DB check constraint so a
+    // bad range fails with a readable message instead of a raw 23514.
+    const ohStart = Number(values.operating_hours_start_minute)
+    const ohEnd = Number(values.operating_hours_end_minute)
+    if (!Number.isInteger(ohStart) || ohStart < 0 || ohStart > 1439) {
+      return { ok: false, error: "Opening time must be a valid time of day." }
+    }
+    if (!Number.isInteger(ohEnd) || ohEnd < 1 || ohEnd > 1440) {
+      return { ok: false, error: "Closing time must be a valid time of day." }
+    }
+    if (ohEnd <= ohStart) {
+      return { ok: false, error: "Closing time must be after opening time." }
+    }
+
+    // The remaining numeric thresholds were previously written straight
+    // through; validate them so a stray value can't disable a compliance check
+    // by landing as NaN/negative.
+    const optionalPositive = (
+      value: number | null,
+      label: string,
+      max: number
+    ): { ok: true; value: number | null } | { ok: false; error: string } => {
+      if (value === null) return { ok: true, value: null }
+      const n = Number(value)
+      if (!Number.isFinite(n) || n < 0 || n > max) {
+        return { ok: false, error: `${label} must be between 0 and ${max}.` }
+      }
+      return { ok: true, value: n }
+    }
+    const minorMax = optionalPositive(
+      values.minor_max_weekly_hours,
+      "Minor max weekly hours",
+      168
+    )
+    if (!minorMax.ok) return { ok: false, error: minorMax.error }
+    const overtime = optionalPositive(
+      values.overtime_weekly_hours,
+      "Overtime weekly hours",
+      168
+    )
+    if (!overtime.ok) return { ok: false, error: overtime.error }
+    const breakMinutes = optionalPositive(
+      values.minimum_break_minutes,
+      "Minimum break minutes",
+      1440
+    )
+    if (!breakMinutes.ok) return { ok: false, error: breakMinutes.error }
+    const breakAfter = optionalPositive(
+      values.minimum_break_after_hours,
+      "Minimum break after hours",
+      24
+    )
+    if (!breakAfter.ok) return { ok: false, error: breakAfter.error }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_settings")
@@ -941,10 +998,12 @@ export async function updateSchedulingSettings(
           facility_id: ctx.facilityId,
           week_start_day: wsd,
           default_shift_minutes: dsm,
-          minor_max_weekly_hours: values.minor_max_weekly_hours,
-          overtime_weekly_hours: values.overtime_weekly_hours,
-          minimum_break_minutes: values.minimum_break_minutes,
-          minimum_break_after_hours: values.minimum_break_after_hours,
+          minor_max_weekly_hours: minorMax.value,
+          overtime_weekly_hours: overtime.value,
+          minimum_break_minutes: breakMinutes.value,
+          minimum_break_after_hours: breakAfter.value,
+          operating_hours_start_minute: ohStart,
+          operating_hours_end_minute: ohEnd,
           swap_requires_manager_approval: values.swap_requires_manager_approval,
           swap_expiry_hours: seh,
           open_shift_first_come: values.open_shift_first_come,
@@ -984,6 +1043,9 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
           facility_id: ctx.facilityId,
           week_start_day: 0,
           default_shift_minutes: 480,
+          swap_expiry_hours: 72,
+          operating_hours_start_minute: 360, // 06:00
+          operating_hours_end_minute: 1380, // 23:00
           minor_max_weekly_hours: 18,
           overtime_weekly_hours: 40,
           minimum_break_minutes: 30,

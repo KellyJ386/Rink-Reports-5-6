@@ -3,11 +3,19 @@
 // grid, legend, and crew roster. Pure TS (types + helpers) — safe to import from
 // any "use client" component without pulling server-only code.
 
+import { utcToZonedDate } from "@/lib/timezone"
+
 import type { GridShiftDTO } from "../../_lib/grid-actions"
 import type { EmployeeLite } from "../../_lib/types"
 
 export type GridEvent = {
   id: string
+  /**
+   * FACILITY-ZONED pseudo-local Dates: their local getters (getHours/getDay/…)
+   * read as the facility's wall clock, which is what the whole board's layout,
+   * drag, and formatting math consumes. Their epoch value is NOT the stored
+   * instant — convert with `zonedDateToUtc` before persisting.
+   */
   start: Date
   end: Date
   employeeId: string | null
@@ -21,11 +29,16 @@ export type GridEvent = {
   recurringParentId: string | null
 }
 
-export function dtoToEvent(dto: GridShiftDTO): GridEvent {
+/**
+ * Map a stored shift onto the board's event shape, projecting its UTC instants
+ * into the FACILITY's timezone. A null `timeZone` keeps the previous
+ * browser-local behaviour.
+ */
+export function dtoToEvent(dto: GridShiftDTO, timeZone: string | null): GridEvent {
   return {
     id: dto.id,
-    start: new Date(dto.starts_at),
-    end: new Date(dto.ends_at),
+    start: utcToZonedDate(dto.starts_at, timeZone),
+    end: utcToZonedDate(dto.ends_at, timeZone),
     employeeId: dto.employee_id,
     jobAreaId: dto.job_area_id,
     departmentId: dto.department_id,

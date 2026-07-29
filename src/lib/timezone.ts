@@ -138,6 +138,52 @@ export function utcToWallTime(
 }
 
 /**
+ * A UTC instant re-expressed as a "zoned pseudo-local" Date: the returned
+ * Date's RUNTIME-LOCAL fields (getHours/getDate/getDay/…) equal the facility
+ * wall clock of that instant. The underlying epoch value is NOT the original
+ * instant and must never be persisted — round-trip through `zonedDateToUtc`
+ * first.
+ *
+ * This exists for the admin scheduling grid, which does all of its layout,
+ * drag, and formatting math with local Date getters. Feeding it pseudo-local
+ * Dates makes the whole board render and edit in the FACILITY's timezone
+ * without rewriting that math. A null/unresolvable timezone returns an
+ * equivalent copy, so the previous browser-local behavior is preserved
+ * exactly for facilities that never set one.
+ */
+export function utcToZonedDate(
+  iso: string | Date,
+  timeZone: string | null
+): Date {
+  const date = typeof iso === "string" ? new Date(iso) : iso
+  if (Number.isNaN(date.getTime())) return new Date(NaN)
+  if (timeZone) {
+    try {
+      const p = partsInZone(date, timeZone)
+      return new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second, 0)
+    } catch {
+      // fall through to a plain copy
+    }
+  }
+  return new Date(date.getTime())
+}
+
+/**
+ * Inverse of `utcToZonedDate`: read a pseudo-local Date's runtime-local
+ * fields as facility wall-clock time and return the real UTC instant to
+ * persist. A null/unresolvable timezone returns an equivalent copy.
+ */
+export function zonedDateToUtc(date: Date, timeZone: string | null): Date {
+  if (Number.isNaN(date.getTime())) return new Date(NaN)
+  if (!timeZone) return new Date(date.getTime())
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const wall =
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  return wallTimeToUtc(wall, timeZone) ?? new Date(date.getTime())
+}
+
+/**
  * Calendar day key ("YYYY-MM-DD") of a UTC instant as seen in `timeZone`.
  * Null/invalid timezone falls back to the runtime's local zone. Used to
  * bucket shifts onto the correct facility-local day.
