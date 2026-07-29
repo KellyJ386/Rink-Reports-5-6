@@ -8641,6 +8641,30 @@ export type Database = {
         }
         Returns: boolean
       }
+      citext: {
+        Args: { "": boolean } | { "": string } | { "": unknown }
+        Returns: string
+      }
+      citext_hash: {
+        Args: { "": string }
+        Returns: number
+      }
+      citextin: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      citextout: {
+        Args: { "": string }
+        Returns: unknown
+      }
+      citextrecv: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      citextsend: {
+        Args: { "": string }
+        Returns: string
+      }
       copy_role_permission_defaults: {
         Args: { p_source_role_id: string; p_target_role_id: string }
         Returns: number
@@ -8790,6 +8814,26 @@ export type Database = {
           employee_count: number
           facility_id: string
         }[]
+      }
+      gtrgm_compress: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_decompress: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_in: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_options: {
+        Args: { "": unknown }
+        Returns: undefined
+      }
+      gtrgm_out: {
+        Args: { "": unknown }
+        Returns: unknown
       }
       has_area_access: {
         Args: { p_area_id: string; p_module_key: string }
@@ -9047,9 +9091,21 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: number
       }
+      set_limit: {
+        Args: { "": number }
+        Returns: number
+      }
       show_dashboard_module: {
         Args: { p_module_key: string }
         Returns: undefined
+      }
+      show_limit: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      show_trgm: {
+        Args: { "": string }
+        Returns: string[]
       }
       snapshot_closed_daily_assignment_days: {
         Args: Record<PropertyKey, never>

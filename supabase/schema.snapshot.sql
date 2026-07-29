@@ -1205,7 +1205,7 @@ COMMENT ON FUNCTION public.current_user_id() IS 'Returns the current authenticat
 CREATE TABLE public.users (
     id uuid NOT NULL,
     facility_id uuid,
-    email extensions.citext NOT NULL,
+    email public.citext NOT NULL,
     full_name text,
     phone text,
     is_super_admin boolean DEFAULT false NOT NULL,
@@ -9964,7 +9964,7 @@ CREATE TABLE public.employees (
     employee_code text,
     first_name text NOT NULL,
     last_name text NOT NULL,
-    email extensions.citext,
+    email public.citext,
     phone text,
     is_minor boolean DEFAULT false NOT NULL,
     emergency_contact_name text,
