@@ -8,9 +8,11 @@ import {
   localDayKey,
   minutesOfDayInTz,
   utcToWallTime,
+  utcToZonedDate,
   wallTimeToUtc,
   weekdayOfKey,
   weekWindowInTz,
+  zonedDateToUtc,
 } from "./timezone"
 
 describe("wallTimeToUtc", () => {
@@ -278,5 +280,67 @@ describe("localDayKey", () => {
     const yesterday = new Date(Date.now() - 86_400_000)
     expect(localDayKey(-1)).toBe(dayKeyInTz(yesterday, null))
     expect(localDayKey(0) >= localDayKey(-1)).toBe(true)
+  })
+})
+
+describe("utcToZonedDate / zonedDateToUtc", () => {
+  it("exposes the facility wall clock through runtime-local getters", () => {
+    // 14:00 UTC = 09:00 EST in New York.
+    const zoned = utcToZonedDate("2026-01-15T14:00:00Z", "America/New_York")
+    expect(zoned.getHours()).toBe(9)
+    expect(zoned.getMinutes()).toBe(0)
+    expect(zoned.getDate()).toBe(15)
+    expect(zoned.getMonth()).toBe(0)
+    expect(zoned.getFullYear()).toBe(2026)
+  })
+
+  it("buckets onto the facility's calendar day, not the UTC day", () => {
+    // 02:00 UTC on the 16th is still 21:00 on the 15th in New York.
+    const zoned = utcToZonedDate("2026-01-16T02:00:00Z", "America/New_York")
+    expect(zoned.getDate()).toBe(15)
+    expect(zoned.getHours()).toBe(21)
+  })
+
+  it("round-trips an instant back to itself", () => {
+    for (const iso of [
+      "2026-01-15T14:00:00.000Z",
+      "2026-07-04T23:30:00.000Z",
+      "2026-11-01T05:15:00.000Z",
+    ]) {
+      const zoned = utcToZonedDate(iso, "America/New_York")
+      expect(zonedDateToUtc(zoned, "America/New_York").toISOString()).toBe(iso)
+    }
+  })
+
+  it("keeps the same wall clock across a DST boundary", () => {
+    // 09:00 local on either side of US spring-forward maps to different UTC
+    // instants (EST -05:00 then EDT -04:00) but the same displayed hour.
+    const winter = wallTimeToUtc("2026-01-15T09:00", "America/New_York")!
+    const summer = wallTimeToUtc("2026-07-15T09:00", "America/New_York")!
+    expect(utcToZonedDate(winter, "America/New_York").getHours()).toBe(9)
+    expect(utcToZonedDate(summer, "America/New_York").getHours()).toBe(9)
+    expect(winter.toISOString()).toBe("2026-01-15T14:00:00.000Z")
+    expect(summer.toISOString()).toBe("2026-07-15T13:00:00.000Z")
+  })
+
+  it("is an identity pair when no timezone is configured", () => {
+    const instant = new Date("2026-03-09T12:34:00.000Z")
+    const zoned = utcToZonedDate(instant, null)
+    expect(zoned.getTime()).toBe(instant.getTime())
+    expect(zonedDateToUtc(zoned, null).getTime()).toBe(instant.getTime())
+  })
+
+  it("falls back to an equivalent copy for an unresolvable zone", () => {
+    const instant = new Date("2026-03-09T12:34:00.000Z")
+    expect(utcToZonedDate(instant, "Not/AZone").getTime()).toBe(
+      instant.getTime()
+    )
+  })
+
+  it("returns an invalid date for unparseable input", () => {
+    expect(Number.isNaN(utcToZonedDate("nope", "UTC").getTime())).toBe(true)
+    expect(Number.isNaN(zonedDateToUtc(new Date(NaN), "UTC").getTime())).toBe(
+      true
+    )
   })
 })

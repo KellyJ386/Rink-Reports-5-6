@@ -1273,6 +1273,13 @@ export async function deleteGridShift(
     if (!cur) return { ok: false, error: "Shift not found." }
 
     if (cur.status === "published") {
+      // Fetched before the cancel so the notice can state the window in the
+      // FACILITY's local time (server-side formatting defaults to UTC).
+      const { data: facilityRow } = await supabase
+        .from("facilities")
+        .select("timezone")
+        .eq("id", ctx.facilityId)
+        .maybeSingle<{ timezone: string | null }>()
       const { data: rpc, error: rpcErr } = await supabase.rpc(
         "scheduling_admin_cancel_shift",
         { p_shift_id: parsedId.data }
@@ -1291,7 +1298,7 @@ export async function deleteGridShift(
             facilityId: ctx.facilityId,
             employeeId: cur.employee_id,
             subject: "Your shift was cancelled",
-            body: `Your shift on ${formatShiftWindow(cur.starts_at, cur.ends_at)} was cancelled by a manager.`,
+            body: `Your shift on ${formatShiftWindow(cur.starts_at, cur.ends_at, facilityRow?.timezone ?? null)} was cancelled by a manager.`,
             sourceRecordId: parsedId.data,
           },
         ])

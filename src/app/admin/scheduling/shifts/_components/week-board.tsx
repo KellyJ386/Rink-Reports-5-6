@@ -35,6 +35,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { dayKeyInTz, utcToZonedDate, zonedDateToUtc } from "@/lib/timezone"
 
 import type { EmployeeLite, JobAreaLite, TemplateRow } from "../../_lib/types"
 import type {
@@ -139,6 +140,9 @@ export type WeekBoardProps = {
   templates: TemplateRow[]
   operatingHours: OperatingHours
   weekStartDay: number
+  /** IANA facility timezone. The whole board renders and edits in this
+   * zone; null falls back to the browser's. */
+  timeZone: string | null
   defaultDateIso: string
   weekStartsAtIso: string
   weekEndsAtIso: string
@@ -161,8 +165,18 @@ export function WeekBoard(props: WeekBoardProps) {
   const router = useRouter()
   const pathname = usePathname()
 
+  // The board's Dates are FACILITY-ZONED pseudo-local (see dtoToEvent): their
+  // local getters read as the rink's wall clock, so every layout, drag, tally,
+  // and label below is facility-correct without special-casing. `toUtcIso` is
+  // the one persist boundary that converts back to a real instant.
+  const timeZone = props.timeZone
+  const toUtcIso = useCallback(
+    (d: Date) => zonedDateToUtc(d, timeZone).toISOString(),
+    [timeZone],
+  )
+
   const [events, setEvents] = useState<GridEvent[]>(() =>
-    props.initialShifts.map(dtoToEvent),
+    props.initialShifts.map((d) => dtoToEvent(d, props.timeZone)),
   )
   const [view, setView] = useState<BoardView>("week")
   const [colorBy, setColorBy] = useState<ColorBy>("jobArea")
@@ -198,7 +212,7 @@ export function WeekBoard(props: WeekBoardProps) {
     return Array.from({ length: 7 }, (_, i) => addLocalDays(weekStart, i))
   }, [view, anchor, weekStart])
 
-  const now = useMemo(() => new Date(), [])
+  const now = useMemo(() => utcToZonedDate(new Date(), timeZone), [timeZone])
   const todayIndex = days.findIndex((d) => sameLocalDay(d, now))
   const nowHour =
     todayIndex >= 0 ? now.getHours() + now.getMinutes() / 60 : null
@@ -322,8 +336,8 @@ export function WeekBoard(props: WeekBoardProps) {
 
   // ---- Optimistic helpers ----
   const replaceEvent = useCallback((id: string, dto: GridShiftDTO) => {
-    setEvents((evs) => evs.map((e) => (e.id === id ? dtoToEvent(dto) : e)))
-  }, [])
+    setEvents((evs) => evs.map((e) => (e.id === id ? dtoToEvent(dto, timeZone) : e)))
+  }, [timeZone])
   const patchEvent = useCallback(
     (id: string, partial: Partial<GridEvent>) => {
       setEvents((evs) =>
@@ -351,8 +365,8 @@ export function WeekBoard(props: WeekBoardProps) {
     previewShiftWarnings({
       employee_id,
       job_area_id,
-      starts_at: next.start.toISOString(),
-      ends_at: next.end.toISOString(),
+      starts_at: toUtcIso(next.start),
+      ends_at: toUtcIso(next.end),
       exclude_shift_id,
     })
       .then((res) => {
@@ -364,7 +378,7 @@ export function WeekBoard(props: WeekBoardProps) {
       .finally(() => {
         if (token === warnTokenRef.current) setWarnLoading(false)
       })
-  }, [])
+  }, [toUtcIso])
 
   const clearWarnings = useCallback(() => {
     setCertWarnings([])
@@ -428,8 +442,8 @@ export function WeekBoard(props: WeekBoardProps) {
       startTransition(async () => {
         const res = await updateGridShift({
           id,
-          starts_at: start.toISOString(),
-          ends_at: end.toISOString(),
+          starts_at: toUtcIso(start),
+          ends_at: toUtcIso(end),
         })
         if (res.ok) {
           replaceEvent(id, res.data)
@@ -454,7 +468,7 @@ export function WeekBoard(props: WeekBoardProps) {
         }
       })
     },
-    [events, patchEvent, replaceEvent, openPopover],
+    [events, patchEvent, replaceEvent, openPopover, toUtcIso],
   )
 
   const handleSelect = useCallback(
@@ -520,8 +534,8 @@ export function WeekBoard(props: WeekBoardProps) {
     (ev: GridEvent) => {
       startTransition(async () => {
         const res = await createGridShift({
-          starts_at: ev.start.toISOString(),
-          ends_at: ev.end.toISOString(),
+          starts_at: toUtcIso(ev.start),
+          ends_at: toUtcIso(ev.end),
           employee_id: ev.employeeId,
           job_area_id: ev.jobAreaId,
           department_id: ev.departmentId,
@@ -529,7 +543,7 @@ export function WeekBoard(props: WeekBoardProps) {
           role_label: ev.roleLabel,
         })
         if (res.ok) {
-          setEvents((evs) => [...evs, dtoToEvent(res.data)])
+          setEvents((evs) => [...evs, dtoToEvent(res.data, timeZone)])
           toast.success("Shift duplicated.")
           return
         }
@@ -547,7 +561,7 @@ export function WeekBoard(props: WeekBoardProps) {
         }
       })
     },
-    [openPopover],
+    [openPopover, toUtcIso, timeZone],
   )
 
   // Deletion is destructive (drafts are removed outright; published shifts
@@ -567,8 +581,8 @@ export function WeekBoard(props: WeekBoardProps) {
   const undoDelete = useCallback((ev: GridEvent) => {
     startTransition(async () => {
       const res = await createGridShift({
-        starts_at: ev.start.toISOString(),
-        ends_at: ev.end.toISOString(),
+        starts_at: toUtcIso(ev.start),
+        ends_at: toUtcIso(ev.end),
         employee_id: ev.employeeId,
         job_area_id: ev.jobAreaId,
         department_id: ev.departmentId,
@@ -583,10 +597,10 @@ export function WeekBoard(props: WeekBoardProps) {
         toast.error(`Couldn't restore the shift: ${res.error}`)
         return
       }
-      setEvents((evs) => [...evs, dtoToEvent(res.data)])
+      setEvents((evs) => [...evs, dtoToEvent(res.data, timeZone)])
       toast.success("Shift restored.")
     })
-  }, [])
+  }, [toUtcIso, timeZone])
 
   const confirmDelete = useCallback(() => {
     const ev = deleteTarget
@@ -685,8 +699,8 @@ export function WeekBoard(props: WeekBoardProps) {
         startTransition(async () => {
           if (repeat && repeat.days.length > 0) {
             const res = await createRecurringGridShifts({
-              starts_at: start.toISOString(),
-              ends_at: end.toISOString(),
+              starts_at: toUtcIso(start),
+              ends_at: toUtcIso(end),
               employee_id,
               job_area_id,
               repeat: { days_of_week: repeat.days, until: repeat.untilKey },
@@ -698,7 +712,7 @@ export function WeekBoard(props: WeekBoardProps) {
               return
             }
             const { created, skipped } = res.data
-            setEvents((evs) => [...evs, ...created.map(dtoToEvent)])
+            setEvents((evs) => [...evs, ...created.map((d) => dtoToEvent(d, timeZone))])
             if (skipped.length > 0) {
               const detail = skipped
                 .slice(0, 3)
@@ -723,8 +737,8 @@ export function WeekBoard(props: WeekBoardProps) {
           }
 
           const res = await createGridShift({
-            starts_at: start.toISOString(),
-            ends_at: end.toISOString(),
+            starts_at: toUtcIso(start),
+            ends_at: toUtcIso(end),
             employee_id,
             job_area_id,
             ...gateFields,
@@ -734,7 +748,7 @@ export function WeekBoard(props: WeekBoardProps) {
             setPopoverError(res.error)
             return
           }
-          setEvents((evs) => [...evs, dtoToEvent(res.data)])
+          setEvents((evs) => [...evs, dtoToEvent(res.data, timeZone)])
           toast.success(
             opts?.overrideCert
               ? "Shift created — certification override logged."
@@ -752,8 +766,8 @@ export function WeekBoard(props: WeekBoardProps) {
             job_area_id,
             // Persist times too, so a drag-move/resize routed here on a gate
             // re-applies the new times on confirm/override (a no-op otherwise).
-            starts_at: start.toISOString(),
-            ends_at: end.toISOString(),
+            starts_at: toUtcIso(start),
+            ends_at: toUtcIso(end),
             ...gateFields,
           })
           if (!res.ok) {
@@ -771,7 +785,14 @@ export function WeekBoard(props: WeekBoardProps) {
         })
       }
     },
-    [popover, replaceEvent, closePopover, applyGateWarnings],
+    [
+      popover,
+      replaceEvent,
+      closePopover,
+      applyGateWarnings,
+      toUtcIso,
+      timeZone,
+    ],
   )
 
   const handlePopoverDelete = useCallback(() => {
@@ -786,6 +807,10 @@ export function WeekBoard(props: WeekBoardProps) {
       const { start, end } = popover
       const job_area_id =
         popover.jobAreaId === NONE_VALUE ? null : popover.jobAreaId
+      // These read the FACILITY wall clock (the board's Dates are zoned),
+      // which is exactly how applyTemplateToWeek re-interprets them. Before
+      // the zoning fix these were browser-local, so a saved template replayed
+      // at a different hour whenever the admin's zone differed from the rink's.
       const pad = (n: number) => String(n).padStart(2, "0")
       const hhmm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}:00`
       startTransition(async () => {
@@ -827,10 +852,10 @@ export function WeekBoard(props: WeekBoardProps) {
     [anchor, view, router, pathname],
   )
   const goToday = useCallback(() => {
-    router.replace(`${pathname}?date=${isoDateKey(new Date())}`, {
+    router.replace(`${pathname}?date=${dayKeyInTz(new Date(), timeZone)}`, {
       scroll: false,
     })
-  }, [router, pathname])
+  }, [router, pathname, timeZone])
 
   // Month view is read-only; clicking a day drops into the editable week view
   // anchored on that date.

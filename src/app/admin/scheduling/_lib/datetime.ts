@@ -1,6 +1,11 @@
 // Date/time helpers shared by scheduling admin views.
-// All week math is done in UTC; the UI displays times in the browser's
-// local zone via Intl.DateTimeFormat.
+//
+// All week math is done in UTC. Display goes through Intl.DateTimeFormat with
+// an explicit `timeZone`: ALWAYS pass the facility's zone. Omitting it renders
+// in whatever zone the code happens to run in — the SERVER's (i.e. UTC in
+// production) for server components, actions, and email bodies, which silently
+// misstates every time and can name the wrong day. The interactive grid is
+// facility-zoned too (see board-model.ts `dtoToEvent`).
 
 const DAY_MS = 24 * 60 * 60 * 1000
 

@@ -7591,6 +7591,77 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- E-4. scheduling_move_compliance_rule (migration 232) is tenant-fenced.
+--
+-- The RPC is SECURITY DEFINER (it needs to swap two rows in one statement,
+-- which RLS-scoped client updates could not do atomically), so RLS does NOT
+-- protect it — the facility check inside the function is the only gate. Carol
+-- is a Facility-A scheduling admin; Bob is a Facility-B employee.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+insert into public.schedule_compliance_rules (id, facility_id, rule_type, name, sort_order)
+values
+  ('c0232000-0000-4000-8000-00000000000a',
+   '11111111-1111-1111-1111-111111111111', 'overtime', 'A-rule-1', 0),
+  ('c0232000-0000-4000-8000-00000000000b',
+   '11111111-1111-1111-1111-111111111111', 'overtime', 'A-rule-2', 1),
+  ('c0232000-0000-4000-8000-00000000000c',
+   '22222222-2222-2222-2222-222222222222', 'overtime', 'B-rule-1', 0),
+  ('c0232000-0000-4000-8000-00000000000d',
+   '22222222-2222-2222-2222-222222222222', 'overtime', 'B-rule-2', 1)
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_move_compliance_rule(
+        'c0232000-0000-4000-8000-00000000000b', -1))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  1, 'E-4: carol (facility-A scheduling admin) CAN reorder a Facility-A rule');
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_move_compliance_rule(
+        'c0232000-0000-4000-8000-00000000000d', -1))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  0, 'E-4: carol CANNOT reorder a Facility-B rule (cross-tenant)');
+
+reset role;
+set local role postgres;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_compliance_rules
+     where id = 'c0232000-0000-4000-8000-00000000000b' and sort_order = 0$$,
+  1, 'E-4: the Facility-A swap actually applied');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_compliance_rules
+     where id = 'c0232000-0000-4000-8000-00000000000d' and sort_order = 1$$,
+  1, 'E-4: the Facility-B rule order is UNCHANGED after the rejected call');
+reset role;
+
+-- Staff Alice has scheduling view/submit but NOT admin — the RPC must refuse
+-- her even inside her own facility.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_move_compliance_rule(
+        'c0232000-0000-4000-8000-00000000000a', 1))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  0, 'E-4: staff alice (no scheduling admin grant) CANNOT reorder rules');
+reset role;
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;

@@ -10,7 +10,11 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 import type { Database } from "@/types/database"
 
-import { formatShiftWindow, queueSchedulingEmails } from "./notify-email"
+import {
+  facilityTimezones,
+  formatShiftWindow,
+  queueSchedulingEmails,
+} from "./notify-email"
 
 type AnyClient = SupabaseClient<Database>
 
@@ -98,12 +102,24 @@ export async function sendDueShiftReminders(
     return { ok: false, error: insErr.message ?? "Failed to send reminders." }
   }
 
+  // The cron sweep spans every facility, so resolve all their zones in one
+  // query — the reminder body must state the shift in the RINK's local time,
+  // not the server's.
+  const tzByFacility = await facilityTimezones(
+    supabase,
+    toSend.map((s) => s.facility_id)
+  )
+
   await queueSchedulingEmails(
     toSend.map((s) => ({
       facilityId: s.facility_id,
       employeeId: s.employee_id,
       subject: "Shift reminder",
-      body: `Reminder: you have a shift on ${formatShiftWindow(s.starts_at, s.ends_at)}.`,
+      body: `Reminder: you have a shift on ${formatShiftWindow(
+        s.starts_at,
+        s.ends_at,
+        tzByFacility.get(s.facility_id) ?? null
+      )}.`,
       sourceRecordId: s.id,
     }))
   )

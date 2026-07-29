@@ -76,6 +76,26 @@ export async function requestSchedulePublish(
     return { ok: false, error: "No draft shifts in range." }
   }
 
+  // Refuse a second request whose window overlaps a still-pending one. Two
+  // admins filing for the same week produced two approvable requests for the
+  // same drafts; approving the first left the second pointing at rows that
+  // were already published, so the approver saw a confusing empty publish.
+  const { data: overlapping } = await supabase
+    .from("schedule_publish_requests")
+    .select("id")
+    .eq("facility_id", ctx.facilityId)
+    .eq("status", "pending")
+    .lt("range_starts_at", endsAt)
+    .gt("range_ends_at", startsAt)
+    .limit(1)
+  if (overlapping && overlapping.length > 0) {
+    return {
+      ok: false,
+      error:
+        "A publish request covering this range is already awaiting approval.",
+    }
+  }
+
   const { error } = await supabase.from("schedule_publish_requests").insert({
     facility_id: ctx.facilityId,
     requested_by_employee_id: ctx.employeeId,
@@ -156,18 +176,24 @@ export async function approveAndPublishRequest(
   // request id as source_record_id, so the drain groups them into a single
   // message with N recipients.
   try {
-    const [{ data: settings }, { data: reqRow }] = await Promise.all([
-      supabase
-        .from("schedule_settings")
-        .select("notify_on_publish")
-        .eq("facility_id", ctx.facilityId)
-        .maybeSingle<{ notify_on_publish: boolean }>(),
-      supabase
-        .from("schedule_publish_requests")
-        .select("range_starts_at, range_ends_at")
-        .eq("id", requestId)
-        .maybeSingle<{ range_starts_at: string; range_ends_at: string }>(),
-    ])
+    const [{ data: settings }, { data: reqRow }, { data: facilityRow }] =
+      await Promise.all([
+        supabase
+          .from("schedule_settings")
+          .select("notify_on_publish")
+          .eq("facility_id", ctx.facilityId)
+          .maybeSingle<{ notify_on_publish: boolean }>(),
+        supabase
+          .from("schedule_publish_requests")
+          .select("range_starts_at, range_ends_at")
+          .eq("id", requestId)
+          .maybeSingle<{ range_starts_at: string; range_ends_at: string }>(),
+        supabase
+          .from("facilities")
+          .select("timezone")
+          .eq("id", ctx.facilityId)
+          .maybeSingle<{ timezone: string | null }>(),
+      ])
     if ((settings?.notify_on_publish ?? true) && reqRow) {
       const { data: assigned } = await supabase
         .from("schedule_shifts")
@@ -184,7 +210,10 @@ export async function approveAndPublishRequest(
             .filter((x): x is string => !!x)
         ),
       ]
-      const range = `${formatDateOnly(reqRow.range_starts_at)} – ${formatDateOnly(reqRow.range_ends_at)}`
+      // The published range is a facility-local week; format it in that zone
+      // so the email's dates match the schedule staff actually see.
+      const tz = facilityRow?.timezone ?? null
+      const range = `${formatDateOnly(reqRow.range_starts_at, tz)} – ${formatDateOnly(reqRow.range_ends_at, tz)}`
       await queueSchedulingEmails(
         employeeIds.map((employeeId) => ({
           facilityId: ctx.facilityId,
