@@ -23,8 +23,14 @@ const PROTECTED_PREFIXES = ["/admin", "/reports", "/dashboard", "/account"]
 // style-based injection is a far weaker vector than script execution. Tightening
 // this would be a large, separate refactor.
 //
-// Enforced in production only — Next dev/HMR needs inline eval and would break
-// under this policy (matches the prior next.config.ts behavior).
+// Enforced whenever NODE_ENV === "production" — which on Vercel includes
+// PREVIEW deployments (previews build and run with NODE_ENV=production; only
+// VERCEL_ENV distinguishes them), so a violating inline script breaks on the
+// preview URL before it can reach the production deploy. Only `next dev` is
+// exempt: dev/HMR needs inline eval and would break under this policy, and
+// even a Report-Only copy of it would flood the console with HMR eval
+// violations on every edit, so dev intentionally gets no CSP header at all
+// (matches the prior next.config.ts behavior).
 function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",

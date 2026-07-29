@@ -8,6 +8,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
+import { requireUser } from "@/lib/auth"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 import {
@@ -104,6 +105,10 @@ export async function resyncScheduleAssignments(
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .safeParse(date)
     if (!parsed.success) return invalid()
+    // Defense-in-depth: every sibling action authenticates via the _lib
+    // helpers' requireUser(); this one talks to the RPC directly, so gate it
+    // explicitly rather than leaning on the RPC's internal check alone.
+    await requireUser()
     const { createClient } = await import("@/lib/supabase/server")
     const supabase = await createClient()
     const { data, error } = await supabase.rpc(

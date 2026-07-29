@@ -13,6 +13,17 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=()",
   },
+  // Sever `window.opener` handles: any page that opens this app in a new
+  // window/tab lands in a separate browsing context group, so it can neither
+  // script us nor be scripted by us. Cheap tab-napping/XS-Leak hardening; the
+  // app never needs a cross-origin opener relationship (the Supabase auth
+  // flows here are redirect/OTP-based, not popup-based).
+  // Cross-Origin-Resource-Policy is deliberately NOT set: PostHog's session
+  // replay player (loaded on posthog.com origins) re-fetches this app's
+  // stylesheets/images cross-origin to render recordings, and CORP
+  // `same-origin` on those responses would break it. Revisit if PostHog is
+  // dropped.
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   // Force HTTPS for two years and cover subdomains. This app is a PWA that
   // stores auth cookies, so a first-visit / same-network SSL-strip is a real
   // risk. `preload` opts into the browser preload list (submit the apex domain

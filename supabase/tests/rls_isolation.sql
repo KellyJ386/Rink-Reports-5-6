@@ -6596,6 +6596,174 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- GAP-220 (migration 220), remaining siblings. The child-insert submit gate was
+-- verified above for daily_report_submission_items; the same tightening covers
+-- three more measurement/child tables that previously accepted a view-level
+-- insert against ANOTHER user's parent. Alice holds view+submit on every module
+-- (fixture near the top) but is NOT the owner of zoe's reports, so the tightened
+-- child INSERT policies must reject her while still admitting her OWN child rows.
+--
+-- Parents (one zoe-owned, one alice-owned per module) are minted as the postgres
+-- BYPASSRLS role, exactly as the daily positive above does.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- air_quality: zoe's report (foreign) + alice's report (own). location_id is the
+-- shared facility_spaces "Space A1" seeded for facility A.
+insert into public.air_quality_reports (id, facility_id, employee_id, location_id)
+values
+  ('c0220a91-0001-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dada1111-0000-4000-8000-000000000002',
+   'aaaa1111-0a01-aaaa-aaaa-aaaa11110021'),
+  ('c0220a91-0002-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   'aaaa1111-0a01-aaaa-aaaa-aaaa11110021')
+on conflict (id) do nothing;
+
+-- ice_depth: zoe's session (foreign) + alice's session (own).
+insert into public.ice_depth_sessions (
+  id, facility_id, layout_id, employee_id,
+  measurement_unit_snapshot, low_threshold_snapshot, high_threshold_snapshot
+) values
+  ('c0220d51-0001-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+   'dada1111-0000-4000-8000-000000000002', 'inches', 1.0, 2.0),
+  ('c0220d51-0002-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'inches', 1.0, 2.0)
+on conflict (id) do nothing;
+
+-- ice_operations: zoe's submission (foreign) + alice's submission (own).
+insert into public.ice_operations_submissions (id, facility_id, employee_id, operation_type)
+values
+  ('c0221c01-0001-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dada1111-0000-4000-8000-000000000002', 'ice_make'),
+  ('c0221c01-0002-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ice_make')
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+-- air_quality_readings ------------------------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.air_quality_readings
+      (facility_id, report_id, key_snapshot, label_snapshot, unit_snapshot, value_numeric)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220a91-0001-4000-8000-000000000001', 'co', 'CO', 'ppm', 1.0)$$,
+  'GAP-220: a submit-holder CANNOT add a reading to another user''s air_quality report');
+select pg_temp.expect_ok(
+  $$insert into public.air_quality_readings
+      (facility_id, report_id, key_snapshot, label_snapshot, unit_snapshot, value_numeric)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220a91-0002-4000-8000-000000000002', 'co', 'CO', 'ppm', 1.0)$$,
+  'GAP-220: the OWNER can still add a reading to their own air_quality report');
+
+-- ice_depth_measurements ----------------------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.ice_depth_measurements
+      (facility_id, session_id, point_number_snapshot, x_snapshot, y_snapshot, depth_value, severity)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220d51-0001-4000-8000-000000000001', 1, 0.5, 0.5, 1.5, 'ok')$$,
+  'GAP-220: a submit-holder CANNOT add a measurement to another user''s ice_depth session');
+select pg_temp.expect_ok(
+  $$insert into public.ice_depth_measurements
+      (facility_id, session_id, point_number_snapshot, x_snapshot, y_snapshot, depth_value, severity)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0220d51-0002-4000-8000-000000000002', 1, 0.5, 0.5, 1.5, 'ok')$$,
+  'GAP-220: the OWNER can still add a measurement to their own ice_depth session');
+
+-- ice_operations_circle_check_results ---------------------------------------
+select pg_temp.expect_error(
+  $$insert into public.ice_operations_circle_check_results
+      (facility_id, submission_id, label_snapshot, passed)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0221c01-0001-4000-8000-000000000001', 'Blades OK', true)$$,
+  'GAP-220: a submit-holder CANNOT add a circle-check result to another user''s ice_operations submission');
+select pg_temp.expect_ok(
+  $$insert into public.ice_operations_circle_check_results
+      (facility_id, submission_id, label_snapshot, passed)
+    values ('11111111-1111-1111-1111-111111111111',
+            'c0221c01-0002-4000-8000-000000000002', 'Blades OK', true)$$,
+  'GAP-220: the OWNER can still add a circle-check result to their own ice_operations submission');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- D-1 (migration 224): audit_logs INSERT must name the caller as the actor.
+-- A non-super-admin (alice) may append an audit row for HERSELF, but cannot
+-- forge one attributed to a colleague (zoe, a same-facility user) — closing the
+-- "frame a coworker" hole the old facility-only WITH CHECK left open.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.audit_logs (facility_id, actor_user_id, action, entity_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dada1111-0000-4000-8000-000000000001', 'test.frame', 'test')$$,
+  'D-1: alice CANNOT insert an audit_logs row attributed to another user');
+select pg_temp.expect_ok(
+  $$insert into public.audit_logs (facility_id, actor_user_id, action, entity_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'test.self', 'test')$$,
+  'D-1: alice CAN insert an audit_logs row attributed to herself (logAudit path)');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- D-2 (migration 225): offline_sync_queue owner DELETE. Before this policy only
+-- super_admin could delete, so releaseClaim() (deleting one's own row by
+-- local_id) was a silent no-op. A user may now delete their OWN queue row but
+-- not another user's — even a same-facility colleague's.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.offline_sync_queue
+  (local_id, facility_id, employee_id, module_key, action, payload)
+values
+  ('c0224000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'dada1111-0000-4000-8000-000000000002', 'daily_reports', 'submit', '{}'::jsonb),
+  ('c0224000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'daily_reports', 'submit', '{}'::jsonb)
+on conflict (local_id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.offline_sync_queue
+       where local_id = 'c0224000-0000-4000-8000-000000000001'
+       returning 1)
+    select count(*) from d$$,
+  0, 'D-2: alice CANNOT delete another user''s offline_sync_queue row (RLS scopes it to 0 rows)');
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.offline_sync_queue
+       where local_id = 'c0224000-0000-4000-8000-000000000002'
+       returning 1)
+    select count(*) from d$$,
+  1, 'D-2: alice CAN delete her OWN offline_sync_queue row (releaseClaim now works)');
+reset role;
+
+-- The colleague's row must have survived alice's delete attempt.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.offline_sync_queue
+     where local_id = 'c0224000-0000-4000-8000-000000000001'$$,
+  1, 'D-2: zoe''s queue row is untouched by alice''s rejected delete');
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 2Z. Authorization-audit hardening (migration 216).
 --
 -- user_has_permission() was a cross-tenant permission oracle (SECURITY
@@ -6884,6 +7052,542 @@ select pg_temp.expect_ok(
   'SCHED-210: table owner can still write a listing (RPC path unaffected)');
 
 reset role;
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
+-- E-1 (migration 227): the admin/admin permission cell is fenced to super
+-- admins at the RLS layer.
+--
+-- "Only a super admin may grant Admin Center access" was enforced only in app
+-- code (isAdminConsoleGrant, src/lib/permissions/actions.ts); the browser holds
+-- the anon key + the user's JWT, so a facility admin could POST straight to
+-- /rest/v1/user_permissions and mint a peer facility admin. Migration 226 adds
+-- the cell-level term to the user_permissions and role_permission_defaults
+-- write policies.
+--
+-- Cast:
+--   Fred  (a0a0a0a0-…) facility-A admin: `admin` employee role + an enabled
+--                      admin/admin grant (seeded in the D-01 block above).
+--   Sue   (e2260000-…) NEW: platform super admin, the positive control.
+--   Zoe   (dada1111-…) facility-A staff, no admin/admin row  -> INSERT probes.
+--   Sam   (ed17ed17-…) facility-A staff, seeded a DISABLED admin/admin row
+--                      -> the "flip an existing disabled cell on" probe.
+--   Mona  (cccccccc-…) facility-A manager, seeded an ENABLED admin/admin row
+--                      -> proves REVOKE stays open to facility admins.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+insert into auth.users (id, email)
+values ('e2260000-0000-4000-8000-000000000001', 'sue@platform.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('e2260000-0000-4000-8000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'sue@platform.test', true)
+on conflict (id) do nothing;  -- fresh id; DO NOTHING keeps the
+                              -- users_profile_update_guard trigger out of the
+                              -- fixture path entirely.
+
+-- Sam: a DISABLED admin/admin cell (the row a facility admin must not flip on).
+-- Mona: an ENABLED one (the row a facility admin must still be able to revoke).
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values
+  ('ed17ed17-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'admin', 'admin'::public.user_action, false),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111',
+   'admin', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action)
+  do update set enabled = excluded.enabled;
+
+-- A DISABLED admin/admin role default on facility A's `staff` role. The
+-- canonical matrix gives `staff` no admin-module row at all, so this row exists
+-- only for the flip-it-on probe below.
+insert into public.role_permission_defaults
+  (facility_id, role_id, module_name, action, enabled)
+select '11111111-1111-1111-1111-111111111111', r.id,
+       'admin', 'admin'::public.user_action, false
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (facility_id, role_id, module_name, action)
+  do update set enabled = excluded.enabled;
+
+-- ---- user_permissions, as Fred (facility admin) ---------------------------
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+
+-- THE hole: mint a peer facility admin with one INSERT.
+select pg_temp.expect_error(
+  $$insert into public.user_permissions
+      (user_id, facility_id, module_name, action, enabled)
+    values ('dada1111-0000-4000-8000-000000000001',
+            '11111111-1111-1111-1111-111111111111',
+            'admin', 'admin'::public.user_action, true)$$,
+  'E-1: facility admin CANNOT insert an ENABLED admin/admin user_permissions row for a peer');
+
+-- Same cell, reached by flipping an existing DISABLED row (the UPDATE leg).
+select pg_temp.expect_error(
+  $$update public.user_permissions set enabled = true
+     where user_id     = 'ed17ed17-0000-4000-8000-000000000001'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and module_name = 'admin'
+       and action      = 'admin'::public.user_action$$,
+  'E-1: facility admin CANNOT flip a peer''s DISABLED admin/admin row to enabled');
+
+-- The policy is user_id-agnostic: writing the enabled cell for HERSELF is
+-- refused too (the app never issues this write — every path skips or zeroes the
+-- cell for a non-super caller).
+select pg_temp.expect_error(
+  $$update public.user_permissions set enabled = true
+     where user_id     = 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and module_name = 'admin'
+       and action      = 'admin'::public.user_action$$,
+  'E-1: facility admin CANNOT re-assert the enabled admin/admin cell on THEMSELVES');
+
+-- Deliberately still allowed #1: the `admin` ACTION on a REPORT module is
+-- normal delegation, not Admin Center access.
+select pg_temp.expect_ok(
+  $$insert into public.user_permissions
+      (user_id, facility_id, module_name, action, enabled)
+    values ('dada1111-0000-4000-8000-000000000001',
+            '11111111-1111-1111-1111-111111111111',
+            'daily_reports', 'admin'::public.user_action, true)$$,
+  'E-1: facility admin CAN still grant the admin ACTION on a non-admin module');
+
+-- Deliberately still allowed #2: REVOKING admin/admin. applyPresetToUser(),
+-- upsertUserPermission(enabled:false) and the CSV import all write a DISABLED
+-- admin/admin row; fencing this would break the admin console.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.user_permissions set enabled = false
+       where user_id     = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+         and facility_id = '11111111-1111-1111-1111-111111111111'
+         and module_name = 'admin'
+         and action      = 'admin'::public.user_action
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1: facility admin CAN still REVOKE an admin/admin grant (enabled = false)');
+
+-- Cross-check: Fred's rejected writes left no enabled cell behind.
+select pg_temp.expect_count(
+  $$select count(*) from public.user_permissions
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and module_name = 'admin'
+       and action      = 'admin'::public.user_action
+       and enabled     = true
+       and user_id in ('dada1111-0000-4000-8000-000000000001',
+                       'ed17ed17-0000-4000-8000-000000000001',
+                       'cccccccc-cccc-cccc-cccc-cccccccccccc')$$,
+  0, 'E-1: no peer gained an enabled admin/admin cell from the facility admin''s attempts');
+
+-- ---- role_permission_defaults, as Fred ------------------------------------
+-- Reachable escalation even without touching user_permissions: an enabled
+-- admin/admin DEFAULT plus reapply_role_defaults_for_role() (granted to
+-- `authenticated`) pushes the cell onto every active holder of the role.
+select pg_temp.expect_error(
+  $$insert into public.role_permission_defaults
+      (facility_id, role_id, module_name, action, enabled)
+    select '11111111-1111-1111-1111-111111111111', r.id,
+           'admin', 'admin'::public.user_action, true
+    from public.roles r
+    where r.facility_id = '11111111-1111-1111-1111-111111111111'
+      and r.key = 'manager'$$,
+  'E-1: facility admin CANNOT insert an ENABLED admin/admin role default');
+
+select pg_temp.expect_error(
+  $$update public.role_permission_defaults d set enabled = true
+     where d.facility_id = '11111111-1111-1111-1111-111111111111'
+       and d.module_name = 'admin'
+       and d.action      = 'admin'::public.user_action
+       and d.role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'staff')$$,
+  'E-1: facility admin CANNOT flip a DISABLED admin/admin role default to enabled');
+
+select pg_temp.expect_ok(
+  $$insert into public.role_permission_defaults
+      (facility_id, role_id, module_name, action, enabled)
+    select '11111111-1111-1111-1111-111111111111', r.id,
+           'refrigeration', 'admin'::public.user_action, true
+    from public.roles r
+    where r.facility_id = '11111111-1111-1111-1111-111111111111'
+      and r.key = 'staff'$$,
+  'E-1: facility admin CAN still grant a non-admin module''s admin action as a role default');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.role_permission_defaults d set enabled = false
+       where d.facility_id = '11111111-1111-1111-1111-111111111111'
+         and d.module_name = 'admin'
+         and d.action      = 'admin'::public.user_action
+         and d.role_id = (select id from public.roles
+                           where facility_id = '11111111-1111-1111-1111-111111111111'
+                             and key = 'staff')
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1: facility admin CAN still write a DISABLED admin/admin role default (revoke)');
+
+reset role;
+
+-- ---- the same writes, as a SUPER ADMIN (must all succeed) -----------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e2260000-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'e2260000-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.user_permissions
+      (user_id, facility_id, module_name, action, enabled)
+    values ('dada1111-0000-4000-8000-000000000001',
+            '11111111-1111-1111-1111-111111111111',
+            'admin', 'admin'::public.user_action, true)$$,
+  'E-1: a SUPER ADMIN CAN insert an enabled admin/admin user_permissions row');
+
+select pg_temp.expect_ok(
+  $$update public.user_permissions set enabled = true
+     where user_id     = 'ed17ed17-0000-4000-8000-000000000001'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and module_name = 'admin'
+       and action      = 'admin'::public.user_action$$,
+  'E-1: a SUPER ADMIN CAN flip a disabled admin/admin row to enabled');
+
+select pg_temp.expect_ok(
+  $$update public.role_permission_defaults d set enabled = true
+     where d.facility_id = '11111111-1111-1111-1111-111111111111'
+       and d.module_name = 'admin'
+       and d.action      = 'admin'::public.user_action
+       and d.role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'staff')$$,
+  'E-1: a SUPER ADMIN CAN enable an admin/admin role default');
+
+reset role;
+
+-- Put the fixtures back so nothing downstream inherits a surprise admin.
+set local role postgres;
+update public.user_permissions set enabled = false
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_name = 'admin'
+   and action      = 'admin'::public.user_action
+   and user_id in ('dada1111-0000-4000-8000-000000000001',
+                   'ed17ed17-0000-4000-8000-000000000001',
+                   'cccccccc-cccc-cccc-cccc-cccccccccccc');
+update public.role_permission_defaults set enabled = false
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_name = 'admin'
+   and action      = 'admin'::public.user_action
+   and role_id = (select id from public.roles
+                   where facility_id = '11111111-1111-1111-1111-111111111111'
+                     and key = 'staff');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- E-1 sibling (migration 228): roles_update is fenced by the caller's own
+-- hierarchy floor.
+--
+-- Pre-227 any facility admin could PATCH /rest/v1/roles and rewrite
+-- hierarchy_level on ANY role in their facility — hoisting a role they control
+-- above the admin tier and defeating callerHierarchyFloor() /
+-- can_edit_user_profile(), both of which compare these numbers. LOWER number =
+-- HIGHER rank; canonical seed is super_admin=0, admin=1, manager=2, staff=3.
+-- Fred's employee role is `admin`, so his floor is 1.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+
+select pg_temp.expect_count(
+  $$select public.current_role_hierarchy_floor(
+      '11111111-1111-1111-1111-111111111111')$$,
+  1, 'E-1/roles: Fred''s hierarchy floor in facility A is the admin tier (1)');
+
+-- WITH CHECK leg: cannot leave a role ranked above your own floor.
+select pg_temp.expect_error(
+  $$update public.roles set hierarchy_level = 0
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and key = 'manager'$$,
+  'E-1/roles: facility admin CANNOT raise a role above their own hierarchy floor');
+
+-- USING leg: a role that ALREADY outranks the caller is not updatable at all
+-- (RLS filters it to zero rows rather than raising).
+select pg_temp.expect_count(
+  $$with u as (
+      update public.roles set display_name = 'Pwned'
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+         and key = 'super_admin'
+      returning 1)
+    select count(*) from u$$,
+  0, 'E-1/roles: facility admin CANNOT edit a role that already outranks them');
+
+-- Legitimate edits at or below the caller's rank still work.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.roles set display_name = display_name
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+         and key = 'staff'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/roles: facility admin CAN still edit a role below their own rank');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.roles set hierarchy_level = 1
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+         and key = 'admin'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/roles: facility admin CAN still edit their OWN tier role at its own level');
+
+select pg_temp.expect_count(
+  $$select hierarchy_level from public.roles
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and key = 'manager'$$,
+  2, 'E-1/roles: the manager role''s rank survived the escalation attempt');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- E-1 sibling (migration 231): employees.role_id assignment is fenced by the
+-- caller's own hierarchy floor via a BEFORE UPDATE trigger.
+--
+-- Pre-230 any facility admin could PATCH /rest/v1/employees?id=eq.<peer> setting
+-- role_id to the facility's `admin` role, then reapply_role_defaults_for_role()
+-- (granted to authenticated) would seed an enabled admin/admin user_permissions
+-- row for that peer AS postgres — minting a peer admin past 227/228. The rank
+-- rule (canAssignRoleLevel / assertCanAssignRole, ADMIN_TIER_LEVEL = 1) lived
+-- only in the console server actions; the role change is a plain
+-- .from("employees").update({role_id}) under the invoker's RLS, which had no
+-- rank check. LOWER number = HIGHER rank; Fred's employee role is `admin`, floor
+-- 1. The guard fires ONLY when role_id actually changes, is exempt for backend /
+-- SECURITY DEFINER owner callers and super admins, and requires the NEW role's
+-- hierarchy_level to be strictly greater than the caller's floor (null floor =>
+-- 1, null target level => 0).
+--
+-- Cast (all facility A): Fred (admin, floor 1), Sue (platform super admin), Zoe
+-- & Sam (staff, level 3), Mona (manager, level 2), plus Ada — a fresh peer who
+-- already HOLDS the `admin` role (level 1), the "edit a peer admin's non-role
+-- field" target.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+-- Ada: an existing peer admin (no auth/user row needed — an invited-but-unlinked
+-- employee). Used to prove a non-role edit on an admin peer is NOT blocked.
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'adada000-0000-4000-8000-000000000002'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       null,
+       r.id, 'Ada', 'Adminson', 'ada@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'admin'
+on conflict (id) do update set role_id = excluded.role_id, is_active = true;
+reset role;
+
+-- ---- as Fred (facility admin, floor 1) ------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+
+-- THE hole: promote a peer to the `admin` role (level 1, == floor -> denied).
+select pg_temp.expect_error(
+  $$update public.employees
+       set role_id = (select id from public.roles
+                       where facility_id = '11111111-1111-1111-1111-111111111111'
+                         and key = 'admin')
+     where id = 'dada1111-0000-4000-8000-000000000002'$$,
+  'E-1/employees: facility admin CANNOT change a peer''s role to the admin tier (level 1)');
+
+-- And cannot leapfrog straight to super_admin (level 0).
+select pg_temp.expect_error(
+  $$update public.employees
+       set role_id = (select id from public.roles
+                       where facility_id = '11111111-1111-1111-1111-111111111111'
+                         and key = 'super_admin')
+     where id = 'dada1111-0000-4000-8000-000000000002'$$,
+  'E-1/employees: facility admin CANNOT change a peer''s role to super_admin (level 0)');
+
+-- The rejected attempts left Zoe on `staff`.
+select pg_temp.expect_count(
+  $$select r.hierarchy_level from public.employees e
+      join public.roles r on r.id = e.role_id
+     where e.id = 'dada1111-0000-4000-8000-000000000002'$$,
+  3, 'E-1/employees: Zoe is still `staff` (level 3) after the rejected promotions');
+
+-- Legitimate downward assignments (level >= 2) still work.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'manager')
+       where id = 'ed17ed17-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: facility admin CAN assign a peer the manager role (level 2)');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'staff')
+       where id = 'cccc3333-cccc-cccc-cccc-cccccccccccc'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: facility admin CAN assign a peer the staff role (level 3)');
+
+-- The "only when role_id changes" guarantee: a NON-role edit on a peer who
+-- ALREADY holds `admin` (level 1 == Fred's floor) is NOT blocked.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees set is_active = true
+       where id = 'adada000-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: facility admin CAN still edit a non-role field on a peer who already holds admin');
+
+reset role;
+
+-- ---- as Sue (platform super admin) — the rank guard does not apply ---------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e2260000-0000-4000-8000-000000000001","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'e2260000-0000-4000-8000-000000000001', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'admin')
+       where id = 'dada1111-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: a SUPER ADMIN CAN reassign a peer to the admin role');
+
+reset role;
+
+-- ---- backend / SECURITY DEFINER owner path (current_user = postgres) -------
+-- Proves the exemption that keeps create_employee_complete() and other owner
+-- flows working: as `postgres`, setting an admin role is allowed.
+set local role postgres;
+select pg_temp.expect_count(
+  $$with u as (
+      update public.employees
+         set role_id = (select id from public.roles
+                         where facility_id = '11111111-1111-1111-1111-111111111111'
+                           and key = 'admin')
+       where id = 'ed17ed17-0000-4000-8000-000000000002'
+      returning 1)
+    select count(*) from u$$,
+  1, 'E-1/employees: the table-owner (postgres) path CAN set an admin role (SECURITY DEFINER exemption)');
+
+-- Restore the fixture roles so nothing downstream inherits a surprise admin.
+update public.employees e set role_id = r.id
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+   and e.id in ('dada1111-0000-4000-8000-000000000002',
+                'ed17ed17-0000-4000-8000-000000000002');
+update public.employees e set role_id = r.id
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'manager'
+   and e.id = 'cccc3333-cccc-cccc-cccc-cccccccccccc';
+delete from public.employees where id = 'adada000-0000-4000-8000-000000000002';
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- E-2 (migration 229): copy_role_permission_defaults(uuid,uuid) is no longer
+-- callable from the client.
+--
+-- SECURITY DEFINER, EXECUTE-granted to `authenticated`, gated only on
+-- facility + current_user_role() — no admin-cell guard — and reachable at
+-- /rest/v1/rpc/. Nothing in src/ calls it (the admin console copies
+-- role_permission_defaults inline under RLS), so the grant was revoked
+-- outright, per the migration 26/66/122/160/163/201 pattern.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0', true);
+select pg_temp.expect_error(
+  $$select public.copy_role_permission_defaults(
+      (select id from public.roles
+        where facility_id = '11111111-1111-1111-1111-111111111111' and key = 'admin'),
+      (select id from public.roles
+        where facility_id = '11111111-1111-1111-1111-111111111111' and key = 'staff'))$$,
+  'E-2: a facility admin CANNOT execute copy_role_permission_defaults (grant revoked)');
+reset role;
+
+-- The ACL itself, so a future re-grant fails here rather than in production.
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select 1 where has_function_privilege(
+        'authenticated', 'public.copy_role_permission_defaults(uuid,uuid)', 'execute')
+         or has_function_privilege(
+        'anon', 'public.copy_role_permission_defaults(uuid,uuid)', 'execute')) t$$,
+  0, 'E-2: neither anon nor authenticated holds EXECUTE on copy_role_permission_defaults');
+
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select 1 where has_function_privilege(
+        'service_role', 'public.copy_role_permission_defaults(uuid,uuid)', 'execute')) t$$,
+  1, 'E-2: service_role keeps EXECUTE on copy_role_permission_defaults');
+
+-- ---------------------------------------------------------------------------
+-- E-3 (migration 230): a user may not delete their own SYNCED queue row.
+--
+-- offline_sync_queue.local_id is the sole replay dedup key. Migration 224
+-- (D-2) opened owner DELETE so releaseClaim() could free a stale `pending`
+-- claim, but not scoping it by sync_status let a user delete their own `synced`
+-- row and re-POST the identical body to /api/offline-sync — claimQueueSlot()
+-- would upsert cleanly and the report would be persisted a SECOND time. DELETE
+-- is now restricted to non-synced rows; the `pending` release path (the whole
+-- point of 224) is unaffected.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.offline_sync_queue
+  (local_id, facility_id, employee_id, module_key, action, payload, sync_status)
+values
+  ('c0229000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'daily_reports', 'submit', '{}'::jsonb,
+   'synced'),
+  ('c0229000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'daily_reports', 'submit', '{}'::jsonb,
+   'pending')
+on conflict (local_id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.offline_sync_queue
+       where local_id = 'c0229000-0000-4000-8000-000000000001'
+       returning 1)
+    select count(*) from d$$,
+  0, 'E-3: alice CANNOT delete her OWN SYNCED queue row (idempotency token survives)');
+
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.offline_sync_queue
+       where local_id = 'c0229000-0000-4000-8000-000000000002'
+       returning 1)
+    select count(*) from d$$,
+  1, 'E-3: alice CAN still delete her OWN PENDING queue row (releaseClaim path)');
+
+reset role;
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from public.offline_sync_queue
+     where local_id = 'c0229000-0000-4000-8000-000000000001'$$,
+  1, 'E-3: the synced row is still on the table after the rejected delete');
+reset role;
+
 set local role postgres;
 
 -- ---------------------------------------------------------------------------

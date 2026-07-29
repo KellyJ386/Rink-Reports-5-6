@@ -106,7 +106,11 @@ export function RoleManager({ facilityId, roles }: Props) {
         toast.error(res.error)
         return
       }
-      toast.success(`Copied ${res.value.copied} module defaults`)
+      toast.success(
+        res.value.skipped > 0
+          ? `Copied ${res.value.copied} module defaults (skipped the Admin Center cell — super admin only)`
+          : `Copied ${res.value.copied} module defaults`,
+      )
       setCopySource("")
       setCopyTarget("")
     })

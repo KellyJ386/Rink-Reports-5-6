@@ -872,7 +872,7 @@ $$;
 -- Name: FUNCTION copy_role_permission_defaults(p_source_role_id uuid, p_target_role_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.copy_role_permission_defaults(p_source_role_id uuid, p_target_role_id uuid) IS 'Copies all role_module_permission_defaults rows from source to target role. Requires both roles in the same facility and admin/gm/super_admin auth.';
+COMMENT ON FUNCTION public.copy_role_permission_defaults(p_source_role_id uuid, p_target_role_id uuid) IS 'Copies one role''s LEGACY role_module_permission_defaults grid onto another role in the same facility. Not reachable from the client as of migration 229 (E-2): EXECUTE is service_role only, because it had no admin/admin cell guard and no app code calls it — the admin console copies role_permission_defaults inline under RLS instead.';
 
 
 --
@@ -1121,6 +1121,30 @@ $$;
 --
 
 COMMENT ON FUNCTION public.current_facility_id() IS 'Returns the home facility_id of the current user. NULL for super admins.';
+
+
+--
+-- Name: current_role_hierarchy_floor(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.current_role_hierarchy_floor(p_facility_id uuid) RETURNS integer
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select min(r.hierarchy_level)
+  from public.employees e
+  join public.roles r on r.id = e.role_id
+  where e.user_id = (select auth.uid())
+    and e.facility_id = p_facility_id
+    and e.is_active = true;
+$$;
+
+
+--
+-- Name: FUNCTION current_role_hierarchy_floor(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.current_role_hierarchy_floor(p_facility_id uuid) IS 'The calling user''s strongest (lowest-numbered) active role hierarchy_level in the given facility, or NULL when they have no active employee row there. SQL mirror of callerHierarchyFloor() in src/lib/permissions/role-assignment.ts. SECURITY DEFINER so it can be called from the roles RLS policy without re-entering RLS.';
 
 
 --
@@ -1665,7 +1689,10 @@ CREATE FUNCTION public.dasher_boards_guard_exempt() RETURNS boolean
   select
     public.is_super_admin()
     or coalesce(auth.role(), '') = 'service_role'
-    or coalesce(current_setting('rr.dasher_boards_guard_bypass', true), '') = 'on';
+    or (
+      coalesce(current_setting('rr.dasher_boards_guard_bypass', true), '') = 'on'
+      and current_user in ('postgres', 'supabase_admin', 'service_role')
+    );
 $$;
 
 
@@ -1673,7 +1700,7 @@ $$;
 -- Name: FUNCTION dasher_boards_guard_exempt(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.dasher_boards_guard_exempt() IS 'True when Dasher Boards guard triggers should stand down: super admin, service-role backend, or the governed rr.dasher_boards_guard_bypass setting (same escape-hatch pattern as rr.publish_lock_bypass, migration 148).';
+COMMENT ON FUNCTION public.dasher_boards_guard_exempt() IS 'True when Dasher Boards guard triggers should stand down: super admin, service-role backend, or the governed rr.dasher_boards_guard_bypass setting HONORED ONLY FROM A PRIVILEGED OWNER ROLE (D-3: a client-settable GUC alone can no longer exempt an end-user role).';
 
 
 --
@@ -2566,6 +2593,69 @@ $$;
 --
 
 COMMENT ON FUNCTION public.get_employee_counts_by_facility() IS 'One row per facility with the total employee count. Super-admins see every facility; everyone else sees only their own (SECURITY DEFINER would otherwise leak cross-tenant counts). Used by admin/facility and admin/super-admin pages.';
+
+
+--
+-- Name: guard_employee_role_assignment(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.guard_employee_role_assignment() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_new_level integer;
+  v_floor     integer;
+begin
+  -- 1. Only fire when the role actually CHANGES. Non-role edits (name, phone,
+  --    is_active, user_id linking, etc.) are never blocked — this is what keeps
+  --    a facility admin able to edit peers who already hold the `admin` role.
+  if new.role_id is not distinct from old.role_id then
+    return new;
+  end if;
+
+  -- 2. Exempt trusted backend roles and SECURITY DEFINER flows owned by the
+  --    table owner (current_user = 'postgres' inside them), plus platform super
+  --    admins (canAssignRoleLevel: `if (isSuperAdmin) return true`).
+  if current_user in ('postgres', 'supabase_admin', 'service_role')
+     or public.is_super_admin() then
+    return new;
+  end if;
+
+  -- 3. Rank check for a non-exempt caller changing role_id.
+  --    NEW role's rank; `targetLevel ?? 0` -> an unknown/invisible role (e.g. a
+  --    cross-facility role_id filtered out by roles_select, or a null level) is
+  --    treated as top-rank and denied.
+  select r.hierarchy_level into v_new_level
+  from public.roles r
+  where r.id = new.role_id;
+  v_new_level := coalesce(v_new_level, 0);
+
+  --    Caller's floor in the row's facility; `floor ?? ADMIN_TIER_LEVEL` -> a
+  --    null floor is the admin tier (1), NOT unrestricted (role-assignment-core.ts:34).
+  v_floor := coalesce(public.current_role_hierarchy_floor(new.facility_id), 1);
+
+  --    canAssignRoleLevel: assignable iff level > effectiveFloor.
+  if not (v_new_level > v_floor) then
+    raise exception using
+      errcode = '42501',
+      message = format(
+        'guard_employee_role_assignment: cannot assign a role at hierarchy level %s; '
+        'your hierarchy floor is %s. You may only assign roles that rank strictly '
+        'below you (hierarchy_level > %s). Assigning the admin tier requires a super admin.',
+        v_new_level, v_floor, v_floor);
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION guard_employee_role_assignment(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.guard_employee_role_assignment() IS 'BEFORE UPDATE guard on public.employees: when role_id changes, a non-super, non-backend caller may only set a role whose hierarchy_level ranks strictly below the caller''s floor in the row''s facility (SQL mirror of canAssignRoleLevel() / assertCanAssignRole() in src/lib/permissions/role-assignment-core.ts; null floor => ADMIN_TIER_LEVEL=1, null target level => 0). SECURITY INVOKER so current_user reflects the caller; backend roles and SECURITY DEFINER owner flows (current_user=postgres) and super admins are exempt. Closes the last employees.role_id privilege-escalation route behind migrations 227/228.';
 
 
 --
@@ -4135,9 +4225,11 @@ declare
   v_changed text;
 begin
   -- Governed contexts: the SECURITY DEFINER scheduling RPCs run as the table
-  -- owner, plus trusted backend roles and an explicit transaction-local bypass.
+  -- owner, plus trusted backend roles and an explicit transaction-local bypass
+  -- honored ONLY from a privileged owner role (D-3).
   if current_user in ('postgres', 'supabase_admin', 'service_role')
-     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+     or (coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on'
+         and current_user in ('postgres', 'supabase_admin', 'service_role')) then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
 
@@ -4203,11 +4295,14 @@ begin
   --   * SECURITY DEFINER scheduling RPCs run as the table owner ('postgres');
   --   * trusted backend roles (service_role / supabase_admin);
   --   * an explicit transaction-local bypass flag set by a governed writer
-  --     (select set_config('rr.publish_lock_bypass','on',true)).
+  --     (select set_config('rr.publish_lock_bypass','on',true)) — honored ONLY
+  --     from a privileged owner role, so an end-user PostgREST role can no
+  --     longer stand this guard down by setting the GUC itself (D-3).
   -- A direct write from an end-user role — i.e. the grid/edit/create server
   -- actions or a crafted request — is rejected per the rules below.
   if current_user in ('postgres', 'supabase_admin', 'service_role')
-     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+     or (coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on'
+         and current_user in ('postgres', 'supabase_admin', 'service_role')) then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
 
@@ -4273,7 +4368,8 @@ CREATE FUNCTION public.schedule_swap_requests_apply_guard() RETURNS trigger
     AS $$
 begin
   if current_user in ('postgres', 'supabase_admin', 'service_role')
-     or coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on' then
+     or (coalesce(current_setting('rr.publish_lock_bypass', true), '') = 'on'
+         and current_user in ('postgres', 'supabase_admin', 'service_role')) then
     return new;
   end if;
 
@@ -18302,6 +18398,13 @@ CREATE TRIGGER trg_employee_wages_updated_at BEFORE UPDATE ON public.employee_wa
 
 
 --
+-- Name: employees trg_employees_role_assignment_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_employees_role_assignment_guard BEFORE UPDATE ON public.employees FOR EACH ROW EXECUTE FUNCTION public.guard_employee_role_assignment();
+
+
+--
 -- Name: employees trg_employees_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22011,7 +22114,7 @@ ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 -- Name: audit_logs audit_logs_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+CREATE POLICY audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (actor_user_id = ( SELECT auth.uid() AS uid)))));
 
 
 --
@@ -24629,7 +24732,9 @@ ALTER TABLE public.offline_sync_queue ENABLE ROW LEVEL SECURITY;
 -- Name: offline_sync_queue offline_sync_queue_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY offline_sync_queue_delete ON public.offline_sync_queue FOR DELETE TO authenticated USING (public.is_super_admin());
+CREATE POLICY offline_sync_queue_delete ON public.offline_sync_queue FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((sync_status <> 'synced'::text) AND (facility_id = public.current_facility_id()) AND (employee_id IN ( SELECT employees.id
+   FROM public.employees
+  WHERE ((employees.user_id = ( SELECT auth.uid() AS uid)) AND (employees.is_active = true)))))));
 
 
 --
@@ -25113,7 +25218,7 @@ CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults
 -- Name: role_permission_defaults role_permission_defaults_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
 
 
 --
@@ -25127,7 +25232,7 @@ CREATE POLICY role_permission_defaults_select ON public.role_permission_defaults
 -- Name: role_permission_defaults role_permission_defaults_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
 
 
 --
@@ -25161,7 +25266,7 @@ CREATE POLICY roles_select ON public.roles FOR SELECT TO authenticated USING ((p
 -- Name: roles roles_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY roles_update ON public.roles FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY roles_update ON public.roles FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (hierarchy_level >= COALESCE(public.current_role_hierarchy_floor(facility_id), hierarchy_level))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (hierarchy_level >= COALESCE(public.current_role_hierarchy_floor(facility_id), hierarchy_level)))));
 
 
 --
@@ -25615,7 +25720,7 @@ CREATE POLICY user_permissions_delete ON public.user_permissions FOR DELETE TO a
 -- Name: user_permissions user_permissions_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY user_permissions_insert ON public.user_permissions FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR public.is_facility_admin(facility_id)));
+CREATE POLICY user_permissions_insert ON public.user_permissions FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR (public.is_facility_admin(facility_id) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
 
 
 --
@@ -25629,7 +25734,7 @@ CREATE POLICY user_permissions_select ON public.user_permissions FOR SELECT TO a
 -- Name: user_permissions user_permissions_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY user_permissions_update ON public.user_permissions FOR UPDATE TO authenticated USING ((public.is_super_admin() OR public.is_facility_admin(facility_id))) WITH CHECK ((public.is_super_admin() OR public.is_facility_admin(facility_id)));
+CREATE POLICY user_permissions_update ON public.user_permissions FOR UPDATE TO authenticated USING ((public.is_super_admin() OR public.is_facility_admin(facility_id))) WITH CHECK ((public.is_super_admin() OR (public.is_facility_admin(facility_id) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
 
 
 --

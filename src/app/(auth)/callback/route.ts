@@ -2,7 +2,6 @@ import { type EmailOtpType } from "@supabase/supabase-js"
 import { NextResponse, type NextRequest } from "next/server"
 
 import { createClient } from "@/lib/supabase/server"
-
 import { isSafeRedirectPath } from "../login/redirect-safe"
 
 // Auth callback for server-generated email links (invite + password reset).
@@ -16,10 +15,10 @@ import { isSafeRedirectPath } from "../login/redirect-safe"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
-  // Use the same hardened path validator as password login. A simple
-  // `startsWith("/")` check is insufficient because URL parsers normalize
-  // backslashes: `/\evil.example` resolves to the external evil.example
-  // origin when passed to `new URL()`.
+  // Only allow same-origin, path-only redirect targets to avoid an open
+  // redirect. Reuse the login flow's hardened, unit-tested sanitizer (rejects
+  // protocol-relative "//host" and the backslash variant "/\host", embedded
+  // schemes, and whitespace-smuggled schemes) rather than a weaker local copy.
   const next = isSafeRedirectPath(searchParams.get("next")) ?? "/update-password"
   const code = searchParams.get("code")
   const tokenHash = searchParams.get("token_hash")

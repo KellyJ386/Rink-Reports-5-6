@@ -204,6 +204,25 @@ export async function renameRole(
     }
 
     const supabase = await createClient()
+
+    // Resolve the target role's facility first so the floor reflects the
+    // caller's rank inside that facility specifically (mirrors
+    // setRoleHierarchy). RLS on roles also ensures cross-facility admins
+    // can't load the row at all.
+    const { data: existing } = await supabase
+      .from("roles")
+      .select("facility_id, hierarchy_level")
+      .eq("id", roleId)
+      .maybeSingle()
+    if (!existing) return err("Role not found")
+
+    // Block relabeling a role that outranks the caller (e.g. a facility admin
+    // renaming the super_admin role).
+    const floor = await callerHierarchyFloor(existing.facility_id)
+    if (floor !== null && existing.hierarchy_level < floor) {
+      return err("Cannot modify a role that already outranks you.")
+    }
+
     const update = {
       display_name: trimmed,
       ...(description !== undefined ? { description: description.trim() || null } : {}),
@@ -335,9 +354,9 @@ export async function reactivateRole(roleId: string): Promise<ActionResult> {
 export async function copyRolePermissionDefaults(
   sourceRoleId: string,
   targetRoleId: string,
-): Promise<ActionResult<{ copied: number }>> {
+): Promise<ActionResult<{ copied: number; skipped: number }>> {
   try {
-    await requireAdmin()
+    const { profile } = await requireAdmin()
     if (sourceRoleId === targetRoleId) return err("Source and target must differ")
 
     const supabase = await createClient()
@@ -363,13 +382,43 @@ export async function copyRolePermissionDefaults(
       .eq("role_id", sourceRoleId)
     if (srcErr) return err(srcErr.message)
 
-    const rows = (srcRows ?? []).map((r) => ({
-      facility_id: tgt.facility_id,
-      role_id: targetRoleId,
-      module_name: r.module_name,
-      action: r.action,
-      enabled: r.enabled,
-    }))
+    // Escalation guard: these defaults are re-applied onto every employee
+    // holding the target role, so copying an *enabled* admin/admin cell would
+    // mint peer facility admins. Mirror the guard on every other
+    // role_permission_defaults write path (setRoleModuleAction) exactly: only
+    // a super admin may propagate Admin Center access (RLS only fences by
+    // facility), and the denial is a hard error — silently downgrading the
+    // cell would report a full copy while the target never got the grant.
+    const isSuperAdmin = profile?.is_super_admin ?? false
+    if (
+      !isSuperAdmin &&
+      (srcRows ?? []).some(
+        (r) => r.enabled && isAdminConsoleGrant(r.module_name, r.action),
+      )
+    ) {
+      return err("Only a super admin can grant Admin Center access.")
+    }
+
+    // The revoke direction needs the same fence: writing an explicit
+    // admin/admin `enabled: false` default would make
+    // apply_role_permission_defaults DISABLE the matching user_permissions
+    // rows — copying a non-admin grid onto the `admin` role would strip Admin
+    // Center access from every admin in the facility (a self-inflicted
+    // lockout). For a non-super-admin, OMIT the cell from the copy entirely so
+    // the target's existing admin/admin default is left untouched; a super
+    // admin copies the full grid as-is.
+    const rows = (srcRows ?? [])
+      .filter(
+        (r) => isSuperAdmin || !isAdminConsoleGrant(r.module_name, r.action),
+      )
+      .map((r) => ({
+        facility_id: tgt.facility_id,
+        role_id: targetRoleId,
+        module_name: r.module_name,
+        action: r.action,
+        enabled: r.enabled,
+      }))
+    const skipped = (srcRows ?? []).length - rows.length
 
     if (rows.length > 0) {
       const { error: upErr } = await supabase
@@ -386,7 +435,7 @@ export async function copyRolePermissionDefaults(
     if (reapplyErr) return err(reapplyErr.message)
 
     revalidate()
-    return { ok: true, value: { copied: rows.length } }
+    return { ok: true, value: { copied: rows.length, skipped } }
   } catch (e) {
     logServerError("admin/roles/actions", e)
     return err(e instanceof Error ? e.message : "Unknown error")

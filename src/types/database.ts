@@ -8701,6 +8701,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      current_role_hierarchy_floor: {
+        Args: { p_facility_id: string }
+        Returns: number
+      }
       current_user_has_permission: {
         Args: {
           p_action: Database["public"]["Enums"]["user_action"]

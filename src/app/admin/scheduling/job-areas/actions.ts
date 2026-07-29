@@ -142,7 +142,8 @@ export async function createJobArea(args: {
   }
 }
 
-/** Rename a job area (re-derives the slug). Facility isolation via RLS. */
+/** Rename a job area (re-derives the slug). Facility isolation via RLS plus an
+ *  explicit facility pin (defense-in-depth, mirroring moveJobArea). */
 export async function renameJobArea(id: string, name: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
@@ -156,12 +157,15 @@ export async function renameJobArea(id: string, name: string): Promise<SimpleRes
     if (!SLUG_RE.test(slug)) {
       return { ok: false, error: "Enter a name with letters or numbers." }
     }
+    const facility = await resolveFacilityId(null)
+    if (!facility.ok) return { ok: false, error: facility.error }
 
     const supabase = await createClient()
     const { error } = await supabase
       .from("employee_job_areas")
       .update({ name: trimmed, slug })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) return { ok: false, error: dbError(error, "Failed to rename job area.") }
     revalidate()
     return { ok: true }
@@ -179,11 +183,14 @@ export async function setJobAreaActive(
   try {
     await requireAdmin()
     if (!id) return { ok: false, error: "Missing job area id." }
+    const facility = await resolveFacilityId(null)
+    if (!facility.ok) return { ok: false, error: facility.error }
     const supabase = await createClient()
     const { error } = await supabase
       .from("employee_job_areas")
       .update({ is_active: isActive })
       .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) return { ok: false, error: dbError(error, "Failed to update job area.") }
     revalidate()
     return { ok: true }
@@ -220,15 +227,19 @@ export async function moveJobArea(
 
     const a = ordered[idx]
     const b = ordered[swapIdx]
+    // Both ids come from the facility-scoped select above; the facility pin on
+    // the writes is defense-in-depth against a cross-facility id sneaking in.
     const { error: e1 } = await supabase
       .from("employee_job_areas")
       .update({ sort_order: b.sort_order })
       .eq("id", a.id)
+      .eq("facility_id", facility.facilityId)
     if (e1) return { ok: false, error: dbError(e1, "Failed to reorder.") }
     const { error: e2 } = await supabase
       .from("employee_job_areas")
       .update({ sort_order: a.sort_order })
       .eq("id", b.id)
+      .eq("facility_id", facility.facilityId)
     if (e2) return { ok: false, error: dbError(e2, "Failed to reorder.") }
 
     revalidate()
@@ -245,8 +256,14 @@ export async function deleteJobArea(id: string): Promise<SimpleResult> {
   try {
     await requireAdmin()
     if (!id) return { ok: false, error: "Missing job area id." }
+    const facility = await resolveFacilityId(null)
+    if (!facility.ok) return { ok: false, error: facility.error }
     const supabase = await createClient()
-    const { error } = await supabase.from("employee_job_areas").delete().eq("id", id)
+    const { error } = await supabase
+      .from("employee_job_areas")
+      .delete()
+      .eq("id", id)
+      .eq("facility_id", facility.facilityId)
     if (error) return { ok: false, error: dbError(error, "Failed to delete job area.") }
     revalidate()
     return { ok: true }

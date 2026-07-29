@@ -151,10 +151,14 @@ export function DailyReportConsole({ areas }: Props) {
 
   // Offline submit: queue in the service worker; it replays to /api/offline-sync
   // (which runs the same area/template/permission checks) once back online. If
-  // the SW isn't controlling the page yet, fall through to the normal action so
-  // the network error surfaces instead of silently dropping the report.
+  // the queue can't take it (no SW controlling the page yet, or no owner
+  // recorded on this device), we must NOT fall through to the server action —
+  // the browser already reports itself offline, so that POST would fail with a
+  // confusing network error and the report would be lost. Block the submit and
+  // say so.
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
+      e.preventDefault()
       const ok = enqueueSubmission({
         localId,
         moduleKey: "daily_reports",
@@ -162,8 +166,11 @@ export function DailyReportConsole({ areas }: Props) {
         payload: buildPayload(),
       })
       if (ok) {
-        e.preventDefault()
         setQueued(true)
+      } else {
+        toast.error(
+          "You're offline and the offline queue isn't ready yet. Keep this page open and try again — your checklist is still here."
+        )
       }
     }
   }

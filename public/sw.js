@@ -407,26 +407,30 @@ self.addEventListener("message", (event) => {
     }
 
     case "QUARANTINE_FOREIGN": {
-      // A different user signed in (or signed out) on this device. Park any
-      // queued item that belongs to another owner as a permanent failure so it
-      // is NEVER replayed under the new session — mirrors the schedule-cache
-      // hygiene AuthStateListener already applies (E-01). `currentOwnerId` may
-      // be null on sign-out, which quarantines everything with a known owner.
+      // A different user signed in on this device. DELETE any queued item that
+      // belongs to another owner outright so its payload (incident/accident
+      // narratives, possibly medical detail) cannot linger in the origin-global
+      // IndexedDB for the next user, and is NEVER replayed under the new
+      // session — mirrors the schedule-cache hygiene AuthStateListener already
+      // applies (E-01). The CURRENT user's own items are left untouched.
+      //
+      // INVARIANT (R-1): deletion requires a POSITIVELY RESOLVED, DIFFERENT
+      // owner. A null `currentOwnerId` is INDETERMINATE — signed out, or an
+      // access token that expired while the device was offline so the page
+      // could not resolve a session — and must delete NOTHING: the queue is the
+      // only copy of those reports, and a null owner is exactly the state of a
+      // driver who has been working offline past the 3600s JWT TTL. Keeping
+      // them leaks nothing: GET_QUEUE never hands `payload` to a page, and
+      // /api/offline-sync 422s any replay whose owner isn't the flush-time
+      // session.
       const currentOwnerId = event.data.currentOwnerId ?? null
+      if (!currentOwnerId) break
       openDB().then(async (db) => {
         const pending = await dbGetAll(db, "byStatus", "pending")
         const failed = await dbGetAll(db, "byStatus", "failed")
         for (const item of [...pending, ...failed]) {
           if (item.ownerId && item.ownerId !== currentOwnerId) {
-            await dbPut(db, {
-              ...item,
-              status: "failed",
-              permanent: true,
-              nextAttemptAt: null,
-              lastStatus: null,
-              lastError:
-                "Queued by a different user — sign in as that user to sync.",
-            })
+            await dbDelete(db, item.localId)
           }
         }
         await broadcastQueueUpdate()
@@ -442,7 +446,23 @@ self.addEventListener("message", (event) => {
           type: "SYNC_QUEUE_UPDATE",
           pendingCount: pending.length,
           failedCount: failed.length,
-          items: [...pending, ...failed].sort((a, b) => a.startedAt - b.startedAt),
+          // Strip `payload` (and any other large/sensitive body fields) before
+          // handing the list to a same-origin page — the queue-view UI only
+          // needs these display fields, never the submission body (F-1).
+          items: [...pending, ...failed]
+            .sort((a, b) => a.startedAt - b.startedAt)
+            .map((item) => ({
+              localId: item.localId,
+              moduleKey: item.moduleKey,
+              action: item.action,
+              status: item.status,
+              startedAt: item.startedAt,
+              retryCount: item.retryCount,
+              nextAttemptAt: item.nextAttemptAt,
+              lastStatus: item.lastStatus,
+              permanent: item.permanent,
+              lastError: item.lastError,
+            })),
         })
       })
       break

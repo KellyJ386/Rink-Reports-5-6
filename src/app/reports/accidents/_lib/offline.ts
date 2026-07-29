@@ -12,6 +12,7 @@ import { NextResponse } from "next/server"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
 import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
+import { opaqueReplayFailure } from "@/lib/offline/replay-error"
 
 import {
   buildInputFromPayload,
@@ -75,7 +76,17 @@ export async function handleAccidentReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // A permanent claim failure (the slot is held by another employee record —
+    // see claim.ts) can never succeed on retry, so park it with 422 and show
+    // its hand-written message on the Pending Sync Queue page. Transient claim
+    // errors carry raw PostgREST text (constraint/column names); keep that
+    // server-side behind an opaque body — 500 keeps the SW retrying.
+    if (claim.permanent) {
+      return NextResponse.json({ error: claim.message }, { status: 422 })
+    }
+    return opaqueReplayFailure("reports/accidents/offline-replay", new Error(claim.message), {
+      step: "claim",
+    })
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -88,12 +99,15 @@ export async function handleAccidentReplay({
   })
 
   if (!result.ok) {
-    // Release the claim so a future retry re-attempts the persist.
-    await releaseClaim(supabase, localId)
-    return NextResponse.json({ error: result.error }, { status: 500 })
+    // Release the claim so a future retry re-attempts the persist. The raw
+    // error can echo DB internals, so log it and keep the body opaque.
+    await releaseClaim(supabase, localId, employeeId)
+    return opaqueReplayFailure("reports/accidents/offline-replay", new Error(result.error), {
+      step: "persist",
+    })
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }

@@ -133,13 +133,28 @@ export function enqueueSubmission(opts: {
   // Stamp the OWNER (the currently signed-in user's auth uid) on the record so a
   // later flush under a different session cannot be silently re-attributed
   // (E-01). The route rejects any item whose owner ≠ the flush-time session.
+  // Resolved synchronously: AuthStateListener seeds it from the Supabase session
+  // and current-owner.ts mirrors it into localStorage, so it is still available
+  // after a relaunch whose `getSession()` can't confirm anything (expired token,
+  // no network) — the case that used to make this return false mid-shift (R-2).
+  const ownerId = getCurrentOwnerId()
+  // FAIL CLOSED when no owner has EVER been recorded on this device. Enqueuing
+  // with ownerId:null would produce an unattributable item that
+  // QUARANTINE_FOREIGN can't reconcile and that could replay under whoever is
+  // signed in at flush time (F-3). Return false — the same contract callers
+  // already handle for a missing SW — and every caller MUST surface that
+  // explicitly rather than fall through to a server action that cannot succeed
+  // offline.
+  if (!ownerId) {
+    return false
+  }
   navigator.serviceWorker.controller.postMessage({
     type: "ENQUEUE_SUBMISSION",
     localId: opts.localId,
     moduleKey: opts.moduleKey,
     action: opts.action ?? "submit",
     payload: opts.payload,
-    ownerId: getCurrentOwnerId(),
+    ownerId,
     startedAt: Date.now(),
   })
   return true

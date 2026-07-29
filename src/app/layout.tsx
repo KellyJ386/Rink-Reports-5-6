@@ -4,6 +4,7 @@ import "./globals.css"
 import { PostHogProvider } from "@/components/app/posthog-provider"
 import { PwaInstallPrompt } from "@/components/app/pwa-install-prompt"
 import { SwRegister } from "@/components/app/sw-register"
+import { AuthStateListener } from "@/components/app/auth-state-listener"
 import { Toaster } from "@/components/ui/sonner"
 
 export const metadata: Metadata = {
@@ -68,6 +69,11 @@ export default async function RootLayout({
         </a>
         {children}
         <SwRegister />
+        {/* Kiosk-safety: reconcile per-user offline state on every page load
+            (see AuthStateListener). Mounted app-wide so logout from anywhere —
+            /reports, /dashboard, /admin — deterministically purges the previous
+            user's cached shifts, areas, and queued submissions. */}
+        <AuthStateListener />
         <PwaInstallPrompt />
         <PostHogProvider />
         <Toaster />

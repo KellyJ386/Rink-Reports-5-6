@@ -12,6 +12,7 @@ import { NextResponse } from "next/server"
 import { currentUserCan } from "@/lib/permissions/check"
 import type { createClient } from "@/lib/supabase/server"
 import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/claim"
+import { opaqueReplayFailure } from "@/lib/offline/replay-error"
 
 import { buildInputFromPayload, persistDaily } from "./submit"
 
@@ -91,7 +92,17 @@ export async function handleDailyReplay({
     startedAtIso,
   })
   if (claim.kind === "error") {
-    return NextResponse.json({ error: claim.message }, { status: 500 })
+    // A permanent claim failure (the slot is held by another employee record —
+    // see claim.ts) can never succeed on retry, so park it with 422 and show
+    // its hand-written message on the Pending Sync Queue page. Transient claim
+    // errors carry raw PostgREST text (constraint/column names); keep that
+    // server-side behind an opaque body — 500 keeps the SW retrying.
+    if (claim.permanent) {
+      return NextResponse.json({ error: claim.message }, { status: 422 })
+    }
+    return opaqueReplayFailure("reports/daily/offline-replay", new Error(claim.message), {
+      step: "claim",
+    })
   }
   if (claim.kind === "duplicate") {
     return NextResponse.json({ ok: true, duplicate: true })
@@ -105,7 +116,7 @@ export async function handleDailyReplay({
 
   if (!result.ok) {
     // Release the claim so a future retry re-attempts the persist.
-    await releaseClaim(supabase, localId)
+    await releaseClaim(supabase, localId, employeeId)
     // E-10 — access/assignment revoked while the report sat in the offline
     // queue (D10): the area was reassigned to someone else, or the per-area
     // grant was removed. RLS (daily_area_assignment_allows / area gates,
@@ -126,10 +137,14 @@ export async function handleDailyReplay({
         { status: 422 },
       )
     }
-    return NextResponse.json({ error: result.error }, { status: 500 })
+    // Transient persist failures can echo raw DB internals; log the detail and
+    // keep the body opaque (the 422 copy above stays verbatim — it's ours).
+    return opaqueReplayFailure("reports/daily/offline-replay", new Error(result.error), {
+      step: "persist",
+    })
   }
 
-  await markClaimSynced(supabase, localId)
+  await markClaimSynced(supabase, localId, employeeId)
 
   return NextResponse.json({ ok: true, reportId: result.reportId })
 }

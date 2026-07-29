@@ -56,7 +56,7 @@ Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` and `
 
 1. `src/proxy.ts` matches every non-asset request and delegates to `updateSession()` in `src/lib/supabase/session.ts`. That helper refreshes the Supabase auth cookie, then enforces two redirects:
    - Unauthenticated user hitting `/admin`, `/reports`, or `/dashboard` → `/login?redirectTo=…`.
-   - Authenticated user hitting `/login` or `/signup` → `/dashboard`.
+   - Authenticated user hitting `/login` → `/dashboard`. (There is no signup page — accounts are provisioned via the admin console.)
    Do not insert logic between `createServerClient(...)` and `supabase.auth.getUser()` — the comment in that file warns of subtle logout bugs.
 
 2. Inside server components / route handlers, **always go through `src/lib/auth`** rather than calling Supabase directly:
@@ -76,7 +76,7 @@ Generated DB types live in `src/types/database.ts` and are passed as the generic
 
 `src/app` uses route groups and nested layouts:
 
-- `(auth)/login`, `(auth)/signup`, `(auth)/logout` — public auth pages.
+- `(auth)/login`, `(auth)/logout`, `(auth)/callback`, `(auth)/update-password` — auth pages (no signup route; accounts are provisioned via the admin console).
 - `admin/*` — admin console; layout calls `requireAdmin`. Each module (scheduling, employees, retention, exports, etc.) keeps its UI in `_components/` and module-specific server code in `_lib/` (underscore-prefixed = not routable).
 - `reports/*` — staff-facing report submission flows, mirrored against admin modules (daily, incidents, accidents, ice-depth, ice-operations, refrigeration, air-quality, communications, scheduling). Many use dynamic segments like `[areaSlug]/[templateId]` and a `done/` subroute for the post-submit screen.
 - `api/offline-sync/route.ts` — receives queued submissions from the service worker.
