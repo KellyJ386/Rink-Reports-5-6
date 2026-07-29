@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000225_guard_bypass_guc_privileged_only.sql
+-- 00000000000226_guard_bypass_guc_privileged_only.sql
 --
 -- D-3 (RLS hardening audit): trigger-only write-locks that stand down on a
 -- namespaced transaction-local GUC could, in principle, be unlocked by the very

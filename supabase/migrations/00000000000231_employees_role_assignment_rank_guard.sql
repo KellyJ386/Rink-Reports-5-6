@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000230_employees_role_assignment_rank_guard.sql
+-- 00000000000231_employees_role_assignment_rank_guard.sql
 --
 -- E-1, final sibling hole. employees_update (live definition: migration 58,
 -- unchanged since) is:
@@ -15,8 +15,8 @@
 -- the facility's `admin` role, then call reapply_role_defaults_for_role()
 -- (EXECUTE granted to `authenticated`, migration 81) -> apply_role_permission_
 -- defaults() seeds an ENABLED admin/admin user_permissions row AS postgres
--- (BYPASSRLS), sidestepping the migration-226 WITH CHECK that fences that cell.
--- Net: a facility admin mints a peer admin despite 226/227.
+-- (BYPASSRLS), sidestepping the migration-227 WITH CHECK that fences that cell.
+-- Net: a facility admin mints a peer admin despite 227/228.
 --
 -- The rank guard lives only in app code — canAssignRoleLevel() /
 -- assertCanAssignRole() (ADMIN_TIER_LEVEL = 1) in
@@ -45,7 +45,7 @@
 -- trigger would always run as postgres and bypass itself"). So this function is
 -- SECURITY INVOKER with a pinned search_path, matching every other
 -- current_user-gated guard trigger in this schema. RLS-bypassing reads it needs
--- (the caller's floor) go through current_role_hierarchy_floor() (migration 227),
+-- (the caller's floor) go through current_role_hierarchy_floor() (migration 228),
 -- which is itself SECURITY DEFINER and reads employees/roles without re-entering
 -- RLS; the NEW role's level is read from public.roles under the invoker's
 -- roles_select policy, which always exposes roles in the caller's own facility.
@@ -71,7 +71,7 @@
 -- A NULL floor (caller has no active employee row in the facility — e.g. an
 -- admin granted purely via a user_permissions admin/admin row) coalesces to
 -- ADMIN_TIER_LEVEL = 1, NOT "no restriction" — this is the OPPOSITE of the
--- roles_update case in migration 227, and is taken verbatim from line 34. A NULL
+-- roles_update case in migration 228, and is taken verbatim from line 34. A NULL
 -- target level (role row not visible / hierarchy_level null) coalesces to 0
 -- (top rank), so it is denied — matching `targetLevel ?? 0`.
 --
@@ -143,7 +143,7 @@ comment on function public.guard_employee_role_assignment() is
   'null target level => 0). SECURITY INVOKER so current_user reflects the caller; '
   'backend roles and SECURITY DEFINER owner flows (current_user=postgres) and '
   'super admins are exempt. Closes the last employees.role_id privilege-'
-  'escalation route behind migrations 226/227.';
+  'escalation route behind migrations 227/228.';
 
 drop trigger if exists trg_employees_role_assignment_guard on public.employees;
 create trigger trg_employees_role_assignment_guard

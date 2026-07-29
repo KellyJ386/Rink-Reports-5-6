@@ -1,7 +1,7 @@
 -- =============================================================================
--- 00000000000229_offline_sync_queue_protect_synced_token.sql
+-- 00000000000230_offline_sync_queue_protect_synced_token.sql
 --
--- E-3: migration 224 gave every user DELETE on their OWN offline_sync_queue
+-- E-3: migration 225 gave every user DELETE on their OWN offline_sync_queue
 -- rows (so releaseClaim() could free a stale claim) but did not scope it by
 -- sync_status. `local_id` is the SOLE replay dedup key —
 -- src/app/api/offline-sync/route.ts upserts with
@@ -12,14 +12,14 @@
 -- claims cleanly and persists the report a SECOND time — duplicate
 -- incident/accident/daily/air-quality records, created by a plain staff user.
 --
--- FIX: keep migration 224's ownership predicate verbatim and AND on
+-- FIX: keep migration 225's ownership predicate verbatim and AND on
 -- `sync_status <> 'synced'`. sync_status is NOT NULL with a
 -- check (pending|synced|failed) (migration 31), so the term is total.
 --
 -- Verified nothing legitimate deletes a `synced` row as the user:
 --   * releaseClaim() (src/lib/offline/claim.ts) is called only on a persist
 --     FAILURE, i.e. while the row is still `pending` — the sole reason
---     migration 224 exists. markClaimSynced() is the UPDATE that sets 'synced'
+--     migration 225 exists. markClaimSynced() is the UPDATE that sets 'synced'
 --     and is untouched here (this is a DELETE policy).
 --   * purge_old_offline_sync_queue() (migration 134) is the only thing that
 --     removes synced rows (>90 days). It is SECURITY DEFINER owned by

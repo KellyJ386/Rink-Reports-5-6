@@ -872,7 +872,7 @@ $$;
 -- Name: FUNCTION copy_role_permission_defaults(p_source_role_id uuid, p_target_role_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.copy_role_permission_defaults(p_source_role_id uuid, p_target_role_id uuid) IS 'Copies one role''s LEGACY role_module_permission_defaults grid onto another role in the same facility. Not reachable from the client as of migration 228 (E-2): EXECUTE is service_role only, because it had no admin/admin cell guard and no app code calls it — the admin console copies role_permission_defaults inline under RLS instead.';
+COMMENT ON FUNCTION public.copy_role_permission_defaults(p_source_role_id uuid, p_target_role_id uuid) IS 'Copies one role''s LEGACY role_module_permission_defaults grid onto another role in the same facility. Not reachable from the client as of migration 229 (E-2): EXECUTE is service_role only, because it had no admin/admin cell guard and no app code calls it — the admin console copies role_permission_defaults inline under RLS instead.';
 
 
 --
@@ -2655,7 +2655,7 @@ $$;
 -- Name: FUNCTION guard_employee_role_assignment(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.guard_employee_role_assignment() IS 'BEFORE UPDATE guard on public.employees: when role_id changes, a non-super, non-backend caller may only set a role whose hierarchy_level ranks strictly below the caller''s floor in the row''s facility (SQL mirror of canAssignRoleLevel() / assertCanAssignRole() in src/lib/permissions/role-assignment-core.ts; null floor => ADMIN_TIER_LEVEL=1, null target level => 0). SECURITY INVOKER so current_user reflects the caller; backend roles and SECURITY DEFINER owner flows (current_user=postgres) and super admins are exempt. Closes the last employees.role_id privilege-escalation route behind migrations 226/227.';
+COMMENT ON FUNCTION public.guard_employee_role_assignment() IS 'BEFORE UPDATE guard on public.employees: when role_id changes, a non-super, non-backend caller may only set a role whose hierarchy_level ranks strictly below the caller''s floor in the row''s facility (SQL mirror of canAssignRoleLevel() / assertCanAssignRole() in src/lib/permissions/role-assignment-core.ts; null floor => ADMIN_TIER_LEVEL=1, null target level => 0). SECURITY INVOKER so current_user reflects the caller; backend roles and SECURITY DEFINER owner flows (current_user=postgres) and super admins are exempt. Closes the last employees.role_id privilege-escalation route behind migrations 227/228.';
 
 
 --
@@ -10590,10 +10590,6 @@ CREATE TABLE public.ice_depth_sessions (
     total_measurements integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    board_pass boolean,
-    board_fail_notes text,
-    glass_pass boolean,
-    glass_fail_notes text,
     CONSTRAINT ice_depth_sessions_measurement_unit_snapshot_check CHECK ((measurement_unit_snapshot = ANY (ARRAY['inches'::text, 'mm'::text])))
 );
 
@@ -10631,34 +10627,6 @@ COMMENT ON COLUMN public.ice_depth_sessions.has_high_reading IS 'Denormalized: t
 --
 
 COMMENT ON COLUMN public.ice_depth_sessions.total_measurements IS 'Count of recorded child measurements. May be less than the layout''s active point count -- incomplete submissions are allowed.';
-
-
---
--- Name: COLUMN ice_depth_sessions.board_pass; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.board_pass IS 'Pass/Fail checkoff for the dasher boards, recorded as part of this ice-depth session. Null = not answered.';
-
-
---
--- Name: COLUMN ice_depth_sessions.board_fail_notes; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.board_fail_notes IS 'Required free-text note describing the issue when board_pass = false.';
-
-
---
--- Name: COLUMN ice_depth_sessions.glass_pass; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.glass_pass IS 'Pass/Fail checkoff for the rink glass, recorded as part of this ice-depth session. Null = not answered.';
-
-
---
--- Name: COLUMN ice_depth_sessions.glass_fail_notes; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.ice_depth_sessions.glass_fail_notes IS 'Required free-text note describing the issue when glass_pass = false.';
 
 
 --

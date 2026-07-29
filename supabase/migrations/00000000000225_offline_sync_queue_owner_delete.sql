@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000224_offline_sync_queue_owner_delete.sql
+-- 00000000000225_offline_sync_queue_owner_delete.sql
 --
 -- D-2 (RLS hardening audit): offline_sync_queue had no DELETE policy for
 -- regular users. Migration 31 granted DELETE only to super_admin, and migration

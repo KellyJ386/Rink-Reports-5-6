@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000228_revoke_copy_role_permission_defaults_client_acl.sql
+-- 00000000000229_revoke_copy_role_permission_defaults_client_acl.sql
 --
 -- E-2: copy_role_permission_defaults(uuid, uuid) — created migration 44,
 -- recreated migration 212 — is SECURITY DEFINER, EXECUTE-granted to
@@ -11,7 +11,7 @@
 --       and current_user_role() in ('admin','super_admin'))
 --
 -- with no admin-cell guard, so it is the same "copy a role's grid onto another
--- role" primitive that migration 226 just fenced on role_permission_defaults —
+-- role" primitive that migration 227 just fenced on role_permission_defaults —
 -- only unfenced. Today it writes the LEGACY role_module_permission_defaults
 -- table, which no permission helper reads any more (the module-level helpers
 -- moved to user_permissions in migration 91, and module_permissions was dropped
@@ -43,7 +43,7 @@ grant  execute on function public.copy_role_permission_defaults(uuid, uuid)
 
 comment on function public.copy_role_permission_defaults(uuid, uuid) is
   'Copies one role''s LEGACY role_module_permission_defaults grid onto another '
-  'role in the same facility. Not reachable from the client as of migration 228 '
+  'role in the same facility. Not reachable from the client as of migration 229 '
   '(E-2): EXECUTE is service_role only, because it had no admin/admin cell '
   'guard and no app code calls it — the admin console copies '
   'role_permission_defaults inline under RLS instead.';

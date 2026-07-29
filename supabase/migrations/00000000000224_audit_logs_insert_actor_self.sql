@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000223_audit_logs_insert_actor_self.sql
+-- 00000000000224_audit_logs_insert_actor_self.sql
 --
 -- D-1 (RLS hardening audit): the audit_logs INSERT policy trusted a
 -- client-supplied actor. Introduced in migration 4 and recreated identically at

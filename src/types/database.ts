@@ -5148,13 +5148,9 @@ export type Database = {
       }
       ice_depth_sessions: {
         Row: {
-          board_fail_notes: string | null
-          board_pass: boolean | null
           created_at: string
           employee_id: string | null
           facility_id: string
-          glass_fail_notes: string | null
-          glass_pass: boolean | null
           has_high_reading: boolean
           has_low_reading: boolean
           high_count: number
@@ -5170,13 +5166,9 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
-          board_fail_notes?: string | null
-          board_pass?: boolean | null
           created_at?: string
           employee_id?: string | null
           facility_id: string
-          glass_fail_notes?: string | null
-          glass_pass?: boolean | null
           has_high_reading?: boolean
           has_low_reading?: boolean
           high_count?: number
@@ -5192,13 +5184,9 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
-          board_fail_notes?: string | null
-          board_pass?: boolean | null
           created_at?: string
           employee_id?: string | null
           facility_id?: string
-          glass_fail_notes?: string | null
-          glass_pass?: boolean | null
           has_high_reading?: boolean
           has_low_reading?: boolean
           high_count?: number

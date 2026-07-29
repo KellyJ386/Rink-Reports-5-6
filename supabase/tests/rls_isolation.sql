@@ -6697,7 +6697,7 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- D-1 (migration 223): audit_logs INSERT must name the caller as the actor.
+-- D-1 (migration 224): audit_logs INSERT must name the caller as the actor.
 -- A non-super-admin (alice) may append an audit row for HERSELF, but cannot
 -- forge one attributed to a colleague (zoe, a same-facility user) — closing the
 -- "frame a coworker" hole the old facility-only WITH CHECK left open.
@@ -6718,7 +6718,7 @@ select pg_temp.expect_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- D-2 (migration 224): offline_sync_queue owner DELETE. Before this policy only
+-- D-2 (migration 225): offline_sync_queue owner DELETE. Before this policy only
 -- super_admin could delete, so releaseClaim() (deleting one's own row by
 -- local_id) was a silent no-op. A user may now delete their OWN queue row but
 -- not another user's — even a same-facility colleague's.
@@ -7055,7 +7055,7 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
--- E-1 (migration 226): the admin/admin permission cell is fenced to super
+-- E-1 (migration 227): the admin/admin permission cell is fenced to super
 -- admins at the RLS layer.
 --
 -- "Only a super admin may grant Admin Center access" was enforced only in app
@@ -7285,7 +7285,7 @@ update public.role_permission_defaults set enabled = false
 reset role;
 
 -- ---------------------------------------------------------------------------
--- E-1 sibling (migration 227): roles_update is fenced by the caller's own
+-- E-1 sibling (migration 228): roles_update is fenced by the caller's own
 -- hierarchy floor.
 --
 -- Pre-227 any facility admin could PATCH /rest/v1/roles and rewrite
@@ -7350,13 +7350,13 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- E-1 sibling (migration 230): employees.role_id assignment is fenced by the
+-- E-1 sibling (migration 231): employees.role_id assignment is fenced by the
 -- caller's own hierarchy floor via a BEFORE UPDATE trigger.
 --
 -- Pre-230 any facility admin could PATCH /rest/v1/employees?id=eq.<peer> setting
 -- role_id to the facility's `admin` role, then reapply_role_defaults_for_role()
 -- (granted to authenticated) would seed an enabled admin/admin user_permissions
--- row for that peer AS postgres — minting a peer admin past 226/227. The rank
+-- row for that peer AS postgres — minting a peer admin past 227/228. The rank
 -- rule (canAssignRoleLevel / assertCanAssignRole, ADMIN_TIER_LEVEL = 1) lived
 -- only in the console server actions; the role change is a plain
 -- .from("employees").update({role_id}) under the invoker's RLS, which had no
@@ -7498,7 +7498,7 @@ delete from public.employees where id = 'adada000-0000-4000-8000-000000000002';
 reset role;
 
 -- ---------------------------------------------------------------------------
--- E-2 (migration 228): copy_role_permission_defaults(uuid,uuid) is no longer
+-- E-2 (migration 229): copy_role_permission_defaults(uuid,uuid) is no longer
 -- callable from the client.
 --
 -- SECURITY DEFINER, EXECUTE-granted to `authenticated`, gated only on
@@ -7535,7 +7535,7 @@ select pg_temp.expect_count(
   1, 'E-2: service_role keeps EXECUTE on copy_role_permission_defaults');
 
 -- ---------------------------------------------------------------------------
--- E-3 (migration 229): a user may not delete their own SYNCED queue row.
+-- E-3 (migration 230): a user may not delete their own SYNCED queue row.
 --
 -- offline_sync_queue.local_id is the sole replay dedup key. Migration 224
 -- (D-2) opened owner DELETE so releaseClaim() could free a stale `pending`

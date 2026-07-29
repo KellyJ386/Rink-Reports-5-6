@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000226_fence_admin_console_permission_cell.sql
+-- 00000000000227_fence_admin_console_permission_cell.sql
 --
 -- E-1 (privilege escalation): the `admin`/`admin` permission cell is what
 -- requireAdmin() and the RLS helper is_facility_admin() key off, so ENABLING it
