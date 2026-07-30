@@ -32,6 +32,13 @@ name: Deploy Migrations
 # After that, `supabase db push` is incremental and safe, and this workflow
 # keeps it that way on every merge.
 #
+# STATUS: that reconciliation was never done. The project sits at 207 (with
+# 206 skipped), so plain `db push` aborted on every merge from 2026-07-24
+# onward and 208+ never shipped. The push step now runs with --include-all to
+# apply the stragglers in order; see the comment on that step. Once the
+# backlog has landed the flag can come back off, since a caught-up project
+# never hits the out-of-order case.
+#
 # ─────────────────────────────────────────────────────────────────────────────
 # REQUIRED REPOSITORY SECRETS / VARIABLES
 # ─────────────────────────────────────────────────────────────────────────────
@@ -96,4 +103,12 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase db push
+        # --include-all: plain `db push` refuses to run at all when a local
+        # migration sorts BEFORE the last version recorded remotely, which is
+        # exactly the state this project is in — 00000000000206 was never
+        # applied while 00000000000207 was, so every deploy since has aborted
+        # with "Found local migration files to be inserted before the last
+        # migration on remote database" and nothing from 208 onward reached
+        # the project. This flag tells push to apply out-of-order stragglers
+        # instead of bailing, which is what unblocks the backlog.
+        run: supabase db push --include-all
