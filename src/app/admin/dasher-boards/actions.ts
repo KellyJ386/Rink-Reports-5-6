@@ -14,9 +14,17 @@ import {
   nextLabel,
   isAssetType,
 } from "@/app/reports/dasher-boards/_lib/compute"
+import {
+  GLASS_DISPLAY_NUMBER_RE,
+  GLASS_NUMBER_PREFIX_RE,
+  GLASS_NUMBER_START_MAX,
+  GLASS_NUMBER_START_MIN,
+  isGlassNumberDirection,
+} from "@/app/reports/dasher-boards/_lib/glass-numbering"
 import type { Json } from "@/types/database"
 import type {
   ActionState,
+  GlassNumberingInput,
   GlassSpecInput,
   SimpleResult,
 } from "./types"
@@ -164,6 +172,7 @@ type EventType =
   | "reactivated"
   | "glass_toggled"
   | "spec_updated"
+  | "renumbered"
 
 async function recordAssetEvents(
   ctx: Extract<AdminCtx, { ok: true }>,
@@ -376,6 +385,185 @@ export async function setPerimeterAnchor(
   } catch (e) {
     logServerError("admin/dasher-boards/setPerimeterAnchor", e)
     return { ok: false, error: "Failed to set the start point." }
+  }
+}
+
+// ============================================================================
+// Glass numbering (DISPLAY layer — never touches `label`)
+// ============================================================================
+
+/**
+ * Saves the rink's glass numbering scheme. Purely presentational: no asset is
+ * relabeled, so this is safe on a rink with a full issue history, and turning
+ * `enabled` back off restores the permanent G-labels everywhere.
+ */
+export async function setGlassNumbering(
+  rinkId: string,
+  scheme: GlassNumberingInput,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+
+    if (!GLASS_NUMBER_PREFIX_RE.test(scheme.prefix)) {
+      return {
+        ok: false,
+        error: "Prefix can be up to 8 letters, digits, or hyphens (e.g. G).",
+      }
+    }
+    if (
+      !Number.isFinite(scheme.start) ||
+      !Number.isInteger(scheme.start) ||
+      scheme.start < GLASS_NUMBER_START_MIN ||
+      scheme.start > GLASS_NUMBER_START_MAX
+    ) {
+      return {
+        ok: false,
+        error: `First number must be a whole number between ${GLASS_NUMBER_START_MIN} and ${GLASS_NUMBER_START_MAX}.`,
+      }
+    }
+    if (!isGlassNumberDirection(scheme.direction)) {
+      return { ok: false, error: "Invalid numbering direction." }
+    }
+
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .update({
+        glass_numbering_enabled: scheme.enabled,
+        glass_number_prefix: scheme.prefix,
+        glass_number_start: scheme.start,
+        glass_number_direction: scheme.direction,
+        glass_number_include_doors: scheme.includeDoors,
+      })
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) {
+      return {
+        ok: false,
+        error: dbError(error, "Failed to save the glass numbering."),
+      }
+    }
+    if (!data || data.length === 0) return { ok: false, error: "Rink not found." }
+
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setGlassNumbering", e)
+    return { ok: false, error: "Failed to save the glass numbering." }
+  }
+}
+
+/**
+ * Where glass numbering starts on the boundary, set by clicking the diagram.
+ * `null` resets it to the board start point (sequence position 1), which is
+ * the default and what most rinks want.
+ */
+export async function setGlassNumberAnchor(
+  rinkId: string,
+  offsetFraction: number | null,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    if (offsetFraction !== null && !Number.isFinite(offsetFraction)) {
+      return { ok: false, error: "Invalid start point." }
+    }
+    // Wrap into [0, 1) rather than reject — the click handler always produces
+    // an in-range value, but normalize defensively (cf. setPerimeterAnchor).
+    const clamped =
+      offsetFraction === null ? null : ((offsetFraction % 1) + 1) % 1
+
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .update({ glass_number_anchor_offset: clamped })
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) {
+      return {
+        ok: false,
+        error: dbError(error, "Failed to set the numbering start point."),
+      }
+    }
+    if (!data || data.length === 0) return { ok: false, error: "Rink not found." }
+
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setGlassNumberAnchor", e)
+    return { ok: false, error: "Failed to set the numbering start point." }
+  }
+}
+
+/**
+ * Per-panel override of the computed number, for rinks whose numbering isn't
+ * strictly sequential (a "12A" between 12 and 13). `null` restores the
+ * computed value. Admin-only — the assets column guard (migration 233) freezes
+ * this column for the edit tier, so the DB agrees with this gate.
+ */
+export async function setAssetDisplayNumber(
+  assetId: string,
+  value: string | null,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(assetId)) return { ok: false, error: "Invalid asset." }
+
+    const trimmed = value === null ? null : value.trim()
+    const next = trimmed === "" ? null : trimmed
+    if (next !== null && !GLASS_DISPLAY_NUMBER_RE.test(next)) {
+      return {
+        ok: false,
+        error:
+          "A glass number is 1–16 letters, digits, spaces, dots, slashes, or hyphens (e.g. 12A).",
+      }
+    }
+
+    const { data: asset } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .select("id, label, display_number")
+      .eq("id", assetId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!asset) return { ok: false, error: "Asset not found." }
+    if (asset.display_number === next) return { ok: true }
+
+    const { error } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .update({ display_number: next })
+      .eq("id", assetId)
+    if (error) {
+      // The partial unique index is the guard against two panels showing the
+      // same number; translate it into something an admin can act on.
+      if (error.code === "23505") {
+        return {
+          ok: false,
+          error: `Another panel on this rink already shows ${next}.`,
+        }
+      }
+      return { ok: false, error: dbError(error, "Failed to set the number.") }
+    }
+
+    await recordAssetEvents(ctx, [
+      {
+        assetId,
+        eventType: "renumbered",
+        detail: {
+          label: asset.label,
+          from_display_number: asset.display_number,
+          to_display_number: next,
+        },
+      },
+    ])
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setAssetDisplayNumber", e)
+    return { ok: false, error: "Failed to set the number." }
   }
 }
 

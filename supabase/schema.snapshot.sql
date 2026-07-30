@@ -1474,6 +1474,7 @@ begin
        or new.asset_type        is distinct from old.asset_type
        or new.subtype_id        is distinct from old.subtype_id
        or new.label             is distinct from old.label
+       or new.display_number    is distinct from old.display_number
        or new.sequence_position is distinct from old.sequence_position
        or new.parent_board_id   is distinct from old.parent_board_id
        or new.is_active         is distinct from old.is_active
@@ -1495,7 +1496,7 @@ $$;
 -- Name: FUNCTION dasher_boards_assets_guard(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.dasher_boards_assets_guard() IS 'BEFORE UPDATE column guard on dasher_boards_assets: exempt roles and module admins may change any column; edit-tier (managers) may change ONLY the glass replacement spec (glass_width_in/glass_height_in/glass_thickness_in/glass_material/spec_notes); all else is rejected. Pairs with the admin-OR-edit UPDATE policy so edit-tier cannot rewrite structural/identity columns via a direct request.';
+COMMENT ON FUNCTION public.dasher_boards_assets_guard() IS 'BEFORE UPDATE column guard on dasher_boards_assets: exempt roles and module admins may change any column; edit-tier (managers) may change ONLY the glass replacement spec (glass_width_in/glass_height_in/glass_thickness_in/glass_material/spec_notes); all else — including display_number, the glass numbering override — is rejected. Pairs with the admin-OR-edit UPDATE policy so edit-tier cannot rewrite structural/identity columns via a direct request.';
 
 
 --
@@ -5592,6 +5593,109 @@ COMMENT ON FUNCTION public.scheduling_log_cert_override(p_employee_id uuid, p_jo
 
 
 --
+-- Name: scheduling_move_compliance_rule(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_move_compliance_rule(p_rule_id uuid, p_delta integer) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid;
+  v_rule record;
+  v_neighbor record;
+begin
+  if p_delta not in (1, -1) then
+    return jsonb_build_object('ok', false, 'error', 'delta must be 1 or -1');
+  end if;
+
+  -- SECURITY DEFINER bypasses RLS, so this gate replaces it: the caller must
+  -- hold scheduling-admin rights, and the rule must live in the caller's own
+  -- facility (has_module_admin_access is implicitly scoped to
+  -- current_facility_id(), so the explicit facility match below is what stops
+  -- a crafted id from reaching another tenant's rules).
+  select r.id, r.facility_id, r.sort_order
+    into v_rule
+  from public.schedule_compliance_rules r
+  where r.id = p_rule_id;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Rule not found.');
+  end if;
+
+  v_facility_id := v_rule.facility_id;
+
+  if not (
+    public.is_super_admin()
+    or (
+      public.has_module_admin_access('scheduling')
+      and v_facility_id = public.current_facility_id()
+    )
+  ) then
+    -- Same message as a genuine miss, so the RPC can't be used to probe for
+    -- the existence of another facility's rule ids.
+    return jsonb_build_object('ok', false, 'error', 'Rule not found.');
+  end if;
+
+  -- Lock the whole facility's rule set so two concurrent moves serialize.
+  perform 1
+  from public.schedule_compliance_rules
+  where facility_id = v_facility_id
+  for update;
+
+  -- Re-read under the lock, then find the adjacent rule in the same ordering
+  -- the console displays (sort_order nulls first, then id).
+  select r.id, r.sort_order into v_rule
+  from public.schedule_compliance_rules r
+  where r.id = p_rule_id;
+
+  if p_delta = -1 then
+    select r.id, r.sort_order into v_neighbor
+    from public.schedule_compliance_rules r
+    where r.facility_id = v_facility_id
+      and (
+        coalesce(r.sort_order, -2147483648), r.id
+      ) < (coalesce(v_rule.sort_order, -2147483648), v_rule.id)
+    order by coalesce(r.sort_order, -2147483648) desc, r.id desc
+    limit 1;
+  else
+    select r.id, r.sort_order into v_neighbor
+    from public.schedule_compliance_rules r
+    where r.facility_id = v_facility_id
+      and (
+        coalesce(r.sort_order, -2147483648), r.id
+      ) > (coalesce(v_rule.sort_order, -2147483648), v_rule.id)
+    order by coalesce(r.sort_order, -2147483648) asc, r.id asc
+    limit 1;
+  end if;
+
+  if v_neighbor.id is null then
+    return jsonb_build_object('ok', false, 'error', 'Cannot move further.');
+  end if;
+
+  -- Single statement: both rows swap, or neither does. Nulls are resolved to
+  -- concrete positions so a never-ordered rule set still reorders sanely.
+  update public.schedule_compliance_rules r
+  set sort_order = case
+        when r.id = v_rule.id
+          then coalesce(v_neighbor.sort_order, coalesce(v_rule.sort_order, 0) + p_delta)
+        else coalesce(v_rule.sort_order, coalesce(v_neighbor.sort_order, 0) - p_delta)
+      end
+  where r.id in (v_rule.id, v_neighbor.id);
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_move_compliance_rule(p_rule_id uuid, p_delta integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_move_compliance_rule(p_rule_id uuid, p_delta integer) IS 'Swap a compliance rule with its neighbour in one statement. Replaces the three-UPDATE client-side dance that could strand a rule at a negative placeholder sort_order if it failed partway.';
+
+
+--
 -- Name: scheduling_notify_swap_request(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9483,7 +9587,7 @@ CREATE TABLE public.dasher_boards_asset_events (
     detail jsonb,
     employee_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT dasher_boards_asset_events_event_type_check CHECK ((event_type = ANY (ARRAY['created'::text, 'converted_to_door'::text, 'converted_to_board'::text, 'relabeled'::text, 'deactivated'::text, 'reactivated'::text, 'glass_toggled'::text, 'spec_updated'::text])))
+    CONSTRAINT dasher_boards_asset_events_event_type_check CHECK ((event_type = ANY (ARRAY['created'::text, 'converted_to_door'::text, 'converted_to_board'::text, 'relabeled'::text, 'deactivated'::text, 'reactivated'::text, 'glass_toggled'::text, 'spec_updated'::text, 'renumbered'::text])))
 );
 
 
@@ -9539,8 +9643,10 @@ CREATE TABLE public.dasher_boards_assets (
     spec_notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    display_number text,
     CONSTRAINT dasher_boards_assets_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text]))),
     CONSTRAINT dasher_boards_assets_board_no_glass_spec CHECK (((asset_type <> 'board_panel'::text) OR ((glass_width_in IS NULL) AND (glass_height_in IS NULL) AND (glass_thickness_in IS NULL) AND (glass_material IS NULL) AND (spec_notes IS NULL)))),
+    CONSTRAINT dasher_boards_assets_display_number_shape CHECK (((display_number IS NULL) OR (display_number ~ '^[A-Za-z0-9][A-Za-z0-9 ./-]{0,15}$'::text))),
     CONSTRAINT dasher_boards_assets_glass_height_in_check CHECK ((glass_height_in > (0)::numeric)),
     CONSTRAINT dasher_boards_assets_glass_material_check CHECK ((glass_material = ANY (ARRAY['tempered'::text, 'acrylic'::text, 'polycarbonate'::text]))),
     CONSTRAINT dasher_boards_assets_glass_thickness_in_check CHECK ((glass_thickness_in > (0)::numeric)),
@@ -9562,6 +9668,13 @@ COMMENT ON TABLE public.dasher_boards_assets IS 'Dasher Boards: every physical a
 --
 
 COMMENT ON COLUMN public.dasher_boards_assets.glass_thickness_in IS 'Decimal inches (e.g. 0.625 for 5/8"). Displayed as the nearest common fraction in the UI.';
+
+
+--
+-- Name: COLUMN dasher_boards_assets.display_number; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.display_number IS 'Optional per-panel override of the rink''s computed glass number, for rinks whose numbering is not strictly sequential (e.g. a ''12A'' between 12 and 13). NULL = use the computed value. Display only — `label` remains permanent identity and is what issue history follows.';
 
 
 --
@@ -9763,8 +9876,18 @@ CREATE TABLE public.dasher_boards_rinks (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     perimeter_anchor_offset numeric DEFAULT 0 NOT NULL,
+    glass_numbering_enabled boolean DEFAULT false NOT NULL,
+    glass_number_prefix text DEFAULT 'G'::text NOT NULL,
+    glass_number_start integer DEFAULT 1 NOT NULL,
+    glass_number_direction text DEFAULT 'follow_boards'::text NOT NULL,
+    glass_number_anchor_offset numeric,
+    glass_number_include_doors boolean DEFAULT true NOT NULL,
     CONSTRAINT dasher_boards_rinks_anchor_offset_range CHECK (((perimeter_anchor_offset >= (0)::numeric) AND (perimeter_anchor_offset < (1)::numeric))),
     CONSTRAINT dasher_boards_rinks_custom_dims CHECK ((((rink_template = 'custom'::text) AND (custom_length_ft > (0)::numeric) AND (custom_width_ft > (0)::numeric)) OR ((rink_template <> 'custom'::text) AND (custom_length_ft IS NULL) AND (custom_width_ft IS NULL)))),
+    CONSTRAINT dasher_boards_rinks_glass_anchor_offset_range CHECK (((glass_number_anchor_offset IS NULL) OR ((glass_number_anchor_offset >= (0)::numeric) AND (glass_number_anchor_offset < (1)::numeric)))),
+    CONSTRAINT dasher_boards_rinks_glass_number_direction CHECK ((glass_number_direction = ANY (ARRAY['follow_boards'::text, 'clockwise'::text, 'counterclockwise'::text]))),
+    CONSTRAINT dasher_boards_rinks_glass_number_prefix_shape CHECK ((glass_number_prefix ~ '^[A-Za-z0-9-]{0,8}$'::text)),
+    CONSTRAINT dasher_boards_rinks_glass_number_start_range CHECK (((glass_number_start >= 0) AND (glass_number_start <= 9999))),
     CONSTRAINT dasher_boards_rinks_inspection_weekday_check CHECK (((inspection_weekday >= 0) AND (inspection_weekday <= 6))),
     CONSTRAINT dasher_boards_rinks_perimeter_direction_check CHECK ((perimeter_direction = ANY (ARRAY['clockwise'::text, 'counterclockwise'::text]))),
     CONSTRAINT dasher_boards_rinks_rink_template_check CHECK ((rink_template = ANY (ARRAY['nhl_200x85'::text, 'olympic_200x100'::text, 'custom'::text])))
@@ -9790,6 +9913,48 @@ COMMENT ON COLUMN public.dasher_boards_rinks.inspection_weekday IS '0=Sunday .. 
 --
 
 COMMENT ON COLUMN public.dasher_boards_rinks.perimeter_anchor_offset IS 'Fraction [0, 1) of the boundary arc length where sequence position 1 starts drawing. Purely a rendering rotation — never renumbers or relabels assets. Default 0 (top-middle of the diagram).';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.glass_numbering_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.glass_numbering_enabled IS 'Opt-in switch for the glass DISPLAY numbering scheme. False (default) = the UI prints the permanent G-labels exactly as it always has. True = it prints the computed scheme number instead. Never affects stored labels or issue history.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.glass_number_prefix; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_prefix IS 'Prefix printed before the glass number (e.g. ''G'' -> G12, '''' -> 12). Up to 8 chars, letters/digits/hyphen.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.glass_number_start; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_start IS 'The number given to the first glass panel at the numbering start point. Rinks that number from 0 or 101 set it here.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.glass_number_direction; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_direction IS '''follow_boards'' (default) walks the same way as perimeter_direction; ''clockwise''/''counterclockwise'' pin glass numbering to run the opposite way from the board sequence when a rink numbers its glass against its board order.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.glass_number_anchor_offset; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_anchor_offset IS 'Fraction [0, 1) of the boundary arc length where glass numbering starts. NULL (default) = reuse perimeter_anchor_offset, i.e. start where sequence position 1 draws. Purely a display rotation.';
+
+
+--
+-- Name: COLUMN dasher_boards_rinks.glass_number_include_doors; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_include_doors IS 'Whether a door position consumes a glass number. Default true: a door carries its own glass (convertAssetToDoor parks the position''s separate glass row), so it is a physical panel in the count.';
 
 
 --
@@ -12294,7 +12459,10 @@ CREATE TABLE public.schedule_settings (
     block_on_violations boolean DEFAULT false NOT NULL,
     swap_expiry_hours integer DEFAULT 72 NOT NULL,
     default_hourly_rate numeric,
+    operating_hours_start_minute integer DEFAULT 360 NOT NULL,
+    operating_hours_end_minute integer DEFAULT 1380 NOT NULL,
     CONSTRAINT schedule_settings_default_hourly_rate_check CHECK (((default_hourly_rate IS NULL) OR ((default_hourly_rate >= (0)::numeric) AND (default_hourly_rate <= (10000)::numeric)))),
+    CONSTRAINT schedule_settings_operating_hours_check CHECK (((operating_hours_start_minute >= 0) AND (operating_hours_start_minute < 1440) AND (operating_hours_end_minute > operating_hours_start_minute) AND (operating_hours_end_minute <= 1440))),
     CONSTRAINT schedule_settings_swap_expiry_hours_check CHECK ((swap_expiry_hours > 0)),
     CONSTRAINT schedule_settings_week_start_day_check CHECK (((week_start_day >= 0) AND (week_start_day <= 6)))
 );
@@ -12347,6 +12515,20 @@ COMMENT ON COLUMN public.schedule_settings.block_on_violations IS 'Scheduling gr
 --
 
 COMMENT ON COLUMN public.schedule_settings.default_hourly_rate IS 'Optional facility-wide hourly rate used for labor-cost estimates when an employee has no employee_wages row. NULL = no default; unrated shifts are excluded from cost totals.';
+
+
+--
+-- Name: COLUMN schedule_settings.operating_hours_start_minute; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_settings.operating_hours_start_minute IS 'Facility opening time as minutes since local midnight (0-1439). Drives the scheduling grid''s first visible hour row and the outside-operating-hours advisory.';
+
+
+--
+-- Name: COLUMN schedule_settings.operating_hours_end_minute; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_settings.operating_hours_end_minute IS 'Facility closing time as minutes since local midnight (1-1440). 1440 means midnight, so a rink with late ice can be modelled exactly.';
 
 
 --
@@ -15707,6 +15889,13 @@ CREATE INDEX idx_dasher_boards_asset_checks_inspection ON public.dasher_boards_a
 --
 
 CREATE INDEX idx_dasher_boards_asset_events_asset_created ON public.dasher_boards_asset_events USING btree (asset_id, created_at);
+
+
+--
+-- Name: idx_dasher_boards_assets_display_number_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_assets_display_number_uniq ON public.dasher_boards_assets USING btree (rink_id, display_number) WHERE (display_number IS NOT NULL);
 
 
 --

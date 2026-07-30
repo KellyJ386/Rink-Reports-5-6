@@ -203,6 +203,7 @@ export async function DasherBoardsRinkScreen({
       <ConditionMap
         rink={rink}
         assets={perimeter?.assets ?? []}
+        glassNumbers={perimeter?.glassNumbers ?? {}}
         openIssues={openIssues ?? []}
         categories={categories ?? []}
         doorSubtypes={doorSubtypes ?? []}

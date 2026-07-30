@@ -58,6 +58,12 @@ type CategoryRow = Tables<"dasher_boards_issue_categories">
 export type ConditionMapProps = {
   rink: RinkRow
   assets: PerimeterAsset[]
+  /**
+   * The rink's own glass numbers, keyed by position id AND glass id. Empty
+   * when the facility hasn't configured numbering — the UI then shows the
+   * permanent G-labels, as it always has.
+   */
+  glassNumbers: Record<string, string>
   openIssues: IssueRow[]
   categories: CategoryRow[]
   doorSubtypes: SubtypeRow[]
@@ -81,6 +87,7 @@ export function ConditionMap(props: ConditionMapProps) {
   const {
     rink,
     assets,
+    glassNumbers,
     openIssues,
     categories,
     doorSubtypes,
@@ -431,6 +438,7 @@ export function ConditionMap(props: ConditionMapProps) {
             direction={rink.perimeter_direction as "clockwise" | "counterclockwise"}
             anchorOffsetFraction={rink.perimeter_anchor_offset}
             glassByParent={glassByParent}
+            glassNumberByAssetId={glassNumbers}
             conditionByAssetId={conditionByAssetId}
             selectedAssetId={selectedAsset?.id ?? null}
             onSelectAsset={(id) => setDialog({ kind: "asset", assetId: id })}
@@ -466,6 +474,7 @@ export function ConditionMap(props: ConditionMapProps) {
       <AssetSheet
         asset={selectedAsset}
         assets={assets}
+        glassNumbers={glassNumbers}
         openIssues={openIssues}
         categories={categories}
         doorSubtypes={doorSubtypes}

@@ -2,6 +2,7 @@
 // Row types come from the generated Supabase types; composite shapes on top.
 
 import type { Tables } from "@/types/database"
+import type { GlassNumberDirection } from "@/app/reports/dasher-boards/_lib/glass-numbering"
 
 export type RinkRow = Tables<"dasher_boards_rinks">
 export type AssetRow = Tables<"dasher_boards_assets">
@@ -44,6 +45,19 @@ export type GlassSpecInput = {
   thicknessIn: number | null
   material: GlassMaterial | null
   notes: string | null
+}
+
+/**
+ * The rink's glass numbering scheme as the editor submits it. The start point
+ * travels separately (setGlassNumberAnchor) because it is set by clicking the
+ * diagram, not by this form.
+ */
+export type GlassNumberingInput = {
+  enabled: boolean
+  prefix: string
+  start: number
+  direction: GlassNumberDirection
+  includeDoors: boolean
 }
 
 export type Tab = "perimeter" | "checklist" | "lists" | "walks"
@@ -103,4 +117,6 @@ export type WalkDetailData = {
   inspector: EmployeeLite | null
   /** Fails sorted first, per the walk-review use case (what needs attention). */
   checks: WalkAssetCheckItem[]
+  /** The rink's glass numbers, keyed by asset id. Empty = show labels. */
+  glassNumbers: Record<string, string>
 }

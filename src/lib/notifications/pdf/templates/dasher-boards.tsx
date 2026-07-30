@@ -16,6 +16,8 @@ import {
   type PdfMetaHeaderData,
 } from "../_components/meta-header"
 import type { ModulePdfResult } from "../registry"
+import { formatAssetLabel } from "@/app/reports/dasher-boards/_lib/glass-numbering"
+import { resolveRinkGlassNumbers } from "@/app/reports/dasher-boards/_lib/queries"
 
 // -----------------------------------------------------------------------------
 // Data
@@ -88,7 +90,9 @@ async function fetchDasherBoardsRecord(
     await Promise.all([
       sb
         .from("dasher_boards_rinks")
-        .select("name")
+        .select(
+          "name, glass_numbering_enabled, glass_number_prefix, glass_number_start, glass_number_direction, glass_number_anchor_offset, glass_number_include_doors, perimeter_direction, perimeter_anchor_offset",
+        )
         .eq("id", row.rink_id)
         .eq("facility_id", row.facility_id)
         .maybeSingle(),
@@ -130,7 +134,9 @@ async function fetchDasherBoardsRecord(
   const [assetsRes, categoriesRes, itemsRes] = await Promise.all([
     sb
       .from("dasher_boards_assets")
-      .select("id, label, asset_type, sequence_position")
+      .select(
+        "id, label, asset_type, sequence_position, is_active, parent_board_id, display_number",
+      )
       .eq("rink_id", row.rink_id)
       .eq("facility_id", row.facility_id)
       .order("sequence_position", { ascending: true, nullsFirst: false })
@@ -152,17 +158,27 @@ async function fetchDasherBoardsRecord(
     label: string
     asset_type: string
     sequence_position: number | null
+    is_active: boolean
+    parent_board_id: string | null
+    display_number: string | null
   }
   const assets = (assetsRes.data ?? []) as AssetRow[]
   const assetById = new Map(assets.map((a) => [a.id, a]))
   const assetOrder = new Map(assets.map((a, i) => [a.id, i]))
+
+  // The rink's own glass numbering, so the printed walk reads in the numbers
+  // the crew used on the floor. Empty when the rink hasn't enabled it, which
+  // leaves every line showing its permanent label as before.
+  const glassNumbers = rinkRes.data
+    ? resolveRinkGlassNumbers(rinkRes.data, assets)
+    : {}
 
   type CheckRow = { asset_id: string; status: string; note: string | null }
   const checks: AssetCheckLine[] = ((checksRes.data ?? []) as CheckRow[])
     .map((c) => {
       const asset = assetById.get(c.asset_id)
       return {
-        label: asset?.label ?? "Unknown asset",
+        label: asset ? formatAssetLabel(asset, glassNumbers) : "Unknown asset",
         asset_type: asset?.asset_type ?? "",
         status: c.status === "fail" ? ("fail" as const) : ("pass" as const),
         note: c.note,
@@ -191,7 +207,11 @@ async function fetchDasherBoardsRecord(
   }
   const issues: IssueLine[] = ((issuesRes.data ?? []) as IssueRow[]).map(
     (i) => ({
-      asset_label: i.asset_id ? assetById.get(i.asset_id)?.label ?? null : null,
+      asset_label: (() => {
+        if (!i.asset_id) return null
+        const asset = assetById.get(i.asset_id)
+        return asset ? formatAssetLabel(asset, glassNumbers) : null
+      })(),
       category: i.category_id ? categoryById.get(i.category_id) ?? null : null,
       severity:
         i.severity === "a" || i.severity === "b" || i.severity === "c"

@@ -3327,6 +3327,7 @@ export type Database = {
         Row: {
           asset_type: string
           created_at: string
+          display_number: string | null
           facility_id: string
           glass_height_in: number | null
           glass_material: string | null
@@ -3345,6 +3346,7 @@ export type Database = {
         Insert: {
           asset_type: string
           created_at?: string
+          display_number?: string | null
           facility_id: string
           glass_height_in?: number | null
           glass_material?: string | null
@@ -3363,6 +3365,7 @@ export type Database = {
         Update: {
           asset_type?: string
           created_at?: string
+          display_number?: string | null
           facility_id?: string
           glass_height_in?: number | null
           glass_material?: string | null
@@ -3796,6 +3799,12 @@ export type Database = {
           custom_length_ft: number | null
           custom_width_ft: number | null
           facility_id: string
+          glass_number_anchor_offset: number | null
+          glass_number_direction: string
+          glass_number_include_doors: boolean
+          glass_number_prefix: string
+          glass_number_start: number
+          glass_numbering_enabled: boolean
           id: string
           inspection_weekday: number
           is_active: boolean
@@ -3814,6 +3823,12 @@ export type Database = {
           custom_length_ft?: number | null
           custom_width_ft?: number | null
           facility_id: string
+          glass_number_anchor_offset?: number | null
+          glass_number_direction?: string
+          glass_number_include_doors?: boolean
+          glass_number_prefix?: string
+          glass_number_start?: number
+          glass_numbering_enabled?: boolean
           id?: string
           inspection_weekday?: number
           is_active?: boolean
@@ -3832,6 +3847,12 @@ export type Database = {
           custom_length_ft?: number | null
           custom_width_ft?: number | null
           facility_id?: string
+          glass_number_anchor_offset?: number | null
+          glass_number_direction?: string
+          glass_number_include_doors?: boolean
+          glass_number_prefix?: string
+          glass_number_start?: number
+          glass_numbering_enabled?: boolean
           id?: string
           inspection_weekday?: number
           is_active?: boolean

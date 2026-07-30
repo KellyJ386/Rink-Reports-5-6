@@ -29,6 +29,7 @@ import { thicknessToFraction } from "../../_lib/compute"
 import type { IssueRow, PerimeterAsset } from "../../_lib/queries"
 import { OpenIssueRow, ReportIssueForm } from "./issue-form"
 import type { Tables } from "@/types/database"
+import { glassLabelOf } from "../../_lib/glass-numbering"
 
 type SubtypeRow = Tables<"dasher_boards_asset_subtypes">
 type CategoryRow = Tables<"dasher_boards_issue_categories">
@@ -36,6 +37,7 @@ type CategoryRow = Tables<"dasher_boards_issue_categories">
 export function AssetSheet({
   asset,
   assets,
+  glassNumbers,
   openIssues,
   categories,
   doorSubtypes,
@@ -52,6 +54,8 @@ export function AssetSheet({
   /** null = closed. */
   asset: PerimeterAsset | null
   assets: PerimeterAsset[]
+  /** The rink's glass numbers; empty = show the permanent labels. */
+  glassNumbers: Record<string, string>
   openIssues: IssueRow[]
   categories: CategoryRow[]
   doorSubtypes: SubtypeRow[]
@@ -139,6 +143,7 @@ export function AssetSheet({
                   key={asset.id}
                   asset={asset}
                   glassChild={glassChild}
+                  glassNumbers={glassNumbers}
                   item={null}
                   categories={categories}
                   supervisors={supervisors}
@@ -154,6 +159,7 @@ export function AssetSheet({
                   key={`check-${asset.id}`}
                   asset={asset}
                   glassChild={glassChild}
+                  glassNumbers={glassNumbers}
                   assetChecks={assetChecks}
                   pending={checkPending}
                   onSave={onSaveCheck}
@@ -181,12 +187,14 @@ export function AssetSheet({
 function AssetCheckBlock({
   asset,
   glassChild,
+  glassNumbers,
   assetChecks,
   pending,
   onSave,
 }: {
   asset: PerimeterAsset
   glassChild: PerimeterAsset | null
+  glassNumbers: Record<string, string>
   assetChecks: Record<string, { status: "pass" | "fail"; note: string | null }>
   pending: boolean
   onSave: (assetId: string, status: "pass" | "fail", note: string | null) => void
@@ -226,7 +234,7 @@ function AssetCheckBlock({
               setNote(assetChecks[glassChild.id]?.note ?? "")
             }}
           >
-            Glass {glassChild.label}
+            Glass {glassLabelOf(glassChild, glassNumbers)}
           </Button>
         </div>
       )}
