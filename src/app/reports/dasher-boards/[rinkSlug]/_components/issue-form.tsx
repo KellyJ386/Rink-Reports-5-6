@@ -26,6 +26,7 @@ import {
 import type { IssueSeverity } from "../../_lib/compute"
 import type { ChecklistItemRow, IssueRow, PerimeterAsset } from "../../_lib/queries"
 import type { Tables } from "@/types/database"
+import { glassLabelOf } from "../../_lib/glass-numbering"
 
 type CategoryRow = Tables<"dasher_boards_issue_categories">
 
@@ -127,6 +128,7 @@ export function OpenIssueRow({
 export function ReportIssueForm({
   asset,
   glassChild,
+  glassNumbers,
   item,
   categories,
   supervisors,
@@ -135,6 +137,8 @@ export function ReportIssueForm({
 }: {
   asset: PerimeterAsset | null
   glassChild: PerimeterAsset | null
+  /** The rink's glass numbers; empty = show the permanent labels. */
+  glassNumbers?: Record<string, string>
   item: ChecklistItemRow | null
   categories: CategoryRow[]
   supervisors: Array<{ id: string; name: string }>
@@ -254,7 +258,7 @@ export function ReportIssueForm({
               setCategoryId("")
             }}
           >
-            Glass {glassChild.label}
+            Glass {glassLabelOf(glassChild, glassNumbers)}
           </Button>
         </div>
       )}

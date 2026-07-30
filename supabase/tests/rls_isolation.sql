@@ -5964,6 +5964,123 @@ select pg_temp.expect_error(
   'DB46: trigger layer — asset checks are immutable once the walk is completed');
 
 -- ---------------------------------------------------------------------------
+-- DB47-51: glass DISPLAY numbering (migration 233).
+--
+-- The scheme lives on the rink; the per-panel override (display_number) lives
+-- on the asset. Both are SETUP decisions, so both are admin-only: staff cannot
+-- touch either, and the edit tier — which may write the glass replacement spec
+-- — is frozen out of display_number by the assets column guard. The partial
+-- unique index is what stops two panels claiming the same number.
+--
+-- Personas: alice = staff (view+submit, no admin); mona = manager (edit, no
+-- admin); bob = facility B.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Defaults leave every existing rink numbering-OFF, so nothing that shipped
+-- before this migration changes what it prints.
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_rinks
+    where id = 'dab0000a-0000-4000-8000-00000000000a'
+      and glass_numbering_enabled = false
+      and glass_number_prefix = 'G'
+      and glass_number_start = 1
+      and glass_number_direction = 'follow_boards'
+      and glass_number_anchor_offset is null
+      and glass_number_include_doors$$,
+  1, 'DB47: glass numbering defaults to OFF with the historical G/1 scheme');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_rinks
+         set glass_numbering_enabled = true, glass_number_prefix = 'X'
+       where id = 'dab0000a-0000-4000-8000-00000000000a'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB48a: staff (no admin grant) CANNOT change the rink numbering scheme');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_assets
+         set display_number = '99'
+       where id = 'dabb000a-0000-4000-8000-000000000002'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB48b: staff (no admin grant) CANNOT set a panel''s display number');
+
+-- Cross-facility: facility B's session cannot renumber facility A's glass.
+set local request.jwt.claims to '{"sub":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_rinks
+         set glass_numbering_enabled = true
+       where id = 'dab0000a-0000-4000-8000-00000000000a'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB49a: facility B CANNOT change facility A''s numbering scheme');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.dasher_boards_assets
+         set display_number = '99'
+       where id = 'dabb000a-0000-4000-8000-000000000002'
+       returning 1)
+    select count(*) from u$$,
+  0, 'DB49b: facility B CANNOT set a display number on facility A''s glass');
+
+-- Edit tier (mona, granted `edit` back in DB30): the column guard must freeze
+-- display_number the same way it freezes label/is_active. Without this the new
+-- column would be silently writable — the guard enumerates what it blocks.
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets set display_number = '12A'
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DB50a: manager (edit) CANNOT set a display number (column guard)');
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_asset_events (facility_id, asset_id, event_type)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dabb000a-0000-4000-8000-000000000002', 'renumbered')$$,
+  'DB50b: manager (edit) CANNOT record a renumbered audit event');
+
+set local role postgres;
+
+-- Two panels may never display the same number (partial unique index), while
+-- NULL — "use the computed number" — stays repeatable across the whole rink.
+set local rr.dasher_boards_guard_bypass = 'on';
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets set display_number = '12A'
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DB51a: admin-tier CAN set a panel''s display number');
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets set display_number = '12A'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DB51b: a second panel CANNOT claim the same display number');
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets set display_number = ' bad/value!'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DB51c: a malformed display number is rejected (check constraint)');
+
+-- Clearing back to NULL is always allowed, on any number of panels.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets set display_number = null
+     where rink_id = 'dab0000a-0000-4000-8000-00000000000a'$$,
+  'DB51d: display numbers clear back to the computed scheme');
+
+set local rr.dasher_boards_guard_bypass = 'off';
+
+-- ---------------------------------------------------------------------------
 -- OVR: rink-diagram overlays (migration 199; re-scoped to one rink per
 -- marker/config by migration 206).
 --

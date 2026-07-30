@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { formatInTz } from "@/lib/timezone"
+import { formatAssetLabel } from "@/app/reports/dasher-boards/_lib/glass-numbering"
 
 import type { WalkDetailData } from "../types"
 
@@ -22,7 +23,7 @@ type Props = {
 }
 
 export function WalkDetail({ detail, backHref, timezone }: Props) {
-  const { inspection, inspector, checks } = detail
+  const { inspection, inspector, checks, glassNumbers } = detail
   const failCount = checks.filter((c) => c.status === "fail").length
   const completed = inspection.completed_at !== null
 
@@ -98,7 +99,9 @@ export function WalkDetail({ detail, backHref, timezone }: Props) {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium">
-                          {c.asset?.label ?? "Unknown asset"}
+                          {c.asset
+                            ? formatAssetLabel(c.asset, glassNumbers)
+                            : "Unknown asset"}
                         </span>
                         {c.asset && (
                           <Badge variant="outline">

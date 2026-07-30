@@ -14,6 +14,40 @@ import {
   type Cadence,
   type IssueSeverity,
 } from "./compute"
+import {
+  computeGlassNumbers,
+  positionsFromAssets,
+  schemeFromRink,
+  type NumberedAssetRow,
+} from "./glass-numbering"
+
+/**
+ * A rink's glass numbers as a plain object, ready to hand to a client
+ * component. Empty when the rink hasn't enabled numbering.
+ */
+export function resolveRinkGlassNumbers(
+  rink: Pick<
+    RinkRow,
+    | "glass_numbering_enabled"
+    | "glass_number_prefix"
+    | "glass_number_start"
+    | "glass_number_direction"
+    | "glass_number_anchor_offset"
+    | "glass_number_include_doors"
+    | "perimeter_direction"
+    | "perimeter_anchor_offset"
+  >,
+  assets: readonly NumberedAssetRow[],
+): Record<string, string> {
+  return Object.fromEntries(
+    computeGlassNumbers(
+      positionsFromAssets(assets),
+      schemeFromRink(rink),
+      rink.perimeter_direction as "clockwise" | "counterclockwise",
+      rink.perimeter_anchor_offset,
+    ),
+  )
+}
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>
 
@@ -34,6 +68,13 @@ export type PerimeterAsset = AssetRow & {
 export type RinkPerimeter = {
   rink: RinkRow
   assets: PerimeterAsset[]
+  /**
+   * The facility's own glass numbers, keyed by BOTH the position id and its
+   * glass child id (see computeGlassNumbers). Empty when the rink hasn't
+   * turned numbering on — every surface then falls back to `label`, exactly as
+   * it did before the feature existed.
+   */
+  glassNumbers: Record<string, string>
 }
 
 /**
@@ -59,7 +100,7 @@ export async function getRinkPerimeter(
     .eq("rink_id", rinkId)
     .order("sequence_position", { ascending: true, nullsFirst: false })
     .order("label", { ascending: true })
-  if (!assets) return { rink, assets: [] }
+  if (!assets) return { rink, assets: [], glassNumbers: {} }
 
   const { data: openIssues } = await supabase
     .from("dasher_boards_issues")
@@ -145,6 +186,8 @@ export async function getRinkPerimeter(
 
   return {
     rink,
+    // Resolved once here so every staff surface prints the same value.
+    glassNumbers: resolveRinkGlassNumbers(rink, assets),
     assets: assets.map((a) => {
       const sevs = rollup.get(a.id) ?? []
       const own = ownLatestCheck.get(a.id) ?? null

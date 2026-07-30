@@ -117,6 +117,23 @@ describe("buildPerimeterSegments", () => {
     }
   })
 
+  it("glass numbers ride inward, opposite the labels", () => {
+    const segs = buildPerimeterSegments(assets, "clockwise")
+    for (const s of segs) {
+      const cx = 190
+      const cy = 370
+      const dMid = Math.hypot(s.mid.x - cx, s.mid.y - cy)
+      const dGlass = Math.hypot(
+        s.glassLabelAnchor.x - cx,
+        s.glassLabelAnchor.y - cy,
+      )
+      const dLabel = Math.hypot(s.labelAnchor.x - cx, s.labelAnchor.y - cy)
+      // Inside the boundary, and clear of the outward board label.
+      expect(dGlass).toBeLessThan(dMid)
+      expect(dGlass).toBeLessThan(dLabel)
+    }
+  })
+
   it("handles a single asset and empty input", () => {
     expect(buildPerimeterSegments([], "clockwise")).toEqual([])
     const one = buildPerimeterSegments(assets.slice(0, 1), "clockwise")

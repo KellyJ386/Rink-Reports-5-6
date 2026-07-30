@@ -19,6 +19,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { RinkPerimeter } from "@/components/rink/rink-perimeter"
 import type { RinkPerimeterGlass } from "@/components/rink/rink-perimeter"
 import { thicknessToFraction } from "@/app/reports/dasher-boards/_lib/compute"
+import {
+  computeGlassNumbers,
+  positionsFromAssets,
+  previewGlassNumbers,
+  schemeFromRink,
+  type GlassNumberDirection,
+  type NumberedPositionLite,
+} from "@/app/reports/dasher-boards/_lib/glass-numbering"
 
 import {
   bulkSetGlassSpec,
@@ -28,17 +36,40 @@ import {
   insertAsset,
   relabelAsset,
   removeAsset,
+  setAssetDisplayNumber,
   setDoorSubtype,
+  setGlassNumberAnchor,
+  setGlassNumbering,
   setGlassSpec,
   setPerimeterAnchor,
   toggleGlass,
 } from "../actions"
-import type { AssetRow, GlassSpecInput, RinkRow, SubtypeRow } from "../types"
+import type {
+  AssetRow,
+  GlassNumberingInput,
+  GlassSpecInput,
+  RinkRow,
+  SubtypeRow,
+} from "../types"
 import { GLASS_MATERIALS } from "../types"
 import { RinkSettingsCard } from "./rink-settings-card"
 
 const SELECT_CLASS =
   "border-input bg-background h-9 rounded-md border px-3 py-1 text-sm"
+
+/**
+ * How a glass row reads in the bulk-spec range pickers: the number the rink
+ * uses, with the permanent label alongside when the two differ, so a range is
+ * chosen in the numbering the admin actually thinks in.
+ */
+function glassRangeLabel(
+  glass: AssetRow,
+  numbers: ReadonlyMap<string, string>,
+): string {
+  const number = numbers.get(glass.id)
+  if (!number || number === glass.label) return glass.label
+  return `${number} (${glass.label})`
+}
 
 function hasSpec(a: AssetRow): boolean {
   return (
@@ -89,9 +120,43 @@ export function PerimeterTab({
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showGlass, setShowGlass] = useState(false)
-  const [pickingAnchor, setPickingAnchor] = useState(false)
+  // Two things can be picked off the boundary: where sequence position 1
+  // draws, and where glass NUMBERING starts. Only one at a time.
+  const [pickMode, setPickMode] = useState<"board" | "glass" | null>(null)
   const [, startAnchor] = useTransition()
   const selected = positioned.find((a) => a.id === selectedId) ?? null
+  const pickingAnchor = pickMode === "board"
+
+  // The rink's own glass numbers. Empty while numbering is off, which is what
+  // makes every surface fall back to the permanent G-labels.
+  const scheme = useMemo(() => schemeFromRink(rink), [rink])
+  const numberedPositions = useMemo<NumberedPositionLite[]>(
+    () => positionsFromAssets(assets),
+    [assets],
+  )
+  const glassNumbers = useMemo(
+    () =>
+      computeGlassNumbers(
+        numberedPositions,
+        scheme,
+        rink.perimeter_direction as "clockwise" | "counterclockwise",
+        rink.perimeter_anchor_offset,
+      ),
+    [numberedPositions, scheme, rink.perimeter_direction, rink.perimeter_anchor_offset],
+  )
+  // The same walk with overrides stripped — what a panel WOULD be called if
+  // its override were removed, so "Reset to scheme" can name the value it is
+  // about to restore.
+  const schemeNumbers = useMemo(
+    () =>
+      computeGlassNumbers(
+        numberedPositions.map((p) => ({ ...p, displayNumber: null })),
+        { ...scheme, enabled: true },
+        rink.perimeter_direction as "clockwise" | "counterclockwise",
+        rink.perimeter_anchor_offset,
+      ),
+    [numberedPositions, scheme, rink.perimeter_direction, rink.perimeter_anchor_offset],
+  )
 
   function handlePickAnchor(offsetFraction: number) {
     startAnchor(async () => {
@@ -99,7 +164,18 @@ export function PerimeterTab({
       if (!r.ok) toast.error(r.error)
       else {
         toast.success("Start point updated — the diagram rotated to match.")
-        setPickingAnchor(false)
+        setPickMode(null)
+      }
+    })
+  }
+
+  function handlePickGlassAnchor(offsetFraction: number) {
+    startAnchor(async () => {
+      const r = await setGlassNumberAnchor(rink.id, offsetFraction)
+      if (!r.ok) toast.error(r.error)
+      else {
+        toast.success("Glass numbering now starts here.")
+        setPickMode(null)
       }
     })
   }
@@ -164,7 +240,7 @@ export function PerimeterTab({
                 variant={pickingAnchor ? "default" : "outline"}
                 onClick={() => {
                   setSelectedId(null)
-                  setPickingAnchor((v) => !v)
+                  setPickMode((v) => (v === "board" ? null : "board"))
                 }}
               >
                 {pickingAnchor ? "Cancel" : "Set start point"}
@@ -175,6 +251,17 @@ export function PerimeterTab({
             <p className="text-muted-foreground text-sm">
               Click anywhere on the boundary to set where position 1 starts.
               Existing labels never move — the diagram rotates to match.
+            </p>
+          )}
+          {pickMode === "glass" && (
+            <p className="text-muted-foreground text-sm">
+              Click the panel on the boundary that your rink calls{" "}
+              <span className="font-mono">
+                {rink.glass_number_prefix}
+                {rink.glass_number_start}
+              </span>
+              . Nothing is relabeled — only the numbers printed on the diagram
+              change.
             </p>
           )}
         </CardHeader>
@@ -192,13 +279,20 @@ export function PerimeterTab({
                 }
                 anchorOffsetFraction={rink.perimeter_anchor_offset}
                 glassByParent={glassForDiagram}
-                selectedAssetId={pickingAnchor ? null : selectedId}
+                glassNumberByAssetId={Object.fromEntries(glassNumbers)}
+                selectedAssetId={pickMode ? null : selectedId}
                 onSelectAsset={
-                  pickingAnchor
+                  pickMode
                     ? undefined
                     : (id) => setSelectedId((cur) => (cur === id ? null : id))
                 }
-                onPickAnchor={pickingAnchor ? handlePickAnchor : undefined}
+                onPickAnchor={
+                  pickMode === "board"
+                    ? handlePickAnchor
+                    : pickMode === "glass"
+                      ? handlePickGlassAnchor
+                      : undefined
+                }
                 showGlassLayer={showGlass}
               />
             </div>
@@ -210,6 +304,8 @@ export function PerimeterTab({
                   asset={selected}
                   glassChild={glassByParent.get(selected.id) ?? null}
                   doorSubtypes={doorSubtypes}
+                  glassNumber={schemeNumbers.get(selected.id) ?? null}
+                  numberingEnabled={rink.glass_numbering_enabled}
                   onClear={() => setSelectedId(null)}
                 />
               ) : (
@@ -223,8 +319,20 @@ export function PerimeterTab({
         </CardContent>
       </Card>
 
+      <GlassNumberingCard
+        rink={rink}
+        positions={numberedPositions}
+        picking={pickMode === "glass"}
+        onTogglePicking={() => {
+          setSelectedId(null)
+          setPickMode((v) => (v === "glass" ? null : "glass"))
+          setShowGlass(true)
+        }}
+      />
+
       <BulkSpecCard
         rink={rink}
+        glassNumbers={glassNumbers}
         glassRows={positioned
           .filter((a) => a.asset_type === "board_panel")
           .map((a) => ({ parent: a, glass: glassByParent.get(a.id) ?? null }))
@@ -365,6 +473,246 @@ function SequenceBuilderCard({ rink }: { rink: RinkRow }) {
 }
 
 // ---------------------------------------------------------------------------
+// Glass numbering — the numbers the facility has on its actual glass
+//
+// Display only. `label` (G1..Gn) stays the permanent identity issue history
+// follows; this card decides what the UI prints instead. Off by default, so a
+// rink that never opens this card keeps showing its G-labels forever.
+// ---------------------------------------------------------------------------
+
+const NUMBER_DIRECTIONS: ReadonlyArray<{
+  value: GlassNumberDirection
+  label: string
+}> = [
+  { value: "follow_boards", label: "Same as board order" },
+  { value: "clockwise", label: "Clockwise" },
+  { value: "counterclockwise", label: "Counterclockwise" },
+]
+
+function GlassNumberingCard({
+  rink,
+  positions,
+  picking,
+  onTogglePicking,
+}: {
+  rink: RinkRow
+  positions: NumberedPositionLite[]
+  picking: boolean
+  onTogglePicking: () => void
+}) {
+  const [pending, start] = useTransition()
+  const [enabled, setEnabled] = useState(rink.glass_numbering_enabled)
+  const [prefix, setPrefix] = useState(rink.glass_number_prefix)
+  const [startNumber, setStartNumber] = useState(String(rink.glass_number_start))
+  const [direction, setDirection] = useState<GlassNumberDirection>(
+    rink.glass_number_direction as GlassNumberDirection,
+  )
+  const [includeDoors, setIncludeDoors] = useState(
+    rink.glass_number_include_doors,
+  )
+
+  const parsedStart = Number(startNumber)
+  const startValid =
+    startNumber.trim() !== "" &&
+    Number.isInteger(parsedStart) &&
+    parsedStart >= 0 &&
+    parsedStart <= 9999
+
+  // Preview the form's CURRENT values, not the saved ones, so an admin sees
+  // the effect before committing.
+  const preview = useMemo(
+    () =>
+      startValid
+        ? previewGlassNumbers(
+            positions,
+            {
+              enabled,
+              prefix,
+              start: parsedStart,
+              direction,
+              anchorOffset: rink.glass_number_anchor_offset,
+              includeDoors,
+            },
+            rink.perimeter_direction as "clockwise" | "counterclockwise",
+            rink.perimeter_anchor_offset,
+          )
+        : [],
+    [
+      positions,
+      enabled,
+      prefix,
+      parsedStart,
+      startValid,
+      direction,
+      includeDoors,
+      rink.glass_number_anchor_offset,
+      rink.perimeter_direction,
+      rink.perimeter_anchor_offset,
+    ],
+  )
+
+  function onSave() {
+    if (!startValid) {
+      toast.error("First number must be a whole number between 0 and 9999.")
+      return
+    }
+    const input: GlassNumberingInput = {
+      enabled,
+      prefix: prefix.trim(),
+      start: parsedStart,
+      direction,
+      includeDoors,
+    }
+    start(async () => {
+      const r = await setGlassNumbering(rink.id, input)
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Glass numbering saved.")
+    })
+  }
+
+  function onResetAnchor() {
+    start(async () => {
+      const r = await setGlassNumberAnchor(rink.id, null)
+      if (!r.ok) toast.error(r.error)
+      else toast.success("Numbering starts at the board start point again.")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle>Glass numbering</CardTitle>
+            <CardDescription>
+              Number the glass the way your rink does — start anywhere, run
+              either way, begin at any number. This changes what the app{" "}
+              <em>prints</em>; every panel keeps its permanent{" "}
+              <span className="font-mono">G</span> label underneath, so issue
+              history is never affected.
+            </CardDescription>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Switch
+              checked={enabled}
+              disabled={pending}
+              onCheckedChange={setEnabled}
+            />
+            Use custom numbers
+          </label>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="db-glass-prefix">Prefix</Label>
+            <Input
+              id="db-glass-prefix"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              placeholder="none"
+              className="h-9 w-24 font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="db-glass-start">First number</Label>
+            <Input
+              id="db-glass-start"
+              inputMode="numeric"
+              value={startNumber}
+              onChange={(e) => setStartNumber(e.target.value)}
+              className="h-9 w-28 font-mono"
+              aria-invalid={!startValid}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="db-glass-direction">Direction</Label>
+            <select
+              id="db-glass-direction"
+              className={SELECT_CLASS}
+              value={direction}
+              onChange={(e) =>
+                setDirection(e.target.value as GlassNumberDirection)
+              }
+            >
+              {NUMBER_DIRECTIONS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="flex h-9 items-center gap-2 text-sm">
+            <Switch checked={includeDoors} onCheckedChange={setIncludeDoors} />
+            Doors take a number
+          </label>
+          <Button onClick={onSave} disabled={pending}>
+            {pending ? "Saving…" : "Save numbering"}
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={picking ? "default" : "outline"}
+            onClick={onTogglePicking}
+            disabled={pending}
+          >
+            {picking ? "Cancel" : "Set numbering start point"}
+          </Button>
+          {rink.glass_number_anchor_offset === null ? (
+            <span className="text-muted-foreground text-xs">
+              Starts at the board start point
+              {rink.perimeter_anchor_label
+                ? ` (${rink.perimeter_anchor_label})`
+                : ""}
+              .
+            </span>
+          ) : (
+            <>
+              <Badge variant="secondary">Custom start point</Badge>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onResetAnchor}
+                disabled={pending}
+              >
+                Reset to board start
+              </Button>
+            </>
+          )}
+        </div>
+
+        {preview.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed p-3">
+            <span className="text-muted-foreground text-xs">Preview:</span>
+            {preview.map((value, i) => (
+              <span
+                key={`${value}-${i}`}
+                className={
+                  value === "…"
+                    ? "text-muted-foreground text-xs"
+                    : "bg-muted rounded px-1.5 py-0.5 font-mono text-xs"
+                }
+              >
+                {value}
+              </span>
+            ))}
+            {!enabled && (
+              <span className="text-muted-foreground text-xs">
+                — turn on &ldquo;Use custom numbers&rdquo; to apply.
+              </span>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Selected-asset side panel
 // ---------------------------------------------------------------------------
 
@@ -373,12 +721,16 @@ function SelectedAssetPanel({
   asset,
   glassChild,
   doorSubtypes,
+  glassNumber,
+  numberingEnabled,
   onClear,
 }: {
   rink: RinkRow
   asset: AssetRow
   glassChild: AssetRow | null
   doorSubtypes: SubtypeRow[]
+  glassNumber: string | null
+  numberingEnabled: boolean
   onClear: () => void
 }) {
   const isDoor = asset.asset_type === "door"
@@ -562,6 +914,17 @@ function SelectedAssetPanel({
         </Button>
       </div>
 
+      {/* Glass number — the override for this one panel. The override lives
+          on whichever row carries the glass: the glass child for a board, the
+          door row itself for a door. */}
+      {numberingEnabled && (isDoor || glassChild) && (
+        <GlassNumberField
+          key={`num-${isDoor ? asset.id : glassChild!.id}`}
+          target={isDoor ? asset : glassChild!}
+          computed={glassNumber}
+        />
+      )}
+
       {/* Glass on/off (board positions only) */}
       {!isDoor && (
         <div className="flex items-center justify-between gap-2">
@@ -594,6 +957,77 @@ function SelectedAssetPanel({
       {/* Replacement spec (glass child, or the door itself) */}
       {specTarget && (isDoor || specTarget.is_active) && (
         <GlassSpecForm key={specTarget.id} target={specTarget} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Per-panel override. Most rinks never touch this — it exists for the ones
+ * whose numbering isn't strictly sequential (a "12A" between 12 and 13), where
+ * the scheme alone can't reproduce what's on the glass.
+ */
+function GlassNumberField({
+  target,
+  computed,
+}: {
+  target: AssetRow
+  computed: string | null
+}) {
+  const [pending, start] = useTransition()
+  const [value, setValue] = useState(target.display_number ?? "")
+  const isOverridden = target.display_number !== null
+
+  function save(next: string | null) {
+    start(async () => {
+      const r = await setAssetDisplayNumber(target.id, next)
+      if (!r.ok) toast.error(r.error)
+      else toast.success(next === null ? "Back to the scheme number." : "Number set.")
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={`glass-number-${target.id}`}>Glass number</Label>
+        <span className="text-muted-foreground font-mono text-xs">
+          {target.label}
+        </span>
+      </div>
+      <div className="flex gap-2">
+        <Input
+          id={`glass-number-${target.id}`}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={computed ?? "not numbered"}
+          className="h-9 font-mono"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending || value.trim() === (target.display_number ?? "")}
+          onClick={() => save(value.trim() === "" ? null : value.trim())}
+        >
+          Save
+        </Button>
+      </div>
+      {isOverridden ? (
+        <button
+          type="button"
+          className="text-muted-foreground self-start text-xs underline"
+          disabled={pending}
+          onClick={() => {
+            setValue("")
+            save(null)
+          }}
+        >
+          Reset to scheme ({computed ?? "none"})
+        </button>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Numbered by the rink scheme. Type a value to override just this
+          panel.
+        </p>
       )}
     </div>
   )
@@ -719,9 +1153,12 @@ function GlassSpecForm({ target }: { target: AssetRow }) {
 function BulkSpecCard({
   rink,
   glassRows,
+  glassNumbers,
 }: {
   rink: RinkRow
   glassRows: Array<{ parent: AssetRow; glass: AssetRow }>
+  /** Keyed by position id AND glass id — see computeGlassNumbers. */
+  glassNumbers: ReadonlyMap<string, string>
 }) {
   const [pending, start] = useTransition()
   const [fromIdx, setFromIdx] = useState(0)
@@ -778,7 +1215,7 @@ function BulkSpecCard({
           >
             {glassRows.map((x, i) => (
               <option key={x.glass.id} value={i}>
-                {x.glass.label}
+                {glassRangeLabel(x.glass, glassNumbers)}
               </option>
             ))}
           </select>
@@ -793,7 +1230,7 @@ function BulkSpecCard({
           >
             {glassRows.map((x, i) => (
               <option key={x.glass.id} value={i}>
-                {x.glass.label}
+                {glassRangeLabel(x.glass, glassNumbers)}
               </option>
             ))}
           </select>

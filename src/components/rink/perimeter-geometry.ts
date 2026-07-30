@@ -126,6 +126,12 @@ export type PerimeterSegment = {
   mid: PerimeterPoint
   /** Label anchor, offset outward from the boundary. */
   labelAnchor: PerimeterPoint
+  /**
+   * Glass-number anchor, offset INWARD (past the glass overlay line) so the
+   * numbering a facility puts on its glass reads inside the ring and never
+   * collides with the outward board/door labels.
+   */
+  glassLabelAnchor: PerimeterPoint
   startS: number
   endS: number
 }
@@ -134,6 +140,7 @@ const JOINT_GAP = 2 // arc-length gap at each joint so segments read as panels
 const SAMPLE_STEP = 4 // boundary sampling resolution for path polylines
 const LABEL_OFFSET = 16 // outward label distance (sized for the larger label type)
 const GLASS_INSET = -7 // glass overlay sits just inside the boards
+const GLASS_LABEL_OFFSET = -18 // glass numbers sit inside the glass line
 const NEAREST_SAMPLE_STEP = 2 // resolution for nearestArcLength's click-to-s search
 
 /**
@@ -214,6 +221,10 @@ export function buildPerimeterSegments(
       glassPathD: spanPath(s0 + 1, s1 - 1, GLASS_INSET),
       mid,
       labelAnchor: { x: mid.x + nrm.x * LABEL_OFFSET, y: mid.y + nrm.y * LABEL_OFFSET },
+      glassLabelAnchor: {
+        x: mid.x + nrm.x * GLASS_LABEL_OFFSET,
+        y: mid.y + nrm.y * GLASS_LABEL_OFFSET,
+      },
       startS: s0,
       endS: s1,
     }

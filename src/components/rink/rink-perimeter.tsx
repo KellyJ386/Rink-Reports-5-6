@@ -62,6 +62,14 @@ export type RinkPerimeterProps = {
   anchorOffsetFraction?: number
   /** Glass rows keyed by parent board id (for the glass layer). */
   glassByParent?: Record<string, RinkPerimeterGlass>
+  /**
+   * The facility's own glass numbers, keyed by the POSITION's asset id (the
+   * board or door — computeGlassNumbers keys both the position and its glass
+   * child). Drawn inside the ring alongside the glass layer, so a walker sees
+   * the number that is physically on the panel in front of them. Absent =
+   * numbering is off for this rink and only the permanent labels show.
+   */
+  glassNumberByAssetId?: Record<string, string>
   /** Open-issue condition per asset id (assets absent = clear). */
   conditionByAssetId?: Record<string, PerimeterCondition>
   selectedAssetId?: string | null
@@ -121,6 +129,7 @@ export function RinkPerimeter({
   direction,
   anchorOffsetFraction = 0,
   glassByParent,
+  glassNumberByAssetId,
   conditionByAssetId,
   selectedAssetId,
   onSelectAsset,
@@ -242,6 +251,36 @@ export function RinkPerimeter({
             )
           })}
 
+        {/* Glass numbers — the facility's own numbering, inside the ring.
+            Painted with the glass layer (same mental mode: "show me the
+            glass") and only where there IS glass: an active glass child, or a
+            door, which carries its own. */}
+        {showGlassLayer &&
+          glassNumberByAssetId &&
+          segments.map((seg) => {
+            const number = glassNumberByAssetId[seg.assetId]
+            if (!number) return null
+            const hasGlass =
+              seg.assetType === "door" ||
+              glassByParent?.[seg.assetId]?.isActive === true
+            if (!hasGlass) return null
+            return (
+              <text
+                key={`glass-num-${seg.assetId}`}
+                x={seg.glassLabelAnchor.x}
+                y={seg.glassLabelAnchor.y + 3.2}
+                textAnchor="middle"
+                fontSize={9.5}
+                fontWeight={600}
+                fill={GLASS_COLOR}
+                className="font-mono"
+                pointerEvents="none"
+              >
+                {number}
+              </text>
+            )
+          })}
+
         {/* Board / door segments. */}
         {segments.map((seg) => {
           const condition = conditionByAssetId?.[seg.assetId]
@@ -256,6 +295,10 @@ export function RinkPerimeter({
                     role: "button",
                     tabIndex: 0,
                     "aria-label": `${isDoor ? "Door" : "Board panel"} ${seg.label}${
+                      glassNumberByAssetId?.[seg.assetId]
+                        ? `, glass ${glassNumberByAssetId[seg.assetId]}`
+                        : ""
+                    }${
                       condition === "alert"
                         ? ", open severity A issue"
                         : condition === "warn"

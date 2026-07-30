@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
+import { resolveRinkGlassNumbers } from "@/app/reports/dasher-boards/_lib/queries"
 
 import { ChecklistTab } from "./_components/checklist-tab"
 import { ListsTab } from "./_components/lists-tab"
@@ -331,6 +332,26 @@ async function WalksTabLoader({
         checkedBy: c.checked_by ? (checkedById.get(c.checked_by) ?? null) : null,
       }))
 
+      // The rink's glass numbers, so a walk reads in the numbering the crew
+      // used on the floor. Needs the WHOLE perimeter (numbering is positional),
+      // not just the checked assets.
+      const [{ data: rinkRow }, { data: perimeterAssets }] = await Promise.all([
+        supabase
+          .from("dasher_boards_rinks")
+          .select("*")
+          .eq("id", inspection.rink_id)
+          .maybeSingle(),
+        supabase
+          .from("dasher_boards_assets")
+          .select(
+            "id, asset_type, is_active, sequence_position, parent_board_id, display_number",
+          )
+          .eq("rink_id", inspection.rink_id),
+      ])
+      const glassNumbers = rinkRow
+        ? resolveRinkGlassNumbers(rinkRow, perimeterAssets ?? [])
+        : {}
+
       // Fails first (what needs attention); within each group, natural sort
       // by asset label (B2 before B12) so the order matches the perimeter walk.
       items.sort((a, b) => {
@@ -346,6 +367,7 @@ async function WalksTabLoader({
           ? (inspectorById.get(inspection.inspector_id) ?? null)
           : null,
         checks: items,
+        glassNumbers,
       }
     }
   }
