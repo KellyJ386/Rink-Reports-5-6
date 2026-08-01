@@ -216,6 +216,54 @@ This is a grandfathered collision: `migration-prefix-check.yml` only fails on *n
 > [`production-reconciliation-2026-06.md`](production-reconciliation-2026-06.md).
 > Do that reconciliation before relying on `deploy-migrations.yml`.
 
+### August 2026: 208–232 are pending, and 233 was applied ahead of them
+
+Prod's ledger currently reads `… 205, 206, 207, 233`. That gap is deliberate,
+and it changes what a `db push` does — read this before merging anything that
+touches `supabase/migrations/**`.
+
+What was done, and why:
+
+- **`00000000000206` was repaired, not run.** Prod had skipped it, leaving a
+  hole *below* the applied high-water mark at 207. Its four
+  `ice_depth_sessions` columns (`board_pass` / `glass_pass` / `*_fail_notes`)
+  are dropped again by `00000000000223` and no app code reads them, so its net
+  effect is nil. It is recorded as applied so the version stops re-appearing
+  as pending.
+- **`00000000000233` was applied by hand, out of order,** to unblock the admin
+  Walks tab and the walk PDF, which need `dasher_boards_rinks.glass_number_*`
+  and `dasher_boards_assets.display_number`. This is safe out of order:
+  everything 233 depends on (`dasher_boards_guard_exempt`,
+  `has_module_edit_access`, the migration-202 asset guard) was already on prod,
+  and nothing in 208–232 redefines `dasher_boards_assets_guard`, so the
+  backlog will not clobber 233's `display_number` freeze when it lands.
+
+**Consequence — do not merge migration changes on autopilot.** With 208–232
+sitting below the applied 233, `deploy-migrations.yml` runs a bare
+`supabase db push` (pinned to CLI `latest`), which refuses to insert
+migrations behind the last applied version and exits non-zero. Before merging,
+either gate that workflow or clear the backlog first.
+
+Clearing the backlog (`208`–`232`) is a **watched, deliberate** job, because
+`00000000000222_audit_logs_partitioning_pilot.sql` is a non-reversible
+partitioning cutover — rollback is PITR. It also cannot be cherry-picked: it
+renames the `seq` / `prev_hash` / `row_hash` objects that only arrive in
+`00000000000217`. Confirm PITR/backup state first, then push with
+`--include-all` **once**:
+
+```bash
+supabase db push --include-all
+```
+
+Once the ledger is contiguous through 233, `db push` is plain incremental
+again — **drop `--include-all`**; it should never be a standing flag in
+`deploy-migrations.yml`.
+
+> Sizing note, so the window isn't over-planned: at the time of writing
+> `audit_logs` held 1,081 rows in ~800 kB of heap. The ~269 MB the table
+> reports is *index* bloat, which 222 rebuilds away. The copy-and-swap is
+> seconds at this volume; the caution is about irreversibility, not duration.
+
 ## 9. Supabase Auth configuration (hosted project — verify before launch)
 
 `supabase/config.toml` configures the **local** stack only. The hosted
