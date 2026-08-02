@@ -58,4 +58,10 @@ export type SchedulingSettingsInput = {
   operating_hours_start_minute: number
   /** Closing time, minutes since local midnight (1–1440; 1440 = midnight). */
   operating_hours_end_minute: number
+  /** false = a staff shift drop releases the shift immediately, with no
+   * manager sign-off. Default true. */
+  drop_requires_manager_approval: boolean
+  /** Minimum hours before a shift starts that staff may still drop it.
+   * 0 = no cutoff. */
+  drop_min_notice_hours: number
 }

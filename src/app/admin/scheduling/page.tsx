@@ -18,10 +18,12 @@ import { dayKeyInTz, weekWindowInTz } from "@/lib/timezone"
 import {
   ModuleCard,
   OpenShiftsPanel,
+  PendingDropsPanel,
   PendingSwapsPanel,
   PendingTimeOffPanel,
   type EmployeeOption,
   type OpenShiftItem,
+  type PendingDrop,
   type PendingSwap,
   type PendingTimeOff,
 } from "./_components/hub-panels"
@@ -107,6 +109,7 @@ export default async function SchedulingOverviewPage() {
     templatesRes,
     publishRes,
     availabilityRes,
+    pendingDropsRes,
   ] = await Promise.all([
     supabase
       .from("schedule_shifts")
@@ -163,6 +166,13 @@ export default async function SchedulingOverviewPage() {
       .select("employee_id")
       .eq("facility_id", facilityId)
       .limit(2000),
+    supabase
+      .from("schedule_shift_drop_requests")
+      .select("id, shift_id, requester_employee_id, reason, created_at")
+      .eq("facility_id", facilityId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(20),
   ])
 
   type ShiftRow = {
@@ -282,6 +292,31 @@ export default async function SchedulingOverviewPage() {
     }
   })
 
+  const pendingDrops: PendingDrop[] = (
+    (pendingDropsRes.data ?? []) as {
+      id: string
+      shift_id: string
+      requester_employee_id: string
+      reason: string | null
+      created_at: string
+    }[]
+  )
+    .map((d) => {
+      const shift = shiftById.get(d.shift_id)
+      if (!shift) return null
+      const emp = empById.get(d.requester_employee_id)
+      return {
+        id: d.id,
+        employeeName: emp ? `${emp.first_name} ${emp.last_name}` : "Unknown",
+        starts_at: shift.starts_at,
+        ends_at: shift.ends_at,
+        roleLabel: shift.role_label,
+        reason: d.reason,
+        createdAt: d.created_at,
+      }
+    })
+    .filter((d): d is PendingDrop => d !== null)
+
   const pendingTimeOff: PendingTimeOff[] = pendingTimeOffRaw.map((t) => {
     const emp = empById.get(t.employee_id)
     return {
@@ -369,10 +404,12 @@ export default async function SchedulingOverviewPage() {
         />
         <StatCard
           label="Pending requests"
-          value={pendingSwaps.length + pendingTimeOff.length}
-          delta={`${pendingSwaps.length} swap · ${pendingTimeOff.length} time-off`}
+          value={
+            pendingSwaps.length + pendingTimeOff.length + pendingDrops.length
+          }
+          delta={`${pendingSwaps.length} swap · ${pendingTimeOff.length} time-off · ${pendingDrops.length} drop`}
           deltaTone={
-            pendingSwaps.length + pendingTimeOff.length > 0
+            pendingSwaps.length + pendingTimeOff.length + pendingDrops.length > 0
               ? "negative"
               : "neutral"
           }
@@ -413,6 +450,23 @@ export default async function SchedulingOverviewPage() {
           </CardHeader>
           <CardContent className="p-0">
             <PendingTimeOffPanel rows={pendingTimeOff.slice(0, 5)} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-base">Pending shift drops</CardTitle>
+              <Link
+                href="/admin/scheduling/shifts"
+                className="text-primary text-xs font-medium hover:underline"
+              >
+                Open the grid →
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <PendingDropsPanel rows={pendingDrops.slice(0, 5)} />
           </CardContent>
         </Card>
       </section>

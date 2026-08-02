@@ -10,9 +10,13 @@ import { currentUserCan } from "@/lib/permissions/check"
 import { cn } from "@/lib/utils"
 import { addDaysToKey, dayKeyInTz, dayPartsInTz } from "@/lib/timezone"
 
-import { ClaimOpenShiftButton } from "./_components/claim-open-shift-button"
-import { formatDateRange, formatDateTime } from "./_components/format-utils"
+import { formatDateRange } from "./_components/format-utils"
 import { NotAvailable } from "./_components/not-available"
+import {
+  MyPendingClaimsSection,
+  OpenShiftsSection,
+} from "./_components/open-shift-sections"
+import { loadOpenShiftBoard } from "./_lib/open-shifts"
 
 export const dynamic = "force-dynamic"
 
@@ -29,21 +33,6 @@ type ShiftRow = {
   department_id: string
   status: string
   departments: { name: string } | null
-}
-
-type OpenShiftRow = {
-  id: string
-  approval_required: boolean
-  claim_status: string
-  claimed_by_employee_id: string | null
-  schedule_shifts: {
-    id: string
-    starts_at: string
-    ends_at: string
-    role_label: string | null
-    department_id: string
-    departments: { name: string } | null
-  } | null
 }
 
 const DAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
@@ -82,14 +71,12 @@ export default async function SchedulingDashboardPage() {
   }
 
   const now = new Date()
-  const in14 = new Date(now)
-  in14.setDate(in14.getDate() + 14)
   const in28 = new Date(now)
   in28.setDate(in28.getDate() + 28)
 
   const [
     { data: myShiftsRaw },
-    { data: openShiftsRaw },
+    { openShifts, myPendingClaims },
     { data: facility },
     { count: unreadCount },
   ] = await Promise.all([
@@ -103,13 +90,11 @@ export default async function SchedulingDashboardPage() {
       .gte("starts_at", now.toISOString())
       .lte("starts_at", in28.toISOString())
       .order("starts_at", { ascending: true }),
-    supabase
-      .from("schedule_open_shifts")
-      .select(
-        "id, approval_required, claim_status, claimed_by_employee_id, schedule_shifts(id, starts_at, ends_at, role_label, department_id, departments(name))"
-      )
-      .eq("facility_id", employeeRow.facility_id)
-      .in("claim_status", ["open", "claimed"]),
+    loadOpenShiftBoard(supabase, {
+      facilityId: employeeRow.facility_id,
+      employeeId: employeeRow.id,
+      now,
+    }),
     supabase
       .from("facilities")
       .select("timezone")
@@ -124,29 +109,6 @@ export default async function SchedulingDashboardPage() {
 
   const tz = facility?.timezone ?? null
   const myShifts = (myShiftsRaw ?? []) as unknown as ShiftRow[]
-  const openShiftsAll = (openShiftsRaw ?? []) as unknown as OpenShiftRow[]
-  const openShifts = openShiftsAll
-    .filter((row) => {
-      const shift = row.schedule_shifts
-      if (!shift || row.claim_status !== "open") return false
-      const startTs = new Date(shift.starts_at).getTime()
-      return startTs >= now.getTime() && startTs <= in14.getTime()
-    })
-    .sort(
-      (a, b) =>
-        new Date(a.schedule_shifts!.starts_at).getTime() -
-        new Date(b.schedule_shifts!.starts_at).getTime()
-    )
-    .slice(0, 5)
-
-  // My claims that still need an admin's approval — otherwise a claimed
-  // shift just vanishes from the open list with no trace for the claimant.
-  const myPendingClaims = openShiftsAll.filter(
-    (row) =>
-      row.claim_status === "claimed" &&
-      row.claimed_by_employee_id === employeeRow.id &&
-      row.schedule_shifts !== null
-  )
 
   const nextShift = myShifts[0] ?? null
   const upcomingShifts = myShifts.slice(0, 8)
@@ -379,79 +341,9 @@ export default async function SchedulingDashboardPage() {
         )}
       </section>
 
-      {/* Open shifts */}
-      {openShifts.length > 0 && (
-        <section>
-          <h2 className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
-            Open · Pick up
-          </h2>
-          <div className="flex flex-col gap-2">
-            {openShifts.map((row) => {
-              const shift = row.schedule_shifts
-              if (!shift) return null
-              const dayParts = dayPartsInTz(shift.starts_at, tz)
-              return (
-                <div
-                  key={row.id}
-                  className="flex items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3.5 py-3"
-                >
-                  <div className="grid h-12 w-11 shrink-0 place-items-center rounded-[10px] border border-border bg-secondary text-center text-foreground">
-                    <div className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-muted-foreground">
-                      {DAY_LABELS[dayParts.dayOfWeek]}
-                    </div>
-                    <div className="font-display text-xl leading-none">
-                      {dayParts.dayOfMonth}
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-bold text-foreground">
-                      {formatDateTime(shift.starts_at, tz)}
-                    </div>
-                    <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-                      {shift.departments?.name ?? "—"}
-                      {shift.role_label ? ` · ${shift.role_label}` : ""}
-                      {row.approval_required ? " · Approval req." : ""}
-                    </div>
-                  </div>
-                  <ClaimOpenShiftButton openShiftId={row.id} />
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
+      <OpenShiftsSection rows={openShifts} timezone={tz} />
 
-      {/* My pending claims (awaiting admin approval) */}
-      {myPendingClaims.length > 0 && (
-        <section>
-          <h2 className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">
-            Your claims · Awaiting approval
-          </h2>
-          <div className="flex flex-col gap-2">
-            {myPendingClaims.map((row) => {
-              const shift = row.schedule_shifts
-              if (!shift) return null
-              return (
-                <div
-                  key={row.id}
-                  className="flex items-center gap-3 rounded-[14px] border border-dashed border-border bg-card px-3.5 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-bold text-foreground">
-                      {formatDateTime(shift.starts_at, tz)}
-                    </div>
-                    <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-                      {shift.departments?.name ?? "—"}
-                      {shift.role_label ? ` · ${shift.role_label}` : ""}
-                      {" · You claimed this shift — a manager needs to approve it."}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
+      <MyPendingClaimsSection rows={myPendingClaims} timezone={tz} />
 
       {/* Quick links */}
       <section>

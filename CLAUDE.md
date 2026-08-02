@@ -91,7 +91,14 @@ This app is a PWA. The service worker (`public/sw.js`) owns the offline submissi
 - On flush, the SW POSTs to `/api/offline-sync` which upserts into `offline_sync_queue` with `onConflict: "local_id"` for idempotency.
 When adding a new submission flow, route writes through the SW queue + this endpoint rather than calling Supabase directly from the browser.
 
-**Scheduling is a deliberate exception.** Staff scheduling writes (time-off, availability) enqueue via `enqueueSubmission(moduleKey:"scheduling")` and replay in `src/app/api/offline-sync/route.ts`. The **admin scheduling grid** (drag-create / edit / delete in `src/app/admin/scheduling/_lib/grid-actions.ts`) is intentionally **online-only** — scheduling is a desk task, and offline replay would have to re-run the cert / hour-cap / publish-lock enforcement server-side at flush time. This is a conscious scope decision, noted at the top of `grid-actions.ts`.
+**Scheduling is a deliberate exception.** The *append-style* staff writes (time-off, availability) enqueue via `enqueueSubmission(moduleKey:"scheduling")` and replay in `src/app/api/offline-sync/route.ts`. Everything that mutates a **published shift** is intentionally **online-only**, because each one goes through a SECURITY DEFINER RPC that re-validates at execution time and replaying it would revalidate against a world that has moved on:
+
+- the **admin grid** (drag-create / edit / delete in `src/app/admin/scheduling/_lib/grid-actions.ts`) — cert / hour-cap / publish-lock enforcement;
+- **claiming an open shift** (`scheduling_claim_open_shift`) and **dropping a shift** (`scheduling_request_shift_drop`, migration 234) — both re-check assignability / ownership at the moment they run.
+
+These are conscious scope decisions, noted at the call sites.
+
+**Shift drops (migration 234).** Staff release a shift back to the open pool via `scheduling_request_shift_drop`; a scheduling admin decides it with `scheduling_decide_shift_drop`, which unassigns the shift and lists it in `schedule_open_shifts`. Gated by `schedule_settings.drop_requires_manager_approval` (default true — turning it off lets someone leave a shift uncovered unilaterally) and `drop_min_notice_hours` (default 0). Releasing a published shift is only possible from a DEFINER function, which is exempt from the `schedule_shifts_publish_lock` trigger.
 
 ### Timezones (scheduling especially)
 
@@ -104,7 +111,12 @@ Facility operating hours live on `schedule_settings.operating_hours_{start,end}_
 
 ### Database / migrations
 
-`supabase/migrations/` is a flat, numerically-ordered set of SQL files (`00000000000001_…sql` … `00000000000187_…sql` and counting). New migrations should keep that monotonic prefix (one file per prefix — no duplicates). Regenerate `src/types/database.ts` in the same PR as any migration (`pnpm types:write` against a migrated DB; CI enforces freshness via `pnpm types:check`) — do not bridge schema gaps with `as any`. RLS is enforced — `00000000000004_backbone_rls.sql`, `00000000000030_submission_rls_module_permissions.sql`, and `00000000000029_module_permission_helper.sql` define the permission model that admin/staff routes rely on; check those before touching policies. The module-level RLS helpers (`has_module_access` / `has_module_admin_access` / `has_area_access`) read `user_permissions` as of `00000000000091_unify_permission_helpers.sql`; the legacy `module_permissions` table was removed in `00000000000099_drop_dead_legacy_permission_tables.sql` (`module_area_permissions` and `role_module_permission_defaults` are retained).
+`supabase/migrations/` is a flat, numerically-ordered set of SQL files (`00000000000001_…sql` … `00000000000187_…sql` and counting). New migrations should keep that monotonic prefix (one file per prefix — no duplicates). A migration carries **two** regenerated artifacts in the same PR, and CI enforces both:
+
+1. `src/types/database.ts` — `pnpm types:write` against a migrated DB (gate: `pnpm types:check` in the rls-isolation workflow). Do not bridge schema gaps with `as any`.
+2. `supabase/schema.snapshot.sql` — `./scripts/dump-schema-snapshot.sh "<url>" > supabase/schema.snapshot.sql` (gate: the `Schema Drift / snapshot` workflow, which replays every migration onto a clean `supabase/postgres:15` and diffs the dump). It exists so the schema a migration *produces* is reviewable in the diff, and so an edited historical migration can't silently change the build.
+
+**Widening an enumerated CHECK is the sharp edge here.** Postgres has no "add a value", so it means DROP + ADD with the whole list restated — and missing one silently NARROWS the domain. `schedule_notifications.notification_type` has been through this twice (migrations 158 and 234); `supabase/tests/rls_isolation.sql` now inserts a row of every permitted value so a lost one fails CI instead of a cron. RLS is enforced — `00000000000004_backbone_rls.sql`, `00000000000030_submission_rls_module_permissions.sql`, and `00000000000029_module_permission_helper.sql` define the permission model that admin/staff routes rely on; check those before touching policies. The module-level RLS helpers (`has_module_access` / `has_module_admin_access` / `has_area_access`) read `user_permissions` as of `00000000000091_unify_permission_helpers.sql`; the legacy `module_permissions` table was removed in `00000000000099_drop_dead_legacy_permission_tables.sql` (`module_area_permissions` and `role_module_permission_defaults` are retained).
 
 `supabase/config.toml` defines local ports (API 54321, DB 54322, Studio 54323).
 

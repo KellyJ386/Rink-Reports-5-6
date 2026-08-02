@@ -10,6 +10,7 @@ import { getIsAdmin, requireUser } from "@/lib/auth"
 import { getHeaderContext } from "@/lib/header/context"
 import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
 import { getCommunicationsUnreadCount } from "@/lib/communications/unread"
+import { getSchedulingBadgeCount } from "@/lib/scheduling/unread"
 
 export default async function ReportsLayout({
   children,
@@ -22,10 +23,14 @@ export default async function ReportsLayout({
   const fullName = profile?.full_name ?? null
   const isAdmin = await getIsAdmin(current)
   const enabledModules = await getEnabledModuleKeys(profile?.facility_id)
-  const communicationsUnread = await getCommunicationsUnreadCount(
-    profile?.facility_id,
-  )
-  const badgeCounts = { communications: communicationsUnread }
+  const [communicationsUnread, schedulingUnread] = await Promise.all([
+    getCommunicationsUnreadCount(profile?.facility_id),
+    getSchedulingBadgeCount(profile?.facility_id),
+  ])
+  const badgeCounts = {
+    communications: communicationsUnread,
+    scheduling: schedulingUnread,
+  }
   const { facilityName, tempF, tempLocation } = await getHeaderContext(
     profile?.facility_id,
   )

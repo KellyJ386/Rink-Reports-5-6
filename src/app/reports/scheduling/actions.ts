@@ -633,6 +633,91 @@ export async function claimOpenShift(
   return { status: "success", message: "Shift claim submitted." }
 }
 
+// ---------------------------------------------------------------------------
+// Shift drops (migration 234)
+//
+// ONLINE-ONLY, deliberately. Both actions call SECURITY DEFINER RPCs that
+// re-validate at execution time — the drop RPC re-checks ownership, publish
+// status and the facility's notice window; approving one re-checks that the
+// shift is still assigned to the requester. Replaying those from the offline
+// queue would revalidate against a world that has moved on, the same reason the
+// admin scheduling grid stays online-only (see the note at the top of
+// src/app/admin/scheduling/_lib/grid-actions.ts).
+// ---------------------------------------------------------------------------
+
+export async function requestShiftDrop(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const auth = await getActiveEmployee()
+  if (!auth.ok) return { status: "error", error: auth.error }
+  const supabase = await createClient()
+
+  // Permission parity with the other staff scheduling writes.
+  if (!(await currentUserCan(supabase, "scheduling", "submit"))) {
+    return {
+      status: "error",
+      error: "You don't have permission to drop shifts.",
+    }
+  }
+
+  const shiftId = String(formData.get("shift_id") ?? "").trim()
+  if (!shiftId) return { status: "error", error: "Missing shift id." }
+  const reason = String(formData.get("reason") ?? "").trim()
+
+  const { data, error } = await supabase.rpc("scheduling_request_shift_drop", {
+    p_shift_id: shiftId,
+    p_reason: reason.length > 0 ? reason : undefined,
+  })
+  if (error) {
+    return { status: "error", error: dbError(error, "Failed to request the drop.") }
+  }
+  const result = (data ?? {}) as { ok?: boolean; error?: string; status?: string }
+  if (result.ok !== true) {
+    return { status: "error", error: result.error ?? "Failed to request the drop." }
+  }
+
+  revalidatePath("/reports/scheduling")
+  revalidatePath("/reports/scheduling/my-schedule")
+  return {
+    status: "success",
+    message:
+      result.status === "approved"
+        ? "Shift dropped — it's now open for anyone to pick up."
+        : "Drop requested. A manager needs to approve it.",
+  }
+}
+
+export async function cancelShiftDrop(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const auth = await getActiveEmployee()
+  if (!auth.ok) return { status: "error", error: auth.error }
+  const supabase = await createClient()
+
+  const dropId = String(formData.get("drop_id") ?? "").trim()
+  if (!dropId) return { status: "error", error: "Missing request id." }
+
+  const { data, error } = await supabase.rpc("scheduling_cancel_shift_drop", {
+    p_drop_id: dropId,
+  })
+  if (error) {
+    return { status: "error", error: dbError(error, "Failed to withdraw the request.") }
+  }
+  const result = (data ?? {}) as { ok?: boolean; error?: string }
+  if (result.ok !== true) {
+    return {
+      status: "error",
+      error: result.error ?? "Failed to withdraw the request.",
+    }
+  }
+
+  revalidatePath("/reports/scheduling")
+  revalidatePath("/reports/scheduling/my-schedule")
+  return { status: "success", message: "Drop request withdrawn." }
+}
+
 export async function markNotificationRead(
   _prev: ActionState,
   formData: FormData

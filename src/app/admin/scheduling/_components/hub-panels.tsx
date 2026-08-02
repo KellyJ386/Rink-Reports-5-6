@@ -25,6 +25,7 @@ import {
 } from "../_lib/datetime"
 import {
   approveSwap,
+  decideShiftDrop,
   decideTimeOffRequest,
   denySwap,
   type TimeOffConflict,
@@ -59,6 +60,126 @@ export type OpenShiftItem = {
   /** "open" (no claim yet) or "claimed" (awaiting admin approval). */
   claimStatus: string
   claimantName: string | null
+}
+
+export type PendingDrop = {
+  id: string
+  employeeName: string
+  starts_at: string
+  ends_at: string
+  roleLabel: string | null
+  reason: string | null
+  createdAt: string
+}
+
+/**
+ * Staff asking to be released from a shift (migration 234). Approving hands the
+ * shift to the open-shift pool for anyone to claim; the shift is NOT covered
+ * until someone does, which is why the copy says so plainly.
+ */
+export function PendingDropsPanel({ rows }: { rows: PendingDrop[] }) {
+  if (rows.length === 0) {
+    return (
+      <p className="text-muted-foreground px-4 py-6 text-sm">
+        No pending shift drops.
+      </p>
+    )
+  }
+  return (
+    <ul className="divide-border divide-y">
+      {rows.map((r) => (
+        <li key={r.id}>
+          <DropItem row={r} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function DropItem({ row }: { row: PendingDrop }) {
+  const [mode, setMode] = useState<null | "approve" | "deny">(null)
+  const [note, setNote] = useState("")
+  const [pending, startTransition] = useTransition()
+
+  function run(approve: boolean) {
+    startTransition(async () => {
+      const r = await decideShiftDrop(row.id, approve, note.trim() || undefined)
+      if (r.ok === true) {
+        toast.success(r.message ?? "Updated.")
+        setMode(null)
+        setNote("")
+      } else if (r.ok === false) {
+        toast.error(r.error)
+      }
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <div className="text-sm font-medium">{row.employeeName}</div>
+          <div className="text-muted-foreground text-xs">
+            {formatDateOnly(row.starts_at)} ·{" "}
+            {formatTimeRange(row.starts_at, row.ends_at)}
+            {row.roleLabel ? ` · ${row.roleLabel}` : ""}
+          </div>
+          {row.reason ? <div className="text-sm">{row.reason}</div> : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="warning">pending</Badge>
+          <Button size="sm" onClick={() => setMode("approve")} disabled={pending}>
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setMode("deny")}
+            disabled={pending}
+          >
+            Deny
+          </Button>
+        </div>
+      </div>
+      {mode !== null ? (
+        <div className="bg-muted/40 flex flex-col gap-2 rounded-md border p-3">
+          <p className="text-muted-foreground text-xs">
+            {mode === "approve"
+              ? "Approving unassigns the shift and opens it for claims. Nobody is covering it until a coworker picks it up."
+              : "Denying leaves the employee on the shift."}
+          </p>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Note for the employee (optional)"
+            rows={2}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setMode(null)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant={mode === "approve" ? "default" : "outline"}
+              onClick={() => run(mode === "approve")}
+              disabled={pending}
+            >
+              {pending
+                ? "Working…"
+                : mode === "approve"
+                  ? "Approve & open"
+                  : "Deny"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function PendingSwapsPanel({ rows }: { rows: PendingSwap[] }) {

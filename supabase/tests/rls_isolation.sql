@@ -7779,6 +7779,219 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- E-5. Staff shift drops (migration 234).
+--
+-- scheduling_request_shift_drop / _decide_shift_drop / _cancel_shift_drop are
+-- all SECURITY DEFINER — they must be, because releasing a PUBLISHED shift
+-- means clearing employee_id through the publish lock, which only the table
+-- owner may do. DEFINER bypasses RLS, so the facility + ownership checks
+-- inside each function are the only gate, and these are the assertions on it.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Facility A needs a settings row: the drop RPC reads
+-- drop_requires_manager_approval / drop_min_notice_hours from it, and the
+-- release helper reads open_shift_first_come to snapshot approval_required.
+insert into public.schedule_settings (facility_id, open_shift_first_come)
+values ('11111111-1111-1111-1111-111111111111', true)
+on conflict (facility_id) do update set open_shift_first_come = true;
+
+-- A published FUTURE shift for each of alice (facility A) and bob (facility B),
+-- plus one for carol so alice can be caught reaching for a coworker's shift.
+insert into public.schedule_shifts (
+  id, facility_id, department_id, employee_id, starts_at, ends_at, status
+) values
+  ('c0234000-0000-4000-8000-0000000000a1',
+   '11111111-1111-1111-1111-111111111111',
+   (select id from public.departments
+     where facility_id = '11111111-1111-1111-1111-111111111111' limit 1),
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   now() + interval '5 days', now() + interval '5 days 8 hours', 'published'),
+  ('c0234000-0000-4000-8000-0000000000a2',
+   '11111111-1111-1111-1111-111111111111',
+   (select id from public.departments
+     where facility_id = '11111111-1111-1111-1111-111111111111' limit 1),
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+   now() + interval '6 days', now() + interval '6 days 8 hours', 'published'),
+  ('c0234000-0000-4000-8000-0000000000b1',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-de71-bbbb-bbbb-bbbb22220082',
+   'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+   now() + interval '5 days', now() + interval '5 days 8 hours', 'published')
+on conflict (id) do nothing;
+
+-- A pending facility-B drop for carol to be refused on.
+insert into public.schedule_shift_drop_requests (
+  id, facility_id, shift_id, requester_employee_id, status
+) values (
+  'c0234000-0000-4000-8000-0000000000d1',
+  '22222222-2222-2222-2222-222222222222',
+  'c0234000-0000-4000-8000-0000000000b1',
+  'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  'pending')
+on conflict (id) do nothing;
+reset role;
+
+-- ---- alice (facility-A staff, scheduling view+submit) ----
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_request_shift_drop(
+        'c0234000-0000-4000-8000-0000000000b1', null))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  0, 'E-5: alice CANNOT request a drop on a Facility-B shift');
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_request_shift_drop(
+        'c0234000-0000-4000-8000-0000000000a2', null))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  0, 'E-5: alice CANNOT request a drop on a COWORKER''s shift in her own facility');
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_request_shift_drop(
+        'c0234000-0000-4000-8000-0000000000a1', 'car trouble'))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  1, 'E-5: alice CAN request a drop on her OWN shift');
+
+-- The drop RPC is the only writer of these rows; alice must not see another
+-- facility's requests through the table's own SELECT policy either.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shift_drop_requests
+     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'E-5: alice CANNOT SELECT facility-B drop requests');
+
+-- Staff cannot decide their own request, even in their own facility.
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_decide_shift_drop(
+        (select id from public.schedule_shift_drop_requests
+          where shift_id = 'c0234000-0000-4000-8000-0000000000a1'), true, null))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  0, 'E-5: staff alice (no scheduling admin grant) CANNOT decide a drop');
+reset role;
+
+-- ---- carol (facility-A scheduling admin) ----
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_decide_shift_drop(
+        'c0234000-0000-4000-8000-0000000000d1', true, null))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  0, 'E-5: carol CANNOT decide a Facility-B drop (cross-tenant)');
+
+select pg_temp.expect_count(
+  $$select count(*) from jsonb_each(
+      public.scheduling_decide_shift_drop(
+        (select id from public.schedule_shift_drop_requests
+          where shift_id = 'c0234000-0000-4000-8000-0000000000a1'), true, 'ok'))
+     where key = 'ok' and value = 'true'::jsonb$$,
+  1, 'E-5: carol CAN decide a Facility-A drop');
+reset role;
+
+set local role postgres;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shift_drop_requests
+     where id = 'c0234000-0000-4000-8000-0000000000d1' and status = 'pending'$$,
+  1, 'E-5: the Facility-B drop is UNCHANGED after the rejected cross-tenant call');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'c0234000-0000-4000-8000-0000000000b1'
+       and employee_id = 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'$$,
+  1, 'E-5: the Facility-B shift is still assigned after the rejected call');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'c0234000-0000-4000-8000-0000000000a1' and employee_id is null$$,
+  1, 'E-5: an approved drop leaves the shift UNASSIGNED');
+
+-- open_shift_first_come = true above, so approval_required snapshots false.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_open_shifts
+     where shift_id = 'c0234000-0000-4000-8000-0000000000a1'
+       and claim_status = 'open' and approval_required = false$$,
+  1, 'E-5: an approved drop creates exactly one open listing with the right approval_required');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_notifications
+     where drop_id = (select id from public.schedule_shift_drop_requests
+                       where shift_id = 'c0234000-0000-4000-8000-0000000000a1')
+       and notification_type = 'shift_drop_decided'
+       and employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  1, 'E-5: the requester is notified of the decision');
+reset role;
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
+-- E-6. schedule_notifications.notification_type domain coverage.
+--
+-- The domain is an enumerated CHECK, and Postgres has no "add a value" — so
+-- every migration that introduces a type must DROP + ADD with the whole list
+-- restated. Migration 158 warned that this silently NARROWS the domain if a
+-- value is missed, and migration 234 promptly did exactly that (it dropped
+-- 'swap_expired' / 'claim_expired', which scheduling_expire_stale_swaps
+-- inserts from the 10-minute expiry cron).
+--
+-- Inserting one row of EVERY permitted value turns that class of mistake into
+-- a CI failure here instead of a broken cron in production. When a migration
+-- legitimately adds a type, add it to this list too.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+do $$
+declare
+  v_type text;
+  v_types text[] := array[
+    'schedule_published','shift_changed','open_shift_available',
+    'swap_request_received','swap_approved','swap_denied',
+    'time_off_decided','overtime_warning','shift_reminder',
+    'swap_expired','claim_expired',
+    'shift_drop_requested','shift_drop_decided'
+  ];
+begin
+  foreach v_type in array v_types loop
+    begin
+      insert into public.schedule_notifications (
+        facility_id, employee_id, notification_type
+      ) values (
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        v_type
+      );
+    exception when others then
+      insert into _rls_failures (msg)
+      values (format(
+        'FAIL: E-6: notification_type %L was REMOVED from the CHECK domain (%s). '
+        'A migration restated the constraint and dropped it.', v_type, sqlerrm));
+    end;
+  end loop;
+end$$;
+
+-- And the constraint must still REJECT an unknown value — otherwise a
+-- migration that widened it to anything would pass the loop above.
+select pg_temp.expect_error(
+  $$insert into public.schedule_notifications (
+      facility_id, employee_id, notification_type
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'not_a_real_notification_type')$$,
+  'E-6: an unknown notification_type is still rejected');
+reset role;
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
