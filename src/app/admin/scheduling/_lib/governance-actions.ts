@@ -691,6 +691,60 @@ export async function cancelSwap(id: string): Promise<ActionState> {
 }
 
 // ---------------------------------------------------------------------------
+// Shift drops (migration 234)
+// ---------------------------------------------------------------------------
+
+/**
+ * Approve or deny a staff request to be released from a shift. The RPC is
+ * atomic and does the real work: it locks the request and the shift, re-checks
+ * that the shift is STILL assigned to the person who asked (a swap or an admin
+ * edit since the request was filed would otherwise take the shift away from
+ * whoever holds it now), unassigns it, lists it in the open-shift pool with the
+ * facility's approval_required snapshot, and notifies the requester plus
+ * everyone else who could pick it up.
+ */
+export async function decideShiftDrop(
+  id: string,
+  approve: boolean,
+  note?: string
+): Promise<ActionState> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+    if (!id) return { ok: false, error: "Missing request id." }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("scheduling_decide_shift_drop", {
+      p_drop_id: id,
+      p_approve: approve,
+      p_note: note?.trim() ? note.trim() : undefined,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to decide the request.") }
+    }
+    const result = (data ?? {}) as { ok?: boolean; error?: string }
+    if (result.ok !== true) {
+      return { ok: false, error: result.error ?? "Failed to decide the request." }
+    }
+
+    revalidateGovernance()
+    revalidatePath("/admin/scheduling/shifts")
+    return {
+      ok: true,
+      message: approve
+        ? "Drop approved — the shift is open for claims."
+        : "Drop denied.",
+    }
+  } catch (e) {
+    logServerError("admin/scheduling/_lib/governance-actions", e)
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Unknown error.",
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Compliance rules
 // ---------------------------------------------------------------------------
 
@@ -990,6 +1044,15 @@ export async function updateSchedulingSettings(
     )
     if (!breakAfter.ok) return { ok: false, error: breakAfter.error }
 
+    // Shift drops (migration 234). Mirrors the DB check constraint.
+    const dropNotice = Number(values.drop_min_notice_hours)
+    if (!Number.isInteger(dropNotice) || dropNotice < 0 || dropNotice > 8760) {
+      return {
+        ok: false,
+        error: "Drop notice must be a whole number of hours between 0 and 8760.",
+      }
+    }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from("schedule_settings")
@@ -1004,6 +1067,8 @@ export async function updateSchedulingSettings(
           minimum_break_after_hours: breakAfter.value,
           operating_hours_start_minute: ohStart,
           operating_hours_end_minute: ohEnd,
+          drop_requires_manager_approval: values.drop_requires_manager_approval,
+          drop_min_notice_hours: dropNotice,
           swap_requires_manager_approval: values.swap_requires_manager_approval,
           swap_expiry_hours: seh,
           open_shift_first_come: values.open_shift_first_come,
@@ -1046,6 +1111,8 @@ export async function seedSchedulingDefaults(): Promise<ActionState> {
           swap_expiry_hours: 72,
           operating_hours_start_minute: 360, // 06:00
           operating_hours_end_minute: 1380, // 23:00
+          drop_requires_manager_approval: true,
+          drop_min_notice_hours: 0,
           minor_max_weekly_hours: 18,
           overtime_weekly_hours: 40,
           minimum_break_minutes: 30,

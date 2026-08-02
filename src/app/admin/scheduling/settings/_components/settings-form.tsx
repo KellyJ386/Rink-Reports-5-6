@@ -102,6 +102,12 @@ export function SettingsForm({ settings }: { settings: Settings }) {
   const [closesAtMidnight, setClosesAtMidnight] = useState<boolean>(
     initialHours.end === "24:00"
   )
+  const [dropRequiresApproval, setDropRequiresApproval] = useState<boolean>(
+    settings.drop_requires_manager_approval
+  )
+  const [dropMinNoticeHours, setDropMinNoticeHours] = useState<string>(
+    String(settings.drop_min_notice_hours ?? 0)
+  )
   const [pending, startTransition] = useTransition()
 
   function submit() {
@@ -125,6 +131,11 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       toast.error("Closing time must be after opening time.")
       return
     }
+    const dropNotice = Number(dropMinNoticeHours)
+    if (!Number.isInteger(dropNotice) || dropNotice < 0 || dropNotice > 8760) {
+      toast.error("Drop notice must be a whole number of hours (0–8760).")
+      return
+    }
     startTransition(async () => {
       const r = await updateSchedulingSettings({
         week_start_day: weekStartDay,
@@ -144,6 +155,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         default_hourly_rate: nullableNumber(defaultHourlyRate),
         operating_hours_start_minute: ohStart,
         operating_hours_end_minute: ohEnd,
+        drop_requires_manager_approval: dropRequiresApproval,
+        drop_min_notice_hours: dropNotice,
       })
       if (r.ok === true) toast.success(r.message ?? "Saved.")
       else if (r.ok === false) toast.error(r.error)
@@ -253,6 +266,18 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             hours still save — they just raise a confirmable advisory.
           </p>
         </Field>
+        <Field label="Shift-drop notice (hours)">
+          <Input
+            type="number"
+            min={0}
+            value={dropMinNoticeHours}
+            onChange={(e) => setDropMinNoticeHours(e.target.value)}
+            placeholder="0"
+          />
+          <p className="text-muted-foreground text-xs">
+            How far ahead staff must drop a shift. 0 = any time before it starts.
+          </p>
+        </Field>
         <Field label="Closes at">
           <Input
             type="time"
@@ -307,6 +332,11 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           label="Block scheduling-grid saves that raise warnings (hours cap, overlap, cert gaps). Off = advisory only."
           value={blockOnViolations}
           onChange={setBlockOnViolations}
+        />
+        <ToggleField
+          label="Shift drops need manager approval. Off = a dropped shift is released immediately and may go uncovered."
+          value={dropRequiresApproval}
+          onChange={setDropRequiresApproval}
         />
       </div>
 

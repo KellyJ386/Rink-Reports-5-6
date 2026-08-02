@@ -7707,6 +7707,7 @@ export type Database = {
         Row: {
           acknowledged_at: string | null
           created_at: string
+          drop_id: string | null
           employee_id: string
           facility_id: string
           id: string
@@ -7722,6 +7723,7 @@ export type Database = {
         Insert: {
           acknowledged_at?: string | null
           created_at?: string
+          drop_id?: string | null
           employee_id: string
           facility_id: string
           id?: string
@@ -7737,6 +7739,7 @@ export type Database = {
         Update: {
           acknowledged_at?: string | null
           created_at?: string
+          drop_id?: string | null
           employee_id?: string
           facility_id?: string
           id?: string
@@ -7750,6 +7753,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "schedule_notifications_drop_id_fkey"
+            columns: ["drop_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shift_drop_requests"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "schedule_notifications_employee_id_fkey"
             columns: ["employee_id"]
@@ -8000,6 +8010,8 @@ export type Database = {
           created_at: string
           default_hourly_rate: number | null
           default_shift_minutes: number
+          drop_min_notice_hours: number
+          drop_requires_manager_approval: boolean
           facility_id: string
           id: string
           minimum_break_after_hours: number | null
@@ -8023,6 +8035,8 @@ export type Database = {
           created_at?: string
           default_hourly_rate?: number | null
           default_shift_minutes?: number
+          drop_min_notice_hours?: number
+          drop_requires_manager_approval?: boolean
           facility_id: string
           id?: string
           minimum_break_after_hours?: number | null
@@ -8046,6 +8060,8 @@ export type Database = {
           created_at?: string
           default_hourly_rate?: number | null
           default_shift_minutes?: number
+          drop_min_notice_hours?: number
+          drop_requires_manager_approval?: boolean
           facility_id?: string
           id?: string
           minimum_break_after_hours?: number | null
@@ -8069,6 +8085,77 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: true
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schedule_shift_drop_requests: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by_employee_id: string | null
+          decision_note: string | null
+          facility_id: string
+          id: string
+          reason: string | null
+          requester_employee_id: string
+          shift_id: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by_employee_id?: string | null
+          decision_note?: string | null
+          facility_id: string
+          id?: string
+          reason?: string | null
+          requester_employee_id: string
+          shift_id: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by_employee_id?: string | null
+          decision_note?: string | null
+          facility_id?: string
+          id?: string
+          reason?: string | null
+          requester_employee_id?: string
+          shift_id?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_shift_drop_requests_decided_by_employee_id_fkey"
+            columns: ["decided_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shift_drop_requests_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shift_drop_requests_requester_employee_id_fkey"
+            columns: ["requester_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_shift_drop_requests_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
             referencedColumns: ["id"]
           },
         ]
@@ -9008,12 +9095,20 @@ export type Database = {
         Args: { p_codes: string[]; p_facility_id: string }
         Returns: string[]
       }
+      scheduling_cancel_shift_drop: {
+        Args: { p_drop_id: string }
+        Returns: Json
+      }
       scheduling_claim_open_shift: {
         Args: { p_open_shift_id: string }
         Returns: boolean
       }
       scheduling_decide_open_claim: {
         Args: { p_approve: boolean; p_note?: string; p_open_shift_id: string }
+        Returns: Json
+      }
+      scheduling_decide_shift_drop: {
+        Args: { p_approve: boolean; p_drop_id: string; p_note?: string }
         Returns: Json
       }
       scheduling_expire_open_claims: {
@@ -9041,6 +9136,14 @@ export type Database = {
       scheduling_notify_swap_request: {
         Args: { p_swap_id: string }
         Returns: boolean
+      }
+      scheduling_release_shift_to_pool: {
+        Args: { p_facility_id: string; p_shift_id: string }
+        Returns: undefined
+      }
+      scheduling_request_shift_drop: {
+        Args: { p_reason?: string; p_shift_id: string }
+        Returns: Json
       }
       seed_default_accident_dropdowns: {
         Args: { p_facility_id: string }

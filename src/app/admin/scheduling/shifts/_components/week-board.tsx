@@ -61,10 +61,12 @@ import {
 } from "../../_lib/weekly-hours"
 import {
   OpenShiftsPanel,
+  PendingDropsPanel,
   PendingSwapsPanel,
   PendingTimeOffPanel,
   type EmployeeOption,
   type OpenShiftItem,
+  type PendingDrop,
   type PendingSwap,
   type PendingTimeOff,
 } from "../../_components/hub-panels"
@@ -158,6 +160,7 @@ export type WeekBoardProps = {
   employeeOptions: EmployeeOption[]
   pendingSwaps: PendingSwap[]
   pendingTimeOff: PendingTimeOff[]
+  pendingDrops: PendingDrop[]
   swapShiftIds: string[]
 }
 
@@ -1141,6 +1144,10 @@ export function WeekBoard(props: WeekBoardProps) {
 
           <RailCard title="Time-off">
             <PendingTimeOffPanel rows={props.pendingTimeOff} />
+          </RailCard>
+
+          <RailCard title="Shift drops">
+            <PendingDropsPanel rows={props.pendingDrops} />
           </RailCard>
 
           <RailCard title={`Crew · ${props.employees.length}`}>

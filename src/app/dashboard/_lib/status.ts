@@ -2,6 +2,7 @@ import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
 import { getCommunicationsUnreadCount } from "@/lib/communications/unread"
+import { getSchedulingBadgeCount } from "@/lib/scheduling/unread"
 import {
   latestCheckStatus,
   type AssetCheckLite,
@@ -37,6 +38,11 @@ export type ModuleStatus = {
    * (incidents, accidents); omitted for the boolean latest-record modules.
    */
   count?: number
+  /**
+   * Singular noun for the count in the bubble's accessible label. Defaults to
+   * "report"; scheduling counts alerts and open shifts, not reports.
+   */
+  countNoun?: string
 }
 
 /** Keyed by the dashboard ModuleKey strings. Absent key ⇒ no bubble. */
@@ -180,6 +186,18 @@ async function communicationsStatus(
   return n > 0 ? { state: "red", count: n } : null
 }
 
+/**
+ * Scheduling is per-user like communications: unread schedule notifications
+ * plus shifts open for this person to pick up. Uses the shared badge helper
+ * (which fails to 0 => no bubble).
+ */
+async function schedulingStatus(
+  facilityId: string,
+): Promise<ModuleStatus | null> {
+  const n = await getSchedulingBadgeCount(facilityId)
+  return n > 0 ? { state: "red", count: n, countNoun: "item" } : null
+}
+
 async function accidentsStatus(
   supabase: Client,
   facilityId: string,
@@ -302,6 +320,7 @@ export async function getDashboardModuleStatus(
     accident_reports,
     communications,
     dasher_boards,
+    scheduling,
   ] = await Promise.all([
     settle(() => refrigerationStatus(supabase, facilityId)),
     settle(() => airQualityStatus(supabase, facilityId)),
@@ -311,6 +330,7 @@ export async function getDashboardModuleStatus(
     settle(() => accidentsStatus(supabase, facilityId)),
     settle(() => communicationsStatus(facilityId)),
     settle(() => dasherBoardsStatus(supabase, facilityId)),
+    settle(() => schedulingStatus(facilityId)),
   ])
 
   const map: DashboardStatusMap = {}
@@ -322,5 +342,6 @@ export async function getDashboardModuleStatus(
   if (accident_reports) map.accident_reports = accident_reports
   if (communications) map.communications = communications
   if (dasher_boards) map.dasher_boards = dasher_boards
+  if (scheduling) map.scheduling = scheduling
   return map
 }

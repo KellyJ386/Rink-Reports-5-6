@@ -34,7 +34,10 @@ export function StatusBubble({
 
   const label = isRed
     ? hasCount
-      ? `${moduleTitle}: ${pluralize(status.count as number, "report")} need attention`
+      ? `${moduleTitle}: ${pluralize(
+          status.count as number,
+          status.countNoun ?? "report",
+        )} need attention`
       : `${moduleTitle}: latest report out of spec`
     : `${moduleTitle}: latest report within spec`
 

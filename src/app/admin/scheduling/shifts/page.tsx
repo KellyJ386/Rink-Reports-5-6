@@ -27,6 +27,7 @@ import { WeekBoard } from "./_components/week-board"
 import type {
   EmployeeOption,
   OpenShiftItem,
+  PendingDrop,
   PendingSwap,
   PendingTimeOff,
 } from "../_components/hub-panels"
@@ -107,6 +108,7 @@ export default async function ShiftsPage({
     pendingSwapsRes,
     pendingTimeOffRes,
     wagesRes,
+    pendingDropsRes,
   ] = await Promise.all([
     supabase
       .from("employees")
@@ -183,6 +185,13 @@ export default async function ShiftsPage({
       .from("employee_wages")
       .select("employee_id, hourly_rate")
       .eq("facility_id", facilityId),
+    supabase
+      .from("schedule_shift_drop_requests")
+      .select("id, shift_id, requester_employee_id, reason, created_at")
+      .eq("facility_id", facilityId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(20),
   ])
 
   const employees = (employeesRes.data ?? []) as (EmployeeLite & {
@@ -305,6 +314,30 @@ export default async function ShiftsPage({
 
   const swapShiftIds = swapRows.map((sw) => sw.requester_shift_id)
 
+  const pendingDrops: PendingDrop[] = (
+    (pendingDropsRes.data ?? []) as {
+      id: string
+      shift_id: string
+      requester_employee_id: string
+      reason: string | null
+      created_at: string
+    }[]
+  )
+    .map((d) => {
+      const s = shiftById.get(d.shift_id)
+      if (!s) return null
+      return {
+        id: d.id,
+        employeeName: empName(d.requester_employee_id) ?? "Unknown",
+        starts_at: s.starts_at,
+        ends_at: s.ends_at,
+        roleLabel: s.role_label,
+        reason: d.reason,
+        createdAt: d.created_at,
+      }
+    })
+    .filter((d): d is PendingDrop => d !== null)
+
   // Visible week for the publish-request button + label, computed on the
   // facility-local calendar (half-open window in facility-midnight instants)
   // so the published range matches what the approve RPC re-validates.
@@ -359,6 +392,7 @@ export default async function ShiftsPage({
         employeeOptions={employeeOptions}
         pendingSwaps={pendingSwaps}
         pendingTimeOff={pendingTimeOff}
+        pendingDrops={pendingDrops}
         swapShiftIds={swapShiftIds}
       />
     </div>

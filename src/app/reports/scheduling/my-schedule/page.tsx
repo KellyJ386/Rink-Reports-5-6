@@ -13,6 +13,15 @@ import { CalendarSyncCard } from "../_components/calendar-sync-card"
 import { WeekCalendar } from "../_components/week-calendar"
 import { formatDateRange } from "../_components/format-utils"
 import { NotAvailable } from "../_components/not-available"
+import {
+  MyPendingClaimsSection,
+  OpenShiftsSection,
+} from "../_components/open-shift-sections"
+import { loadOpenShiftBoard } from "../_lib/open-shifts"
+import {
+  CancelDropButton,
+  DropShiftButton,
+} from "../_components/drop-shift-button"
 import { shiftStatusTone } from "../_components/status-tones"
 import { startOfWeek, type ShiftStatus } from "../types"
 
@@ -113,13 +122,17 @@ export default async function MySchedulePage({
   // page and admin grid instead of hardcoding Sunday.
   const { data: settingsRow } = await supabase
     .from("schedule_settings")
-    .select("week_start_day")
+    .select(
+      "week_start_day, drop_requires_manager_approval, drop_min_notice_hours"
+    )
     .eq("facility_id", employeeRow.facility_id)
     .maybeSingle()
   const weekStartDay: number =
     typeof settingsRow?.week_start_day === "number"
       ? settingsRow.week_start_day
       : 0
+  const dropRequiresApproval = settingsRow?.drop_requires_manager_approval ?? true
+  const dropMinNoticeHours = settingsRow?.drop_min_notice_hours ?? 0
 
   const weekStart = startOfWeek(
     params.weekOf ? toLocalDate(params.weekOf) : new Date(),
@@ -179,6 +192,40 @@ export default async function MySchedulePage({
     .select("token")
     .eq("employee_id", employeeRow.id)
     .maybeSingle<{ token: string }>()
+
+  // Shifts going spare, surfaced right where people actually check their
+  // schedule (the hub renders the same two lists from the same loader).
+  const nowForBoard = new Date()
+  const [{ openShifts, myPendingClaims }, { data: pendingDropsRaw }] =
+    await Promise.all([
+      loadOpenShiftBoard(supabase, {
+        facilityId: employeeRow.facility_id,
+        employeeId: employeeRow.id,
+        now: nowForBoard,
+      }),
+      supabase
+        .from("schedule_shift_drop_requests")
+        .select("id, shift_id, status, created_at")
+        .eq("requester_employee_id", employeeRow.id)
+        .eq("status", "pending"),
+    ])
+
+  const pendingDropByShift = new Map(
+    ((pendingDropsRaw ?? []) as { id: string; shift_id: string }[]).map((d) => [
+      d.shift_id,
+      d.id,
+    ])
+  )
+
+  // A shift is droppable when it's published, still ahead of us, and clears the
+  // facility's notice window — the same rules scheduling_request_shift_drop
+  // enforces, checked here only so we don't offer a button that must fail.
+  const dropCutoffMs =
+    nowForBoard.getTime() + dropMinNoticeHours * 60 * 60 * 1000
+  function canDrop(shift: { status: string; starts_at: string }): boolean {
+    if (shift.status !== "published") return false
+    return new Date(shift.starts_at).getTime() > dropCutoffMs
+  }
   const h = await headers()
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000"
   const proto = h.get("x-forwarded-proto") ?? "https"
@@ -220,6 +267,10 @@ export default async function MySchedulePage({
           </Link>
         }
       />
+
+      <OpenShiftsSection rows={openShifts} timezone={tz} />
+
+      <MyPendingClaimsSection rows={myPendingClaims} timezone={tz} />
 
       {/* View toggle */}
       <div className="flex w-fit gap-1 rounded-md border border-border bg-card p-1">
@@ -333,6 +384,21 @@ export default async function MySchedulePage({
                     >
                       {statusLabel(s.status)}
                     </span>
+                    {pendingDropByShift.has(s.id) ? (
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground">
+                          Drop pending
+                        </span>
+                        <CancelDropButton
+                          dropId={pendingDropByShift.get(s.id) as string}
+                        />
+                      </span>
+                    ) : canDrop(s) ? (
+                      <DropShiftButton
+                        shiftId={s.id}
+                        requiresApproval={dropRequiresApproval}
+                      />
+                    ) : null}
                   </div>
                 )
               })}

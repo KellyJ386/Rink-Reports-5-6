@@ -91,7 +91,14 @@ This app is a PWA. The service worker (`public/sw.js`) owns the offline submissi
 - On flush, the SW POSTs to `/api/offline-sync` which upserts into `offline_sync_queue` with `onConflict: "local_id"` for idempotency.
 When adding a new submission flow, route writes through the SW queue + this endpoint rather than calling Supabase directly from the browser.
 
-**Scheduling is a deliberate exception.** Staff scheduling writes (time-off, availability) enqueue via `enqueueSubmission(moduleKey:"scheduling")` and replay in `src/app/api/offline-sync/route.ts`. The **admin scheduling grid** (drag-create / edit / delete in `src/app/admin/scheduling/_lib/grid-actions.ts`) is intentionally **online-only** — scheduling is a desk task, and offline replay would have to re-run the cert / hour-cap / publish-lock enforcement server-side at flush time. This is a conscious scope decision, noted at the top of `grid-actions.ts`.
+**Scheduling is a deliberate exception.** The *append-style* staff writes (time-off, availability) enqueue via `enqueueSubmission(moduleKey:"scheduling")` and replay in `src/app/api/offline-sync/route.ts`. Everything that mutates a **published shift** is intentionally **online-only**, because each one goes through a SECURITY DEFINER RPC that re-validates at execution time and replaying it would revalidate against a world that has moved on:
+
+- the **admin grid** (drag-create / edit / delete in `src/app/admin/scheduling/_lib/grid-actions.ts`) — cert / hour-cap / publish-lock enforcement;
+- **claiming an open shift** (`scheduling_claim_open_shift`) and **dropping a shift** (`scheduling_request_shift_drop`, migration 234) — both re-check assignability / ownership at the moment they run.
+
+These are conscious scope decisions, noted at the call sites.
+
+**Shift drops (migration 234).** Staff release a shift back to the open pool via `scheduling_request_shift_drop`; a scheduling admin decides it with `scheduling_decide_shift_drop`, which unassigns the shift and lists it in `schedule_open_shifts`. Gated by `schedule_settings.drop_requires_manager_approval` (default true — turning it off lets someone leave a shift uncovered unilaterally) and `drop_min_notice_hours` (default 0). Releasing a published shift is only possible from a DEFINER function, which is exempt from the `schedule_shifts_publish_lock` trigger.
 
 ### Timezones (scheduling especially)
 
