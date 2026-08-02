@@ -168,6 +168,16 @@ create policy schedule_shift_drop_requests_delete
 -- 3. Notification types
 -- ---------------------------------------------------------------------------
 
+-- Postgres cannot add a value to a CHECK, so widening the domain means DROP +
+-- ADD with the WHOLE list restated. Repeating migration 158's warning because
+-- it is the exact trap here: every existing value must be carried forward or
+-- the DROP + ADD silently NARROWS the domain. The full set as of this
+-- migration is migration 15's eight, plus 'shift_reminder' (migration 20),
+-- plus 'swap_expired' / 'claim_expired' (migration 158) — those last two are
+-- inserted by scheduling_expire_stale_swaps, which /api/cron/expire-scheduling
+-- runs every 10 minutes, so dropping them breaks the expiry sweep in
+-- production. rls_isolation.sql now inserts one row of every value below, so a
+-- future restatement that loses one fails CI instead of a cron.
 alter table public.schedule_notifications
   drop constraint if exists schedule_notifications_notification_type_check;
 alter table public.schedule_notifications
@@ -176,6 +186,7 @@ alter table public.schedule_notifications
     'schedule_published','shift_changed','open_shift_available',
     'swap_request_received','swap_approved','swap_denied',
     'time_off_decided','overtime_warning','shift_reminder',
+    'swap_expired','claim_expired',
     'shift_drop_requested','shift_drop_decided'
   ));
 

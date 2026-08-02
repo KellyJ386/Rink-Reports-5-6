@@ -5268,6 +5268,51 @@ COMMENT ON FUNCTION public.scheduling_blocking_violations(p_facility_id uuid, p_
 
 
 --
+-- Name: scheduling_cancel_shift_drop(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_cancel_shift_drop(p_drop_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_employee_id uuid := public.current_employee_id();
+  v_facility_id uuid := public.current_facility_id();
+  v_drop        public.schedule_shift_drop_requests%rowtype;
+begin
+  select * into v_drop
+    from public.schedule_shift_drop_requests
+   where id = p_drop_id
+   for update;
+
+  if not found
+     or v_drop.facility_id is distinct from v_facility_id
+     or v_drop.requester_employee_id is distinct from v_employee_id then
+    return jsonb_build_object('ok', false, 'error', 'Request not found.');
+  end if;
+
+  if v_drop.status <> 'pending' then
+    return jsonb_build_object('ok', false, 'error', 'This request can no longer be withdrawn.');
+  end if;
+
+  update public.schedule_shift_drop_requests
+     set status = 'cancelled', decided_at = now()
+   where id = p_drop_id
+     and status = 'pending';
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_cancel_shift_drop(p_drop_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_cancel_shift_drop(p_drop_id uuid) IS 'Staff: withdraw your own still-pending shift-drop request.';
+
+
+--
 -- Name: scheduling_claim_open_shift(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5464,6 +5509,122 @@ $$;
 --
 
 COMMENT ON FUNCTION public.scheduling_decide_open_claim(p_open_shift_id uuid, p_approve boolean, p_note text) IS 'Admin decision on an approval-required open-shift claim. Approve: re-validates the claimant via scheduling_assignment_violations, assigns the still-unassigned parent shift, marks the listing filled, notifies the claimant. Decline: reopens the listing and notifies. Atomic and race-safe (FOR UPDATE on listing + shift). Returns jsonb {ok, decision?, error?, violations?}.';
+
+
+--
+-- Name: scheduling_decide_shift_drop(uuid, boolean, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_decide_shift_drop(p_drop_id uuid, p_approve boolean, p_note text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_actor_id    uuid := public.current_employee_id();
+  v_facility_id uuid := public.current_facility_id();
+  v_drop        public.schedule_shift_drop_requests%rowtype;
+  v_shift       public.schedule_shifts%rowtype;
+begin
+  select * into v_drop
+    from public.schedule_shift_drop_requests
+   where id = p_drop_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'Request not found.');
+  end if;
+
+  -- DEFINER bypasses RLS, so this is the fence. Super admins are exempt from
+  -- the facility match; everyone else must hold the scheduling admin grant AND
+  -- be in the request's own facility. Same "not found" message either way so
+  -- the RPC can't confirm another facility's ids.
+  if not (
+    public.is_super_admin()
+    or (
+      public.has_module_admin_access('scheduling')
+      and v_drop.facility_id = v_facility_id
+    )
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'Request not found.');
+  end if;
+
+  if v_drop.status <> 'pending' then
+    return jsonb_build_object('ok', false, 'error', format('Request is already %s.', v_drop.status));
+  end if;
+
+  select * into v_shift
+    from public.schedule_shifts
+   where id = v_drop.shift_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'The shift no longer exists.');
+  end if;
+
+  if p_approve then
+    -- Re-check the snapshot: if the shift moved to someone else (a swap, an
+    -- admin edit) since the request was filed, releasing it would take it away
+    -- from whoever holds it now.
+    if v_shift.employee_id is distinct from v_drop.requester_employee_id then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'That shift is no longer assigned to the employee who asked to drop it.');
+    end if;
+    if v_shift.status <> 'published' then
+      return jsonb_build_object('ok', false, 'error', 'That shift is no longer published.');
+    end if;
+
+    perform public.scheduling_release_shift_to_pool(v_drop.shift_id, v_drop.facility_id);
+  end if;
+
+  update public.schedule_shift_drop_requests
+     set status                 = case when p_approve then 'approved' else 'denied' end,
+         decided_by_employee_id = v_actor_id,
+         decided_at             = now(),
+         decision_note          = nullif(btrim(coalesce(p_note, '')), '')
+   where id = p_drop_id;
+
+  -- Always tell the requester.
+  insert into public.schedule_notifications (
+    facility_id, employee_id, notification_type, shift_id, drop_id, payload
+  ) values (
+    v_drop.facility_id, v_drop.requester_employee_id, 'shift_drop_decided',
+    v_drop.shift_id, p_drop_id,
+    jsonb_build_object(
+      'decision', case when p_approve then 'approved' else 'denied' end,
+      'decision_note', nullif(btrim(coalesce(p_note, '')), ''),
+      'starts_at', v_shift.starts_at,
+      'ends_at', v_shift.ends_at)
+  );
+
+  -- On approval the shift is now up for grabs — tell everyone else.
+  if p_approve then
+    insert into public.schedule_notifications (
+      facility_id, employee_id, notification_type, shift_id, drop_id, payload
+    )
+    select v_drop.facility_id, e.id, 'open_shift_available', v_drop.shift_id, p_drop_id,
+           jsonb_build_object(
+             'starts_at', v_shift.starts_at,
+             'ends_at', v_shift.ends_at,
+             'message', 'A shift is available to pick up.')
+      from public.employees e
+     where e.facility_id = v_drop.facility_id
+       and e.is_active = true
+       and e.id <> v_drop.requester_employee_id;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'decision', case when p_approve then 'approved' else 'denied' end);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_decide_shift_drop(p_drop_id uuid, p_approve boolean, p_note text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_decide_shift_drop(p_drop_id uuid, p_approve boolean, p_note text) IS 'Scheduling admin: approve (release the shift to the open pool) or deny a staff shift-drop request. Re-checks that the shift is still assigned to the requester before releasing it.';
 
 
 --
@@ -5747,6 +5908,185 @@ $$;
 --
 
 COMMENT ON FUNCTION public.scheduling_notify_swap_request(p_swap_id uuid) IS 'Fires the swap_request_received notification to the swap''s target employee. Callable only by the swap''s requester (notification INSERT is otherwise admin-only since migration 136); idempotent per swap.';
+
+
+--
+-- Name: scheduling_release_shift_to_pool(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_release_shift_to_pool(p_shift_id uuid, p_facility_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_first_come boolean;
+begin
+  select coalesce(open_shift_first_come, true) into v_first_come
+    from public.schedule_settings
+   where facility_id = p_facility_id;
+
+  update public.schedule_shifts
+     set employee_id = null
+   where id = p_shift_id;
+
+  -- approval_required snapshots (NOT open_shift_first_come) at creation time,
+  -- exactly as scheduling_approve_publish_request does.
+  insert into public.schedule_open_shifts (
+    facility_id, shift_id, claim_status, approval_required
+  )
+  values (
+    p_facility_id, p_shift_id, 'open', not coalesce(v_first_come, true)
+  )
+  on conflict (shift_id) do update
+    set claim_status           = 'open',
+        claimed_by_employee_id = null,
+        claimed_at             = null,
+        approved_by_employee_id = null,
+        approved_at            = null;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_release_shift_to_pool(p_shift_id uuid, p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_release_shift_to_pool(p_shift_id uuid, p_facility_id uuid) IS 'Internal: unassign a shift and (re)list it as an open shift. Called only by the shift-drop RPCs; not granted to any client role.';
+
+
+--
+-- Name: scheduling_request_shift_drop(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.scheduling_request_shift_drop(p_shift_id uuid, p_reason text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_employee_id uuid := public.current_employee_id();
+  v_facility_id uuid := public.current_facility_id();
+  v_shift       public.schedule_shifts%rowtype;
+  v_settings    public.schedule_settings%rowtype;
+  v_needs_admin boolean;
+  v_notice      integer;
+  v_drop_id     uuid;
+  v_admin       record;
+begin
+  if v_employee_id is null then
+    return jsonb_build_object('ok', false, 'error', 'Your account isn''t set up for scheduling.');
+  end if;
+  if not public.has_module_submit_access('scheduling') then
+    return jsonb_build_object('ok', false, 'error', 'You don''t have permission to drop shifts.');
+  end if;
+
+  select * into v_shift
+    from public.schedule_shifts
+   where id = p_shift_id
+   for update;
+
+  -- Same message for "not found" and "not yours" so the RPC can't be used to
+  -- probe for another facility's shift ids.
+  if not found
+     or v_shift.facility_id is distinct from v_facility_id
+     or v_shift.employee_id is distinct from v_employee_id then
+    return jsonb_build_object('ok', false, 'error', 'Shift not found.');
+  end if;
+
+  if v_shift.status <> 'published' then
+    return jsonb_build_object('ok', false, 'error', 'Only a published shift can be dropped.');
+  end if;
+  if v_shift.starts_at <= now() then
+    return jsonb_build_object('ok', false, 'error', 'That shift has already started.');
+  end if;
+
+  select * into v_settings
+    from public.schedule_settings
+   where facility_id = v_facility_id;
+
+  v_notice := coalesce(v_settings.drop_min_notice_hours, 0);
+  if v_notice > 0 and v_shift.starts_at < now() + make_interval(hours => v_notice) then
+    return jsonb_build_object(
+      'ok', false,
+      'error', format(
+        'Shifts must be dropped at least %s hours ahead. Contact your manager.',
+        v_notice)
+    );
+  end if;
+
+  if exists (
+    select 1 from public.schedule_shift_drop_requests
+     where shift_id = p_shift_id and status = 'pending'
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'You already have a pending request for this shift.');
+  end if;
+
+  v_needs_admin := coalesce(v_settings.drop_requires_manager_approval, true);
+
+  insert into public.schedule_shift_drop_requests (
+    facility_id, shift_id, requester_employee_id, status, reason,
+    decided_by_employee_id, decided_at
+  ) values (
+    v_facility_id, p_shift_id, v_employee_id,
+    case when v_needs_admin then 'pending' else 'approved' end,
+    nullif(btrim(coalesce(p_reason, '')), ''),
+    case when v_needs_admin then null else v_employee_id end,
+    case when v_needs_admin then null else now() end
+  )
+  returning id into v_drop_id;
+
+  if v_needs_admin then
+    -- Tell every scheduling admin in the facility there's something to decide.
+    for v_admin in
+      select distinct e.id
+        from public.employees e
+        join public.user_permissions up on up.user_id = e.user_id
+       where e.facility_id = v_facility_id
+         and e.is_active = true
+         and up.facility_id = v_facility_id
+         and up.module_name = 'scheduling'
+         and up.action = 'admin'
+         and up.enabled = true
+    loop
+      insert into public.schedule_notifications (
+        facility_id, employee_id, notification_type, shift_id, drop_id, payload
+      ) values (
+        v_facility_id, v_admin.id, 'shift_drop_requested', p_shift_id, v_drop_id,
+        jsonb_build_object(
+          'starts_at', v_shift.starts_at,
+          'ends_at', v_shift.ends_at,
+          'message', 'An employee asked to drop a shift.')
+      );
+    end loop;
+
+    return jsonb_build_object('ok', true, 'status', 'pending', 'drop_id', v_drop_id);
+  end if;
+
+  -- Auto-approve path: the facility has turned manager approval off.
+  perform public.scheduling_release_shift_to_pool(p_shift_id, v_facility_id);
+
+  insert into public.schedule_notifications (
+    facility_id, employee_id, notification_type, shift_id, drop_id, payload
+  )
+  select v_facility_id, e.id, 'open_shift_available', p_shift_id, v_drop_id,
+         jsonb_build_object(
+           'starts_at', v_shift.starts_at,
+           'ends_at', v_shift.ends_at,
+           'message', 'A shift is available to pick up.')
+    from public.employees e
+   where e.facility_id = v_facility_id
+     and e.is_active = true
+     and e.id <> v_employee_id;
+
+  return jsonb_build_object('ok', true, 'status', 'approved', 'drop_id', v_drop_id);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION scheduling_request_shift_drop(p_shift_id uuid, p_reason text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.scheduling_request_shift_drop(p_shift_id uuid, p_reason text) IS 'Staff: ask to be released from one of your own published, future shifts. Files a pending request, or releases the shift straight to the open pool when the facility has drop_requires_manager_approval off.';
 
 
 --
@@ -12314,7 +12654,8 @@ CREATE TABLE public.schedule_notifications (
     updated_at timestamp with time zone,
     acknowledged_at timestamp with time zone,
     publish_event_id uuid,
-    CONSTRAINT schedule_notifications_notification_type_check CHECK ((notification_type = ANY (ARRAY['schedule_published'::text, 'shift_changed'::text, 'open_shift_available'::text, 'swap_request_received'::text, 'swap_approved'::text, 'swap_denied'::text, 'time_off_decided'::text, 'overtime_warning'::text, 'shift_reminder'::text, 'swap_expired'::text, 'claim_expired'::text])))
+    drop_id uuid,
+    CONSTRAINT schedule_notifications_notification_type_check CHECK ((notification_type = ANY (ARRAY['schedule_published'::text, 'shift_changed'::text, 'open_shift_available'::text, 'swap_request_received'::text, 'swap_approved'::text, 'swap_denied'::text, 'time_off_decided'::text, 'overtime_warning'::text, 'shift_reminder'::text, 'swap_expired'::text, 'claim_expired'::text, 'shift_drop_requested'::text, 'shift_drop_decided'::text])))
 );
 
 
@@ -12337,6 +12678,13 @@ COMMENT ON COLUMN public.schedule_notifications.acknowledged_at IS 'Set when the
 --
 
 COMMENT ON COLUMN public.schedule_notifications.publish_event_id IS 'For schedule_published notifications: the schedule_publish_events row this notification belongs to. Stamped by scheduling_approve_publish_request.';
+
+
+--
+-- Name: COLUMN schedule_notifications.drop_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_notifications.drop_id IS 'Links a shift_drop_* notification to its schedule_shift_drop_requests row, mirroring the existing shift_id / swap_id / time_off_id columns.';
 
 
 --
@@ -12461,7 +12809,10 @@ CREATE TABLE public.schedule_settings (
     default_hourly_rate numeric,
     operating_hours_start_minute integer DEFAULT 360 NOT NULL,
     operating_hours_end_minute integer DEFAULT 1380 NOT NULL,
+    drop_requires_manager_approval boolean DEFAULT true NOT NULL,
+    drop_min_notice_hours integer DEFAULT 0 NOT NULL,
     CONSTRAINT schedule_settings_default_hourly_rate_check CHECK (((default_hourly_rate IS NULL) OR ((default_hourly_rate >= (0)::numeric) AND (default_hourly_rate <= (10000)::numeric)))),
+    CONSTRAINT schedule_settings_drop_min_notice_hours_check CHECK (((drop_min_notice_hours >= 0) AND (drop_min_notice_hours <= 8760))),
     CONSTRAINT schedule_settings_operating_hours_check CHECK (((operating_hours_start_minute >= 0) AND (operating_hours_start_minute < 1440) AND (operating_hours_end_minute > operating_hours_start_minute) AND (operating_hours_end_minute <= 1440))),
     CONSTRAINT schedule_settings_swap_expiry_hours_check CHECK ((swap_expiry_hours > 0)),
     CONSTRAINT schedule_settings_week_start_day_check CHECK (((week_start_day >= 0) AND (week_start_day <= 6)))
@@ -12529,6 +12880,47 @@ COMMENT ON COLUMN public.schedule_settings.operating_hours_start_minute IS 'Faci
 --
 
 COMMENT ON COLUMN public.schedule_settings.operating_hours_end_minute IS 'Facility closing time as minutes since local midnight (1-1440). 1440 means midnight, so a rink with late ice can be modelled exactly.';
+
+
+--
+-- Name: COLUMN schedule_settings.drop_requires_manager_approval; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_settings.drop_requires_manager_approval IS 'true (default) = a staff shift drop is a REQUEST a scheduling admin must approve before the shift is released. false = the drop takes effect immediately and the shift goes straight to the open-shift pool, which can leave a shift uncovered with nobody signing off — opt in deliberately.';
+
+
+--
+-- Name: COLUMN schedule_settings.drop_min_notice_hours; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.schedule_settings.drop_min_notice_hours IS 'Minimum hours between now and a shift''s start for staff to be allowed to drop it. 0 (default) = no cutoff.';
+
+
+--
+-- Name: schedule_shift_drop_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.schedule_shift_drop_requests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    shift_id uuid NOT NULL,
+    requester_employee_id uuid NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    reason text,
+    decided_by_employee_id uuid,
+    decided_at timestamp with time zone,
+    decision_note text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT schedule_shift_drop_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'denied'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: TABLE schedule_shift_drop_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.schedule_shift_drop_requests IS 'Scheduling: an employee asking to be released from a published shift. On approval the shift is unassigned and listed in schedule_open_shifts for anyone to claim. Status transitions happen only through the scheduling_*_shift_drop RPCs.';
 
 
 --
@@ -14513,6 +14905,14 @@ ALTER TABLE ONLY public.schedule_settings
 
 ALTER TABLE ONLY public.schedule_settings
     ADD CONSTRAINT schedule_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_shift_drop_requests
+    ADD CONSTRAINT schedule_shift_drop_requests_pkey PRIMARY KEY (id);
 
 
 --
@@ -17145,6 +17545,27 @@ CREATE INDEX idx_schedule_time_off_status_starts ON public.schedule_time_off_req
 
 
 --
+-- Name: idx_shift_drop_requests_facility_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_shift_drop_requests_facility_status ON public.schedule_shift_drop_requests USING btree (facility_id, status, created_at DESC);
+
+
+--
+-- Name: idx_shift_drop_requests_one_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_shift_drop_requests_one_pending ON public.schedule_shift_drop_requests USING btree (shift_id) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: idx_shift_drop_requests_requester; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_shift_drop_requests_requester ON public.schedule_shift_drop_requests USING btree (requester_employee_id, created_at DESC);
+
+
+--
 -- Name: idx_users_facility_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -18990,6 +19411,13 @@ CREATE TRIGGER trg_schedule_publish_requests_updated_at BEFORE UPDATE ON public.
 --
 
 CREATE TRIGGER trg_schedule_settings_updated_at BEFORE UPDATE ON public.schedule_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: schedule_shift_drop_requests trg_schedule_shift_drop_requests_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_schedule_shift_drop_requests_updated_at BEFORE UPDATE ON public.schedule_shift_drop_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -21404,6 +21832,14 @@ ALTER TABLE ONLY public.schedule_ics_tokens
 
 
 --
+-- Name: schedule_notifications schedule_notifications_drop_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_notifications
+    ADD CONSTRAINT schedule_notifications_drop_id_fkey FOREIGN KEY (drop_id) REFERENCES public.schedule_shift_drop_requests(id) ON DELETE CASCADE;
+
+
+--
 -- Name: schedule_notifications schedule_notifications_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -21537,6 +21973,38 @@ ALTER TABLE ONLY public.schedule_publish_requests
 
 ALTER TABLE ONLY public.schedule_settings
     ADD CONSTRAINT schedule_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_decided_by_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_shift_drop_requests
+    ADD CONSTRAINT schedule_shift_drop_requests_decided_by_employee_id_fkey FOREIGN KEY (decided_by_employee_id) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_shift_drop_requests
+    ADD CONSTRAINT schedule_shift_drop_requests_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_requester_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_shift_drop_requests
+    ADD CONSTRAINT schedule_shift_drop_requests_requester_employee_id_fkey FOREIGN KEY (requester_employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_shift_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedule_shift_drop_requests
+    ADD CONSTRAINT schedule_shift_drop_requests_shift_id_fkey FOREIGN KEY (shift_id) REFERENCES public.schedule_shifts(id) ON DELETE CASCADE;
 
 
 --
@@ -25720,6 +26188,40 @@ CREATE POLICY schedule_settings_select ON public.schedule_settings FOR SELECT TO
 --
 
 CREATE POLICY schedule_settings_update ON public.schedule_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))));
+
+
+--
+-- Name: schedule_shift_drop_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.schedule_shift_drop_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_shift_drop_requests_delete ON public.schedule_shift_drop_requests FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_shift_drop_requests_insert ON public.schedule_shift_drop_requests FOR INSERT TO authenticated WITH CHECK (((facility_id = public.current_facility_id()) AND (requester_employee_id = public.current_employee_id()) AND public.has_module_submit_access('scheduling'::text) AND (status = 'pending'::text)));
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_shift_drop_requests_select ON public.schedule_shift_drop_requests FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND ((requester_employee_id = public.current_employee_id()) OR public.has_module_admin_access('scheduling'::text)))));
+
+
+--
+-- Name: schedule_shift_drop_requests schedule_shift_drop_requests_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY schedule_shift_drop_requests_update ON public.schedule_shift_drop_requests FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (((requester_employee_id = public.current_employee_id()) AND (status = 'pending'::text)) OR public.has_module_admin_access('scheduling'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (((requester_employee_id = public.current_employee_id()) AND (status = 'cancelled'::text)) OR public.has_module_admin_access('scheduling'::text)))));
 
 
 --

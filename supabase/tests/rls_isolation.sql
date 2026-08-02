@@ -7933,6 +7933,65 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- E-6. schedule_notifications.notification_type domain coverage.
+--
+-- The domain is an enumerated CHECK, and Postgres has no "add a value" — so
+-- every migration that introduces a type must DROP + ADD with the whole list
+-- restated. Migration 158 warned that this silently NARROWS the domain if a
+-- value is missed, and migration 234 promptly did exactly that (it dropped
+-- 'swap_expired' / 'claim_expired', which scheduling_expire_stale_swaps
+-- inserts from the 10-minute expiry cron).
+--
+-- Inserting one row of EVERY permitted value turns that class of mistake into
+-- a CI failure here instead of a broken cron in production. When a migration
+-- legitimately adds a type, add it to this list too.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+do $$
+declare
+  v_type text;
+  v_types text[] := array[
+    'schedule_published','shift_changed','open_shift_available',
+    'swap_request_received','swap_approved','swap_denied',
+    'time_off_decided','overtime_warning','shift_reminder',
+    'swap_expired','claim_expired',
+    'shift_drop_requested','shift_drop_decided'
+  ];
+begin
+  foreach v_type in array v_types loop
+    begin
+      insert into public.schedule_notifications (
+        facility_id, employee_id, notification_type
+      ) values (
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        v_type
+      );
+    exception when others then
+      insert into _rls_failures (msg)
+      values (format(
+        'FAIL: E-6: notification_type %L was REMOVED from the CHECK domain (%s). '
+        'A migration restated the constraint and dropped it.', v_type, sqlerrm));
+    end;
+  end loop;
+end$$;
+
+-- And the constraint must still REJECT an unknown value — otherwise a
+-- migration that widened it to anything would pass the loop above.
+select pg_temp.expect_error(
+  $$insert into public.schedule_notifications (
+      facility_id, employee_id, notification_type
+    ) values (
+      '11111111-1111-1111-1111-111111111111',
+      'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'not_a_real_notification_type')$$,
+  'E-6: an unknown notification_type is still rejected');
+reset role;
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
