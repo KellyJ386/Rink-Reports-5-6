@@ -238,26 +238,40 @@ What was done, and why:
   and nothing in 208–232 redefines `dasher_boards_assets_guard`, so the
   backlog will not clobber 233's `display_number` freeze when it lands.
 
-**Consequence — do not merge migration changes on autopilot.** With 208–232
-sitting below the applied 233, `deploy-migrations.yml` runs a bare
-`supabase db push` (pinned to CLI `latest`), which refuses to insert
-migrations behind the last applied version and exits non-zero. Before merging,
-either gate that workflow or clear the backlog first.
+**Consequence — merges that touch `supabase/migrations/**` will fail until the
+backlog clears.** With 208–232 sitting below the applied 233, a bare
+`supabase db push` refuses to insert behind the last applied version and exits
+non-zero. `deploy-migrations.yml` now detects this *before* pushing (the
+"Guard against an out-of-order backlog" step) and fails with a pointer here,
+so the condition is reported rather than discovered in a CLI error.
 
-Clearing the backlog (`208`–`232`) is a **watched, deliberate** job, because
+That guard exists because the CLI's own error names `--include-all` as the fix.
+Pasting that flag into a rerun would apply **every** pending migration below
+the high-water mark in one unattended shot — including 222. Do not do that.
+
+### Clearing the backlog (208–232) — deliberate, watched
+
 `00000000000222_audit_logs_partitioning_pilot.sql` is a non-reversible
-partitioning cutover — rollback is PITR. It also cannot be cherry-picked: it
-renames the `seq` / `prev_hash` / `row_hash` objects that only arrive in
-`00000000000217`. Confirm PITR/backup state first, then push with
-`--include-all` **once**:
+partitioning cutover; rollback is PITR. It also cannot be cherry-picked, since
+it renames the `seq` / `prev_hash` / `row_hash` objects that only arrive in
+`00000000000217`. So the backlog goes as one run, with someone watching:
 
-```bash
-supabase db push --include-all
-```
+1. Confirm PITR / backup state in the Supabase dashboard. Nothing else here
+   substitutes for this.
+2. Actions → **Deploy Migrations** → **Run workflow**, tick **`include_all`**.
+   That is the only supported way to push `--include-all`; it skips the guard
+   for that run only and logs a warning, so the choice is visible in the run
+   history.
+3. Watch the output through 222, then confirm the chain is intact:
 
-Once the ledger is contiguous through 233, `db push` is plain incremental
-again — **drop `--include-all`**; it should never be a standing flag in
-`deploy-migrations.yml`.
+   ```sql
+   select * from public.verify_all_audit_chains();
+   ```
+
+Once the ledger is contiguous through 233 the guard passes on its own and
+`db push` is plain incremental again. **Leave `include_all` unticked** for
+every routine deploy — it is a per-run choice by design and must never become
+a standing flag in the workflow.
 
 > Sizing note, so the window isn't over-planned: at the time of writing
 > `audit_logs` held 1,081 rows in ~800 kB of heap. The ~269 MB the table

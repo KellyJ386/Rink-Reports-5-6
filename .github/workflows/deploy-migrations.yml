@@ -51,6 +51,16 @@ on:
   # Manual trigger so a failed/auto-skipped run can be retried without an
   # empty commit, and so the one-time setup can be validated on demand.
   workflow_dispatch:
+    inputs:
+      include_all:
+        description: >-
+          Apply migrations sitting BELOW the remote high-water mark
+          (supabase db push --include-all). Only for a deliberate, watched
+          backlog run — see "August 2026" in docs/DEPLOY.md. The backlog
+          currently contains migration 222, a NON-REVERSIBLE audit_logs
+          partitioning cutover. Never enable this for a routine deploy.
+        type: boolean
+        default: false
 
 # Never let two deploys race the same project — migrations are stateful.
 concurrency:
@@ -92,8 +102,72 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: supabase migration list --linked
 
+      # An out-of-order backlog is the one situation where a rerun can quietly
+      # become something much larger than a deploy: `db push` refuses it and
+      # names --include-all in the error, and pasting that flag in applies
+      # EVERY pending migration below the high-water mark in one unattended
+      # shot. Fail here first, with the runbook, so that choice is made
+      # deliberately via workflow_dispatch rather than by copying a hint out
+      # of a red log.
+      - name: Guard against an out-of-order backlog
+        if: ${{ inputs.include_all != true }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # Strip ANSI colour and normalise the box-drawing column separator so
+          # the table parses the same locally and on the runner.
+          supabase migration list --linked \
+            | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/│/|/g' \
+            > migration-list.txt
+
+          # Column 1 = local version, column 2 = remote version (blank when the
+          # migration has not been applied). Anything pending whose version
+          # sorts below the highest applied version is out of order.
+          awk -F'|' '
+            {
+              l = $1; r = $2
+              gsub(/[^0-9]/, "", l); gsub(/[^0-9]/, "", r)
+              if (r != "" && r + 0 > maxr) maxr = r + 0
+              if (l != "" && r == "") pending[np++] = l
+            }
+            END {
+              for (i = 0; i < np; i++)
+                if (pending[i] + 0 < maxr) print pending[i]
+            }
+          ' migration-list.txt > out-of-order.txt
+
+          if [ -s out-of-order.txt ]; then
+            {
+              echo "Refusing to deploy: these migrations sit below the last version applied on the remote database."
+              echo
+              sed 's/^/  /' out-of-order.txt
+              echo
+              echo "A bare 'supabase db push' will fail on this, and rerunning it with"
+              echo "--include-all would apply the whole list unattended."
+              echo
+              echo "Read the 'August 2026' section of docs/DEPLOY.md first. When you are"
+              echo "ready to run the backlog deliberately — PITR confirmed, watching the"
+              echo "output — use Actions -> Deploy Migrations -> Run workflow and tick"
+              echo "'include_all'."
+            } >&2
+            echo "::error::Out-of-order migration backlog — see docs/DEPLOY.md before rerunning."
+            exit 1
+          fi
+
+          echo "No out-of-order migrations; the pending set is contiguous."
+
       - name: Push migrations
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase db push
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.include_all }}" = "true" ]; then
+            echo "::warning::Deliberate backlog run: pushing with --include-all."
+            supabase db push --include-all
+          else
+            supabase db push
+          fi
