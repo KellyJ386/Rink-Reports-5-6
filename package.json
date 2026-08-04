@@ -62,7 +62,9 @@
   "pnpm": {
     "overrides": {
       "ws": "^8.21.0",
-      "postcss": "^8.5.18"
+      "postcss": "^8.5.18",
+      "brace-expansion@1": "^1.1.18",
+      "brace-expansion@2": "^2.1.4"
     },
     "auditConfig": {
       "ignoreGhsas": [

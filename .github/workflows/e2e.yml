@@ -220,6 +220,48 @@ jobs:
         if: steps.gate.outputs.configured == 'true'
         run: pnpm test:e2e
 
+      # "05-incidents-accidents.spec.ts" (incident: submits when required
+      # fields are completed) submits a real incident report as the frontdesk
+      # test account against the live facility — there is no staging
+      # environment to isolate it in, and incident reports are intentionally
+      # immutable in-app (no delete action; admins can only archive). Left
+      # alone this accumulates one permanent row per run forever and
+      # inflates the real facility's incident-report counts. Purge it here,
+      # directly against the DB, every run — pass or fail (a failed run may
+      # still have gotten past that test) — so nightly runs never leave
+      # residue. Best-effort: if no DB credential is configured (e.g. a
+      # fork), skip with a notice rather than failing the job.
+      - name: Clean up synthetic incident report
+        if: always() && steps.gate.outputs.configured == 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -uo pipefail
+          REF="bqbdgwlhbhabsibjgwmk"
+          CANDIDATES=()
+          [ -n "${SUPABASE_DB_URL:-}" ] && CANDIDATES+=("$SUPABASE_DB_URL")
+          if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
+            ENCPW=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'],safe=''))")
+            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-0-us-east-1.pooler.supabase.com:5432/postgres")
+            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-1-us-east-1.pooler.supabase.com:5432/postgres")
+            CANDIDATES+=("postgresql://postgres:${ENCPW}@db.${REF}.supabase.co:5432/postgres")
+          fi
+          if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+            echo "::notice::No SUPABASE_DB_URL/SUPABASE_DB_PASSWORD configured — skipping synthetic incident cleanup."
+            exit 0
+          fi
+          DELETE_SQL="delete from public.incident_reports where reporter_name = 'E2E FrontDesk' and description = 'Spectator slipped near the entrance; no injury reported.'"
+          for URL in "${CANDIDATES[@]}"; do
+            HOSTDESC=$(echo "$URL" | sed -E 's|.*@([^/:]+).*|\1|')
+            if OUT=$(psql "$URL" -At -w -c "$DELETE_SQL" 2>/tmp/psql-cleanup.err); then
+              echo "Cleaned up synthetic incident report(s) via $HOSTDESC (deleted: ${OUT:-0})"
+              exit 0
+            fi
+            sed 's/:[^@:]*@/:***@/' /tmp/psql-cleanup.err || true
+          done
+          echo "::warning::Could not connect to the database to clean up the synthetic incident report — it will be purged on the next successful run."
+
       # e2e/report/ holds the HTML report, results.json, REPORT.md, and the
       # failure screenshots/traces/videos (see playwright.config.ts reporters).
       - name: Upload Playwright report
