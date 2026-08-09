@@ -30,6 +30,7 @@ import type { RinkOverlays } from "@/lib/ice-depth/overlay-shared"
 import { Textarea } from "@/components/ui/textarea"
 import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
+import { playSaveFeedback } from "@/lib/save-feedback"
 
 import { submitIceDepthSession, type SubmissionFormState } from "../actions"
 import type {
@@ -136,6 +137,7 @@ export function SubmissionForm({
       const trimmed = raw.trim()
       if (!isValidDepth(trimmed)) return false
       setValues((prev) => ({ ...prev, [pointId]: trimmed }))
+      playSaveFeedback()
       return true
     },
     [],
