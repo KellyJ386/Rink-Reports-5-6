@@ -8954,10 +8954,6 @@ export type Database = {
         Args: { p_batch_id: string }
         Returns: Json
       }
-      armor: {
-        Args: { "": string }
-        Returns: string
-      }
       audit_row_chain_hash: {
         Args: {
           p_action: string
@@ -9147,10 +9143,6 @@ export type Database = {
           ok: boolean
         }[]
       }
-      dearmor: {
-        Args: { "": string }
-        Returns: string
-      }
       dispatch_rules_for_submission: {
         Args: {
           p_area_id?: string
@@ -9178,18 +9170,6 @@ export type Database = {
       effective_module_permission_with_source: {
         Args: { p_employee_id: string; p_module_key: string }
         Returns: Record<string, unknown>
-      }
-      gen_random_bytes: {
-        Args: { "": number }
-        Returns: string
-      }
-      gen_random_uuid: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      gen_salt: {
-        Args: { "": string }
-        Returns: string
       }
       get_employee_counts_by_facility: {
         Args: Record<PropertyKey, never>
@@ -9253,14 +9233,6 @@ export type Database = {
       is_super_admin: {
         Args: Record<PropertyKey, never>
         Returns: boolean
-      }
-      pgp_armor_headers: {
-        Args: { "": string }
-        Returns: Record<string, unknown>[]
-      }
-      pgp_key_id: {
-        Args: { "": string }
-        Returns: string
       }
       purge_module_data: {
         Args: { p_facility_id: string; p_module_key: string }
