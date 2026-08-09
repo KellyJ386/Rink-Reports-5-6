@@ -7992,6 +7992,278 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- FB: Daily Reports form builder — form templates / fields / instances / day
+-- locks (migration 235). Covers the four form-builder audit checks:
+--   (a) locked-day writes rejected AT THE DATABASE with the UI and server
+--       actions bypassed (RLS for staff, the BEFORE trigger for everyone
+--       else including module admins);
+--   (b) publishing a new template version never alters an existing
+--       instance's frozen template_snapshot;
+--   (c) cross-facility access blocked by RLS on all four tables;
+--   (d) a client-supplied facility_id is refused by RLS WITH CHECK (the
+--       server actions additionally never accept one — their input shapes
+--       have no facility field; see src/app/reports/daily/instance-actions.ts).
+-- Fixture: Fiona holds daily_reports ADMIN in facility A; Alice (staff,
+-- module submit + can_submit on the Granted Area) and Bob (facility B) are
+-- the standing fixture users.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, email)
+values ('fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb', 'fiona@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb',
+        '11111111-1111-1111-1111-111111111111', 'fiona@fac-a.test', false)
+on conflict (id) do update set facility_id = excluded.facility_id;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'fbfb4444-fbfb-4fbf-8fbf-fbfbfbfbfbfb'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb'::uuid,
+       r.id, 'Fiona', 'Forms', 'fiona@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111'
+  and r.key = 'staff'
+on conflict (id) do nothing;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values
+  ('fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb',
+   '11111111-1111-1111-1111-111111111111',
+   'daily_reports', 'view'::public.user_action, true),
+  ('fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb',
+   '11111111-1111-1111-1111-111111111111',
+   'daily_reports', 'admin'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+-- Form template v1 (+ two fields) in facility A's Granted Area; one in B.
+insert into public.daily_report_form_templates (id, facility_id, area_id, name, version)
+values
+  ('aaaa1111-f0f0-4aaa-8aaa-aaaa11110001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011', 'Event Set Up Form', 1),
+  ('bbbb2222-f0f0-4bbb-8bbb-bbbb22220001',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-db01-bbbb-bbbb-bbbb22220011', 'B Form', 1)
+on conflict (id) do nothing;
+insert into public.daily_report_form_fields
+  (id, facility_id, template_id, label, field_type, options, required, sort_order)
+values
+  ('aaaa1111-f1f1-4aaa-8aaa-aaaa11110001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-f0f0-4aaa-8aaa-aaaa11110001', 'Event name', 'text', null, true, 0),
+  ('aaaa1111-f1f1-4aaa-8aaa-aaaa11110002',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-f0f0-4aaa-8aaa-aaaa11110001', 'Zone', 'select',
+   '["North","South"]'::jsonb, false, 1)
+on conflict (id) do nothing;
+
+-- Alice's draft instance for TODAY, carrying the frozen v1 snapshot.
+insert into public.daily_report_instances
+  (id, facility_id, area_id, report_date, title, template_id,
+   template_snapshot, responses, status, employee_id)
+values
+  ('aaaa1111-f2f2-4aaa-8aaa-aaaa11110001',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-da01-aaaa-aaaa-aaaa11110011', current_date, 'Friday Night Game',
+   'aaaa1111-f0f0-4aaa-8aaa-aaaa11110001',
+   '{"template_id":"aaaa1111-f0f0-4aaa-8aaa-aaaa11110001","template_name":"Event Set Up Form","version":1,"fields":[{"id":"aaaa1111-f1f1-4aaa-8aaa-aaaa11110001","label":"Event name","field_type":"text","options":null,"required":true,"sort_order":0}]}'::jsonb,
+   '{}'::jsonb, 'draft', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+on conflict (id) do nothing;
+
+-- Baseline: on an UNLOCKED day Alice can edit her own draft, so any failure
+-- below is unambiguously the lock (or fence) under test.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_ok(
+  $$update public.daily_report_instances
+      set responses = '{"aaaa1111-f1f1-4aaa-8aaa-aaaa11110001":"Hockey Night"}'::jsonb
+    where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'$$,
+  'FB: alice CAN save her own draft instance on an unlocked day');
+
+-- (b) Publishing a NEW VERSION (the only "edit" path) leaves existing
+-- instances untouched: Fiona inserts v2 with supersedes_id and stamps v1.
+set local request.jwt.claims to '{"sub":"fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb', true);
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_form_templates
+      (id, facility_id, area_id, name, version, supersedes_id)
+    values ('aaaa1111-f0f0-4aaa-8aaa-aaaa11110002',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'Event Set Up Form', 2,
+            'aaaa1111-f0f0-4aaa-8aaa-aaaa11110001')$$,
+  'FB: daily_reports module admin CAN publish a new template version');
+select pg_temp.expect_ok(
+  $$update public.daily_report_form_templates
+      set superseded_at = now(),
+          superseded_by = 'aaaa1111-f0f0-4aaa-8aaa-aaaa11110002'
+    where id = 'aaaa1111-f0f0-4aaa-8aaa-aaaa11110001'
+      and superseded_at is null$$,
+  'FB: module admin CAN stamp the old version superseded');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_instances
+    where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'
+      and (template_snapshot->>'version')::int = 1
+      and template_snapshot->'fields'->0->>'label' = 'Event name'$$,
+  1, 'FB: (b) existing instance still renders its FROZEN v1 snapshot after the v2 publish');
+-- The supersede chain cannot branch: a second "publish" against the same v1
+-- head hits the partial unique index on supersedes_id.
+select pg_temp.expect_error(
+  $$insert into public.daily_report_form_templates
+      (facility_id, area_id, name, version, supersedes_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011',
+            'Rogue publish', 3,
+            'aaaa1111-f0f0-4aaa-8aaa-aaaa11110001')$$,
+  'FB: a concurrent second publish of the same head is rejected (unique supersedes_id)');
+
+-- (c) Cross-facility isolation: Bob (facility B) sees nothing of facility A
+-- and cannot write into it. A yesterday-lock in facility A also stays
+-- invisible to him (and visible to Alice, who holds module view).
+set local role postgres;
+insert into public.daily_report_day_locks (facility_id, report_date)
+values ('11111111-1111-1111-1111-111111111111', current_date - 1)
+on conflict (facility_id, report_date) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_form_templates
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'FB: (c) bob CANNOT SELECT facility A form templates');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_form_fields
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'FB: (c) bob CANNOT SELECT facility A form fields');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_instances
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'FB: (c) bob CANNOT SELECT facility A report instances');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_day_locks
+    where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'FB: (c) bob CANNOT SELECT facility A day locks');
+select pg_temp.expect_error(
+  $$insert into public.daily_report_instances
+      (facility_id, area_id, report_date, title, template_id,
+       template_snapshot, responses, status, employee_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011', current_date, 'Spoofed',
+            'aaaa1111-f0f0-4aaa-8aaa-aaaa11110002',
+            '{"template_id":"x","template_name":"x","version":2,"fields":[]}'::jsonb,
+            '{}'::jsonb, 'draft', 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb')$$,
+  'FB: (c)(d) bob CANNOT INSERT an instance carrying facility A''s facility_id');
+
+-- (d) Alice tagging HER insert with facility B's id is refused by the same
+-- WITH CHECK fence (facility_id = current_facility_id()). Staff also cannot
+-- write day locks at all — locking is module-admin only.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.daily_report_instances
+      (facility_id, area_id, report_date, title, template_id,
+       template_snapshot, responses, status, employee_id)
+    values ('22222222-2222-2222-2222-222222222222',
+            'bbbb2222-db01-bbbb-bbbb-bbbb22220011', current_date, 'Wrong facility',
+            'bbbb2222-f0f0-4bbb-8bbb-bbbb22220001',
+            '{"template_id":"x","template_name":"x","version":1,"fields":[]}'::jsonb,
+            '{}'::jsonb, 'draft', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'FB: (d) alice CANNOT INSERT an instance carrying facility B''s facility_id');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_day_locks
+    where facility_id = '11111111-1111-1111-1111-111111111111'
+      and report_date = current_date - 1$$,
+  1, 'FB: alice (module view) CAN see her facility''s locked days');
+select pg_temp.expect_error(
+  $$insert into public.daily_report_day_locks (facility_id, report_date)
+    values ('11111111-1111-1111-1111-111111111111', current_date)$$,
+  'FB: staff alice CANNOT lock a day (module-admin only)');
+
+-- (a) The end-of-day lock, with every app layer bypassed. Fiona (module
+-- admin) locks today through RLS; from that moment EVERY direct write to the
+-- day's instances is rejected at the DB — staff by RLS+trigger, and the
+-- module admin herself by the BEFORE trigger (RLS alone would allow her).
+set local request.jwt.claims to '{"sub":"fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb', true);
+select pg_temp.expect_ok(
+  $$insert into public.daily_report_day_locks (facility_id, report_date, locked_by)
+    values ('11111111-1111-1111-1111-111111111111', current_date,
+            'fbfb4444-fbfb-4fbf-8fbf-fbfbfbfbfbfb')$$,
+  'FB: (a) daily_reports module admin CAN lock today');
+select pg_temp.expect_count(
+  $$select count(*) where public.daily_report_day_is_locked(
+      '11111111-1111-1111-1111-111111111111', current_date)$$,
+  1, 'FB: (a) daily_report_day_is_locked() reports today locked');
+select pg_temp.expect_error(
+  $$update public.daily_report_instances
+      set title = 'Admin edit on locked day'
+    where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'$$,
+  'FB: (a) even the module ADMIN cannot edit an instance on a locked day (trigger)');
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.daily_report_instances
+      (facility_id, area_id, report_date, title, template_id,
+       template_snapshot, responses, status, employee_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-da01-aaaa-aaaa-aaaa11110011', current_date, 'After lock',
+            'aaaa1111-f0f0-4aaa-8aaa-aaaa11110002',
+            '{"template_id":"x","template_name":"x","version":2,"fields":[]}'::jsonb,
+            '{}'::jsonb, 'draft', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'FB: (a) staff CANNOT create an instance on a locked day');
+-- A staff UPDATE on a locked day is refused by RLS ROW-FILTERING, not an
+-- exception: the owner branch's USING requires `not daily_report_day_is_locked`,
+-- so the row never matches and the write touches ZERO rows — nothing is
+-- persisted, and the server action surfaces the zero-row result via .select().
+select pg_temp.expect_count(
+  $$with upd as (
+      update public.daily_report_instances
+         set responses = '{"aaaa1111-f1f1-4aaa-8aaa-aaaa11110001":"tampered"}'::jsonb
+       where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'
+       returning 1)
+    select count(*) from upd$$,
+  0, 'FB: (a) staff draft save on a locked day matches ZERO rows (RLS filter)');
+select pg_temp.expect_count(
+  $$select count(*) from public.daily_report_instances
+    where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'
+      and responses->>'aaaa1111-f1f1-4aaa-8aaa-aaaa11110001' = 'Hockey Night'$$,
+  1, 'FB: (a) the locked-day save persisted NOTHING (responses unchanged)');
+
+-- Unlock restores writes — proving the failures above were the lock itself.
+set local role postgres;
+delete from public.daily_report_day_locks
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and report_date = current_date;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_ok(
+  $$update public.daily_report_instances
+      set responses = '{"aaaa1111-f1f1-4aaa-8aaa-aaaa11110001":"Hockey Night II"}'::jsonb
+    where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'$$,
+  'FB: unlocking the day restores the owner''s draft writes');
+
+-- Submitted instances are append-only for staff: the owner's post-submit
+-- UPDATE matches ZERO rows (RLS owner branch requires status = draft), the
+-- silent-0-row shape the server action detects via .select().
+select pg_temp.expect_ok(
+  $$update public.daily_report_instances
+      set status = 'submitted', submitted_at = now()
+    where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001' and status = 'draft'$$,
+  'FB: the owner CAN make the one-way draft -> submitted transition');
+select pg_temp.expect_count(
+  $$with upd as (
+      update public.daily_report_instances
+         set responses = '{"aaaa1111-f1f1-4aaa-8aaa-aaaa11110001":"tampered"}'::jsonb
+       where id = 'aaaa1111-f2f2-4aaa-8aaa-aaaa11110001'
+       returning 1)
+    select count(*) from upd$$,
+  0, 'FB: staff post-submit edit matches zero rows (submitted = append-only)');
+reset role;
+
+set local role postgres;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
