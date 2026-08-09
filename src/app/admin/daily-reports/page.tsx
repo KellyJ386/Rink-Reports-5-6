@@ -21,9 +21,12 @@ import { formatInTz } from "@/lib/timezone"
 import { AssignmentRecordCard } from "@/app/reports/daily/_components/assignment-record"
 import { getAssignmentRecord } from "@/app/reports/daily/_lib/assignments"
 
+import { businessDateInTimeZone } from "@/app/reports/daily/_lib/compute"
+
 import { AreaAccessTab } from "./_components/area-access-tab"
 import { AreasTab } from "./_components/areas-tab"
 import { AssignmentConfigTab } from "./_components/assignment-config-tab"
+import { FormBuilderTab } from "./_components/form-builder-tab"
 import { ItemsTab } from "./_components/items-tab"
 import { SubmissionDetailPanel } from "./_components/submission-detail"
 import { SubmissionFilters } from "./_components/submission-filters"
@@ -32,6 +35,8 @@ import type {
   AreaRow,
   ChecklistItemRow,
   EmployeeLite,
+  FormFieldRow,
+  FormTemplateRow,
   NoteRow,
   SubmissionDetail,
   SubmissionItemRow,
@@ -75,7 +80,13 @@ function tabHref(
 ): string {
   const sp = new URLSearchParams()
   sp.set("tab", tab)
-  if (carry.area && (tab === "templates" || tab === "items" || tab === "submissions")) {
+  if (
+    carry.area &&
+    (tab === "templates" ||
+      tab === "items" ||
+      tab === "forms" ||
+      tab === "submissions")
+  ) {
     sp.set("area", carry.area)
   }
   if (carry.template && tab === "items") {
@@ -158,6 +169,14 @@ export default async function DailyReportsAdminPage({
           areas={areas}
           areaId={params.area ?? null}
           templateId={params.template ?? null}
+        />
+      )}
+
+      {tab === "forms" && (
+        <FormsTabLoader
+          facilityId={facilityId}
+          areas={areas}
+          areaId={params.area ?? null}
         />
       )}
 
@@ -404,6 +423,88 @@ async function ItemsTabLoader({
       items={items}
       selectedAreaId={areaId}
       selectedTemplateId={validTemplate?.id ?? null}
+    />
+  )
+}
+
+async function FormsTabLoader({
+  facilityId,
+  areas,
+  areaId,
+}: {
+  facilityId: string
+  areas: AreaRow[]
+  areaId: string | null
+}) {
+  const supabase = await createClient()
+
+  // Current (non-superseded) form templates for the selected area, their
+  // fields (for edit + preview seeding), instance counts per template (to
+  // signal what delete can and can't do), and the facility's current locks.
+  let templates: FormTemplateRow[] = []
+  let fields: FormFieldRow[] = []
+  const instanceCounts = new Map<string, number>()
+  if (areaId) {
+    const { data: tplRaw } = await supabase
+      .from("daily_report_form_templates")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .eq("area_id", areaId)
+      .is("superseded_at", null)
+      .order("name", { ascending: true })
+    templates = (tplRaw ?? []) as FormTemplateRow[]
+
+    const tplIds = templates.map((t) => t.id)
+    if (tplIds.length > 0) {
+      const [{ data: fieldRaw }, { data: instRaw }] = await Promise.all([
+        supabase
+          .from("daily_report_form_fields")
+          .select("*")
+          .in("template_id", tplIds)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("daily_report_instances")
+          .select("template_id")
+          .eq("facility_id", facilityId)
+          .in("template_id", tplIds),
+      ])
+      fields = (fieldRaw ?? []) as FormFieldRow[]
+      for (const r of instRaw ?? []) {
+        instanceCounts.set(
+          r.template_id,
+          (instanceCounts.get(r.template_id) ?? 0) + 1,
+        )
+      }
+    }
+  }
+
+  const [{ data: facilityRow }, { data: locksRaw }] = await Promise.all([
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle(),
+    supabase
+      .from("daily_report_day_locks")
+      .select("report_date")
+      .eq("facility_id", facilityId)
+      .order("report_date", { ascending: false })
+      .limit(30),
+  ])
+  const today = businessDateInTimeZone(new Date(), facilityRow?.timezone ?? null)
+
+  return (
+    <FormBuilderTab
+      areas={areas}
+      selectedAreaId={areaId}
+      templates={templates.map((t) => ({
+        ...t,
+        instance_count: instanceCounts.get(t.id) ?? 0,
+      }))}
+      fields={fields}
+      today={today}
+      lockedDates={(locksRaw ?? []).map((l) => l.report_date)}
     />
   )
 }
