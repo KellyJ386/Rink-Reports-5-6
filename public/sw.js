@@ -15,17 +15,18 @@
 //  - Supabase API calls: always network-only (no cache).
 // =============================================================================
 
-// CACHE_NAME bumped to v6 when the /offline-daily data-free shell joined
-// /offline-schedule as a network-first cache entry, so any client on an older
-// SW re-evaluates and cleans its caches on activate, guaranteeing a clean
-// swap to the new strategy.
-const CACHE_NAME = "rink-reports-v6"
-const STATIC_CACHE = "rink-reports-static-v6"
+// CACHE_NAME bumped to v7 when the /offline-forms data-free shell (daily
+// report form builder) joined /offline-schedule and /offline-daily as a
+// network-first cache entry, so any client on an older SW re-evaluates and
+// cleans its caches on activate, guaranteeing a clean swap to the new
+// strategy.
+const CACHE_NAME = "rink-reports-v7"
+const STATIC_CACHE = "rink-reports-static-v7"
 
 // Data-free page shells that are SAFE to cache for offline navigation: they
 // render no user data server-side (per-user content comes from per-user
 // IndexedDB caches on the client). Everything else stays network-only.
-const OFFLINE_SHELLS = ["/offline-schedule", "/offline-daily"]
+const OFFLINE_SHELLS = ["/offline-schedule", "/offline-daily", "/offline-forms"]
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1
 const STORE_NAME = "submissions"
@@ -564,7 +565,7 @@ function offlineFallbackResponse() {
   <h1>You're offline</h1>
   <p>Any reports you submit while offline are saved locally and will sync automatically once you're back online.</p>
   <button onclick="location.reload()">Try again</button>
-  <nav>Available offline: <a href="/offline-daily">My areas</a> &middot; <a href="/offline-schedule">My shifts</a></nav>
+  <nav>Available offline: <a href="/offline-daily">My areas</a> &middot; <a href="/offline-forms">Report forms</a> &middot; <a href="/offline-schedule">My shifts</a></nav>
 </main>
 </body>
 </html>`

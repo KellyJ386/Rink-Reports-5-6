@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { businessDateInTimeZone } from "../_lib/compute"
+import { parseSnapshot, type ResponsesMap } from "../_lib/instance-compute"
 import { getAllowedDailyAreas } from "../actions"
 import { FormsBoard, type BoardArea, type BoardInstance } from "./_components/forms-board"
 
@@ -97,7 +98,11 @@ export default async function DailyReportFormsPage() {
         .order("name", { ascending: true }),
       supabase
         .from("daily_report_instances")
-        .select("id, area_id, template_id, title, status, employee_id, updated_at, created_at")
+        // template_snapshot + responses ride along so the client can cache
+        // today's instances for the offline view (Phase 4).
+        .select(
+          "id, area_id, template_id, title, status, employee_id, template_snapshot, responses, updated_at, created_at",
+        )
         .eq("facility_id", employeeRow.facility_id)
         .eq("report_date", today)
         .in("area_id", areaIds)
@@ -136,8 +141,16 @@ export default async function DailyReportFormsPage() {
         .map((t) => ({ id: t.id, name: t.name, version: t.version })),
       instances: instances
         .filter((i) => i.area_id === a.id)
-        .map((i): BoardInstance => {
+        .map((i): BoardInstance | null => {
           const owner = i.employee_id ? ownersById.get(i.employee_id) : null
+          const snapshot = parseSnapshot(i.template_snapshot)
+          if (!snapshot) return null
+          const responses =
+            i.responses &&
+            typeof i.responses === "object" &&
+            !Array.isArray(i.responses)
+              ? (i.responses as ResponsesMap)
+              : {}
           return {
             id: i.id,
             title: i.title,
@@ -147,13 +160,22 @@ export default async function DailyReportFormsPage() {
               ? `${owner.first_name} ${owner.last_name}`.trim()
               : null,
             mine: i.employee_id === employeeRow.id,
+            snapshot,
+            responses,
           }
-        }),
+        })
+        .filter((i): i is BoardInstance => i !== null),
     }))
     // Only show areas that have at least a form or an instance today.
     .filter((a) => a.templates.length > 0 || a.instances.length > 0)
 
   return shell(
-    <FormsBoard areas={boardAreas} today={today} locked={Boolean(lockRow)} />,
+    <FormsBoard
+      areas={boardAreas}
+      today={today}
+      locked={Boolean(lockRow)}
+      userId={current.authUser.id}
+      timezone={facilityRow?.timezone ?? null}
+    />,
   )
 }

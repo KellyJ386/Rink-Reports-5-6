@@ -8,13 +8,14 @@
 
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
-import { CheckCircle2, Lock } from "lucide-react"
+import { CheckCircle2, CloudUpload, Lock } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Callout } from "@/components/ui/callout"
 import { Card } from "@/components/ui/card"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 
 import type {
   ResponsesMap,
@@ -52,7 +53,9 @@ export function InstanceEditor({
   mine,
 }: Props) {
   const router = useRouter()
+  const { isOnline } = useSyncQueue()
   const [responses, setResponses] = useState<ResponsesMap>(initialResponses)
+  const [queued, setQueued] = useState<"save" | "submit" | null>(null)
   const [pending, startTransition] = useTransition()
 
   function setValue(fieldId: string, value: ResponseValue | undefined) {
@@ -64,7 +67,33 @@ export function InstanceEditor({
     })
   }
 
+  // Offline: queue the write in the service worker instead of calling the
+  // server action (which would fail with a confusing network error). The
+  // replay endpoint runs the SAME validation + lock checks on reconnect; if
+  // the day locked while this sat in the queue, the item is parked as failed
+  // with an explicit message on the Pending Sync Queue page — never dropped.
+  function enqueueOffline(action: "save" | "submit"): boolean {
+    const ok = enqueueSubmission({
+      localId: crypto.randomUUID(),
+      moduleKey: "daily_report_instances",
+      action,
+      payload: { instance_id: instanceId, responses },
+    })
+    if (ok) {
+      setQueued(action)
+    } else {
+      toast.error(
+        "You're offline and the offline queue isn't ready yet. Keep this page open and try again — your answers are still here.",
+      )
+    }
+    return ok
+  }
+
   function save() {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      enqueueOffline("save")
+      return
+    }
     startTransition(async () => {
       const result = await saveReportInstance({ instanceId, responses })
       if (!result.ok) {
@@ -77,6 +106,10 @@ export function InstanceEditor({
   }
 
   function submit() {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      enqueueOffline("submit")
+      return
+    }
     startTransition(async () => {
       const result = await submitReportInstance({ instanceId, responses })
       if (!result.ok) {
@@ -138,8 +171,24 @@ export function InstanceEditor({
         </div>
       </Card>
 
+      {queued && (
+        <Callout
+          tone="info"
+          icon={<CloudUpload className="mt-0.5 h-4 w-4" aria-hidden />}
+        >
+          {queued === "submit"
+            ? "Saved on this device. The report will submit automatically when you're back online — the same checks (including the day's lock) run then. If the day locks first, it stays in your sync queue instead of being dropped."
+            : "Saved on this device. Your answers will sync automatically when you're back online."}
+        </Callout>
+      )}
+
       {editable && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {!isOnline && (
+            <span className="text-muted-foreground mr-auto text-xs">
+              offline — will sync when reconnected
+            </span>
+          )}
           <Button type="button" variant="outline" onClick={save} disabled={pending}>
             {pending ? "Working…" : "Save draft"}
           </Button>

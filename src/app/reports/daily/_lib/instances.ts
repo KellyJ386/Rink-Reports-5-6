@@ -65,7 +65,19 @@ async function isDayLocked(
 
 export type InstanceWriteResult =
   | { ok: true; instanceId: string; reportDate: string }
-  | { ok: false; error: string }
+  | {
+      ok: false
+      error: string
+      /**
+       * True when retrying the SAME payload can never succeed (validation,
+       * state, or lock rejections) — the offline replay parks these as
+       * permanently failed (422) instead of burning transient retries. A lock
+       * rejection additionally sets `lockConflict` so the replay can surface
+       * the day-locked-while-offline conflict with its own copy.
+       */
+      permanent?: boolean
+      lockConflict?: boolean
+    }
 
 /**
  * Create a titled instance for today (facility-local). The template's active
@@ -86,7 +98,9 @@ export async function createInstance(
   const { employeeId, facilityId, areaId, templateId } = args
 
   const titleResult = parseTitle(args.title)
-  if (!titleResult.ok) return { ok: false, error: titleResult.error }
+  if (!titleResult.ok) {
+    return { ok: false, error: titleResult.error, permanent: true }
+  }
 
   // Defense-in-depth ref checks (RLS is the final gate on the insert).
   const { data: area } = await supabase
@@ -96,7 +110,7 @@ export async function createInstance(
     .eq("facility_id", facilityId)
     .maybeSingle()
   if (!area || !area.is_active) {
-    return { ok: false, error: "Area not available." }
+    return { ok: false, error: "Area not available.", permanent: true }
   }
 
   // Only the CURRENT version of an active template can spawn instances.
@@ -108,12 +122,13 @@ export async function createInstance(
     .eq("area_id", areaId)
     .maybeSingle()
   if (!template || !template.is_active) {
-    return { ok: false, error: "Form template not available." }
+    return { ok: false, error: "Form template not available.", permanent: true }
   }
   if (template.superseded_at !== null) {
     return {
       ok: false,
       error: "This form has a newer version. Reload and try again.",
+      permanent: true,
     }
   }
 
@@ -125,7 +140,11 @@ export async function createInstance(
     .eq("area_id", areaId)
     .maybeSingle()
   if (!perm?.can_submit) {
-    return { ok: false, error: "You don't have access to submit here." }
+    return {
+      ok: false,
+      error: "You don't have access to submit here.",
+      permanent: true,
+    }
   }
 
   const { data: facilityRow } = await supabase
@@ -139,7 +158,12 @@ export async function createInstance(
   )
 
   if (await isDayLocked(supabase, facilityId, reportDate)) {
-    return { ok: false, error: lockedError(reportDate) }
+    return {
+      ok: false,
+      error: lockedError(reportDate),
+      permanent: true,
+      lockConflict: true,
+    }
   }
 
   const { data: fieldRows, error: fieldsErr } = await supabase
@@ -157,7 +181,7 @@ export async function createInstance(
     fieldRows ?? [],
   )
   if (snapshot.fields.length === 0) {
-    return { ok: false, error: "This form has no fields yet." }
+    return { ok: false, error: "This form has no fields yet.", permanent: true }
   }
 
   const { data: instance, error: insErr } = await supabase
@@ -179,7 +203,12 @@ export async function createInstance(
     // The DB trigger raises 42501 with the lock message if the day locked
     // between our check and the insert — surface it as the lock error.
     if (insErr?.code === "42501") {
-      return { ok: false, error: lockedError(reportDate) }
+      return {
+        ok: false,
+        error: lockedError(reportDate),
+        permanent: true,
+        lockConflict: true,
+      }
     }
     return { ok: false, error: dbError(insErr, "Failed to create the report.") }
   }
@@ -199,7 +228,10 @@ type LoadedInstance = {
 async function loadOwnDraft(
   supabase: SupabaseClient,
   args: { employeeId: string; facilityId: string; instanceId: string },
-): Promise<{ ok: true; instance: LoadedInstance } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; instance: LoadedInstance }
+  | { ok: false; error: string; permanent?: boolean; lockConflict?: boolean }
+> {
   const { data: row, error } = await supabase
     .from("daily_report_instances")
     .select(
@@ -211,19 +243,28 @@ async function loadOwnDraft(
   if (error) {
     return { ok: false, error: dbError(error, "Failed to load the report.") }
   }
-  if (!row) return { ok: false, error: "Report not found." }
+  if (!row) return { ok: false, error: "Report not found.", permanent: true }
   if (row.employee_id !== args.employeeId) {
-    return { ok: false, error: "You can only edit your own reports." }
+    return {
+      ok: false,
+      error: "You can only edit your own reports.",
+      permanent: true,
+    }
   }
   if (row.status !== "draft") {
     return {
       ok: false,
       error: "This report was already submitted and can no longer be edited.",
+      permanent: true,
     }
   }
   const snapshot = parseSnapshot(row.template_snapshot)
   if (!snapshot) {
-    return { ok: false, error: "This report's stored form is unreadable." }
+    return {
+      ok: false,
+      error: "This report's stored form is unreadable.",
+      permanent: true,
+    }
   }
   return {
     ok: true,
@@ -259,11 +300,16 @@ export async function saveInstance(
   const instance = loaded.instance
 
   if (await isDayLocked(supabase, args.facilityId, instance.report_date)) {
-    return { ok: false, error: lockedError(instance.report_date) }
+    return {
+      ok: false,
+      error: lockedError(instance.report_date),
+      permanent: true,
+      lockConflict: true,
+    }
   }
 
   const validated = validateResponses(instance.snapshot, args.responses, "draft")
-  if (!validated.ok) return validated
+  if (!validated.ok) return { ...validated, permanent: true }
 
   const patch: {
     responses: Json
@@ -271,7 +317,9 @@ export async function saveInstance(
   } = { responses: validated.responses as unknown as Json }
   if (args.title !== undefined) {
     const titleResult = parseTitle(args.title)
-    if (!titleResult.ok) return { ok: false, error: titleResult.error }
+    if (!titleResult.ok) {
+      return { ok: false, error: titleResult.error, permanent: true }
+    }
     patch.title = titleResult.title
   }
 
@@ -287,12 +335,21 @@ export async function saveInstance(
     .select("id")
   if (error) {
     if (error.code === "42501") {
-      return { ok: false, error: lockedError(instance.report_date) }
+      return {
+        ok: false,
+        error: lockedError(instance.report_date),
+        permanent: true,
+        lockConflict: true,
+      }
     }
     return { ok: false, error: dbError(error, "Failed to save the report.") }
   }
   if (!data || data.length === 0) {
-    return { ok: false, error: "Save was rejected. Reload and try again." }
+    return {
+      ok: false,
+      error: "Save was rejected. Reload and try again.",
+      permanent: true,
+    }
   }
   return { ok: true, instanceId: instance.id, reportDate: instance.report_date }
 }
@@ -317,7 +374,12 @@ export async function submitInstance(
   const instance = loaded.instance
 
   if (await isDayLocked(supabase, args.facilityId, instance.report_date)) {
-    return { ok: false, error: lockedError(instance.report_date) }
+    return {
+      ok: false,
+      error: lockedError(instance.report_date),
+      permanent: true,
+      lockConflict: true,
+    }
   }
 
   let responsesInput: unknown = args.responses
@@ -330,7 +392,7 @@ export async function submitInstance(
     responsesInput = row?.responses ?? {}
   }
   const validated = validateResponses(instance.snapshot, responsesInput, "submit")
-  if (!validated.ok) return validated
+  if (!validated.ok) return { ...validated, permanent: true }
 
   const { data, error } = await supabase
     .from("daily_report_instances")
@@ -345,12 +407,21 @@ export async function submitInstance(
     .select("id")
   if (error) {
     if (error.code === "42501") {
-      return { ok: false, error: lockedError(instance.report_date) }
+      return {
+        ok: false,
+        error: lockedError(instance.report_date),
+        permanent: true,
+        lockConflict: true,
+      }
     }
     return { ok: false, error: dbError(error, "Failed to submit the report.") }
   }
   if (!data || data.length === 0) {
-    return { ok: false, error: "Submit was rejected. Reload and try again." }
+    return {
+      ok: false,
+      error: "Submit was rejected. Reload and try again.",
+      permanent: true,
+    }
   }
   return { ok: true, instanceId: instance.id, reportDate: instance.report_date }
 }

@@ -8,8 +8,8 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState, useTransition } from "react"
-import { Lock, Plus } from "lucide-react"
+import { useEffect, useState, useTransition } from "react"
+import { Lock, Plus, WifiOff } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,13 @@ import { Card } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { putFormsBoard } from "@/lib/offline/daily-forms-cache"
+import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
+
+import type {
+  ResponsesMap,
+  TemplateSnapshot,
+} from "@/app/reports/daily/_lib/instance-compute"
 
 import { createReportInstance } from "../../instance-actions"
 
@@ -29,6 +36,9 @@ export type BoardInstance = {
   templateName: string
   ownerName: string | null
   mine: boolean
+  /** Frozen snapshot + responses, cached for the offline view (Phase 4). */
+  snapshot: TemplateSnapshot
+  responses: ResponsesMap
 }
 
 export type BoardArea = {
@@ -43,9 +53,26 @@ type Props = {
   areas: BoardArea[]
   today: string
   locked: boolean
+  userId: string
+  timezone: string | null
 }
 
-export function FormsBoard({ areas, today, locked }: Props) {
+export function FormsBoard({ areas, today, locked, userId, timezone }: Props) {
+  const { isOnline } = useSyncQueue()
+
+  // Snapshot the server-rendered board (templates + today's instances incl.
+  // frozen snapshots/responses + lock state) into the per-user IndexedDB
+  // cache, so /offline-forms can render and queue edits without a connection.
+  useEffect(() => {
+    void putFormsBoard({
+      userId,
+      timezone,
+      businessDate: today,
+      locked,
+      areas,
+      cachedAt: Date.now(),
+    })
+  }, [userId, timezone, today, locked, areas])
   if (areas.length === 0) {
     return (
       <EmptyState
@@ -62,15 +89,42 @@ export function FormsBoard({ areas, today, locked }: Props) {
           Daily reports for {today} are locked. Everything below is read-only.
         </Callout>
       )}
+      {!isOnline && (
+        <Callout tone="info" icon={<WifiOff className="mt-0.5 h-4 w-4" aria-hidden />}>
+          You&rsquo;re offline. New reports are saved on this device and sync
+          when you reconnect — the day&rsquo;s lock is re-checked at sync time.
+        </Callout>
+      )}
 
       {areas.map((area) => (
-        <AreaSection key={area.id} area={area} locked={locked} />
+        <AreaSection
+          key={area.id}
+          area={area}
+          locked={locked}
+          isOnline={isOnline}
+        />
       ))}
+
+      <p className="text-muted-foreground text-xs">
+        Working without a signal?{" "}
+        <Link href="/offline-forms" className="underline">
+          Open the offline view
+        </Link>{" "}
+        — it keeps today&rsquo;s reports available on this device.
+      </p>
     </div>
   )
 }
 
-function AreaSection({ area, locked }: { area: BoardArea; locked: boolean }) {
+function AreaSection({
+  area,
+  locked,
+  isOnline,
+}: {
+  area: BoardArea
+  locked: boolean
+  isOnline: boolean
+}) {
   return (
     <Card className="gap-4 py-5">
       <h2 className="flex items-center gap-2 px-6 text-lg font-semibold tracking-tight">
@@ -93,6 +147,7 @@ function AreaSection({ area, locked }: { area: BoardArea; locked: boolean }) {
                 areaId={area.id}
                 template={t}
                 locked={locked}
+                isOnline={isOnline}
               />
             ))}
           </div>
@@ -144,10 +199,12 @@ function AddReportRow({
   areaId,
   template,
   locked,
+  isOnline,
 }: {
   areaId: string
   template: { id: string; name: string; version: number }
   locked: boolean
+  isOnline: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -155,6 +212,32 @@ function AddReportRow({
   const [pending, startTransition] = useTransition()
 
   function create() {
+    // Offline: queue the create in the service worker. The replay endpoint
+    // runs the SAME pipeline (permission + lock + snapshot freeze) once the
+    // device reconnects; if the day locked meanwhile, the item is parked as
+    // failed with an explicit message — never silently dropped. We must NOT
+    // fall through to the server action offline: that POST would fail with a
+    // confusing network error and the report would be lost.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const ok = enqueueSubmission({
+        localId: crypto.randomUUID(),
+        moduleKey: "daily_report_instances",
+        action: "create",
+        payload: { area_id: areaId, template_id: template.id, title },
+      })
+      if (ok) {
+        toast.success(
+          "Saved on this device. The report will be created when you're back online.",
+        )
+        setTitle("")
+        setOpen(false)
+      } else {
+        toast.error(
+          "You're offline and the offline queue isn't ready yet. Keep this page open and try again.",
+        )
+      }
+      return
+    }
     startTransition(async () => {
       const result = await createReportInstance({
         areaId,
@@ -204,7 +287,7 @@ function AddReportRow({
             />
           </div>
           <Button type="submit" disabled={pending || title.trim().length === 0}>
-            {pending ? "Creating…" : "Create"}
+            {pending ? "Creating…" : isOnline ? "Create" : "Create (offline)"}
           </Button>
         </form>
       )}
