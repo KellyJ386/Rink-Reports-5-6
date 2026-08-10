@@ -7,7 +7,7 @@ import { enqueueSubmission, useSyncQueue } from "@/lib/offline/use-sync-queue"
 import { genLocalId } from "@/lib/offline/local-id"
 
 /**
- * Shared offline-submit plumbing for the four ice-operations forms. When the
+ * Shared offline-submit plumbing for the ice-operations forms. When the
  * device is offline (and the service worker is controlling the page), the
  * submission is serialized into the SAME payload shape `buildInputFromPayload`
  * parses — INCLUDING the `operation_type` discriminator — and queued via the SW,

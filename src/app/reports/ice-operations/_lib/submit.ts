@@ -4,17 +4,18 @@
 // the Supabase + notification I/O so an offline submission lands the same rows,
 // with the same checks, as an online one.
 //
-// All FOUR operation types (ice_make, blade_change, edging, circle_check) route
-// through `persistIceOperation`; the circle-check path additionally writes the
-// per-item results and a best-effort alert (the failed-count rollup lands with
-// the shell insert itself — submissions are immutable under RLS).
+// All FIVE operation types (ice_make, blade_change, edging, circle_check,
+// propane_tank_change) route through `persistIceOperation`; the circle-check
+// path additionally writes the per-item results and a best-effort alert (the
+// failed-count rollup lands with the shell insert itself — submissions are
+// immutable under RLS).
 
 import "server-only"
 
 import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { dispatchRulesForSubmission } from "@/lib/notifications/dispatch"
 import type { createClient } from "@/lib/supabase/server"
-import { wallTimeToUtc } from "@/lib/timezone"
+import { formatInTz, wallTimeToUtc } from "@/lib/timezone"
 import type { Json } from "@/types/database"
 
 import { OPERATION_EQUIPMENT_TYPE } from "../types"
@@ -63,6 +64,8 @@ function buildPayload(input: IceOpsInput): Json {
         hours_at_change: input.fields.hours_at_change,
         replaced_by_employee_id: input.fields.replaced_by_employee_id,
       }
+    case "propane_tank_change":
+      return { hours_at_change: input.fields.hours_at_change }
     case "circle_check":
       return {}
   }
@@ -120,7 +123,7 @@ export async function persistIceOperation(
 
   const { data: equipmentRow } = await supabase
     .from("ice_operations_equipment")
-    .select("id, facility_id, is_active, equipment_type")
+    .select("id, name, facility_id, is_active, equipment_type")
     .eq("id", equipmentId)
     .eq("facility_id", facilityId)
     .maybeSingle()
@@ -286,12 +289,39 @@ export async function persistIceOperation(
     }
   }
 
-  // 4) Notification fan-out (best-effort; never rolls back).
+  // 4) Notification fan-out (best-effort; never rolls back). Propane tank
+  // changes carry a specific subject + body so the routed message (ice-ops
+  // staff / management, per the facility's ice_operations routing rules) says
+  // which machine was swapped, at what hours, by whom — the generic subject
+  // stays for the other operation types.
+  let subject = "Ice operations report submitted"
+  let body: string | null = null
+  if (input.fields.type === "propane_tank_change") {
+    subject = `Propane tank changed — ${equipmentRow.name}`
+    const { data: submitter } = await supabase
+      .from("employees")
+      .select("first_name, last_name")
+      .eq("id", employeeId)
+      .maybeSingle()
+    const bodyLines = [
+      `Machine: ${equipmentRow.name}`,
+      input.fields.hours_at_change !== null
+        ? `Machine hours: ${input.fields.hours_at_change}`
+        : null,
+      submitter
+        ? `Changed by: ${submitter.first_name} ${submitter.last_name}`
+        : null,
+      `Date: ${formatInTz(occurredAt, tz)}`,
+      input.notes ? `Notes: ${input.notes}` : null,
+    ]
+    body = bodyLines.filter(Boolean).join("\n")
+  }
   await dispatchRulesForSubmission({
     facilityId,
     sourceModule: "ice_operations",
     sourceRecordId: submissionId,
-    subject: "Ice operations report submitted",
+    subject,
+    body,
   })
 
   return { ok: true, reportId: submissionId }

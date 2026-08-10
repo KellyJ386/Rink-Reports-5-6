@@ -3,8 +3,8 @@
 // unit-test in isolation (see compute.test.ts) and is re-used by the
 // server-only `submit.ts` (which adds the Supabase + notification I/O).
 //
-// Ice Operations routes FOUR operation types (ice_make, blade_change, edging,
-// circle_check) through one submission pipeline. The normalized input carries
+// Ice Operations routes FIVE operation types (ice_make, blade_change, edging,
+// circle_check, propane_tank_change) through one submission pipeline. The normalized input carries
 // the operation type as a discriminator plus that type's structured fields, so
 // the online server action and the offline replay endpoint reconstruct the same
 // shape.
@@ -40,6 +40,11 @@ export type BladeChangeFields = {
   replaced_by_employee_id: string | null
 }
 
+export type PropaneTankChangeFields = {
+  type: "propane_tank_change"
+  hours_at_change: number | null
+}
+
 /** A single circle-check checklist result, validated-shape. */
 export type CircleCheckResult = {
   checklist_item_id: string | null
@@ -58,6 +63,7 @@ export type IceOpsFields =
   | IceMakeFields
   | EdgingFields
   | BladeChangeFields
+  | PropaneTankChangeFields
   | CircleCheckFields
 
 /**
@@ -191,6 +197,11 @@ function buildFields(
         hours_at_change: numOrNull(get("hours_at_change")),
         replaced_by_employee_id: strOrNull(get("replaced_by_employee_id")),
       }
+    case "propane_tank_change":
+      return {
+        type: "propane_tank_change",
+        hours_at_change: numOrNull(get("hours_at_change")),
+      }
     case "circle_check": {
       const rawResults = get("circle_check_results")
       // Accept either a parsed array (offline payload) or a JSON string
@@ -318,6 +329,11 @@ export function validateIceOpsInput(input: IceOpsInput): string | null {
     case "blade_change":
       if (!isNullOrNonNegative(input.fields.hours_at_change)) {
         return "Blade hours can't be negative."
+      }
+      break
+    case "propane_tank_change":
+      if (!isNullOrNonNegative(input.fields.hours_at_change)) {
+        return "Machine hours can't be negative."
       }
       break
     case "circle_check": {

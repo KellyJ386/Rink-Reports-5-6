@@ -189,6 +189,7 @@ const ICE_OPERATION_LABELS: Record<string, string> = {
   circle_check: "Circle Check",
   edging: "Edging",
   blade_change: "Blade Change",
+  propane_tank_change: "Propane Tank Change",
 }
 
 async function snapshotIceOperations(
@@ -286,6 +287,16 @@ async function snapshotIceOperations(
               : String(payload.hours_at_change),
         },
       )
+      break
+    }
+    case "propane_tank_change": {
+      fields.push({
+        label: "Machine hours",
+        value:
+          payload.hours_at_change == null
+            ? null
+            : String(payload.hours_at_change),
+      })
       break
     }
     case "circle_check": {

@@ -8264,6 +8264,41 @@ reset role;
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- ice_operations_submissions.operation_type domain coverage.
+--
+-- Same enumerated-CHECK sharp edge as schedule_notifications (E-6 above):
+-- widening means DROP + ADD with the whole list restated, and a missed value
+-- silently narrows the domain. Migration 236 added 'propane_tank_change'.
+-- Inserting one submission of EVERY permitted value turns a lost value into a
+-- CI failure here instead of a broken staff form in production. When a
+-- migration legitimately adds an operation type, add it to this list too.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_type text;
+  v_types text[] := array[
+    'ice_make','circle_check','edging','blade_change','propane_tank_change'
+  ];
+begin
+  foreach v_type in array v_types loop
+    begin
+      insert into public.ice_operations_submissions (
+        facility_id, employee_id, operation_type
+      ) values (
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        v_type
+      );
+    exception when others then
+      insert into _rls_failures (msg)
+      values (format(
+        'FAIL: ice-ops domain: operation_type %L was REMOVED from the CHECK domain (%s). '
+        'A migration restated the constraint and dropped it.', v_type, sqlerrm));
+    end;
+  end loop;
+end$$;
+
+-- ---------------------------------------------------------------------------
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
