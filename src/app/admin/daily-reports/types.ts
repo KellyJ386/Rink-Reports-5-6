@@ -13,6 +13,9 @@ export const MAX_ACTIVE_DAILY_AREAS = 30
 export type AreaRow = Tables<"daily_report_areas">
 export type TemplateRow = Tables<"daily_report_templates">
 export type ChecklistItemRow = Tables<"daily_report_checklist_items">
+export type FormTemplateRow = Tables<"daily_report_form_templates">
+export type FormFieldRow = Tables<"daily_report_form_fields">
+export type DayLockRow = Tables<"daily_report_day_locks">
 export type SubmissionRow = Tables<"daily_report_submissions">
 export type SubmissionItemRow = Tables<"daily_report_submission_items">
 export type NoteRow = Tables<"daily_report_notes">
@@ -52,6 +55,7 @@ export type Tab =
   | "areas"
   | "templates"
   | "items"
+  | "forms"
   | "submissions"
   | "access"
   | "assignments"
@@ -60,6 +64,7 @@ export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "areas", label: "Areas" },
   { key: "templates", label: "Templates" },
   { key: "items", label: "Checklist Items" },
+  { key: "forms", label: "Form Builder" },
   { key: "access", label: "Area Access" },
   { key: "assignments", label: "Assignments" },
   { key: "submissions", label: "Submissions" },

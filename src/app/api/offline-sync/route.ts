@@ -26,6 +26,7 @@ import { claimQueueSlot, markClaimSynced, releaseClaim } from "@/lib/offline/cla
 import { opaqueReplayFailure } from "@/lib/offline/replay-error"
 import { handleAccidentReplay } from "@/app/reports/accidents/_lib/offline"
 import { handleDailyReplay } from "@/app/reports/daily/_lib/offline"
+import { handleDailyInstanceReplay } from "@/app/reports/daily/_lib/instance-offline"
 import { handleDasherBoardsReplay } from "@/app/reports/dasher-boards/_lib/offline"
 import { handleIceDepthReplay } from "@/app/reports/ice-depth/_lib/offline"
 import { handleIceOperationsReplay } from "@/app/reports/ice-operations/_lib/offline"
@@ -183,6 +184,18 @@ export async function POST(request: NextRequest) {
 
   if (moduleKey === "daily_reports") {
     return handleDailyReplay({
+      supabase,
+      localId,
+      action,
+      payload,
+      startedAtIso,
+      facilityId: profile.facility_id,
+      employeeId: employee.id,
+    })
+  }
+
+  if (moduleKey === "daily_report_instances") {
+    return handleDailyInstanceReplay({
       supabase,
       localId,
       action,

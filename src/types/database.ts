@@ -2874,6 +2874,263 @@ export type Database = {
           },
         ]
       }
+      daily_report_day_locks: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          locked_at: string
+          locked_by: string | null
+          report_date: string
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          locked_at?: string
+          locked_by?: string | null
+          report_date: string
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          locked_at?: string
+          locked_by?: string | null
+          report_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_day_locks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_day_locks_locked_by_fkey"
+            columns: ["locked_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_form_fields: {
+        Row: {
+          created_at: string
+          facility_id: string
+          field_type: string
+          id: string
+          is_active: boolean
+          label: string
+          options: Json | null
+          required: boolean
+          sort_order: number
+          template_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          field_type: string
+          id?: string
+          is_active?: boolean
+          label: string
+          options?: Json | null
+          required?: boolean
+          sort_order?: number
+          template_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          field_type?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          options?: Json | null
+          required?: boolean
+          sort_order?: number
+          template_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_form_fields_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_form_fields_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_form_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_form_templates: {
+        Row: {
+          area_id: string
+          created_at: string
+          created_by: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          superseded_at: string | null
+          superseded_by: string | null
+          supersedes_id: string | null
+          updated_at: string | null
+          version: number
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          created_by?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          supersedes_id?: string | null
+          updated_at?: string | null
+          version?: number
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          created_by?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
+          supersedes_id?: string | null
+          updated_at?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_form_templates_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_form_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_form_templates_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_form_templates_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "daily_report_form_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_form_templates_supersedes_id_fkey"
+            columns: ["supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_form_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_instances: {
+        Row: {
+          area_id: string
+          created_at: string
+          employee_id: string | null
+          facility_id: string
+          id: string
+          report_date: string
+          responses: Json
+          status: string
+          submitted_at: string | null
+          template_id: string
+          template_snapshot: Json
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          area_id: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id: string
+          id?: string
+          report_date: string
+          responses?: Json
+          status?: string
+          submitted_at?: string | null
+          template_id: string
+          template_snapshot: Json
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          area_id?: string
+          created_at?: string
+          employee_id?: string | null
+          facility_id?: string
+          id?: string
+          report_date?: string
+          responses?: Json
+          status?: string
+          submitted_at?: string | null
+          template_id?: string
+          template_snapshot?: Json
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_instances_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_instances_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_instances_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_report_instances_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "daily_report_form_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_report_notes: {
         Row: {
           body: string
@@ -8860,6 +9117,10 @@ export type Database = {
       }
       daily_area_assignment_allows: {
         Args: { p_area_id: string; p_date: string }
+        Returns: boolean
+      }
+      daily_report_day_is_locked: {
+        Args: { p_facility_id: string; p_report_date: string }
         Returns: boolean
       }
       dasher_boards_generate_perimeter: {

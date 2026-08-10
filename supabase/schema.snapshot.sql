@@ -1350,6 +1350,30 @@ COMMENT ON FUNCTION public.daily_area_assignment_allows(p_area_id uuid, p_date d
 
 
 --
+-- Name: daily_report_day_is_locked(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.daily_report_day_is_locked(p_facility_id uuid, p_report_date date) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1
+      from public.daily_report_day_locks l
+     where l.facility_id = p_facility_id
+       and l.report_date = p_report_date
+  );
+$$;
+
+
+--
+-- Name: FUNCTION daily_report_day_is_locked(p_facility_id uuid, p_report_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.daily_report_day_is_locked(p_facility_id uuid, p_report_date date) IS 'True if (facility_id, report_date) has a daily_report_day_locks row. Used by daily_report_instances RLS policies and by enforce_daily_report_instance_lock(); Phase 2 server actions call this directly (via rpc) before attempting a write so they can return a friendly error instead of relying on the DB rejection alone.';
+
+
+--
 -- Name: daily_report_submissions_stamp_business_date(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2352,6 +2376,41 @@ $$;
 --
 
 COMMENT ON FUNCTION public.enforce_daily_report_areas_cap() IS 'Trigger: raises if a facility would exceed 30 active daily_report_areas.';
+
+
+--
+-- Name: enforce_daily_report_instance_lock(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_daily_report_instance_lock() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid := coalesce(new.facility_id, old.facility_id);
+  v_report_date date := coalesce(new.report_date, old.report_date);
+begin
+  if current_user in ('postgres', 'supabase_admin', 'service_role') then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if public.daily_report_day_is_locked(v_facility_id, v_report_date) then
+    raise exception
+      'Daily report instances for % are locked and can no longer be created, edited, or deleted.',
+      v_report_date
+      using errcode = '42501';
+  end if;
+
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_daily_report_instance_lock(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_daily_report_instance_lock() IS 'BEFORE INSERT/UPDATE/DELETE guard: rejects any end-user write to daily_report_instances for a locked (facility_id, report_date). Trusted backend roles bypass, mirroring schedule_shifts_publish_lock (migrations 148/226). Do not repeat the Employee Scheduling publish-lock regression (UI-only enforcement) here.';
 
 
 --
@@ -9751,6 +9810,157 @@ COMMENT ON TABLE public.daily_report_checklist_items IS 'Daily Reports: individu
 
 
 --
+-- Name: daily_report_day_locks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_report_day_locks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    report_date date NOT NULL,
+    locked_at timestamp with time zone DEFAULT now() NOT NULL,
+    locked_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE daily_report_day_locks; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_report_day_locks IS 'One row per (facility_id, report_date) that has been locked for daily_report_instances writes. locked_by is nullable so a system/cron-driven lock (no acting employee) can be represented. Presence of a row = locked; there is no separate boolean.';
+
+
+--
+-- Name: daily_report_form_fields; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_report_form_fields (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    template_id uuid NOT NULL,
+    label text NOT NULL,
+    field_type text NOT NULL,
+    options jsonb,
+    required boolean DEFAULT false NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT daily_report_form_fields_field_type_check CHECK ((field_type = ANY (ARRAY['text'::text, 'textarea'::text, 'number'::text, 'select'::text, 'multiselect'::text, 'checkbox'::text, 'time'::text, 'date'::text]))),
+    CONSTRAINT daily_report_form_fields_options_shape CHECK (((options IS NULL) OR (jsonb_typeof(options) = 'array'::text)))
+);
+
+
+--
+-- Name: TABLE daily_report_form_fields; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_report_form_fields IS 'Daily Reports form builder: one custom field on a daily_report_form_templates row. options holds the choice list for select/multiselect fields as a JSON array.';
+
+
+--
+-- Name: daily_report_form_templates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_report_form_templates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    area_id uuid NOT NULL,
+    name text NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    version integer DEFAULT 1 NOT NULL,
+    supersedes_id uuid,
+    superseded_at timestamp with time zone,
+    superseded_by uuid,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT daily_report_form_templates_version_positive CHECK ((version >= 1))
+);
+
+
+--
+-- Name: TABLE daily_report_form_templates; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_report_form_templates IS 'Daily Reports form builder: an admin-defined custom form belonging to an area. Editing publishes a NEW row (version + supersedes_id/superseded_by); existing rows are never mutated into a new version — see migration 235 header. Instances snapshot fields at creation, so old instances render unaffected by later edits.';
+
+
+--
+-- Name: COLUMN daily_report_form_templates.version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_form_templates.version IS 'Monotonically increasing per supersede chain, starting at 1. Bookkeeping only in Phase 1 — the supersede RPC that increments it lands with the server actions.';
+
+
+--
+-- Name: COLUMN daily_report_form_templates.supersedes_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_form_templates.supersedes_id IS 'Set on a new version: the template row this one replaces. Mirrors daily_report_submissions.supersedes_id (migration 218).';
+
+
+--
+-- Name: COLUMN daily_report_form_templates.superseded_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_form_templates.superseded_at IS 'Set on the OLD row once a new version is published. NULL means this is the current version of its chain.';
+
+
+--
+-- Name: daily_report_instances; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.daily_report_instances (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    area_id uuid NOT NULL,
+    report_date date NOT NULL,
+    title text NOT NULL,
+    template_id uuid NOT NULL,
+    template_snapshot jsonb NOT NULL,
+    responses jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    employee_id uuid,
+    submitted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT daily_report_instances_responses_shape CHECK ((jsonb_typeof(responses) = 'object'::text)),
+    CONSTRAINT daily_report_instances_snapshot_shape CHECK ((jsonb_typeof(template_snapshot) = 'object'::text)),
+    CONSTRAINT daily_report_instances_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'submitted'::text]))),
+    CONSTRAINT daily_report_instances_title_not_blank CHECK ((btrim(title) <> ''::text))
+);
+
+
+--
+-- Name: TABLE daily_report_instances; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.daily_report_instances IS 'Daily Reports form builder: a staff-created, titled report instance against a form template. Multiple instances may exist per (facility, area, report_date) — e.g. two "Event Set Up" instances titled by event. template_snapshot freezes the field list at creation time so later template edits never change how an existing instance renders. Writes are gated by daily_report_day_locks for (facility_id, report_date) — see enforce_daily_report_instance_lock() below.';
+
+
+--
+-- Name: COLUMN daily_report_instances.template_snapshot; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_instances.template_snapshot IS 'Frozen copy of the template''s fields (and any relevant template metadata) at the moment this instance was created. Never re-derived from daily_report_form_fields after creation.';
+
+
+--
+-- Name: COLUMN daily_report_instances.responses; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_instances.responses IS 'Field responses keyed by field_id (as they appeared in template_snapshot at creation time).';
+
+
+--
+-- Name: COLUMN daily_report_instances.status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.daily_report_instances.status IS 'draft: staff may still edit (saveReportInstance). submitted: append-only from here, mirrors the rest of Daily Reports — only a module admin may further edit.';
+
+
+--
 -- Name: daily_report_notes; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -13780,6 +13990,46 @@ ALTER TABLE ONLY public.daily_report_checklist_items
 
 
 --
+-- Name: daily_report_day_locks daily_report_day_locks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_day_locks
+    ADD CONSTRAINT daily_report_day_locks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: daily_report_day_locks daily_report_day_locks_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_day_locks
+    ADD CONSTRAINT daily_report_day_locks_uniq UNIQUE (facility_id, report_date);
+
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_fields
+    ADD CONSTRAINT daily_report_form_fields_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_templates
+    ADD CONSTRAINT daily_report_form_templates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: daily_report_instances daily_report_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_instances
+    ADD CONSTRAINT daily_report_instances_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: daily_report_notes daily_report_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -16180,6 +16430,69 @@ CREATE INDEX idx_daily_report_checklist_items_template ON public.daily_report_ch
 
 
 --
+-- Name: idx_daily_report_day_locks_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_day_locks_facility ON public.daily_report_day_locks USING btree (facility_id);
+
+
+--
+-- Name: idx_daily_report_form_fields_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_form_fields_facility ON public.daily_report_form_fields USING btree (facility_id);
+
+
+--
+-- Name: idx_daily_report_form_fields_template; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_form_fields_template ON public.daily_report_form_fields USING btree (template_id, sort_order);
+
+
+--
+-- Name: idx_daily_report_form_templates_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_form_templates_active ON public.daily_report_form_templates USING btree (facility_id, area_id, is_active) WHERE is_active;
+
+
+--
+-- Name: idx_daily_report_form_templates_facility_area; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_form_templates_facility_area ON public.daily_report_form_templates USING btree (facility_id, area_id);
+
+
+--
+-- Name: idx_daily_report_instances_employee; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_instances_employee ON public.daily_report_instances USING btree (employee_id);
+
+
+--
+-- Name: idx_daily_report_instances_facility_area_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_instances_facility_area_date ON public.daily_report_instances USING btree (facility_id, area_id, report_date);
+
+
+--
+-- Name: idx_daily_report_instances_facility_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_instances_facility_date ON public.daily_report_instances USING btree (facility_id, report_date);
+
+
+--
+-- Name: idx_daily_report_instances_template; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_daily_report_instances_template ON public.daily_report_instances USING btree (template_id);
+
+
+--
 -- Name: idx_daily_report_notes_facility; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -17664,6 +17977,13 @@ CREATE UNIQUE INDEX uniq_communication_ack_message_employee ON public.communicat
 
 
 --
+-- Name: uniq_daily_report_form_templates_supersedes; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_daily_report_form_templates_supersedes ON public.daily_report_form_templates USING btree (supersedes_id) WHERE (supersedes_id IS NOT NULL);
+
+
+--
 -- Name: uniq_daily_report_submission_active_correction; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -18788,6 +19108,34 @@ CREATE TRIGGER trg_daily_report_areas_updated_at BEFORE UPDATE ON public.daily_r
 --
 
 CREATE TRIGGER trg_daily_report_checklist_items_updated_at BEFORE UPDATE ON public.daily_report_checklist_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: daily_report_form_fields trg_daily_report_form_fields_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_daily_report_form_fields_updated_at BEFORE UPDATE ON public.daily_report_form_fields FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: daily_report_form_templates trg_daily_report_form_templates_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_daily_report_form_templates_updated_at BEFORE UPDATE ON public.daily_report_form_templates FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: daily_report_instances trg_daily_report_instances_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_daily_report_instances_lock BEFORE INSERT OR DELETE OR UPDATE ON public.daily_report_instances FOR EACH ROW EXECUTE FUNCTION public.enforce_daily_report_instance_lock();
+
+
+--
+-- Name: daily_report_instances trg_daily_report_instances_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_daily_report_instances_updated_at BEFORE UPDATE ON public.daily_report_instances FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -20221,6 +20569,110 @@ ALTER TABLE ONLY public.daily_report_checklist_items
 
 ALTER TABLE ONLY public.daily_report_checklist_items
     ADD CONSTRAINT daily_report_checklist_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.daily_report_templates(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_report_day_locks daily_report_day_locks_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_day_locks
+    ADD CONSTRAINT daily_report_day_locks_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_day_locks daily_report_day_locks_locked_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_day_locks
+    ADD CONSTRAINT daily_report_day_locks_locked_by_fkey FOREIGN KEY (locked_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_fields
+    ADD CONSTRAINT daily_report_form_fields_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_fields
+    ADD CONSTRAINT daily_report_form_fields_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.daily_report_form_templates(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_templates
+    ADD CONSTRAINT daily_report_form_templates_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_templates
+    ADD CONSTRAINT daily_report_form_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_templates
+    ADD CONSTRAINT daily_report_form_templates_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_superseded_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_templates
+    ADD CONSTRAINT daily_report_form_templates_superseded_by_fkey FOREIGN KEY (superseded_by) REFERENCES public.daily_report_form_templates(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_supersedes_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_form_templates
+    ADD CONSTRAINT daily_report_form_templates_supersedes_id_fkey FOREIGN KEY (supersedes_id) REFERENCES public.daily_report_form_templates(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_instances daily_report_instances_area_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_instances
+    ADD CONSTRAINT daily_report_instances_area_id_fkey FOREIGN KEY (area_id) REFERENCES public.daily_report_areas(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_instances daily_report_instances_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_instances
+    ADD CONSTRAINT daily_report_instances_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: daily_report_instances daily_report_instances_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_instances
+    ADD CONSTRAINT daily_report_instances_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: daily_report_instances daily_report_instances_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.daily_report_instances
+    ADD CONSTRAINT daily_report_instances_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.daily_report_form_templates(id) ON DELETE RESTRICT;
 
 
 --
@@ -23290,6 +23742,135 @@ CREATE POLICY daily_report_checklist_items_select ON public.daily_report_checkli
 --
 
 CREATE POLICY daily_report_checklist_items_update ON public.daily_report_checklist_items FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_day_locks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_report_day_locks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_report_day_locks daily_report_day_locks_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_day_locks_delete ON public.daily_report_day_locks FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_day_locks daily_report_day_locks_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_day_locks_insert ON public.daily_report_day_locks FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_day_locks daily_report_day_locks_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_day_locks_select ON public.daily_report_day_locks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_fields; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_report_form_fields ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_fields_delete ON public.daily_report_form_fields FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_fields_insert ON public.daily_report_form_fields FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_fields_select ON public.daily_report_form_fields FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_fields daily_report_form_fields_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_fields_update ON public.daily_report_form_fields FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_templates; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_report_form_templates ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_templates_delete ON public.daily_report_form_templates FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_templates_insert ON public.daily_report_form_templates FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_templates_select ON public.daily_report_form_templates FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_form_templates daily_report_form_templates_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_form_templates_update ON public.daily_report_form_templates FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_instances; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.daily_report_instances ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: daily_report_instances daily_report_instances_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_instances_delete ON public.daily_report_instances FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text))));
+
+
+--
+-- Name: daily_report_instances daily_report_instances_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_instances_insert ON public.daily_report_instances FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (employee_id = public.current_employee_id()) AND (public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND public.has_area_submit_access('daily_reports'::text, area_id) AND (NOT public.daily_report_day_is_locked(facility_id, report_date)))));
+
+
+--
+-- Name: daily_report_instances daily_report_instances_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_instances_select ON public.daily_report_instances FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR ((public.current_employee_module_permission('daily_reports'::text) >= 'view'::public.module_permission_level) AND public.has_area_access('daily_reports'::text, area_id))))));
+
+
+--
+-- Name: daily_report_instances daily_report_instances_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY daily_report_instances_update ON public.daily_report_instances FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)) OR ((facility_id = public.current_facility_id()) AND (employee_id = public.current_employee_id()) AND (status = 'draft'::text) AND (public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND public.has_area_submit_access('daily_reports'::text, area_id) AND (NOT public.daily_report_day_is_locked(facility_id, report_date))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('daily_reports'::text)) OR ((facility_id = public.current_facility_id()) AND (employee_id = public.current_employee_id()) AND (public.current_employee_module_permission('daily_reports'::text) >= 'submit'::public.module_permission_level) AND public.has_area_submit_access('daily_reports'::text, area_id) AND (NOT public.daily_report_day_is_locked(facility_id, report_date)))));
 
 
 --

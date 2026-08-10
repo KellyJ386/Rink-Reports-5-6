@@ -1,6 +1,6 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
-import { ClipboardList, History } from "lucide-react"
+import { ClipboardList, FileText, History } from "lucide-react"
 
 import { SignOutButton } from "@/components/staff/sign-out-button"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
@@ -72,6 +72,19 @@ export default async function DailyReportsPage() {
   const routingData = routing.ok ? routing.data : null
   const routingOn = routingData?.routingEnabled === true
 
+  // Whether any custom form templates (migration 235) exist for the user's
+  // areas — drives the "Report forms" entry point in the header.
+  const { count: formCount } = allowed.length
+    ? await supabase
+        .from("daily_report_form_templates")
+        .select("id", { count: "exact", head: true })
+        .eq("facility_id", employeeRow.facility_id)
+        .in("area_id", allowed.map((a) => a.id))
+        .eq("is_active", true)
+        .is("superseded_at", null)
+    : { count: 0 }
+  const hasForms = (formCount ?? 0) > 0
+
   const shell = (children: ReactNode) => (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-8">
       <PageHeader
@@ -94,6 +107,14 @@ export default async function DailyReportsPage() {
                 <Link href="/reports/daily/assignments">
                   <ClipboardList className="h-4 w-4" aria-hidden />
                   Assignments
+                </Link>
+              </Button>
+            ) : null}
+            {hasForms ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/reports/daily/forms">
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Report forms
                 </Link>
               </Button>
             ) : null}
