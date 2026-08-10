@@ -11545,7 +11545,7 @@ CREATE TABLE public.ice_operations_equipment (
 -- Name: TABLE ice_operations_equipment; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.ice_operations_equipment IS 'Ice Operations: equipment dropdown. equipment_type drives which submissions can pick this row (ice_resurfacer=>ice_make/circle_check, edger=>edging, blade_set=>blade_change, hand_edger / other=>any). hours_count is admin-maintained cumulative hours; staff-side forms display the latest value.';
+COMMENT ON TABLE public.ice_operations_equipment IS 'Ice Operations: equipment dropdown. equipment_type drives which submissions can pick this row (ice_resurfacer=>ice_make/circle_check/propane_tank_change, edger=>edging, blade_set=>blade_change, hand_edger / other=>any). hours_count is admin-maintained cumulative hours; staff-side forms display the latest value.';
 
 
 --
@@ -11659,7 +11659,7 @@ COMMENT ON TABLE public.ice_operations_settings IS 'Ice Operations: per-facility
 -- Name: COLUMN ice_operations_settings.enabled_operation_types; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.ice_operations_settings.enabled_operation_types IS 'Subset of operation types visible to staff (ice_make/circle_check/edging/blade_change). NULL/empty = all enabled. The types themselves are code-defined; this only gates visibility.';
+COMMENT ON COLUMN public.ice_operations_settings.enabled_operation_types IS 'Subset of operation types visible to staff (ice_make/circle_check/edging/blade_change/propane_tank_change). NULL/empty = all enabled. The types themselves are code-defined; this only gates visibility.';
 
 
 --
@@ -11681,7 +11681,7 @@ CREATE TABLE public.ice_operations_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    CONSTRAINT ice_operations_submissions_operation_type_check CHECK ((operation_type = ANY (ARRAY['ice_make'::text, 'circle_check'::text, 'edging'::text, 'blade_change'::text])))
+    CONSTRAINT ice_operations_submissions_operation_type_check CHECK ((operation_type = ANY (ARRAY['ice_make'::text, 'circle_check'::text, 'edging'::text, 'blade_change'::text, 'propane_tank_change'::text])))
 );
 
 
@@ -11689,7 +11689,7 @@ CREATE TABLE public.ice_operations_submissions (
 -- Name: TABLE ice_operations_submissions; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.ice_operations_submissions IS 'Ice Operations: one row per submitted operation. operation_type is fixed to the four canonical values. payload jsonb shape varies per operation_type (ice_make: water/ice temps, time_in/out, water_used_gal, surface_pass_count; edging: hours_run; blade_change: blade_serial, hours_at_change, replaced_by_employee_id; circle_check: empty -- results live in ice_operations_circle_check_results). Original is immutable; only super_admin may UPDATE/DELETE.';
+COMMENT ON TABLE public.ice_operations_submissions IS 'Ice Operations: one row per submitted operation. operation_type is fixed to the five canonical values. payload jsonb shape varies per operation_type (ice_make: water/ice temps, time_in/out, water_used_gal, surface_pass_count; edging: hours_run; blade_change: blade_serial, hours_at_change, replaced_by_employee_id; propane_tank_change: hours_at_change; circle_check: empty -- results live in ice_operations_circle_check_results). Original is immutable; only super_admin may UPDATE/DELETE.';
 
 
 --
@@ -11703,7 +11703,7 @@ COMMENT ON COLUMN public.ice_operations_submissions.rink_id IS 'Required by app 
 -- Name: COLUMN ice_operations_submissions.equipment_id; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.ice_operations_submissions.equipment_id IS 'Relevance varies by operation_type: zamboni for ice_make/circle_check, edger for edging, blade_set for blade_change. Nullable in DB.';
+COMMENT ON COLUMN public.ice_operations_submissions.equipment_id IS 'Relevance varies by operation_type: ice_resurfacer for ice_make/circle_check/propane_tank_change, edger for edging, blade_set for blade_change. Nullable in DB.';
 
 
 --

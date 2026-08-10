@@ -12,7 +12,13 @@ import { resolveEnabledOperationTypes } from "../types"
 
 describe("resolveEnabledOperationTypes", () => {
   it("fails open to all operations for null/empty/invalid input", () => {
-    const all = ["ice_make", "circle_check", "edging", "blade_change"]
+    const all = [
+      "ice_make",
+      "circle_check",
+      "edging",
+      "blade_change",
+      "propane_tank_change",
+    ]
     expect(resolveEnabledOperationTypes(null)).toEqual(all)
     expect(resolveEnabledOperationTypes([])).toEqual(all)
     expect(resolveEnabledOperationTypes(["nonsense"])).toEqual(all)
@@ -166,6 +172,28 @@ describe("blade_change payload parsing", () => {
     if (out.fields.type !== "blade_change") throw new Error("wrong type")
     expect(out.fields.blade_serial).toBeNull()
     expect(out.fields.replaced_by_employee_id).toBeNull()
+  })
+})
+
+describe("propane_tank_change payload parsing", () => {
+  it("parses hours_at_change from a numeric string", () => {
+    const out = buildInputFromObject(
+      base({ operation_type: "propane_tank_change", hours_at_change: "512.5" }),
+    )!
+    expect(out.fields).toEqual({
+      type: "propane_tank_change",
+      hours_at_change: 512.5,
+    })
+  })
+
+  it("nulls missing/non-numeric hours", () => {
+    const out = buildInputFromObject(
+      base({ operation_type: "propane_tank_change", hours_at_change: "abc" }),
+    )!
+    expect(out.fields).toEqual({
+      type: "propane_tank_change",
+      hours_at_change: null,
+    })
   })
 })
 
@@ -412,6 +440,27 @@ describe("validateIceOpsInput", () => {
         }),
       ),
     ).toBe("Blade hours can't be negative.")
+  })
+
+  it("rejects negative hours_at_change on propane_tank_change", () => {
+    expect(
+      validateIceOpsInput(
+        input({
+          fields: { type: "propane_tank_change", hours_at_change: -3 },
+        }),
+      ),
+    ).toBe("Machine hours can't be negative.")
+  })
+
+  it("passes a propane_tank_change without a rink (machine + hours only)", () => {
+    expect(
+      validateIceOpsInput(
+        input({
+          rink_id: null,
+          fields: { type: "propane_tank_change", hours_at_change: 512.5 },
+        }),
+      ),
+    ).toBeNull()
   })
 
   it("rejects a circle check with no results (would read as a clean pass)", () => {

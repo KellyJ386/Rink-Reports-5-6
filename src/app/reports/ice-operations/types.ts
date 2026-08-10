@@ -14,6 +14,7 @@ export type OperationType =
   | "circle_check"
   | "edging"
   | "blade_change"
+  | "propane_tank_change"
 
 export type EquipmentType =
   | "ice_resurfacer"
@@ -29,17 +30,19 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   "circle_check",
   "edging",
   "blade_change",
+  "propane_tank_change",
 ] as const
 
 /**
  * Tab order shown in the Ice Maintenance Log module nav. Canonical order:
- * Ice Make, Circle Check, Edging, Blade Change.
+ * Ice Make, Circle Check, Edging, Blade Change, Propane Tank Change.
  */
 export const OPERATION_TAB_ORDER: readonly OperationType[] = [
   "ice_make",
   "circle_check",
   "edging",
   "blade_change",
+  "propane_tank_change",
 ] as const
 
 /** Module shown when the user lands on Ice Operations without picking a tab. */
@@ -50,6 +53,7 @@ export const OPERATION_LABELS: Record<OperationType, string> = {
   circle_check: "Circle Check",
   edging: "Edging",
   blade_change: "Blade Change",
+  propane_tank_change: "Propane Tank Change",
 }
 
 export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
@@ -58,6 +62,8 @@ export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
   circle_check: "Run the digital circle check and flag any issues.",
   edging: "Record edging hours run on the edger.",
   blade_change: "Log a blade change with the machine, hours, and new blade ID.",
+  propane_tank_change:
+    "Log a propane tank change — machine and hours. The date is recorded automatically.",
 }
 
 /**
@@ -69,6 +75,7 @@ export const OPERATION_EQUIPMENT_TYPE: Record<OperationType, EquipmentType> = {
   circle_check: "ice_resurfacer",
   edging: "edger",
   blade_change: "blade_set",
+  propane_tank_change: "ice_resurfacer",
 }
 
 export const OPERATION_REQUIRES_RINK: Record<OperationType, boolean> = {
@@ -76,6 +83,7 @@ export const OPERATION_REQUIRES_RINK: Record<OperationType, boolean> = {
   circle_check: false,
   edging: false,
   blade_change: false,
+  propane_tank_change: false,
 }
 
 /** Operations that surface a rink picker in their form. */
@@ -84,6 +92,7 @@ export const OPERATION_SHOWS_RINK: Record<OperationType, boolean> = {
   circle_check: false,
   edging: false,
   blade_change: false,
+  propane_tank_change: false,
 }
 
 export function isOperationType(value: string): value is OperationType {
@@ -129,6 +138,10 @@ export type BladeChangePayload = {
   blade_serial: string | null
   hours_at_change: number | null
   replaced_by_employee_id: string | null
+}
+
+export type PropaneTankChangePayload = {
+  hours_at_change: number | null
 }
 
 export type CirclePayload = Record<string, never>

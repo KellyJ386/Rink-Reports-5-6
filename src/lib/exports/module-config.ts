@@ -555,6 +555,7 @@ const ICE_OPERATION_LABELS: Record<string, string> = {
   circle_check: "Circle Check",
   edging: "Edging",
   blade_change: "Blade Change",
+  propane_tank_change: "Propane Tank Change",
 }
 
 const buildIceOperations: ModuleBuilder = async ({ sb, facilityId, range, settings }) => {

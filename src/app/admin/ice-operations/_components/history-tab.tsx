@@ -23,6 +23,7 @@ import {
   operationLabel,
   readEdgingPayload,
   readIceMakePayload,
+  readPropaneTankChangePayload,
 } from "../types"
 
 import { HistoryFilters } from "./history-filters"
@@ -171,6 +172,12 @@ function summarizeSubmission(
     }
     case "blade_change":
       return "Blade changed"
+    case "propane_tank_change": {
+      const p = readPropaneTankChangePayload(s.payload)
+      return p.hours_at_change !== null
+        ? `Tank changed at ${p.hours_at_change} hrs`
+        : "Propane tank changed"
+    }
     default:
       return operationLabel(s.operation_type)
   }

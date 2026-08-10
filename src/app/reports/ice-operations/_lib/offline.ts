@@ -4,8 +4,9 @@
 // rather than inline in route.ts so the op-type-specific logic lives next to the
 // rest of the module's submission pipeline.
 //
-// All FOUR operation types (ice_make, blade_change, edging, circle_check) route
-// through one handler: the `operation_type` discriminator rides inside the queued
+// All FIVE operation types (ice_make, blade_change, edging, circle_check,
+// propane_tank_change) route through one handler: the `operation_type`
+// discriminator rides inside the queued
 // `payload`, so `buildInputFromPayload` reconstructs the same structured input the
 // online server action does, and `persistIceOperation` lands the same rows.
 

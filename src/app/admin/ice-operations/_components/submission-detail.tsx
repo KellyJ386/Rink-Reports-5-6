@@ -28,6 +28,7 @@ import {
   readBladeChangePayload,
   readEdgingPayload,
   readIceMakePayload,
+  readPropaneTankChangePayload,
 } from "../types"
 
 const NOTE_INITIAL: ActionState = { ok: null }
@@ -291,6 +292,22 @@ function PayloadSection({
                 replacedByEmployee
                   ? `${replacedByEmployee.first_name} ${replacedByEmployee.last_name}`
                   : null
+              }
+            />
+          </div>
+        </section>
+      )
+    }
+    case "propane_tank_change": {
+      const p = readPropaneTankChangePayload(submission.payload)
+      return (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold">Propane tank change</h3>
+          <div className="grid grid-cols-2 gap-4 rounded-md border p-3">
+            <GridRow
+              label="Machine hours"
+              value={
+                p.hours_at_change !== null ? String(p.hours_at_change) : null
               }
             />
           </div>

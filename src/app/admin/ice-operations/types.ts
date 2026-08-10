@@ -28,12 +28,13 @@ export type EmployeeLite = {
   last_name: string
 }
 
-// 4 fixed operation types — cannot be added/removed.
+// 5 fixed operation types — cannot be added/removed.
 export type OperationType =
   | "ice_make"
   | "circle_check"
   | "edging"
   | "blade_change"
+  | "propane_tank_change"
 export const OPERATION_TYPES: ReadonlyArray<{
   key: OperationType
   label: string
@@ -42,6 +43,7 @@ export const OPERATION_TYPES: ReadonlyArray<{
   { key: "circle_check", label: "Circle Check" },
   { key: "edging", label: "Edging" },
   { key: "blade_change", label: "Blade Change" },
+  { key: "propane_tank_change", label: "Propane Tank Change" },
 ]
 export function isOperationType(v: string): v is OperationType {
   return (OPERATION_TYPES.map((o) => o.key) as readonly string[]).includes(v)
@@ -164,6 +166,10 @@ export type BladeChangePayload = {
   replaced_by_employee_id: string | null
 }
 
+export type PropaneTankChangePayload = {
+  hours_at_change: number | null
+}
+
 export function readIceMakePayload(p: unknown): IceMakePayload {
   const o = (p ?? {}) as Record<string, unknown>
   return {
@@ -186,6 +192,16 @@ export function readEdgingPayload(p: unknown): EdgingPayload {
   const o = (p ?? {}) as Record<string, unknown>
   return {
     hours_run: typeof o.hours_run === "number" ? o.hours_run : null,
+  }
+}
+
+export function readPropaneTankChangePayload(
+  p: unknown,
+): PropaneTankChangePayload {
+  const o = (p ?? {}) as Record<string, unknown>
+  return {
+    hours_at_change:
+      typeof o.hours_at_change === "number" ? o.hours_at_change : null,
   }
 }
 

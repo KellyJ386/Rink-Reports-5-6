@@ -18,6 +18,7 @@ import { BladeChangeForm } from "./_components/blade-change-form"
 import { CircleCheckForm } from "./_components/circle-check-form"
 import { EdgingForm } from "./_components/edging-form"
 import { IceMakeForm } from "./_components/ice-make-form"
+import { PropaneTankChangeForm } from "./_components/propane-tank-change-form"
 import {
   IceOpsShell,
   type RecentActivityItem,
@@ -40,6 +41,7 @@ const FORM_TITLES: Record<OperationType, string> = {
   blade_change: "Blade Change",
   edging: "Edging",
   circle_check: "Digital Circle Check",
+  propane_tank_change: "Propane Tank Change",
 }
 
 type RouteParams = {
@@ -140,7 +142,7 @@ export default async function OperationTypePage({
 
   const facilityId = employeeRow.facility_id
 
-  // Per-facility operation visibility. The four operation types are code-defined,
+  // Per-facility operation visibility. The five operation types are code-defined,
   // but a facility can hide the ones it doesn't use. Fail-open (null = all).
   const { data: opSettings } = await supabase
     .from("ice_operations_settings")
@@ -369,6 +371,9 @@ export default async function OperationTypePage({
         ) : null}
         {operationType === "blade_change" ? (
           <BladeChangeForm equipment={equipment} />
+        ) : null}
+        {operationType === "propane_tank_change" ? (
+          <PropaneTankChangeForm equipment={equipment} />
         ) : null}
         {operationType === "circle_check" ? (
           <CircleCheckForm
