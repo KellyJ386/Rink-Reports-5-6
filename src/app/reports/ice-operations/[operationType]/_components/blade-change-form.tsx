@@ -70,12 +70,12 @@ export function BladeChangeForm({ equipment }: Props) {
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
           <Label>
-            Machine
+            Ice Resurfacer
             <RequiredMark />
           </Label>
           <Select value={equipmentId} onValueChange={setEquipmentId} required>
             <SelectTrigger>
-              <SelectValue placeholder="Select machine" />
+              <SelectValue placeholder="Select ice resurfacer" />
             </SelectTrigger>
             <SelectContent>
               {equipment.map((eq) => (
