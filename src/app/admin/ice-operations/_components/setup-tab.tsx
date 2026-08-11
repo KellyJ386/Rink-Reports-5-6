@@ -78,6 +78,7 @@ import {
   CIRCLE_CHECK_TEMPLATE_CAP,
   EQUIPMENT_TYPES,
   equipmentTypeLabel,
+  isEquipmentType,
 } from "../types"
 
 import {
@@ -412,6 +413,11 @@ function EquipmentRowItem({
             </Badge>
           )}
           {fuelLabel && <Badge variant="outline">{fuelLabel}</Badge>}
+          {!isEquipmentType(equipment.equipment_type) && (
+            <Badge variant="outline">
+              {equipmentTypeLabel(equipment.equipment_type)}
+            </Badge>
+          )}
           {!equipment.is_active && (
             <Badge variant="secondary" className="uppercase">off</Badge>
           )}

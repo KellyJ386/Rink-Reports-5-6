@@ -25,7 +25,7 @@ import {
 } from "./_components/ice-ops-shell"
 import {
   OPERATION_DESCRIPTIONS,
-  OPERATION_EQUIPMENT_TYPE,
+  OPERATION_EQUIPMENT_TYPES,
   OPERATION_LABELS,
   OPERATION_REQUIRES_RINK,
   isOperationType,
@@ -156,7 +156,7 @@ export default async function OperationTypePage({
     redirect(`/reports/ice-operations/${enabledOps[0]}`)
   }
 
-  const equipmentType = OPERATION_EQUIPMENT_TYPE[operationType]
+  const equipmentTypes = OPERATION_EQUIPMENT_TYPES[operationType]
 
   const [{ data: rinksRaw }, { data: equipmentRaw }, { data: recentRaw }] =
     await Promise.all([
@@ -174,7 +174,7 @@ export default async function OperationTypePage({
         )
         .eq("facility_id", facilityId)
         .eq("is_active", true)
-        .eq("equipment_type", equipmentType)
+        .in("equipment_type", [...equipmentTypes])
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true }),
       supabase
@@ -196,14 +196,24 @@ export default async function OperationTypePage({
     fuel_type_id: string | null
     tank_capacity_gal: number | null
   }
-  const equipment = ((equipmentRaw ?? []) as EquipmentDbRow[]).map((row) => ({
-    id: row.id,
-    name: row.name,
-    equipment_type: row.equipment_type as EquipmentType,
-    hours_count: row.hours_count,
-    fuel_type_id: row.fuel_type_id ?? null,
-    tank_capacity_gal: row.tank_capacity_gal ?? null,
-  }))
+  // List machines grouped by the operation's type priority (e.g. edgers before
+  // resurfacers on the Edging tab); the sort is stable, so the DB's
+  // sort_order/name ordering holds within each type.
+  const typeRank = new Map(equipmentTypes.map((t, i) => [t as string, i]))
+  const equipment = ((equipmentRaw ?? []) as EquipmentDbRow[])
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      equipment_type: row.equipment_type as EquipmentType,
+      hours_count: row.hours_count,
+      fuel_type_id: row.fuel_type_id ?? null,
+      tank_capacity_gal: row.tank_capacity_gal ?? null,
+    }))
+    .sort(
+      (a, b) =>
+        (typeRank.get(a.equipment_type) ?? equipmentTypes.length) -
+        (typeRank.get(b.equipment_type) ?? equipmentTypes.length),
+    )
 
   type RecentDbRow = {
     id: string
@@ -257,10 +267,13 @@ export default async function OperationTypePage({
   }
 
   if (equipment.length === 0) {
+    const typeList = equipmentTypes
+      .map((t) => t.replace(/_/g, " "))
+      .join(" or ")
     return renderShellLayout(
       noticeCard(
         "No machines configured",
-        `No ${equipmentType.replace("_", " ")} equipment is set up yet. Talk to your administrator.`,
+        `No ${typeList} equipment is set up yet. Talk to your administrator.`,
       ),
     )
   }
@@ -284,7 +297,12 @@ export default async function OperationTypePage({
         .eq("facility_id", facilityId)
         .eq("is_active", true)
         .or(
-          `applies_to_equipment_type.is.null,applies_to_equipment_type.eq.${equipmentType}`,
+          [
+            "applies_to_equipment_type.is.null",
+            ...equipmentTypes.map(
+              (t) => `applies_to_equipment_type.eq.${t}`,
+            ),
+          ].join(","),
         )
         .order("sort_order", { ascending: true })
         .order("label", { ascending: true }),

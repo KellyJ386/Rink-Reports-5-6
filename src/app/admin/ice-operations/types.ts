@@ -52,7 +52,11 @@ export function operationLabel(v: string): string {
   return OPERATION_TYPES.find((o) => o.key === v)?.label ?? v
 }
 
-// Fixed equipment types.
+// Fixed equipment types. "blade_set" is retired — a blade change is always
+// performed on an ice resurfacer, so the staff form pulls resurfacers and
+// there is nothing left for a blade-set row to feed. It stays in the DB CHECK
+// (and the union) so historical rows remain valid, but it can no longer be
+// picked when creating or editing equipment.
 export type EquipmentType =
   | "ice_resurfacer"
   | "edger"
@@ -65,15 +69,21 @@ export const EQUIPMENT_TYPES: ReadonlyArray<{
 }> = [
   { key: "ice_resurfacer", label: "Ice Resurfacer" },
   { key: "edger", label: "Edger" },
-  { key: "blade_set", label: "Blade Set" },
   { key: "hand_edger", label: "Hand Edger" },
   { key: "other", label: "Other" },
 ]
+const LEGACY_EQUIPMENT_TYPE_LABELS: Record<string, string> = {
+  blade_set: "Blade Set (retired)",
+}
 export function isEquipmentType(v: string): v is EquipmentType {
   return (EQUIPMENT_TYPES.map((e) => e.key) as readonly string[]).includes(v)
 }
 export function equipmentTypeLabel(v: string): string {
-  return EQUIPMENT_TYPES.find((e) => e.key === v)?.label ?? v
+  return (
+    EQUIPMENT_TYPES.find((e) => e.key === v)?.label ??
+    LEGACY_EQUIPMENT_TYPE_LABELS[v] ??
+    v
+  )
 }
 
 export type Severity = "warn" | "high" | "critical"

@@ -61,21 +61,29 @@ export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
     "Log a resurfacing run — rink, machine, water used, machine hours, and snow taken.",
   circle_check: "Run the digital circle check and flag any issues.",
   edging: "Record edging hours run on the edger.",
-  blade_change: "Log a blade change with the machine, hours, and new blade ID.",
+  blade_change:
+    "Log a blade change on the ice resurfacer — machine hours and new blade ID.",
   propane_tank_change:
     "Log a propane tank change — machine and hours. The date is recorded automatically.",
 }
 
 /**
- * The canonical equipment_type each operation pulls equipment from. UI uses
- * this to filter the equipment dropdown.
+ * The equipment_types each operation pulls equipment from, in display-priority
+ * order (the UI lists machines of the first type first). A blade change is
+ * always performed on an ice resurfacer — the retired "blade_set" equipment
+ * type is no longer offered anywhere (legacy rows are still accepted at
+ * persist time; see _lib/submit.ts). Edging includes the resurfacer too, so a
+ * facility that has only configured its resurfacer still gets a machine list.
  */
-export const OPERATION_EQUIPMENT_TYPE: Record<OperationType, EquipmentType> = {
-  ice_make: "ice_resurfacer",
-  circle_check: "ice_resurfacer",
-  edging: "edger",
-  blade_change: "blade_set",
-  propane_tank_change: "ice_resurfacer",
+export const OPERATION_EQUIPMENT_TYPES: Record<
+  OperationType,
+  readonly EquipmentType[]
+> = {
+  ice_make: ["ice_resurfacer"],
+  circle_check: ["ice_resurfacer"],
+  edging: ["edger", "ice_resurfacer"],
+  blade_change: ["ice_resurfacer"],
+  propane_tank_change: ["ice_resurfacer"],
 }
 
 export const OPERATION_REQUIRES_RINK: Record<OperationType, boolean> = {
