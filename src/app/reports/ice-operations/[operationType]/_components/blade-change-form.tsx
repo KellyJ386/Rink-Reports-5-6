@@ -22,6 +22,7 @@ import {
   submitIceOperationsReport,
   type SubmissionFormState,
 } from "../../actions"
+import { AutoTimestampField } from "./auto-timestamp-field"
 import { OfflineQueuedCard } from "./offline-queued-card"
 import { equipmentLabel, type EquipmentOption } from "./shared"
 import { useOfflineSubmit } from "./use-offline-submit"
@@ -116,6 +117,8 @@ export function BladeChangeForm({ equipment }: Props) {
           className="h-12 text-base"
         />
       </div>
+
+      <AutoTimestampField />
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="notes">Notes</Label>

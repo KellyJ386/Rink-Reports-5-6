@@ -67,15 +67,21 @@ export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
 }
 
 /**
- * The canonical equipment_type each operation pulls equipment from. UI uses
- * this to filter the equipment dropdown.
+ * The equipment_types each operation pulls equipment from, in display-priority
+ * order (the UI lists machines of the first type first). Blade changes and
+ * edging happen on the facility's ice resurfacer too, so those operations
+ * include it — a facility that has only configured its resurfacer (the common
+ * case) still gets a machine list on every tab.
  */
-export const OPERATION_EQUIPMENT_TYPE: Record<OperationType, EquipmentType> = {
-  ice_make: "ice_resurfacer",
-  circle_check: "ice_resurfacer",
-  edging: "edger",
-  blade_change: "blade_set",
-  propane_tank_change: "ice_resurfacer",
+export const OPERATION_EQUIPMENT_TYPES: Record<
+  OperationType,
+  readonly EquipmentType[]
+> = {
+  ice_make: ["ice_resurfacer"],
+  circle_check: ["ice_resurfacer"],
+  edging: ["edger", "ice_resurfacer"],
+  blade_change: ["ice_resurfacer", "edger", "blade_set"],
+  propane_tank_change: ["ice_resurfacer"],
 }
 
 export const OPERATION_REQUIRES_RINK: Record<OperationType, boolean> = {

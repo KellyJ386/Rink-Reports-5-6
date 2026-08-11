@@ -18,7 +18,7 @@ import type { createClient } from "@/lib/supabase/server"
 import { formatInTz, wallTimeToUtc } from "@/lib/timezone"
 import type { Json } from "@/types/database"
 
-import { OPERATION_EQUIPMENT_TYPE } from "../types"
+import { OPERATION_EQUIPMENT_TYPES } from "../types"
 import type { IceOpsInput } from "./compute"
 
 // Re-export the parsers/validators the callers import from here.
@@ -132,12 +132,14 @@ export async function persistIceOperation(
     return { ok: false, error: "Selected equipment is not available." }
   }
 
-  // The equipment must be usable for this operation: the canonical type the
+  // The equipment must be usable for this operation: one of the types the
   // form filters by, or hand_edger/other (documented in the DB as "any").
   // The UI already enforces this; the check guards direct POSTs and replays.
-  const expectedType = OPERATION_EQUIPMENT_TYPE[operationType]
+  const expectedTypes = OPERATION_EQUIPMENT_TYPES[operationType]
   if (
-    equipmentRow.equipment_type !== expectedType &&
+    !(expectedTypes as readonly string[]).includes(
+      equipmentRow.equipment_type,
+    ) &&
     equipmentRow.equipment_type !== "hand_edger" &&
     equipmentRow.equipment_type !== "other"
   ) {
