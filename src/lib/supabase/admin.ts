@@ -79,8 +79,17 @@ export function getServiceRoleKeyDebugInfo(rawValue: string): ServiceRoleKeyDebu
 }
 
 export function checkSiteUrlEnv(): SiteUrlCheck {
-  const raw = process.env.NEXT_PUBLIC_SITE_URL ?? ""
-  const siteUrl = raw.trim().replace(/\/$/, "")
+  const explicit = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim()
+  // On Vercel, VERCEL_PROJECT_PRODUCTION_URL is the project's production
+  // domain as a bare hostname (no protocol), available in every deployment
+  // environment. Falling back to it keeps invite/reset links working when
+  // NEXT_PUBLIC_SITE_URL was never configured in the dashboard.
+  const vercelProductionHost = (
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? ""
+  ).trim()
+  const raw =
+    explicit || (vercelProductionHost ? `https://${vercelProductionHost}` : "")
+  const siteUrl = raw.replace(/\/$/, "")
   if (!siteUrl) {
     return {
       ok: false,
