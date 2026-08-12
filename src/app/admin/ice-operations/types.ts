@@ -28,13 +28,12 @@ export type EmployeeLite = {
   last_name: string
 }
 
-// 5 fixed operation types — cannot be added/removed.
+// 4 fixed operation types — cannot be added/removed.
 export type OperationType =
   | "ice_make"
   | "circle_check"
   | "edging"
   | "blade_change"
-  | "propane_tank_change"
 export const OPERATION_TYPES: ReadonlyArray<{
   key: OperationType
   label: string
@@ -43,13 +42,22 @@ export const OPERATION_TYPES: ReadonlyArray<{
   { key: "circle_check", label: "Circle Check" },
   { key: "edging", label: "Edging" },
   { key: "blade_change", label: "Blade Change" },
-  { key: "propane_tank_change", label: "Propane Tank Change" },
 ]
 export function isOperationType(v: string): v is OperationType {
   return (OPERATION_TYPES.map((o) => o.key) as readonly string[]).includes(v)
 }
+// Operation types that no longer have a tab/filter/settings entry but may
+// exist as historical rows (propane briefly had its own tab before becoming
+// the Ice Make form's toggle). Keeps their history rendering human-readable.
+const LEGACY_OPERATION_LABELS: Record<string, string> = {
+  propane_tank_change: "Propane Tank Change",
+}
 export function operationLabel(v: string): string {
-  return OPERATION_TYPES.find((o) => o.key === v)?.label ?? v
+  return (
+    OPERATION_TYPES.find((o) => o.key === v)?.label ??
+    LEGACY_OPERATION_LABELS[v] ??
+    v
+  )
 }
 
 // Fixed equipment types. "blade_set" is retired — a blade change is always
@@ -160,6 +168,8 @@ export type IceMakePayload = {
   snow_taken_pct: number | null
   time_in: string | null
   time_out: string | null
+  // The Ice Make form's Propane Tank Change toggle (false for older rows).
+  propane_tank_changed: boolean
   // Legacy fields kept so historical submissions still display.
   water_temp_c: number | null
   ice_temp_c: number | null
@@ -176,6 +186,8 @@ export type BladeChangePayload = {
   replaced_by_employee_id: string | null
 }
 
+// Legacy payload from propane's brief run as its own operation type; kept so
+// any historical rows still render in history/detail.
 export type PropaneTankChangePayload = {
   hours_at_change: number | null
 }
@@ -191,6 +203,7 @@ export function readIceMakePayload(p: unknown): IceMakePayload {
       typeof o.snow_taken_pct === "number" ? o.snow_taken_pct : null,
     time_in: typeof o.time_in === "string" ? o.time_in : null,
     time_out: typeof o.time_out === "string" ? o.time_out : null,
+    propane_tank_changed: o.propane_tank_changed === true,
     water_temp_c: typeof o.water_temp_c === "number" ? o.water_temp_c : null,
     ice_temp_c: typeof o.ice_temp_c === "number" ? o.ice_temp_c : null,
     surface_pass_count:

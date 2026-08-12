@@ -26,6 +26,8 @@ export type IceMakeFields = {
   snow_taken_pct: number | null
   time_in: string | null
   time_out: string | null
+  /** The "Propane Tank Change" toggle on the Ice Make form. */
+  propane_tank_changed: boolean
 }
 
 export type EdgingFields = {
@@ -40,6 +42,12 @@ export type BladeChangeFields = {
   replaced_by_employee_id: string | null
 }
 
+/**
+ * Legacy: propane tank changes briefly had their own tab/form. The type is
+ * still parsed and persisted so offline submissions queued during that window
+ * replay cleanly, but nothing enqueues it anymore — the Ice Make form's
+ * propane_tank_changed toggle replaced it.
+ */
 export type PropaneTankChangeFields = {
   type: "propane_tank_change"
   hours_at_change: number | null
@@ -101,6 +109,11 @@ function numOrNull(v: unknown): number | null {
   if (s === "") return null
   const n = Number(s)
   return Number.isFinite(n) ? n : null
+}
+
+/** Boolean from a checkbox/toggle: true (payload) or "true"/"on" (form post). */
+function boolFlag(v: unknown): boolean {
+  return v === true || v === "true" || v === "on"
 }
 
 // Keep the reporter's raw wall-clock string (datetime-local format) — the
@@ -184,6 +197,7 @@ function buildFields(
         snow_taken_pct: numOrNull(get("snow_taken_pct")),
         time_in: strOrNull(get("time_in")),
         time_out: strOrNull(get("time_out")),
+        propane_tank_changed: boolFlag(get("propane_tank_changed")),
       }
     case "edging":
       return {

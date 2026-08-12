@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   galToL,
@@ -79,6 +80,7 @@ export function IceMakeForm({ rinks, equipment }: Props) {
   const [snowTaken, setSnowTaken] = useState("")
   const [timeOn, setTimeOn] = useState("")
   const [timeOff, setTimeOff] = useState("")
+  const [propaneChanged, setPropaneChanged] = useState(false)
   const [notes, setNotes] = useState("")
 
   const tankCapacityGal = useMemo(
@@ -129,6 +131,7 @@ export function IceMakeForm({ rinks, equipment }: Props) {
     snow_taken_pct: snowTaken,
     time_in: timeOn,
     time_out: timeOff,
+    propane_tank_changed: propaneChanged,
   }))
 
   useEffect(() => {
@@ -150,6 +153,11 @@ export function IceMakeForm({ rinks, equipment }: Props) {
       <input type="hidden" name="time_in" value={timeOn} />
       <input type="hidden" name="time_out" value={timeOff} />
       <input type="hidden" name="water_used_gal" value={canonicalWaterGal} />
+      <input
+        type="hidden"
+        name="propane_tank_changed"
+        value={propaneChanged ? "true" : ""}
+      />
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
@@ -273,6 +281,25 @@ export function IceMakeForm({ rinks, equipment }: Props) {
             className="h-12 text-base"
           />
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="propane_tank_changed">Propane Tank Change</Label>
+          <p
+            id="propane_tank_changed_hint"
+            className="text-sm text-muted-foreground"
+          >
+            Flip on if you changed the tank during this run. Ice operations and
+            management are notified.
+          </p>
+        </div>
+        <Switch
+          id="propane_tank_changed"
+          checked={propaneChanged}
+          onCheckedChange={setPropaneChanged}
+          aria-describedby="propane_tank_changed_hint"
+        />
       </div>
 
       <div className="flex flex-col gap-2">

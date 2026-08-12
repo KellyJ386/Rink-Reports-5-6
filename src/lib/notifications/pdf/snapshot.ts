@@ -263,6 +263,10 @@ async function snapshotIceOperations(
               ? null
               : String(payload.surface_pass_count),
         },
+        {
+          label: "Propane tank changed",
+          value: payload.propane_tank_changed === true ? "Yes" : null,
+        },
       )
       break
     }
