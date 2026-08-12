@@ -26181,7 +26181,7 @@ CREATE POLICY refrigeration_report_values_select ON public.refrigeration_report_
 -- Name: refrigeration_report_values refrigeration_report_values_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY refrigeration_report_values_update ON public.refrigeration_report_values FOR UPDATE TO authenticated USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
+CREATE POLICY refrigeration_report_values_update ON public.refrigeration_report_values FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('refrigeration'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('refrigeration'::text))));
 
 
 --

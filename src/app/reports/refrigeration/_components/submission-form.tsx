@@ -4,11 +4,12 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
-import { ArrowLeft, CheckCircle2, LayoutDashboard } from "lucide-react"
+import { ArrowLeft, Calculator, CheckCircle2, LayoutDashboard } from "lucide-react"
 import { toast } from "sonner"
 
 import { FormError } from "@/components/auth/form-error"
 import { useUnsavedGuard } from "@/hooks/use-unsaved-guard"
+import { Badge } from "@/components/ui/badge"
 import { Breadcrumb } from "@/components/ui/breadcrumb"
 import { FieldError } from "@/components/ui/field-error"
 import { Button } from "@/components/ui/button"
@@ -41,6 +42,7 @@ import {
   submitRefrigerationReport,
   type SubmissionFormState,
 } from "../actions"
+import { evaluateComputed, type ComputedSpec } from "../_lib/compute"
 import type {
   RefrigerationFieldOption,
   RefrigerationFieldType,
@@ -51,14 +53,56 @@ import type {
 type FieldDef = {
   id: string
   equipment_id: string | null
+  key: string
   label: string
   field_type: RefrigerationFieldType
   unit: string | null
   is_required: boolean
   options: RefrigerationFieldOption[]
+  /** Operand spec for computed fields (client preview only); null otherwise. */
+  computed: ComputedSpec | null
   normalMin: number | null
   normalMax: number | null
   severity: ThresholdSeverity | null
+}
+
+/** Client-side preview of a computed field, derived from sibling readings. */
+type ComputedPreview = {
+  value: number
+  outOfRange: boolean
+}
+
+/**
+ * Preview a computed field from the section's entered values, in CANONICAL
+ * units (°F for temperatures) — the same space the server computes in, so the
+ * out-of-range check matches the thresholds. Purely informational; the server
+ * derives the persisted value at save time.
+ */
+function previewComputed(
+  field: FieldDef,
+  sectionFields: Array<[FieldDef, string]>,
+  values: Record<string, RawValue>,
+  displayUnit: TempUnit
+): ComputedPreview | null {
+  if (!field.computed) return null
+  // Key → canonical value, last one wins — mirrors the server's section map.
+  const byKey = new Map<string, number>()
+  for (const [f] of sectionFields) {
+    if (f.field_type !== "numeric") continue
+    const text = values[fieldKey(f.id, f.equipment_id)]?.text?.trim() ?? ""
+    if (text === "") continue
+    const n = Number(text)
+    if (!Number.isFinite(n)) continue
+    byKey.set(f.key, toCanonical(f, n, displayUnit))
+  }
+  const result = evaluateComputed(field.computed, (k) =>
+    byKey.has(k) ? (byKey.get(k) as number) : null
+  )
+  if (result === null || !Number.isFinite(result)) return null
+  const rounded = Math.round(result * 100) / 100
+  const minOut = field.normalMin !== null && rounded < field.normalMin
+  const maxOut = field.normalMax !== null && rounded > field.normalMax
+  return { value: rounded, outOfRange: minOut || maxOut }
 }
 
 type EquipmentGroup = {
@@ -486,6 +530,11 @@ export function SubmissionForm({
         const hasContent =
           section.sectionLevelFields.length > 0 ||
           section.equipment.some((eq) => eq.fields.length > 0)
+        const sectionAll = allFieldsOf(section)
+        const previewFor = (field: FieldDef) =>
+          field.field_type === "computed"
+            ? previewComputed(field, sectionAll, values, displayUnit)
+            : null
         return (
           <Card
             key={section.id}
@@ -513,6 +562,7 @@ export function SubmissionForm({
                         note={followupNotes[key] ?? ""}
                         noteError={fieldErrors[noteErrorKey(key)]}
                         displayUnit={displayUnit}
+                        preview={previewFor(field)}
                         onText={(t) => updateText(key, t)}
                         onBool={(b) => updateBool(key, b)}
                         onNote={(n) => updateNote(key, n)}
@@ -545,6 +595,7 @@ export function SubmissionForm({
                             note={followupNotes[key] ?? ""}
                             noteError={fieldErrors[noteErrorKey(key)]}
                             displayUnit={displayUnit}
+                            preview={previewFor(field)}
                             onText={(t) => updateText(key, t)}
                             onBool={(b) => updateBool(key, b)}
                             onNote={(n) => updateNote(key, n)}
@@ -692,6 +743,7 @@ function FieldInput({
   note,
   noteError,
   displayUnit,
+  preview,
   onText,
   onBool,
   onNote,
@@ -703,6 +755,7 @@ function FieldInput({
   note: string
   noteError: string | undefined
   displayUnit: TempUnit
+  preview: ComputedPreview | null
   onText: (text: string) => void
   onBool: (bool: boolean) => void
   onNote: (note: string) => void
@@ -718,13 +771,41 @@ function FieldInput({
   const describedBy = invalid ? errorId : undefined
 
   // Computed fields are read-only; the value is derived server-side at submit.
+  // The preview (shown once both operands are entered) always renders in the
+  // field's CANONICAL unit — a temperature *difference* doesn't survive the
+  // °F/°C toggle's affine conversion, so the toggle is ignored here.
   if (field.field_type === "computed") {
+    const canonicalLabel = field.unit
+      ? `${field.label} (${field.unit})`
+      : field.label
     return (
       <div className="flex flex-col gap-2">
-        <Label>{labelText}</Label>
-        <div className="flex h-12 items-center rounded-md border border-dashed border-input bg-input-bg px-3 text-sm text-muted-foreground">
-          Calculated automatically on submit
+        <Label>{canonicalLabel}</Label>
+        <div className="flex h-12 items-center justify-between gap-2 rounded-md border border-dashed border-input bg-input-bg px-3">
+          {preview ? (
+            <span className="flex items-center gap-2 text-base">
+              ≈ {preview.value}
+              {field.unit ? ` ${field.unit}` : ""}
+              {preview.outOfRange ? (
+                <Badge variant="error">Out of range</Badge>
+              ) : null}
+            </span>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              Calculated automatically on submit
+            </span>
+          )}
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            <Calculator className="h-3.5 w-3.5" aria-hidden />
+            Calculated
+          </span>
         </div>
+        {preview ? (
+          <p className="text-sm text-muted-foreground">
+            Preview only — the saved value is calculated on submit.
+          </p>
+        ) : null}
+        <NormalRangeHint field={field} displayUnit="F" />
       </div>
     )
   }

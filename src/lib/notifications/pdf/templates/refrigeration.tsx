@@ -14,7 +14,7 @@ import {
 type ValueRow = {
   label_snapshot: string
   equipment_name_snapshot: string | null
-  field_type_snapshot: "numeric" | "text" | "boolean" | "select"
+  field_type_snapshot: "numeric" | "text" | "boolean" | "select" | "computed"
   unit_snapshot: string | null
   value_text: string | null
   value_numeric: number | string | null
@@ -25,6 +25,9 @@ type ValueRow = {
 
 function formatValue(v: ValueRow): string {
   switch (v.field_type_snapshot) {
+    // Computed (server-derived) values are stored in value_numeric like any
+    // numeric reading.
+    case "computed":
     case "numeric": {
       if (v.value_numeric == null) return "—"
       const n =

@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState, useEffect } from "react"
+import { useActionState, useEffect, useState } from "react"
+import { Calculator, Pencil } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -12,12 +13,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 import { formatInTz } from "@/lib/timezone"
 
-import { addRefrigerationFollowupNote } from "../actions"
+import {
+  addRefrigerationFollowupNote,
+  updateRefrigerationReportValue,
+} from "../actions"
 import type { ActionState, ReportDetailData, ReportValueRow } from "../types"
 
 const NOTE_INITIAL: ActionState = { ok: null }
@@ -31,6 +37,9 @@ type Props = {
 
 function formatValue(v: ReportValueRow): string {
   switch (v.field_type_snapshot) {
+    // Computed (server-derived) values persist in value_numeric, same as
+    // numeric readings.
+    case "computed":
     case "numeric":
       return v.value_numeric === null
         ? "—"
@@ -164,6 +173,18 @@ export function ReportDetail({ detail, backHref, timezone }: Props) {
                                     ({v.unit_snapshot})
                                   </span>
                                 )}
+                                {v.field_type_snapshot === "computed" && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="ml-2 gap-1 align-middle"
+                                  >
+                                    <Calculator
+                                      className="h-3 w-3"
+                                      aria-hidden
+                                    />
+                                    Calculated
+                                  </Badge>
+                                )}
                               </td>
                               <td
                                 className={cn(
@@ -171,7 +192,11 @@ export function ReportDetail({ detail, backHref, timezone }: Props) {
                                   v.is_out_of_range && "font-medium",
                                 )}
                               >
-                                {formatValue(v)}
+                                {v.field_type_snapshot === "numeric" ? (
+                                  <EditableNumericValue value={v} />
+                                ) : (
+                                  formatValue(v)
+                                )}
                               </td>
                               <td className="border-b px-3 py-2 align-middle">
                                 {v.is_out_of_range ? (
@@ -199,8 +224,10 @@ export function ReportDetail({ detail, backHref, timezone }: Props) {
             Follow-up notes ({notes.length})
           </h3>
           <p className="text-muted-foreground text-xs">
-            Notes are append-only and cannot be edited or deleted. The original
-            report is immutable.
+            Notes are append-only and cannot be edited or deleted. Numeric
+            readings can be corrected by a refrigeration admin; every
+            correction (and any recalculated value) is recorded in the change
+            log.
           </p>
           {notes.length === 0 ? (
             <p className="text-muted-foreground text-sm">No notes yet.</p>
@@ -262,5 +289,97 @@ export function ReportDetail({ detail, backHref, timezone }: Props) {
         </section>
       </CardContent>
     </Card>
+  )
+}
+
+const EDIT_INITIAL: ActionState = { ok: null }
+
+/**
+ * Inline admin correction for a numeric reading. Submits through
+ * updateRefrigerationReportValue, which re-checks thresholds, recomputes any
+ * dependent computed values, and writes the append-only change log. Computed
+ * rows never get this control — they are corrected only via their inputs.
+ */
+function EditableNumericValue({ value }: { value: ReportValueRow }) {
+  const [open, setOpen] = useState(false)
+  const [state, action, pending] = useActionState(
+    updateRefrigerationReportValue,
+    EDIT_INITIAL,
+  )
+
+  // Close the editor on success via a render-phase adjustment (setState inside
+  // an effect body would cascade a re-render; toasts stay in the effect).
+  const [handled, setHandled] = useState<ActionState>(EDIT_INITIAL)
+  if (state !== handled) {
+    setHandled(state)
+    if (state.ok === true) setOpen(false)
+  }
+
+  useEffect(() => {
+    if (state.ok === false) toast.error(state.error)
+    if (state.ok === true) toast.success(state.message ?? "Reading corrected.")
+  }, [state])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span>{formatValue(value)}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2"
+          aria-label={`Correct ${value.label_snapshot}`}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+        </Button>
+      </div>
+      {open ? (
+        <form
+          action={action}
+          className="bg-background flex max-w-xs flex-col gap-2 rounded-md border p-3"
+        >
+          <input type="hidden" name="value_id" value={value.id} />
+          <Label htmlFor={`ev-${value.id}`} className="text-xs">
+            Corrected value
+            {value.unit_snapshot ? ` (${value.unit_snapshot})` : ""}
+          </Label>
+          <Input
+            id={`ev-${value.id}`}
+            name="new_value"
+            type="text"
+            inputMode="decimal"
+            required
+            defaultValue={value.value_numeric ?? ""}
+            className="h-9 text-sm"
+          />
+          <Label htmlFor={`er-${value.id}`} className="text-xs">
+            Reason
+          </Label>
+          <Textarea
+            id={`er-${value.id}`}
+            name="reason"
+            required
+            rows={2}
+            placeholder="Why is this reading being corrected?"
+            className="text-sm"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? "Saving…" : "Save correction"}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+    </div>
   )
 }
