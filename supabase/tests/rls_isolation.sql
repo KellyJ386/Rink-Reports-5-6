@@ -2334,6 +2334,84 @@ select pg_temp.expect_error(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- REFRIG-EDIT: report-value UPDATE gate (migration 238).
+--
+-- The recompute-on-edit flow lets facility refrigeration ADMINS correct a
+-- submitted reading (and recompute dependent computed values). UPDATE was
+-- super-admin only before; migration 238 widens it to
+-- has_module_admin_access('refrigeration') WITHIN the caller's facility.
+-- Bounds proven here:
+--   * Gwen (refrigeration admin, facility A) CAN update an A value row;
+--   * Gwen CANNOT touch a facility-B value row (0 rows under USING);
+--   * Alice (submit, not admin) and Dave (view) still CANNOT update.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Deterministic value rows to edit: one per facility.
+insert into public.refrigeration_report_values
+  (id, facility_id, report_id, label_snapshot, field_type_snapshot, value_numeric)
+values
+  ('aaaa1111-ed17-aaaa-aaaa-aaaa11110065',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaa1111-7e00-aaaa-aaaa-aaaa11110063', 'Editable reading', 'numeric', 15),
+  ('bbbb2222-ed17-bbbb-bbbb-bbbb22220065',
+   '22222222-2222-2222-2222-222222222222',
+   'bbbb2222-7e00-bbbb-bbbb-bbbb22220063', 'Foreign reading', 'numeric', 15)
+on conflict (id) do nothing;
+
+-- Gwen (facility A, refrigeration admin — seeded in the SPACES block).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"99999999-9999-9999-9999-999999999999","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', '99999999-9999-9999-9999-999999999999', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+     update public.refrigeration_report_values
+        set value_numeric = 16
+      where id = 'aaaa1111-ed17-aaaa-aaaa-aaaa11110065'
+     returning 1
+   ) select count(*) from u$$,
+  1, 'REFRIG-EDIT: gwen (module admin) CAN UPDATE a report value in her facility (migration 238)');
+select pg_temp.expect_count(
+  $$with u as (
+     update public.refrigeration_report_values
+        set value_numeric = 999
+      where id = 'bbbb2222-ed17-bbbb-bbbb-bbbb22220065'
+     returning 1
+   ) select count(*) from u$$,
+  0, 'REFRIG-EDIT: gwen CANNOT UPDATE a facility-B report value (0 rows)');
+
+-- Alice (facility A, submit but NOT refrigeration admin).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+     update public.refrigeration_report_values
+        set value_numeric = 999
+      where id = 'aaaa1111-ed17-aaaa-aaaa-aaaa11110065'
+     returning 1
+   ) select count(*) from u$$,
+  0, 'REFRIG-EDIT: alice (submit, not admin) CANNOT UPDATE report values (0 rows)');
+
+-- Dave (facility A, view only).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"dddddddd-dddd-dddd-dddd-dddddddddddd","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+     update public.refrigeration_report_values
+        set value_numeric = 999
+      where id = 'aaaa1111-ed17-aaaa-aaaa-aaaa11110065'
+     returning 1
+   ) select count(*) from u$$,
+  0, 'REFRIG-EDIT: view-only dave CANNOT UPDATE report values (0 rows)');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- 2L. Cross-facility SELECT isolation on the crown-jewel data: every report
 -- submission, communication, scheduling, and notification table. Impersonate
 -- Alice (staff in Facility A, holding view+submit on every module) and assert

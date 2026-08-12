@@ -14,6 +14,7 @@ import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
 
 import { SubmissionForm } from "./_components/submission-form"
+import { parseComputedSpec } from "./_lib/compute"
 import type {
 
   RefrigerationEquipment,
@@ -151,7 +152,7 @@ export default async function RefrigerationHomePage() {
     supabase
       .from("refrigeration_fields")
       .select(
-        "id, section_id, equipment_id, label, field_type, unit, options, sort_order, is_active, facility_id, is_required"
+        "id, section_id, equipment_id, key, label, field_type, unit, options, sort_order, is_active, facility_id, is_required"
       )
       .eq("facility_id", employeeRow.facility_id)
       .eq("is_active", true)
@@ -190,6 +191,7 @@ export default async function RefrigerationHomePage() {
     | "id"
     | "section_id"
     | "equipment_id"
+    | "key"
     | "label"
     | "field_type"
     | "unit"
@@ -277,11 +279,16 @@ export default async function RefrigerationHomePage() {
         .map((f) => ({
           id: f.id,
           equipment_id: null as string | null,
+          key: f.key,
           label: f.label,
           field_type: isFieldType(f.field_type) ? f.field_type : "text",
           unit: f.unit,
           is_required: Boolean(f.is_required),
           options: parseFieldOptions(f.options),
+          // Operand keys for the client-side computed preview (server stays
+          // the source of truth at submit).
+          computed:
+            f.field_type === "computed" ? parseComputedSpec(f.options) : null,
           ...resolveRange(f.id, null),
         })),
       equipment: sectionEquipment.map((e) => ({
@@ -292,11 +299,14 @@ export default async function RefrigerationHomePage() {
           .map((f) => ({
             id: f.id,
             equipment_id: e.id,
+            key: f.key,
             label: f.label,
             field_type: isFieldType(f.field_type) ? f.field_type : "text",
             unit: f.unit,
             is_required: Boolean(f.is_required),
             options: parseFieldOptions(f.options),
+            computed:
+              f.field_type === "computed" ? parseComputedSpec(f.options) : null,
             ...resolveRange(f.id, e.id),
           })),
       })),

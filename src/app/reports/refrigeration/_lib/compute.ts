@@ -261,15 +261,61 @@ export type RowToInsert = {
 }
 
 /**
+ * Config foot-gun detector shared by submit + recompute: returns a skip reason
+ * when a computed field's spec is malformed, points at a key with no active
+ * field in its section, or chains onto another computed field (unsupported in
+ * v1). Returns null when the spec is structurally sound.
+ */
+export function computedConfigProblem(
+  field: FieldConfigRow,
+  spec: ComputedSpec | null,
+  sectionConfigByKey: Map<string, FieldConfigRow> | undefined,
+): string | null {
+  if (!spec) return "invalid computed options (expected formula + operands)"
+  for (const key of [spec.a, spec.b]) {
+    const operand = sectionConfigByKey?.get(key)
+    if (!operand) {
+      return `operand "${key}" does not match an active field in this section`
+    }
+    if (operand.field_type === "computed") {
+      return `operand "${key}" is itself a computed field (chaining is unsupported)`
+    }
+  }
+  return null
+}
+
+/** Group active field configs by section, keyed by field key (last wins). */
+function configBySection(
+  fieldById: Map<string, FieldConfigRow>,
+): Map<string, Map<string, FieldConfigRow>> {
+  const out = new Map<string, Map<string, FieldConfigRow>>()
+  for (const cfg of fieldById.values()) {
+    let m = out.get(cfg.section_id)
+    if (!m) {
+      m = new Map()
+      out.set(cfg.section_id, m)
+    }
+    m.set(cfg.key, cfg)
+  }
+  return out
+}
+
+/**
  * Derive computed-field results from the submitted numeric values. Operands are
  * resolved by field `key` within the SAME section as the computed field (last
  * value wins when a section has multiple equipment). Pure given its inputs, so
  * it is unit-testable without a DB.
+ *
+ * `onSkip` (optional) is invoked for CONFIG problems only — malformed options,
+ * an operand key with no active field, or chaining onto another computed field.
+ * A structurally valid field whose operand VALUES simply weren't submitted is
+ * skipped silently (a blank reading is normal, not a misconfiguration).
  */
 export function buildComputedRows(
   computedFields: FieldConfigRow[],
   numericValues: Array<{ field_id: string; value_numeric: number }>,
   fieldById: Map<string, FieldConfigRow>,
+  onSkip?: (field: FieldConfigRow, reason: string) => void,
 ): Array<{ field: FieldConfigRow; value: number }> {
   const bySectionKey = new Map<string, Map<string, number>>()
   for (const v of numericValues) {
@@ -282,11 +328,20 @@ export function buildComputedRows(
     }
     m.set(cfg.key, v.value_numeric)
   }
+  const cfgBySection = configBySection(fieldById)
 
   const out: Array<{ field: FieldConfigRow; value: number }> = []
   for (const field of computedFields) {
     const spec = parseComputedSpec(field.options)
-    if (!spec) continue
+    const problem = computedConfigProblem(
+      field,
+      spec,
+      cfgBySection.get(field.section_id),
+    )
+    if (problem || !spec) {
+      onSkip?.(field, problem ?? "invalid computed options")
+      continue
+    }
     const sectionMap = bySectionKey.get(field.section_id)
     if (!sectionMap) continue
     const result = evaluateComputed(spec, (k) =>
@@ -296,6 +351,294 @@ export function buildComputedRows(
     out.push({ field, value: result })
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Threshold matching (pure) — shared by submit and recompute-on-edit
+// ---------------------------------------------------------------------------
+
+/** Equipment-specific threshold wins over the section-level (null) one. */
+export function lookupThresholdRow(
+  thresholds: ThresholdRow[],
+  fieldId: string,
+  equipmentId: string | null,
+): ThresholdRow | null {
+  if (equipmentId) {
+    const eqMatch = thresholds.find(
+      (t) => t.field_id === fieldId && t.equipment_id === equipmentId,
+    )
+    if (eqMatch) return eqMatch
+  }
+  return (
+    thresholds.find((t) => t.field_id === fieldId && t.equipment_id === null) ??
+    null
+  )
+}
+
+export function thresholdFlag(
+  t: ThresholdRow | null,
+  value: number,
+): {
+  thresholdId: string | null
+  isOor: boolean
+  severity: ThresholdSeverity | null
+} {
+  if (!t) return { thresholdId: null, isOor: false, severity: null }
+  const minOut = t.min_value !== null && value < t.min_value
+  const maxOut = t.max_value !== null && value > t.max_value
+  const severity: ThresholdSeverity = VALID_SEVERITIES.has(
+    t.severity as ThresholdSeverity,
+  )
+    ? (t.severity as ThresholdSeverity)
+    : "warn"
+  return { thresholdId: t.id, isOor: minOut || maxOut, severity }
+}
+
+// ---------------------------------------------------------------------------
+// Recompute-on-edit (pure planning; the admin action applies the plan)
+// ---------------------------------------------------------------------------
+
+/** The slice of a stored refrigeration_report_values row the planner needs. */
+export type StoredValueRow = {
+  id: string
+  field_id: string | null
+  equipment_id: string | null
+  label_snapshot: string
+  field_type_snapshot: string
+  unit_snapshot: string | null
+  value_numeric: number | null
+  is_out_of_range: boolean
+  threshold_id: string | null
+}
+
+export type ValueEditPlan = {
+  /** The corrected source reading with its re-checked threshold flags. */
+  edited: {
+    id: string
+    value_numeric: number
+    is_out_of_range: boolean
+    threshold_id: string | null
+    before: { value_numeric: number | null; is_out_of_range: boolean }
+  }
+  /** Dependent computed values to update (or insert when `id` is null). */
+  recomputed: Array<{
+    id: string | null
+    field: FieldConfigRow
+    value_numeric: number
+    is_out_of_range: boolean
+    threshold_id: string | null
+    before: { value_numeric: number | null; is_out_of_range: boolean } | null
+  }>
+  /** Computed fields left untouched because of a config problem. */
+  skipped: Array<{ field: FieldConfigRow; reason: string }>
+}
+
+/**
+ * Plan an admin correction to a single NUMERIC reading: re-check the edited
+ * value's threshold, then recompute every active computed field in the same
+ * section whose formula depends on the edited field's key. Mirrors
+ * buildComputedRows semantics (operands resolve by key within the section,
+ * stored computed rows never feed other computed fields). Pure — DB writes and
+ * change-log insertion happen in the caller.
+ */
+export function planValueEdit(args: {
+  editedRow: StoredValueRow
+  newValue: number
+  reportValues: StoredValueRow[]
+  fields: FieldConfigRow[]
+  thresholds: ThresholdRow[]
+}):
+  | { ok: true; plan: ValueEditPlan }
+  | { ok: false; error: string } {
+  const { editedRow, newValue, reportValues, fields, thresholds } = args
+
+  if (editedRow.field_type_snapshot === "computed") {
+    return {
+      ok: false,
+      error:
+        "Computed values cannot be edited directly — correct the source reading instead.",
+    }
+  }
+  if (editedRow.field_type_snapshot !== "numeric") {
+    return { ok: false, error: "Only numeric readings can be corrected." }
+  }
+  if (!Number.isFinite(newValue)) {
+    return { ok: false, error: "Enter a valid number." }
+  }
+
+  const editedFlags = thresholdFlag(
+    editedRow.field_id
+      ? lookupThresholdRow(thresholds, editedRow.field_id, editedRow.equipment_id)
+      : null,
+    newValue,
+  )
+  const plan: ValueEditPlan = {
+    edited: {
+      id: editedRow.id,
+      value_numeric: newValue,
+      is_out_of_range: editedFlags.isOor,
+      threshold_id: editedFlags.thresholdId,
+      before: {
+        value_numeric: editedRow.value_numeric,
+        is_out_of_range: editedRow.is_out_of_range,
+      },
+    },
+    recomputed: [],
+    skipped: [],
+  }
+
+  // Without an active field config the edited reading has no key/section, so
+  // no computed field can (safely) be recomputed from it.
+  const editedCfg = fields.find((f) => f.id === editedRow.field_id)
+  if (!editedCfg) return { ok: true, plan }
+
+  const fieldById = new Map(fields.map((f) => [f.id, f]))
+  const sectionCfgByKey = new Map<string, FieldConfigRow>()
+  for (const f of fields) {
+    if (f.section_id === editedCfg.section_id) sectionCfgByKey.set(f.key, f)
+  }
+
+  // Post-edit operand values for the section, keyed by field key. Stored
+  // computed rows are excluded — computed results never feed other computed
+  // fields (no chaining), matching submit-time behavior.
+  const sectionValues = new Map<string, number>()
+  for (const row of reportValues) {
+    if (row.field_type_snapshot !== "numeric" || !row.field_id) continue
+    const cfg = fieldById.get(row.field_id)
+    if (!cfg || cfg.section_id !== editedCfg.section_id) continue
+    const value = row.id === editedRow.id ? newValue : row.value_numeric
+    if (value === null) continue
+    sectionValues.set(cfg.key, value)
+  }
+  // The edited row itself might have been filtered above only if its config
+  // vanished — it hasn't (editedCfg exists) — but ensure the new value wins.
+  sectionValues.set(editedCfg.key, newValue)
+
+  for (const field of fields) {
+    if (field.field_type !== "computed") continue
+    if (field.section_id !== editedCfg.section_id) continue
+    const spec = parseComputedSpec(field.options)
+    const problem = computedConfigProblem(field, spec, sectionCfgByKey)
+    if (problem || !spec) {
+      plan.skipped.push({ field, reason: problem ?? "invalid computed options" })
+      continue
+    }
+    if (spec.a !== editedCfg.key && spec.b !== editedCfg.key) continue
+    const result = evaluateComputed(spec, (k) =>
+      sectionValues.has(k) ? (sectionValues.get(k) as number) : null,
+    )
+    if (result === null || !Number.isFinite(result)) continue
+
+    const existing =
+      reportValues.find(
+        (r) =>
+          r.field_id === field.id &&
+          (r.equipment_id ?? null) === (field.equipment_id ?? null) &&
+          r.field_type_snapshot === "computed",
+      ) ?? null
+    const flags = thresholdFlag(
+      lookupThresholdRow(thresholds, field.id, field.equipment_id),
+      result,
+    )
+    if (
+      existing &&
+      existing.value_numeric === result &&
+      existing.is_out_of_range === flags.isOor &&
+      existing.threshold_id === flags.thresholdId
+    ) {
+      continue // nothing changed; no write, no change-log noise
+    }
+    plan.recomputed.push({
+      id: existing?.id ?? null,
+      field,
+      value_numeric: result,
+      is_out_of_range: flags.isOor,
+      threshold_id: flags.thresholdId,
+      before: existing
+        ? {
+            value_numeric: existing.value_numeric,
+            is_out_of_range: existing.is_out_of_range,
+          }
+        : null,
+    })
+  }
+
+  return { ok: true, plan }
+}
+
+/** Json-compatible before/after payload stored in refrigeration_change_log. */
+export type ChangeLogValuePayload = {
+  report_value_id: string | null
+  label: string
+  value_numeric: number | null
+  is_out_of_range: boolean | null
+}
+
+export type ChangeLogEntry = {
+  facility_id: string
+  report_id: string
+  changed_by: string
+  reason: string
+  before: ChangeLogValuePayload
+  after: ChangeLogValuePayload
+}
+
+/**
+ * Materialize the append-only refrigeration_change_log rows for an applied
+ * edit plan: one entry for the source correction (admin-supplied reason) and
+ * one per recomputed dependent value (fixed reason, per spec).
+ */
+export function buildEditChangeLogEntries(
+  plan: ValueEditPlan,
+  ctx: {
+    facilityId: string
+    reportId: string
+    changedBy: string
+    reason: string
+    editedLabel: string
+  },
+): ChangeLogEntry[] {
+  const entries: ChangeLogEntry[] = [
+    {
+      facility_id: ctx.facilityId,
+      report_id: ctx.reportId,
+      changed_by: ctx.changedBy,
+      reason: ctx.reason,
+      before: {
+        report_value_id: plan.edited.id,
+        label: ctx.editedLabel,
+        value_numeric: plan.edited.before.value_numeric,
+        is_out_of_range: plan.edited.before.is_out_of_range,
+      },
+      after: {
+        report_value_id: plan.edited.id,
+        label: ctx.editedLabel,
+        value_numeric: plan.edited.value_numeric,
+        is_out_of_range: plan.edited.is_out_of_range,
+      },
+    },
+  ]
+  for (const r of plan.recomputed) {
+    entries.push({
+      facility_id: ctx.facilityId,
+      report_id: ctx.reportId,
+      changed_by: ctx.changedBy,
+      reason: "recomputed: source value edited",
+      before: {
+        report_value_id: r.id,
+        label: r.field.label,
+        value_numeric: r.before?.value_numeric ?? null,
+        is_out_of_range: r.before?.is_out_of_range ?? null,
+      },
+      after: {
+        report_value_id: r.id,
+        label: r.field.label,
+        value_numeric: r.value_numeric,
+        is_out_of_range: r.is_out_of_range,
+      },
+    })
+  }
+  return entries
 }
 
 // ---------------------------------------------------------------------------

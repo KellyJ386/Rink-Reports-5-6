@@ -13,10 +13,11 @@ import {
   buildComputedRows,
   followupKey,
   isEmptyRow,
+  lookupThresholdRow,
   SEVERITY_RANK,
+  thresholdFlag,
   validateCriticalFollowups,
   validateRoundNo,
-  VALID_SEVERITIES,
   type FieldConfigRow,
   type OorDetail,
   type RefrigerationInput,
@@ -85,22 +86,6 @@ export async function prepareRows(
   const fieldById = new Map(allFields.map((f) => [f.id, f]))
   const computedFields = allFields.filter((f) => f.field_type === "computed")
 
-  function lookupThreshold(
-    fieldId: string,
-    equipmentId: string | null,
-  ): ThresholdRow | null {
-    if (equipmentId) {
-      const eqMatch = thresholds.find(
-        (t) => t.field_id === fieldId && t.equipment_id === equipmentId,
-      )
-      if (eqMatch) return eqMatch
-    }
-    return (
-      thresholds.find((t) => t.field_id === fieldId && t.equipment_id === null) ??
-      null
-    )
-  }
-
   const rows: RowToInsert[] = []
   const oorDetails: OorDetail[] = []
 
@@ -117,16 +102,9 @@ export async function prepareRows(
     severity: ThresholdSeverity | null
   } => {
     if (!fieldId) return { thresholdId: null, isOor: false, severity: null }
-    const t = lookupThreshold(fieldId, equipmentId)
-    if (!t) return { thresholdId: null, isOor: false, severity: null }
-    const minOut = t.min_value !== null && value < t.min_value
-    const maxOut = t.max_value !== null && value > t.max_value
-    const sev: ThresholdSeverity = VALID_SEVERITIES.has(
-      t.severity as ThresholdSeverity,
-    )
-      ? (t.severity as ThresholdSeverity)
-      : "warn"
-    if (minOut || maxOut) {
+    const t = lookupThresholdRow(thresholds, fieldId, equipmentId)
+    const flags = thresholdFlag(t, value)
+    if (flags.isOor && t) {
       oorDetails.push({
         label,
         equipment: equipmentName ?? "",
@@ -134,11 +112,10 @@ export async function prepareRows(
         unit,
         min: t.min_value,
         max: t.max_value,
-        severity: sev,
+        severity: flags.severity ?? "warn",
       })
-      return { thresholdId: t.id, isOor: true, severity: sev }
     }
-    return { thresholdId: t.id, isOor: false, severity: sev }
+    return { thresholdId: flags.thresholdId, isOor: flags.isOor, severity: flags.severity }
   }
 
   // 1) Submitted (client) values.
@@ -184,7 +161,14 @@ export async function prepareRows(
   const numericValues = nonEmpty
     .filter((r) => typeof r.value_numeric === "number")
     .map((r) => ({ field_id: r.field_id, value_numeric: r.value_numeric as number }))
-  for (const c of buildComputedRows(computedFields, numericValues, fieldById)) {
+  // Config foot-guns (bad operand key, chained computed, malformed options)
+  // skip the field and leave a server-side trace; blank operands skip silently.
+  const warnSkip = (field: FieldConfigRow, reason: string) => {
+    console.warn(
+      `refrigeration: skipping computed field "${field.key}" (${field.id}): ${reason}`,
+    )
+  }
+  for (const c of buildComputedRows(computedFields, numericValues, fieldById, warnSkip)) {
     const res = computeOor(
       c.field.id,
       c.field.equipment_id,

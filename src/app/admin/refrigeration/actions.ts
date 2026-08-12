@@ -7,6 +7,13 @@ import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { dbError } from "@/lib/db-error"
+import {
+  buildEditChangeLogEntries,
+  planValueEdit,
+  type FieldConfigRow as ComputeFieldConfigRow,
+  type StoredValueRow,
+  type ThresholdRow as ComputeThresholdRow,
+} from "@/app/reports/refrigeration/_lib/compute"
 
 import type {
   ActionState,
@@ -1134,6 +1141,216 @@ export async function seedDefaultRefrigerationSections(): Promise<SimpleResult> 
 
     revalidatePath("/admin/refrigeration")
     return { ok: true }
+  } catch (e) {
+    logServerError("admin/refrigeration/actions", e)
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
+  }
+}
+
+/**
+ * Admin correction of a single NUMERIC reading on a submitted report.
+ *
+ * Applies the pure plan from planValueEdit: updates the edited value with
+ * re-checked threshold flags, recomputes every active computed field in the
+ * same section that depends on the edited field's key (updating or inserting
+ * its value row), and records the whole correction in the append-only
+ * refrigeration_change_log — one entry for the source edit (admin-supplied
+ * reason) plus one per recomputed value ("recomputed: source value edited").
+ *
+ * Authorization is plain RLS (migration 238): report-value UPDATE requires
+ * has_module_admin_access('refrigeration') within the caller's facility — no
+ * SECURITY DEFINER involved. facility_id comes from the session profile,
+ * never from the client.
+ */
+export async function updateRefrigerationReportValue(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const denied = await ensureRefrigerationAdmin()
+    if (denied) return { ok: false, error: denied }
+    const facility = await resolveFacility()
+    if (!facility.ok) return { ok: false, error: facility.error }
+
+    const valueId = nonEmpty(formData.get("value_id"))
+    if (!valueId) return { ok: false, error: "Missing value id." }
+    const newValue = asNumber(formData.get("new_value"))
+    if (newValue === null) return { ok: false, error: "Enter a valid number." }
+    const reason = nonEmpty(formData.get("reason"))
+    if (!reason) {
+      return { ok: false, error: "A reason is required for corrections." }
+    }
+
+    const supabase = await createClient()
+
+    // change_log.changed_by references employees (NOT NULL) — resolve the
+    // acting admin's employee row up front so the audit trail can't be skipped.
+    const current = await getCurrentUser()
+    let changedBy: string | null = null
+    if (current?.profile?.id) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("user_id", current.profile.id)
+        .eq("facility_id", facility.facilityId)
+        .eq("is_active", true)
+        .maybeSingle()
+      changedBy = emp?.id ?? null
+    }
+    if (!changedBy) {
+      return {
+        ok: false,
+        error:
+          "Your account has no active employee record in this facility, so the correction cannot be logged.",
+      }
+    }
+
+    const VALUE_COLS =
+      "id, report_id, field_id, equipment_id, label_snapshot, field_type_snapshot, unit_snapshot, value_numeric, is_out_of_range, threshold_id"
+
+    const { data: editedRaw, error: loadErr } = await supabase
+      .from("refrigeration_report_values")
+      .select(VALUE_COLS)
+      .eq("id", valueId)
+      .eq("facility_id", facility.facilityId)
+      .maybeSingle()
+    if (loadErr || !editedRaw) {
+      return { ok: false, error: dbError(loadErr ?? null, "Reading not found.") }
+    }
+
+    const [{ data: siblingRaw }, { data: fieldsRaw }, { data: thresholdsRaw }] =
+      await Promise.all([
+        supabase
+          .from("refrigeration_report_values")
+          .select(VALUE_COLS)
+          .eq("report_id", editedRaw.report_id)
+          .eq("facility_id", facility.facilityId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("refrigeration_fields")
+          .select(
+            "id, section_id, equipment_id, key, label, unit, field_type, options",
+          )
+          .eq("facility_id", facility.facilityId)
+          .eq("is_active", true),
+        supabase
+          .from("refrigeration_thresholds")
+          .select("id, field_id, equipment_id, min_value, max_value, severity")
+          .eq("facility_id", facility.facilityId)
+          .eq("is_active", true),
+      ])
+
+    const planned = planValueEdit({
+      editedRow: editedRaw as StoredValueRow,
+      newValue,
+      reportValues: (siblingRaw ?? []) as StoredValueRow[],
+      fields: (fieldsRaw ?? []) as ComputeFieldConfigRow[],
+      thresholds: (thresholdsRaw ?? []) as ComputeThresholdRow[],
+    })
+    if (!planned.ok) return { ok: false, error: planned.error }
+    const { plan } = planned
+
+    for (const s of plan.skipped) {
+      console.warn(
+        `refrigeration: skipping computed field "${s.field.key}" (${s.field.id}) during edit: ${s.reason}`,
+      )
+    }
+
+    // 1) The corrected source reading. `.select()` makes an RLS-filtered
+    // zero-row update detectable instead of a silent no-op.
+    const { data: updatedRows, error: updErr } = await supabase
+      .from("refrigeration_report_values")
+      .update({
+        value_numeric: plan.edited.value_numeric,
+        is_out_of_range: plan.edited.is_out_of_range,
+        threshold_id: plan.edited.threshold_id,
+      })
+      .eq("id", plan.edited.id)
+      .eq("facility_id", facility.facilityId)
+      .select("id")
+    if (updErr || !updatedRows || updatedRows.length === 0) {
+      return {
+        ok: false,
+        error: dbError(
+          updErr ?? null,
+          "Failed to update the reading (no matching row — check permissions).",
+        ),
+      }
+    }
+
+    // 2) Dependent computed values: update in place, or insert when the
+    // computed row didn't exist yet (its inputs were incomplete at submit).
+    for (const r of plan.recomputed) {
+      if (r.id) {
+        const { error: recompErr } = await supabase
+          .from("refrigeration_report_values")
+          .update({
+            value_numeric: r.value_numeric,
+            is_out_of_range: r.is_out_of_range,
+            threshold_id: r.threshold_id,
+          })
+          .eq("id", r.id)
+          .eq("facility_id", facility.facilityId)
+        if (recompErr) {
+          return {
+            ok: false,
+            error: dbError(recompErr, "Failed to recompute a dependent value."),
+          }
+        }
+      } else {
+        const { error: insErr } = await supabase
+          .from("refrigeration_report_values")
+          .insert({
+            facility_id: facility.facilityId,
+            report_id: editedRaw.report_id,
+            field_id: r.field.id,
+            equipment_id: r.field.equipment_id,
+            label_snapshot: r.field.label,
+            equipment_name_snapshot: null,
+            field_type_snapshot: "computed",
+            unit_snapshot: r.field.unit,
+            value_text: null,
+            value_numeric: r.value_numeric,
+            value_boolean: null,
+            is_out_of_range: r.is_out_of_range,
+            threshold_id: r.threshold_id,
+          })
+        if (insErr) {
+          return {
+            ok: false,
+            error: dbError(insErr, "Failed to store a recomputed value."),
+          }
+        }
+      }
+    }
+
+    // 3) Append-only audit trail: the source edit + every recompute.
+    const entries = buildEditChangeLogEntries(plan, {
+      facilityId: facility.facilityId,
+      reportId: editedRaw.report_id,
+      changedBy,
+      reason,
+      editedLabel: editedRaw.label_snapshot,
+    })
+    const { error: logErr } = await supabase
+      .from("refrigeration_change_log")
+      .insert(entries)
+    if (logErr) {
+      return {
+        ok: false,
+        error: dbError(logErr, "Value updated but logging the change failed."),
+      }
+    }
+
+    revalidatePath("/admin/refrigeration")
+    const n = plan.recomputed.length
+    return {
+      ok: true,
+      message:
+        n > 0
+          ? `Reading corrected; ${n} computed value${n === 1 ? "" : "s"} recalculated.`
+          : "Reading corrected.",
+    }
   } catch (e) {
     logServerError("admin/refrigeration/actions", e)
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
