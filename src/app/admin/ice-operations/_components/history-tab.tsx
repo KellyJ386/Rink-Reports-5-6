@@ -152,6 +152,7 @@ function summarizeSubmission(
       if (p.water_used_gal !== null) parts.push(`${p.water_used_gal} gal`)
       if (p.machine_hours !== null) parts.push(`${p.machine_hours} hrs`)
       if (p.snow_taken_pct !== null) parts.push(`${p.snow_taken_pct}% snow`)
+      if (p.propane_tank_changed) parts.push("propane tank changed")
       if (parts.length === 0 && (p.water_temp_c !== null || p.ice_temp_c !== null)) {
         parts.push(
           `Water ${formatTemp(p.water_temp_c, tempUnit)} / Ice ${formatTemp(p.ice_temp_c, tempUnit)}`,

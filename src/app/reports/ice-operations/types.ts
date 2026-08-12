@@ -35,14 +35,19 @@ export const OPERATION_TYPES: readonly OperationType[] = [
 
 /**
  * Tab order shown in the Ice Maintenance Log module nav. Canonical order:
- * Ice Make, Circle Check, Edging, Blade Change, Propane Tank Change.
+ * Ice Make, Circle Check, Edging, Blade Change.
+ *
+ * propane_tank_change is deliberately ABSENT: it briefly had its own tab, but
+ * is now logged via the "Propane Tank Change" toggle on the Ice Make form
+ * (payload.propane_tank_changed). The operation type itself stays valid so
+ * offline submissions queued while the tab existed still replay, and any
+ * historical rows still render.
  */
 export const OPERATION_TAB_ORDER: readonly OperationType[] = [
   "ice_make",
   "circle_check",
   "edging",
   "blade_change",
-  "propane_tank_change",
 ] as const
 
 /** Module shown when the user lands on Ice Operations without picking a tab. */
@@ -58,7 +63,7 @@ export const OPERATION_LABELS: Record<OperationType, string> = {
 
 export const OPERATION_DESCRIPTIONS: Record<OperationType, string> = {
   ice_make:
-    "Log a resurfacing run — rink, machine, water used, machine hours, and snow taken.",
+    "Log a resurfacing run — rink, machine, water used, machine hours, and snow taken. Flip the toggle if you changed the propane tank.",
   circle_check: "Run the digital circle check and flag any issues.",
   edging: "Record edging hours run on the edger.",
   blade_change: "Log a blade change with the machine, hours, and new blade ID.",
@@ -103,7 +108,9 @@ export function isOperationType(value: string): value is OperationType {
  * Resolve which operation types are enabled for a facility from the
  * `ice_operations_settings.enabled_operation_types` config. Fail-open: a null,
  * empty, or all-invalid value means every operation is enabled (prior behavior).
- * The result preserves the canonical OPERATION_TAB_ORDER.
+ * The result preserves the canonical OPERATION_TAB_ORDER — values that are
+ * valid operation types but no longer have a tab (propane_tank_change) drop
+ * out here, and a config left with ONLY such values fails open like empty.
  */
 export function resolveEnabledOperationTypes(
   raw: readonly string[] | null | undefined,
@@ -111,7 +118,8 @@ export function resolveEnabledOperationTypes(
   const allowed = raw?.filter(isOperationType) ?? []
   if (allowed.length === 0) return [...OPERATION_TAB_ORDER]
   const set = new Set<OperationType>(allowed)
-  return OPERATION_TAB_ORDER.filter((op) => set.has(op))
+  const enabled = OPERATION_TAB_ORDER.filter((op) => set.has(op))
+  return enabled.length > 0 ? enabled : [...OPERATION_TAB_ORDER]
 }
 
 /**
@@ -124,6 +132,9 @@ export type IceMakePayload = {
   snow_taken_pct: number | null
   time_in: string | null
   time_out: string | null
+  /** True when the reporter flipped the Propane Tank Change toggle. Optional
+   * because rows predating the toggle don't carry it. */
+  propane_tank_changed?: boolean
   // Retained so historical submissions still read; no longer collected.
   water_temp_c?: number | null
   ice_temp_c?: number | null
@@ -140,6 +151,7 @@ export type BladeChangePayload = {
   replaced_by_employee_id: string | null
 }
 
+/** Legacy: written only while propane had its own tab (kept for replay/history). */
 export type PropaneTankChangePayload = {
   hours_at_change: number | null
 }

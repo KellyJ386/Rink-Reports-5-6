@@ -18,7 +18,6 @@ import { BladeChangeForm } from "./_components/blade-change-form"
 import { CircleCheckForm } from "./_components/circle-check-form"
 import { EdgingForm } from "./_components/edging-form"
 import { IceMakeForm } from "./_components/ice-make-form"
-import { PropaneTankChangeForm } from "./_components/propane-tank-change-form"
 import {
   IceOpsShell,
   type RecentActivityItem,
@@ -41,6 +40,8 @@ const FORM_TITLES: Record<OperationType, string> = {
   blade_change: "Blade Change",
   edging: "Edging",
   circle_check: "Digital Circle Check",
+  // No tab/form anymore — logged via the Ice Make toggle. Unreachable (the
+  // enabled-tabs redirect fires first) but the Record type requires the key.
   propane_tank_change: "Propane Tank Change",
 }
 
@@ -371,9 +372,6 @@ export default async function OperationTypePage({
         ) : null}
         {operationType === "blade_change" ? (
           <BladeChangeForm equipment={equipment} />
-        ) : null}
-        {operationType === "propane_tank_change" ? (
-          <PropaneTankChangeForm equipment={equipment} />
         ) : null}
         {operationType === "circle_check" ? (
           <CircleCheckForm

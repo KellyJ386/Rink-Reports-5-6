@@ -55,6 +55,7 @@ function buildPayload(input: IceOpsInput): Json {
         snow_taken_pct: input.fields.snow_taken_pct,
         time_in: input.fields.time_in,
         time_out: input.fields.time_out,
+        propane_tank_changed: input.fields.propane_tank_changed,
       }
     case "edging":
       return { hours_run: input.fields.hours_run }
@@ -289,14 +290,21 @@ export async function persistIceOperation(
     }
   }
 
-  // 4) Notification fan-out (best-effort; never rolls back). Propane tank
-  // changes carry a specific subject + body so the routed message (ice-ops
-  // staff / management, per the facility's ice_operations routing rules) says
-  // which machine was swapped, at what hours, by whom — the generic subject
-  // stays for the other operation types.
+  // 4) Notification fan-out (best-effort; never rolls back). A propane tank
+  // change — the toggle on the Ice Make form, or a legacy propane_tank_change
+  // submission replayed from the offline queue — carries a specific subject +
+  // body so the routed message (ice-ops staff / management, per the facility's
+  // ice_operations routing rules) says which machine was swapped, at what
+  // hours, by whom. The generic subject stays for everything else.
+  const propaneHours =
+    input.fields.type === "propane_tank_change"
+      ? input.fields.hours_at_change
+      : input.fields.type === "ice_make" && input.fields.propane_tank_changed
+        ? input.fields.machine_hours
+        : undefined
   let subject = "Ice operations report submitted"
   let body: string | null = null
-  if (input.fields.type === "propane_tank_change") {
+  if (propaneHours !== undefined) {
     subject = `Propane tank changed — ${equipmentRow.name}`
     const { data: submitter } = await supabase
       .from("employees")
@@ -305,9 +313,7 @@ export async function persistIceOperation(
       .maybeSingle()
     const bodyLines = [
       `Machine: ${equipmentRow.name}`,
-      input.fields.hours_at_change !== null
-        ? `Machine hours: ${input.fields.hours_at_change}`
-        : null,
+      propaneHours !== null ? `Machine hours: ${propaneHours}` : null,
       submitter
         ? `Changed by: ${submitter.first_name} ${submitter.last_name}`
         : null,

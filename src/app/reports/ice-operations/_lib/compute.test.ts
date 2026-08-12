@@ -12,16 +12,13 @@ import { resolveEnabledOperationTypes } from "../types"
 
 describe("resolveEnabledOperationTypes", () => {
   it("fails open to all operations for null/empty/invalid input", () => {
-    const all = [
-      "ice_make",
-      "circle_check",
-      "edging",
-      "blade_change",
-      "propane_tank_change",
-    ]
+    const all = ["ice_make", "circle_check", "edging", "blade_change"]
     expect(resolveEnabledOperationTypes(null)).toEqual(all)
     expect(resolveEnabledOperationTypes([])).toEqual(all)
     expect(resolveEnabledOperationTypes(["nonsense"])).toEqual(all)
+    // propane_tank_change is a valid operation type (legacy replays) but has
+    // no tab — a config containing ONLY it fails open like empty.
+    expect(resolveEnabledOperationTypes(["propane_tank_change"])).toEqual(all)
   })
 
   it("returns the configured subset in canonical tab order", () => {
@@ -120,7 +117,28 @@ describe("ice_make payload parsing", () => {
       snow_taken_pct: 50,
       time_in: "08:00",
       time_out: "08:15",
+      propane_tank_changed: false,
     })
+  })
+
+  it("parses the propane toggle from a boolean (offline) or string (form)", () => {
+    const flagged = buildInputFromObject(
+      base({ operation_type: "ice_make", propane_tank_changed: true }),
+    )!
+    if (flagged.fields.type !== "ice_make") throw new Error("wrong type")
+    expect(flagged.fields.propane_tank_changed).toBe(true)
+
+    const posted = buildInputFromObject(
+      base({ operation_type: "ice_make", propane_tank_changed: "true" }),
+    )!
+    if (posted.fields.type !== "ice_make") throw new Error("wrong type")
+    expect(posted.fields.propane_tank_changed).toBe(true)
+
+    const off = buildInputFromObject(
+      base({ operation_type: "ice_make", propane_tank_changed: "" }),
+    )!
+    if (off.fields.type !== "ice_make") throw new Error("wrong type")
+    expect(off.fields.propane_tank_changed).toBe(false)
   })
 
   it("nulls blank/non-numeric values", () => {
@@ -175,6 +193,8 @@ describe("blade_change payload parsing", () => {
   })
 })
 
+// Legacy path: propane briefly had its own tab; queued offline submissions
+// from that window still replay through this parser.
 describe("propane_tank_change payload parsing", () => {
   it("parses hours_at_change from a numeric string", () => {
     const out = buildInputFromObject(
@@ -331,6 +351,7 @@ describe("validateIceOpsInput", () => {
             snow_taken_pct: null,
             time_in: null,
             time_out: null,
+            propane_tank_changed: false,
           },
         }),
       ),
@@ -349,6 +370,7 @@ describe("validateIceOpsInput", () => {
             snow_taken_pct: null,
             time_in: null,
             time_out: null,
+            propane_tank_changed: false,
           },
         }),
       ),
@@ -387,6 +409,7 @@ describe("validateIceOpsInput", () => {
       snow_taken_pct: null,
       time_in: null,
       time_out: null,
+      propane_tank_changed: false,
     } as const
     expect(validateIceOpsInput(input({ fields }))).toBe(
       "Water used and machine hours can't be negative.",
@@ -406,6 +429,7 @@ describe("validateIceOpsInput", () => {
       snow_taken_pct: 101,
       time_in: null,
       time_out: null,
+      propane_tank_changed: false,
     } as const
     expect(validateIceOpsInput(input({ fields }))).toBe(
       "Snow taken must be between 0 and 100%.",

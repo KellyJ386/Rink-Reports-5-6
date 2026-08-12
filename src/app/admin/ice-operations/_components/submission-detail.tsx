@@ -235,6 +235,16 @@ function PayloadSection({
                 />
               }
             />
+            <GridRow
+              label="Propane tank changed"
+              value={
+                p.propane_tank_changed ? (
+                  <Badge variant="secondary">Yes</Badge>
+                ) : (
+                  "No"
+                )
+              }
+            />
             {hasLegacyTemps ? (
               <>
                 <GridRow
