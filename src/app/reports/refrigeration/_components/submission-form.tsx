@@ -118,6 +118,16 @@ type SectionDef = {
   equipment: EquipmentGroup[]
 }
 
+/** A server-provided starting value (e.g. outside air temp from weather). */
+type PrefilledValue = {
+  field_id: string
+  equipment_id: string | null
+  /** Display text in canonical units (°F for temperatures). */
+  text: string
+  /** Shown under the field so the operator knows where the value came from. */
+  hint: string
+}
+
 type Props = {
   sections: SectionDef[]
   oorAlertsEnabled: boolean
@@ -125,6 +135,7 @@ type Props = {
   readingsPerShift: number | null
   userName: string
   facilityName: string
+  prefills?: PrefilledValue[]
 }
 
 const initialState: SubmissionFormState = {}
@@ -191,13 +202,31 @@ export function SubmissionForm({
   readingsPerShift,
   userName,
   facilityName,
+  prefills,
 }: Props) {
   const [state, formAction] = useActionState(
     submitRefrigerationReport,
     initialState
   )
 
-  const [values, setValues] = useState<Record<string, RawValue>>({})
+  // Server-provided starting values (weather prefill). Keyed like `values`;
+  // also the baseline for the unsaved-changes guard, so an untouched prefill
+  // doesn't trigger the "discard readings?" warning.
+  const prefillByKey = useMemo(() => {
+    const out: Record<string, PrefilledValue> = {}
+    for (const p of prefills ?? []) {
+      out[fieldKey(p.field_id, p.equipment_id)] = p
+    }
+    return out
+  }, [prefills])
+
+  const [values, setValues] = useState<Record<string, RawValue>>(() => {
+    const init: Record<string, RawValue> = {}
+    for (const [key, p] of Object.entries(prefillByKey)) {
+      init[key] = { text: p.text, bool: false }
+    }
+    return init
+  })
   const [notes, setNotes] = useState("")
   const [followupNotes, setFollowupNotes] = useState<Record<string, string>>({})
   // nowForDateTimeLocal() reads the browser-local clock, which differs from the
@@ -224,7 +253,12 @@ export function SubmissionForm({
   // the server action, which doesn't fire beforeunload).
   const hasEnteredData =
     notes.trim() !== "" ||
-    Object.values(values).some((v) => v.text.trim() !== "" || v.bool) ||
+    Object.entries(values).some(
+      ([key, v]) =>
+        v.bool ||
+        (v.text.trim() !== "" &&
+          v.text.trim() !== (prefillByKey[key]?.text ?? "").trim())
+    ) ||
     Object.values(followupNotes).some((n) => n.trim() !== "")
   useUnsavedGuard(hasEnteredData && !queued)
 
@@ -563,6 +597,7 @@ export function SubmissionForm({
                         noteError={fieldErrors[noteErrorKey(key)]}
                         displayUnit={displayUnit}
                         preview={previewFor(field)}
+                        prefillHint={prefillByKey[key]?.hint}
                         onText={(t) => updateText(key, t)}
                         onBool={(b) => updateBool(key, b)}
                         onNote={(n) => updateNote(key, n)}
@@ -596,6 +631,7 @@ export function SubmissionForm({
                             noteError={fieldErrors[noteErrorKey(key)]}
                             displayUnit={displayUnit}
                             preview={previewFor(field)}
+                            prefillHint={prefillByKey[key]?.hint}
                             onText={(t) => updateText(key, t)}
                             onBool={(b) => updateBool(key, b)}
                             onNote={(n) => updateNote(key, n)}
@@ -744,6 +780,7 @@ function FieldInput({
   noteError,
   displayUnit,
   preview,
+  prefillHint,
   onText,
   onBool,
   onNote,
@@ -756,6 +793,7 @@ function FieldInput({
   noteError: string | undefined
   displayUnit: TempUnit
   preview: ComputedPreview | null
+  prefillHint: string | undefined
   onText: (text: string) => void
   onBool: (bool: boolean) => void
   onNote: (note: string) => void
@@ -890,6 +928,9 @@ function FieldInput({
           ) : null}
         </div>
         <FieldError id={errorId} message={error} />
+        {prefillHint ? (
+          <p className="text-sm text-muted-foreground">{prefillHint}</p>
+        ) : null}
         <NormalRangeHint field={field} displayUnit={displayUnit} />
         {requireNote ? (
           <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">

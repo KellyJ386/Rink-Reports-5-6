@@ -12,6 +12,7 @@ import { DataList, DataListRow } from "@/components/ui/data-table"
 import { requireUser } from "@/lib/auth"
 import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
+import { getOutsideAirTempF } from "@/lib/weather/server"
 
 import { SubmissionForm } from "./_components/submission-form"
 import { parseComputedSpec } from "./_lib/compute"
@@ -313,6 +314,33 @@ export default async function RefrigerationHomePage() {
     }
   })
 
+  // Auto-populate "Outside air temp" from local weather for the facility's
+  // zip code (set in the Admin area). Best-effort: on any lookup failure the
+  // field simply starts blank, and the operator can always overwrite it.
+  const outsideAirField = fields.find(
+    (f) =>
+      f.key === "outside_air_temp" &&
+      f.equipment_id === null &&
+      f.field_type === "numeric"
+  )
+  const prefills: Array<{
+    field_id: string
+    equipment_id: string | null
+    text: string
+    hint: string
+  }> = []
+  if (outsideAirField && facility?.zip_code) {
+    const tempF = await getOutsideAirTempF(facility.zip_code)
+    if (tempF !== null) {
+      prefills.push({
+        field_id: outsideAirField.id,
+        equipment_id: null,
+        text: String(tempF),
+        hint: `Auto-filled from local weather (ZIP ${facility.zip_code}) — adjust if needed.`,
+      })
+    }
+  }
+
   const oorAlertsEnabled = Boolean(
     settingsRow?.out_of_range_alerts_enabled ?? false
   )
@@ -332,6 +360,7 @@ export default async function RefrigerationHomePage() {
         readingsPerShift={readingsPerShift}
         userName={userName}
         facilityName={facility?.name ?? "Facility"}
+        prefills={prefills}
       />
 
       {recentReports.length > 0 ? (
