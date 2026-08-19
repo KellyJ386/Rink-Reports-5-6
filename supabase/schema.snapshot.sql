@@ -23220,6 +23220,12 @@ CREATE POLICY audit_destruction_batches_select ON public.audit_destruction_batch
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: audit_logs_default; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_default ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: audit_logs audit_logs_insert; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -23238,6 +23244,84 @@ ALTER TABLE public.audit_logs_pending_destruction ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
+
+--
+-- Name: audit_logs_y2023; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2023 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2024; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2024 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2025; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2025 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2026; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2026 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2027; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2027 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2028; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2028 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2029; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2029 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2030; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2030 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2031; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2031 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2032; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2032 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2033; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2033 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2034; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2034 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: audit_logs_y2035; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.audit_logs_y2035 ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: audit_logs_pending_destruction audit_pending_destruction_select; Type: POLICY; Schema: public; Owner: -

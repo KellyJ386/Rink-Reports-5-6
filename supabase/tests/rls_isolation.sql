@@ -2957,10 +2957,14 @@ select pg_temp.expect_count(
   1, 'I2: restoring the payload heals verification');
 reset role;
 
--- Partitioning pilot (migration 219): audit_logs is now RANGE-partitioned by
--- created_at, but RLS lives on the parent and applies to every partition.
--- Confirm the partitioned parent still enforces cross-facility isolation
--- (the plan's required assertion) and is actually partitioned.
+-- Partitioning pilot (migration 222, hardened in 239): audit_logs is
+-- RANGE-partitioned by created_at. Parent RLS applies ONLY to queries that
+-- name the parent — row security is a per-relation flag, so a query naming a
+-- partition directly (which PostgREST allows: GET /rest/v1/audit_logs_y2026)
+-- is governed by the partition's own RLS state. Migration 222 shipped with
+-- RLS on the parent only, leaving every partition readable cross-facility;
+-- 239 enables RLS on each partition and revokes anon/authenticated direct
+-- access. Assert both the parent path and the direct-partition path.
 set local role postgres;
 select pg_temp.expect_count(
   $$select count(*) from pg_class
@@ -2968,6 +2972,22 @@ select pg_temp.expect_count(
        and relnamespace = 'public'::regnamespace
        and relkind = 'p'$$,
   1, 'PART-222: audit_logs is a partitioned table');
+-- Every partition of audit_logs must carry its own RLS flag (migration 239).
+select pg_temp.expect_count(
+  $$select count(*) from pg_inherits i
+      join pg_class c on c.oid = i.inhrelid
+     where i.inhparent = 'public.audit_logs'::regclass
+       and not c.relrowsecurity$$,
+  0, 'PART-239: every audit_logs partition has RLS enabled');
+-- META (would have caught PART-239 at CI time, and catches every future
+-- table or partition added without RLS): no ordinary or partitioned table
+-- in public may lack row level security.
+select pg_temp.expect_count(
+  $$select count(*) from pg_class c
+     where c.relnamespace = 'public'::regnamespace
+       and c.relkind in ('r', 'p')
+       and not c.relrowsecurity$$,
+  0, 'META: every table in schema public has row level security enabled');
 reset role;
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
@@ -2976,6 +2996,22 @@ select pg_temp.expect_error(
   $$insert into public.audit_logs (facility_id, action, entity_type)
     values ('22222222-2222-2222-2222-222222222222', 'part.probe', 'employees')$$,
   'PART-222: cross-facility INSERT still blocked on the partitioned table');
+-- Direct-partition reads are fully closed to authenticated (revoke + RLS).
+-- Facility B's audit rows live in the current-year partition and the default
+-- partition is the catch-all — neither may be readable by naming it directly.
+select pg_temp.expect_error(
+  $$select count(*) from public.audit_logs_y2026$$,
+  'PART-239: direct SELECT on a yearly partition is denied');
+select pg_temp.expect_error(
+  $$select count(*) from public.audit_logs_default$$,
+  'PART-239: direct SELECT on the default partition is denied');
+reset role;
+-- anon has no privilege on audit_logs at all (migration 239 revoked the only
+-- anon table grant in the schema, from 222).
+set local role anon;
+select pg_temp.expect_error(
+  $$select count(*) from public.audit_logs$$,
+  'PART-239: anon cannot SELECT audit_logs');
 reset role;
 
 -- Cron sweep (migration 218): verify_all_audit_chains verifies every facility
