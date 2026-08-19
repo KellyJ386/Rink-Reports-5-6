@@ -8417,6 +8417,59 @@ end$$;
 -- ---------------------------------------------------------------------------
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- 2ab. Dasher Boards retention (migration 239).
+--
+-- purge_old_dasher_boards_inspections() is a SECURITY DEFINER bulk-deleter
+-- wired into the run-retention-purge cron, so — like the migration-134/138
+-- workers — the EXECUTE grant (service_role only) IS the gate.
+--
+-- Also asserts the retention_module_floors row exists. Without it the
+-- migration-208 trigger rejects every dasher_boards retention rule a facility
+-- tries to save, which would make the new module row in the admin UI unusable.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.purge_old_dasher_boards_inspections()$$,
+  'PURGE-239: authenticated CANNOT execute purge_old_dasher_boards_inspections');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.purge_old_dasher_boards_inspections()$$,
+  'PURGE-239: anon CANNOT execute purge_old_dasher_boards_inspections');
+
+reset role;
+set local role service_role;
+
+select pg_temp.expect_ok(
+  $$select public.purge_old_dasher_boards_inspections()$$,
+  'PURGE-239: service_role CAN execute purge_old_dasher_boards_inspections');
+
+reset role;
+
+select pg_temp.expect_count(
+  $$select 1 from public.retention_module_floors where module_key = 'dasher_boards'$$,
+  1,
+  'RETENTION-239: dasher_boards has a retention floor row');
+
+-- An unresolved issue is a live safety defect, so the purge must never take it
+-- however old the walk that raised it is. Assert the manual purge keeps it:
+-- purge_module_data deletes only issues with resolved_at set.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'purge_module_data'
+       and pg_get_functiondef(p.oid) like '%resolved_at is not null%'$$,
+  1,
+  'RETENTION-239: purge_module_data only purges RESOLVED dasher_boards issues');
+
 do $$
 declare
   v_failed int;

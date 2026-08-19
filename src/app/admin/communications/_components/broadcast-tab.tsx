@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -328,7 +329,7 @@ function ScheduledRow({ batch }: { batch: ScheduledBatch }) {
           {batch.subject?.trim() || "(No subject)"}
         </span>
         <span className="text-muted-foreground text-xs">
-          {new Date(batch.scheduledFor).toLocaleString()} · {batch.recipients}{" "}
+          <LocalDateTime iso={batch.scheduledFor} /> · {batch.recipients}{" "}
           recipient{batch.recipients === 1 ? "" : "s"}
         </span>
       </div>

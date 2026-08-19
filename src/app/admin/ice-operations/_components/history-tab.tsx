@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -7,6 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+
+import { formatInTz } from "@/lib/timezone"
 
 import type {
   EmployeeLite,
@@ -49,14 +52,15 @@ type Props = {
   equipment: EquipmentRow[]
   settings: SettingsRow | null
   params: HistoryParams
+  timeZone: string | null
+  moreHref?: string | null
 }
 
-function fmt(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+// Facility-zoned, like every other timestamp in the app. This list used to
+// format with no timeZone at all, so it disagreed with the detail view (which
+// already renders through LocalDateTime) and misread as UTC on the server.
+function fmt(ts: string, timeZone: string | null): string {
+  return formatInTz(ts, timeZone)
 }
 
 function buildDetailHref(submissionId: string, params: HistoryParams): string {
@@ -94,6 +98,8 @@ export function HistoryTab({
   equipment,
   settings,
   params,
+  timeZone,
+  moreHref,
 }: Props) {
   const tempUnit: TemperatureUnit =
     (settings?.temperature_unit as TemperatureUnit) ?? "F"
@@ -135,7 +141,15 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <SubmissionsList list={list} params={params} tempUnit={tempUnit} />
+        <>
+          <SubmissionsList
+            list={list}
+            params={params}
+            tempUnit={tempUnit}
+            timeZone={timeZone}
+          />
+          {moreHref ? <LoadMoreLink href={moreHref} shown={list.length} /> : null}
+        </>
       )}
     </div>
   )
@@ -188,10 +202,12 @@ function SubmissionsList({
   list,
   params,
   tempUnit,
+  timeZone,
 }: {
   list: SubmissionListItem[]
   params: HistoryParams
   tempUnit: TemperatureUnit
+  timeZone: string | null
 }) {
   return (
     <div className="overflow-auto rounded-md border">
@@ -221,7 +237,7 @@ function SubmissionsList({
           {list.map((s) => (
             <tr key={s.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle whitespace-nowrap">
-                {fmt(s.occurred_at)}
+                {fmt(s.occurred_at, timeZone)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 <Badge variant="secondary">

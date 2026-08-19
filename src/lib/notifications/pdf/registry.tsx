@@ -48,6 +48,7 @@ import { renderAirQualityPdf } from "./templates/air-quality"
 import { renderDailyReportPdf } from "./templates/daily"
 import { renderDasherBoardsPdf } from "./templates/dasher-boards"
 import { renderIceDepthPdf } from "./templates/ice-depth"
+import { renderIceOperationsPdf } from "./templates/ice-operations"
 import { renderIncidentReportPdf } from "./templates/incident"
 import { renderRefrigerationPdf } from "./templates/refrigeration"
 registerModulePdfRenderer("accident_reports", renderAccidentReportPdf)
@@ -55,5 +56,6 @@ registerModulePdfRenderer("air_quality", renderAirQualityPdf)
 registerModulePdfRenderer("daily_reports", renderDailyReportPdf)
 registerModulePdfRenderer("dasher_boards", renderDasherBoardsPdf)
 registerModulePdfRenderer("ice_depth", renderIceDepthPdf)
+registerModulePdfRenderer("ice_operations", renderIceOperationsPdf)
 registerModulePdfRenderer("incident_reports", renderIncidentReportPdf)
 registerModulePdfRenderer("refrigeration", renderRefrigerationPdf)

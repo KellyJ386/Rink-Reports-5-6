@@ -152,7 +152,14 @@ export async function buildExport(
   }
 
   const rangeLabel = `${formatExportDate(`${input.from}T00:00:00Z`, settings.date_format, false)} – ${formatExportDate(`${input.to}T00:00:00Z`, settings.date_format, false)}`
-  const pdf = await renderTablePdf(table, settings, rangeLabel)
+  // The "generated at" footer is stamped in the facility's zone, not the
+  // server's — this runs in a route handler, which is UTC in production.
+  const { data: facility } = await sb
+    .from("facilities")
+    .select("timezone")
+    .eq("id", facilityId)
+    .maybeSingle()
+  const pdf = await renderTablePdf(table, settings, rangeLabel, facility?.timezone ?? null)
   return {
     ok: true,
     file: {

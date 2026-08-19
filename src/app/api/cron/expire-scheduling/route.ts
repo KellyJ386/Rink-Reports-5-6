@@ -1,9 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto"
-
-import { createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
-
-import type { Database } from "@/types/database"
+import { withCronRoute } from "@/lib/cron/with-cron-auth"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { sendDueShiftReminders } from "@/app/admin/scheduling/_lib/shift-reminders"
 
@@ -28,37 +23,10 @@ const REMINDER_WINDOW_HOURS = 24
  *
  * Both RPCs are SECURITY DEFINER, batched, and FOR UPDATE SKIP LOCKED, so a
  * single short batch per invocation is sufficient and safe under overlap.
- * Authenticated by the same CRON_SECRET as the other cron routes.
+ * Auth, the service-role client, timing, and the cron_runs record are handled
+ * by withCronRoute.
  */
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET not configured" },
-      { status: 503 },
-    )
-  }
-  if (!authorize(request.headers.get("authorization"), secret)) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    )
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase service-role env not configured" },
-      { status: 503 },
-    )
-  }
-
-  const supabase = createClient<Database>(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const startedAt = Date.now()
+export const GET = withCronRoute("/api/cron/expire-scheduling", async (supabase) => {
   let anyFailed = false
 
   let expiredSwaps: number | "error" = 0
@@ -99,33 +67,10 @@ export async function GET(request: Request) {
     remindersSent = remindRes.sent
   }
 
-  console.log(
-    "[cron/expire-scheduling] run complete",
-    JSON.stringify({
-      route: "/api/cron/expire-scheduling",
-      duration_ms: Date.now() - startedAt,
-      expiredSwaps,
-      expiredClaims,
-      remindersSent,
-      ok: !anyFailed,
-    }),
-  )
-
-  return NextResponse.json(
-    {
-      ok: !anyFailed,
-      expiredSwaps,
-      expiredClaims,
-      remindersSent,
-    },
-    { status: anyFailed ? 500 : 200 },
-  )
-}
-
-function authorize(header: string | null, secret: string): boolean {
-  if (!header) return false
-  const expected = `Bearer ${secret}`
-  const a = createHash("sha256").update(header).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return a.length === b.length && timingSafeEqual(a, b)
-}
+  return {
+    status: anyFailed ? 500 : 200,
+    body: { ok: !anyFailed, expiredSwaps, expiredClaims, remindersSent },
+    summary: { expiredSwaps, expiredClaims, remindersSent },
+    error: anyFailed ? "one or more scheduling sweeps failed" : undefined,
+  }
+})

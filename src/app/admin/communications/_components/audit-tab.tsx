@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState, useTransition } from "react"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { Badge } from "@/components/ui/badge"
 import type { BadgeProps } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,8 @@ type Props = {
   entityTypes: string[]
   actions: string[]
   params: AuditParams
+  /** Set when more entries exist beyond the current window. */
+  moreHref?: string | null
 }
 
 function actionBadgeVariant(action: string): BadgeProps["variant"] {
@@ -55,6 +58,7 @@ export function AuditTab({
   entityTypes,
   actions,
   params,
+  moreHref,
 }: Props) {
   return (
     <div className="flex flex-col gap-4">
@@ -81,6 +85,7 @@ export function AuditTab({
           ))}
         </ul>
       )}
+      {moreHref ? <LoadMoreLink href={moreHref} shown={items.length} /> : null}
     </div>
   )
 }
@@ -95,6 +100,8 @@ function AuditFilters({
   entityTypes: string[]
   actions: string[]
   params: AuditParams
+  /** Set when more entries exist beyond the current window. */
+  moreHref?: string | null
 }) {
   const router = useRouter()
   const sp = useSearchParams()

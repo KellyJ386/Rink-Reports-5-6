@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { FacilitiesPanel } from "./_components/facilities-panel"
+import { CronHealthCard } from "./_components/cron-health-card"
 import { InviteServiceHealthCard } from "./_components/invite-service-health-card"
 import { SuperAdminUsersPanel } from "./_components/super-admin-users-panel"
 import type { FacilityRow, FacilityWithStats, SuperAdminUserRow } from "./types"
@@ -132,6 +133,7 @@ export default async function SuperAdminPage({
       />
       <SuperAdminUsersPanel users={users} currentUserId={currentUserId} />
       <InviteServiceHealthCard />
+      <CronHealthCard />
     </div>
   )
 }

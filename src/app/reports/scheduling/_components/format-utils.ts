@@ -62,7 +62,10 @@ export function formatTimeOnly(value: string): string {
   return `${h12}:${mm} ${period}`
 }
 
-export function formatRelativeAge(iso: string): string {
+export function formatRelativeAge(
+  iso: string,
+  timezone: string | null
+): string {
   const then = new Date(iso).getTime()
   const now = Date.now()
   const diffMs = now - then
@@ -73,5 +76,7 @@ export function formatRelativeAge(iso: string): string {
   if (diffHr < 24) return `${diffHr}h ago`
   const diffDay = Math.round(diffHr / 24)
   if (diffDay < 30) return `${diffDay}d ago`
-  return new Date(iso).toLocaleDateString()
+  // Past 30 days we show a real date, which must be the facility's — every
+  // other export in this file already takes the zone; this one never did.
+  return formatDate(iso, timezone)
 }

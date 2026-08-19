@@ -13,6 +13,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
 import { ActivitiesTab } from "./_components/activities-tab"
@@ -47,6 +49,7 @@ type SearchParams = Promise<{
   location?: string
   from?: string
   to?: string
+  show?: string
 }>
 
 function asTab(value: string | undefined): Tab {
@@ -195,6 +198,9 @@ async function TypesTabLoader({ facilityId }: { facilityId: string }) {
   return <TypesTab types={types} />
 }
 
+/** Incidents are low-volume; 200 is roughly a year for most facilities. */
+const SHOW_OPTS = { initial: 200, step: 200 }
+
 async function HistoryTabLoader({
   facilityId,
   params,
@@ -209,9 +215,12 @@ async function HistoryTabLoader({
     location?: string
     from?: string
     to?: string
+    show?: string
   }
 }) {
   const supabase = await createClient()
+  const timeZone = await getFacilityTimezone(supabase, facilityId)
+  const show = clampShow(params.show, SHOW_OPTS)
 
   // Lookups for filter dropdowns + badge rendering.
   const [typesRes, sevRes, empsRes] = await Promise.all([
@@ -246,7 +255,10 @@ async function HistoryTabLoader({
     .select("*")
     .eq("facility_id", facilityId)
     .order("submitted_at", { ascending: false })
-    .limit(200)
+    // Was a hard .limit(200): older reports were absent with nothing on screen
+    // saying so. The location filter pre-resolves into an .or() before this
+    // runs, so every filter is in-query and a plain window is correct.
+    .range(0, show)
   if (params.status) q = q.eq("status", params.status)
   if (params.type) q = q.eq("incident_type_id", params.type)
   if (params.severity) q = q.eq("severity_level_id", params.severity)
@@ -287,7 +299,9 @@ async function HistoryTabLoader({
   if (params.to) q = q.lte("submitted_at", `${params.to}T23:59:59.999Z`)
 
   const { data: reportsRaw } = await q
-  const reports = (reportsRaw ?? []) as IncidentReportRow[]
+  const fetched = (reportsRaw ?? []) as IncidentReportRow[]
+  const hasMore = fetched.length > show
+  const reports = fetched.slice(0, show)
 
   const typesById = new Map(types.map((t) => [t.id, t]))
   const sevById = new Map(severities.map((s) => [s.id, s]))
@@ -496,6 +510,15 @@ async function HistoryTabLoader({
   }
   const backHref = `/admin/incident-reports?${backSp.toString()}`
 
+  // "Load more" widens the window and keeps every active filter.
+  const more = nextShow(show, SHOW_OPTS)
+  let moreHref: string | null = null
+  if (hasMore && more !== null) {
+    const moreSp = new URLSearchParams(backSp)
+    moreSp.set("show", String(more))
+    moreHref = `/admin/incident-reports?${moreSp.toString()}`
+  }
+
   return (
     <HistoryTab
       list={list}
@@ -505,6 +528,8 @@ async function HistoryTabLoader({
       severities={severities}
       employees={employees}
       params={params}
+      timeZone={timeZone}
+      moreHref={moreHref}
     />
   )
 }

@@ -32,6 +32,7 @@ export const MODULE_NAMES = [
   "scheduling",
   "communications",
   "dasher_boards",
+  "facility_paperwork",
   "admin",
 ] as const
 
@@ -48,6 +49,7 @@ export const MODULE_LABELS: Record<ModuleName, string> = {
   scheduling: "Employee Scheduling",
   communications: "Communications",
   dasher_boards: "Dasher Boards",
+  facility_paperwork: "Facility Paperwork",
   admin: "Admin",
 }
 
