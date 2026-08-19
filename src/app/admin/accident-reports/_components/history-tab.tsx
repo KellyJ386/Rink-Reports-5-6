@@ -22,7 +22,8 @@ import type {
   EmployeeLite,
 } from "../types"
 
-import { localDayKey } from "@/lib/timezone"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
+import { formatInTz, localDayKey } from "@/lib/timezone"
 
 import { HistoryFilters } from "./history-filters"
 import { ReportDetail } from "./report-detail"
@@ -56,13 +57,12 @@ function defaultFromDate(): string {
   return localDayKey(-30)
 }
 
-function fmt(ts: string | null | undefined): string {
+// Facility-zoned, like every other timestamp in the app. This list used to
+// format with no timeZone at all, so it disagreed with the detail view (which
+// already renders through LocalDateTime) and misread as UTC on the server.
+function fmt(ts: string | null | undefined, timeZone: string | null): string {
   if (!ts) return "—"
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+  return formatInTz(ts, timeZone)
 }
 
 function buildDetailHref(reportId: string, params: HistoryParams): string {
@@ -102,6 +102,7 @@ export async function HistoryTabLoader({
   params: HistoryParams
 }) {
   const supabase = await createClient()
+  const timeZone = await getFacilityTimezone(supabase, facilityId)
 
   // Effective date range — default to last 30 days when not provided.
   const fromDate = params.from || defaultFromDate()
@@ -384,6 +385,7 @@ export async function HistoryTabLoader({
       medicals={medicals}
       bodyPartCountByReport={bodyPartCountByReport}
       params={{ ...params, from: fromDate, to: toDate }}
+      timeZone={timeZone}
     />
   )
 }
@@ -404,6 +406,7 @@ type Props = {
   medicals: DropdownLite[]
   bodyPartCountByReport: Map<string, number>
   params: HistoryParams
+  timeZone: string | null
 }
 
 function HistoryTab({
@@ -418,6 +421,7 @@ function HistoryTab({
   medicals,
   bodyPartCountByReport,
   params,
+  timeZone,
 }: Props) {
   if (detail) {
     return <ReportDetail detail={detail} backHref={backHref} />
@@ -454,6 +458,7 @@ function HistoryTab({
           list={list}
           params={params}
           bodyPartCountByReport={bodyPartCountByReport}
+          timeZone={timeZone}
         />
       )}
     </div>
@@ -464,10 +469,12 @@ function ReportsList({
   list,
   params,
   bodyPartCountByReport,
+  timeZone,
 }: {
   list: AccidentReportListItem[]
   params: HistoryParams
   bodyPartCountByReport: Map<string, number>
+  timeZone: string | null
 }) {
   return (
     <div className="overflow-auto rounded-md border">
@@ -507,7 +514,7 @@ function ReportsList({
           {list.map((r) => (
             <tr key={r.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle">
-                {fmt(r.submitted_at)}
+                {fmt(r.submitted_at, timeZone)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {r.injured_person_name}

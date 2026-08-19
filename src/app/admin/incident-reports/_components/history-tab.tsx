@@ -8,6 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+import { formatInTz } from "@/lib/timezone"
+
 import type {
   EmployeeLite,
   IncidentReportDetail,
@@ -38,14 +40,14 @@ type Props = {
   severities: Array<Pick<SeverityRow, "id" | "key" | "display_name" | "color">>
   employees: EmployeeLite[]
   params: HistoryParams
+  timeZone: string | null
 }
 
-function fmt(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return ts
-  }
+// Facility-zoned, like every other timestamp in the app. This list used to
+// format with no timeZone at all, so it disagreed with the detail view (which
+// already renders through LocalDateTime) and misread as UTC on the server.
+function fmt(ts: string, timeZone: string | null): string {
+  return formatInTz(ts, timeZone)
 }
 
 function buildDetailHref(reportId: string, params: HistoryParams): string {
@@ -87,6 +89,7 @@ export function HistoryTab({
   severities,
   employees,
   params,
+  timeZone,
 }: Props) {
   if (detail) {
     return <ReportDetail detail={detail} backHref={backHref} />
@@ -116,7 +119,7 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <ReportsList list={list} params={params} />
+        <ReportsList list={list} params={params} timeZone={timeZone} />
       )}
     </div>
   )
@@ -125,9 +128,11 @@ export function HistoryTab({
 function ReportsList({
   list,
   params,
+  timeZone,
 }: {
   list: IncidentReportListItem[]
   params: HistoryParams
+  timeZone: string | null
 }) {
   return (
     <div className="overflow-auto rounded-md border">
@@ -159,7 +164,7 @@ function ReportsList({
           {list.map((r) => (
             <tr key={r.id} className="hover:bg-muted/30">
               <td className="border-b px-3 py-2 align-middle">
-                {fmt(r.submitted_at)}
+                {fmt(r.submitted_at, timeZone)}
               </td>
               <td className="border-b px-3 py-2 align-middle">
                 {r.reporter_name}

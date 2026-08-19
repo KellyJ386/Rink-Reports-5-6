@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -94,7 +95,7 @@ export function OpenIssueRow({
         </p>
       )}
       <p className="text-muted-foreground font-mono text-xs">
-        {new Date(issue.created_at).toLocaleString()}
+        <LocalDateTime iso={issue.created_at} />
       </p>
       {online && (canResolve || canEdit) && (
         <div className="flex gap-2">

@@ -13,6 +13,7 @@
 import { useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -342,10 +343,12 @@ function HistoryBlock({ assetId, online }: { assetId: string; online: boolean })
                 {(issue.severity as string).toUpperCase()}
               </Badge>
               <span className="text-muted-foreground font-mono text-xs">
-                {new Date(issue.created_at).toLocaleDateString()} →{" "}
-                {issue.resolved_at
-                  ? new Date(issue.resolved_at).toLocaleDateString()
-                  : ""}
+                <LocalDateTime iso={issue.created_at} format="date" /> →{" "}
+                {issue.resolved_at ? (
+                  <LocalDateTime iso={issue.resolved_at} format="date" />
+                ) : (
+                  ""
+                )}
               </span>
             </div>
             <p className="mt-1 text-sm">{issue.description}</p>

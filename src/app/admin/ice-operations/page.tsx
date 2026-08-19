@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
 
 import { HistoryTab } from "./_components/history-tab"
@@ -234,6 +235,7 @@ async function HistoryTabLoader({
   }
 }) {
   const supabase = await createClient()
+  const timeZone = await getFacilityTimezone(supabase, facilityId)
 
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
@@ -422,6 +424,7 @@ async function HistoryTabLoader({
       rinks={rinks}
       equipment={equipment}
       settings={settings}
+      timeZone={timeZone}
       params={{
         employee: params.employee,
         rink: params.rink,

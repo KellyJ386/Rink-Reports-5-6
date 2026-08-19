@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
 
 import { ActivitiesTab } from "./_components/activities-tab"
@@ -212,6 +213,7 @@ async function HistoryTabLoader({
   }
 }) {
   const supabase = await createClient()
+  const timeZone = await getFacilityTimezone(supabase, facilityId)
 
   // Lookups for filter dropdowns + badge rendering.
   const [typesRes, sevRes, empsRes] = await Promise.all([
@@ -505,6 +507,7 @@ async function HistoryTabLoader({
       severities={severities}
       employees={employees}
       params={params}
+      timeZone={timeZone}
     />
   )
 }
