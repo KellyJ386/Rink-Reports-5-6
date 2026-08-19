@@ -1,9 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto"
-
-import { type SupabaseClient, createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { nextRunAfter } from "@/lib/cron/cron-schedule"
+import { withCronRoute } from "@/lib/cron/with-cron-auth"
 import type { Database } from "@/types/database"
 import { logServerError } from "@/lib/observability/log-server-error"
 
@@ -28,45 +26,10 @@ const BATCH_LIMIT = 200
  * UPDATE before dispatch, so an overlapping tick that lost the race dispatches
  * nothing.
  */
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET not configured" },
-      { status: 503 },
-    )
-  }
-  if (!authorize(request.headers.get("authorization"), secret)) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 })
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase service-role env not configured" },
-      { status: 503 },
-    )
-  }
-
-  const supabase = createClient<Database>(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const startedAt = Date.now()
+export const GET = withCronRoute("/api/cron/run-reminders", async (supabase) => {
   const stats = await runReminders(supabase)
-
-  console.log(
-    "[cron/run-reminders] run complete",
-    JSON.stringify({
-      route: "/api/cron/run-reminders",
-      duration_ms: Date.now() - startedAt,
-      ...stats,
-    }),
-  )
-
-  return NextResponse.json({ ok: true, ...stats })
-}
+  return { body: { ok: true, ...stats }, summary: { ...stats } }
+})
 
 type Stats = {
   considered: number
@@ -252,10 +215,4 @@ async function dispatchReminder(
   return recipientRows.length
 }
 
-function authorize(header: string | null, secret: string): boolean {
-  if (!header) return false
-  const expected = `Bearer ${secret}`
-  const a = createHash("sha256").update(header).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return a.length === b.length && timingSafeEqual(a, b)
-}
+

@@ -1,9 +1,9 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto"
+import { randomUUID } from "node:crypto"
 
-import { type SupabaseClient, createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { mapWithConcurrency } from "@/lib/concurrency"
+import { withCronRoute } from "@/lib/cron/with-cron-auth"
 import { downloadPdf } from "@/lib/notifications/pdf/upload"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
 import type { Database } from "@/types/database"
@@ -60,53 +60,10 @@ const EMAIL_CLAIM_TTL_MS = 10 * 60_000
  * only on missing email address, so adding the API key later still
  * flushes the backlog.
  */
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET not configured" },
-      { status: 503 },
-    )
-  }
-  if (!authorize(request.headers.get("authorization"), secret)) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    )
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase service-role env not configured" },
-      { status: 503 },
-    )
-  }
-
-  const supabase = createClient<Database>(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const startedAt = Date.now()
+export const GET = withCronRoute("/api/cron/send-communications", async (supabase) => {
   const email = isEmailConfigured() ? await runEmail(supabase) : SKIPPED
-
-  console.log(
-    "[cron/send-communications] run complete",
-    JSON.stringify({
-      route: "/api/cron/send-communications",
-      duration_ms: Date.now() - startedAt,
-      configured: email.configured,
-      attempted: email.attempted,
-      sent: email.sent,
-      failed: email.failed,
-      retried: email.retried,
-      skipped: email.skipped,
-    }),
-  )
-
-  return NextResponse.json({ ok: true, email })
-}
+  return { body: { ok: true, email }, summary: { ...email } }
+})
 
 type ChannelStats = {
   configured: boolean
@@ -423,10 +380,3 @@ async function markEmailTerminalFailure(
     .eq("email_claim_token", claimToken)
 }
 
-function authorize(header: string | null, secret: string): boolean {
-  if (!header) return false
-  const expected = `Bearer ${secret}`
-  const a = createHash("sha256").update(header).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return a.length === b.length && timingSafeEqual(a, b)
-}
