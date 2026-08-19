@@ -96,3 +96,43 @@ exists and runs when its prerequisite env/seed is present.
 | Forms preserve data during navigation | ✅ (fill → back/forward → values retained) |
 | Error messages are clear | ✅ (invalid login surfaces readable alert) |
 | Screenshots saved for failed tests | ✅ (config `screenshot: only-on-failure` + reporter) |
+
+## 13. Scheduling — `13-scheduling.spec.ts`
+
+The largest module in the app, previously uncovered.
+
+| Scenario | Covered by |
+| --- | --- |
+| Landing dashboard renders with all five quick links | `landing page renders the schedule dashboard and its quick links` |
+| My Schedule opens (shifts or honest empty state) | `my schedule opens and offers the calendar feed` |
+| Time-off page lists requests and exposes the form | `time off lists past requests and exposes the request form` |
+| Availability editor renders | `availability page renders the weekly editor` |
+| Swaps page separates outgoing from incoming | `swaps page separates outgoing from incoming requests` |
+| Notifications render; acknowledging stays explicit | `notifications page renders without a crash and marks nothing by accident` |
+| Claim / drop affordances present and enabled | `open-shift claim and shift drop are offered but not driven here` |
+| All eleven admin sub-consoles render for admin | `admin scheduling sub-pages all render` |
+
+**Not covered, deliberately.** `scheduling_claim_open_shift`,
+`scheduling_request_shift_drop`, and `scheduling_cancel_shift_drop` are
+online-only RPCs that re-validate ownership, certs, hour caps, and publish
+state at execution time, and they mutate a published schedule other people
+depend on. Driving them needs a disposable seeded facility. Same for the admin
+grid's drag-create/edit/delete writes.
+
+## 14. Communications — `14-communications.spec.ts`
+
+Owns the notification and email pipeline; previously uncovered.
+
+| Scenario | Covered by |
+| --- | --- |
+| Inbox renders with alerts and messages tabs | `inbox renders with its alerts and messages tabs` |
+| Tab switch changes the view, not just the URL | `switching to the messages tab changes the view, not just the URL` |
+| Alert drilldown opens; ack stays an explicit action | `an alert drilldown opens and shows its acknowledge affordance when required` |
+| Compose rejects an empty body | `compose validates a required body before sending` |
+| Compose sends and reaches the done screen | `compose sends a message and lands on the done screen` |
+| All eight admin tabs render | `every admin tab renders` |
+| Staff denied the admin console | `staff are denied the communications admin console` |
+
+**Not covered, deliberately.** The admin Broadcast tab is loaded but never
+submitted — sending queues real email to real staff, which a test suite should
+not do against a shared environment.
