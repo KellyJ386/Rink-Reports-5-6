@@ -1,9 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto"
-
-import { createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
-
-import type { Database } from "@/types/database"
+import { withCronRoute } from "@/lib/cron/with-cron-auth"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 export const dynamic = "force-dynamic"
@@ -31,47 +26,21 @@ type VerifyResult = {
  *
  * On a detected break the route logs an error and returns 500, so Vercel's
  * cron monitoring surfaces it loudly — the whole point of tamper-EVIDENCE is
- * that someone is told. Authenticated by the same CRON_SECRET as the others.
+ * that someone is told. Auth, the service-role client, timing, and the
+ * cron_runs record are handled by withCronRoute.
  */
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET not configured" },
-      { status: 503 },
-    )
-  }
-  if (!authorize(request.headers.get("authorization"), secret)) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    )
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase service-role env not configured" },
-      { status: 503 },
-    )
-  }
-
-  const supabase = createClient<Database>(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const startedAt = Date.now()
+export const GET = withCronRoute("/api/cron/verify-audit-chain", async (supabase) => {
   const { data, error } = await supabase.rpc("verify_all_audit_chains")
   if (error) {
-    // Full error goes to server logs only; the response body stays opaque so
-    // schema/constraint text never leaves the server (matches the sibling
-    // cron routes' counts-only contract).
+    // Full error goes to server logs + the cron_runs record only; the
+    // response body stays opaque so schema/constraint text never leaves the
+    // server (matches the sibling cron routes' counts-only contract).
     logServerError("cron/verify-audit-chain", error)
-    return NextResponse.json(
-      { ok: false, error: "verification failed — see server logs" },
-      { status: 500 },
-    )
+    return {
+      status: 500,
+      body: { ok: false, error: "verification failed — see server logs" },
+      error: error.message,
+    }
   }
 
   const result = (data ?? {
@@ -82,8 +51,6 @@ export async function GET(request: Request) {
   }) as VerifyResult
 
   const summary = {
-    route: "/api/cron/verify-audit-chain",
-    duration_ms: Date.now() - startedAt,
     checked_facilities: result.checked_facilities,
     total_rows_checked: result.total_rows_checked,
     broken_count: result.broken?.length ?? 0,
@@ -99,17 +66,13 @@ export async function GET(request: Request) {
       ),
     )
     console.error("[cron/verify-audit-chain] TAMPER DETECTED", JSON.stringify(summary))
-    return NextResponse.json(result, { status: 500 })
+    return {
+      status: 500,
+      body: result as unknown as Record<string, unknown>,
+      summary,
+      error: `audit chain broken for ${result.broken.length} facility(ies)`,
+    }
   }
 
-  console.log("[cron/verify-audit-chain] run complete", JSON.stringify(summary))
-  return NextResponse.json(result)
-}
-
-function authorize(header: string | null, secret: string): boolean {
-  if (!header) return false
-  const expected = `Bearer ${secret}`
-  const a = createHash("sha256").update(header).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return a.length === b.length && timingSafeEqual(a, b)
-}
+  return { body: result as unknown as Record<string, unknown>, summary }
+})

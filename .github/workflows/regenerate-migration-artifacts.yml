@@ -1,0 +1,132 @@
+name: Regenerate Migration Artifacts
+
+# Rebuilds the two generated artifacts a migration PR must carry —
+# src/types/database.ts and supabase/schema.snapshot.sql — using the SAME
+# container image and repo scripts the enforcement gates use (rls-isolation's
+# types:check and schema-drift's snapshot diff), then commits them back to the
+# branch when they changed.
+#
+# Exists because migrations are sometimes authored in environments with no
+# Docker daemon and no direct database egress (e.g. sandboxed cloud sessions),
+# where neither `pnpm types:write` nor dump-schema-snapshot.sh can run. Rather
+# than leaving the gates red for someone with a laptop, dispatch this on the
+# PR branch: byte-compatible output is guaranteed because it is literally the
+# gates' own recipe.
+#
+# Triggers:
+#   * workflow_dispatch — run it on any branch that carries this file.
+#   * push of this file itself on a work branch — so the very first push that
+#     introduces the workflow also runs it, covering the case where dispatch
+#     isn't available because the file isn't on the default branch yet.
+#     The regeneration commit touches only the two artifacts, which are NOT in
+#     this paths filter, so it can never retrigger itself. Note the filter
+#     compares the push's before/after diff — a force-push that only rewrites
+#     a commit message will not fire it; the file content must change.
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths:
+      - ".github/workflows/regenerate-migration-artifacts.yml"
+
+concurrency:
+  group: regen-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # contents: write — the whole point is committing the regenerated files
+    # back to the branch that dispatched it.
+    permissions:
+      contents: write
+
+    services:
+      postgres:
+        # Keep in sync with rls-isolation.yml, schema-drift.yml, and
+        # supabase/config.toml — the snapshot's formatting is only stable
+        # against the same server the drift gate dumps from.
+        image: supabase/postgres:15.1.1.78
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGURL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Install psql + pg_dump client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; then
+              echo "Postgres is ready (attempt $i)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres failed to become ready" >&2; exit 1
+
+      - name: Apply migrations (clean replay from the repo files)
+        run: |
+          set -euo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$(basename "$f")"
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate database types
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+        run: pnpm types:write
+
+      - name: Regenerate schema snapshot
+        run: |
+          chmod +x scripts/dump-schema-snapshot.sh
+          ./scripts/dump-schema-snapshot.sh "$PGURL" > supabase/schema.snapshot.sql
+          echo "Snapshot: $(wc -l < supabase/schema.snapshot.sql) lines."
+
+      - name: Commit and push if anything changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/types/database.ts supabase/schema.snapshot.sql; then
+            echo "Both artifacts already match the migrations — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types/database.ts supabase/schema.snapshot.sql
+          git commit -m "ci: regenerate database types and schema snapshot"
+          git push origin "HEAD:${{ github.head_ref || github.ref_name }}"
+          echo "Regenerated artifacts pushed to ${{ github.head_ref || github.ref_name }}."

@@ -1,9 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto"
-
-import { type SupabaseClient, createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { mapWithConcurrency } from "@/lib/concurrency"
+import { withCronRoute } from "@/lib/cron/with-cron-auth"
 import { renderPdfForModule } from "@/lib/notifications/pdf/render"
 import { uploadSubmissionPdf } from "@/lib/notifications/pdf/upload"
 import { logServerError } from "@/lib/observability/log-server-error"
@@ -52,35 +50,7 @@ const PERMANENT_ERROR_PREFIX = "PERMANENT:"
  * strings could span tenants and would leak through this route, which
  * is authenticated by a single static secret with no per-tenant binding.
  */
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET not configured" },
-      { status: 503 },
-    )
-  }
-
-  if (!authorize(request.headers.get("authorization"), secret)) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    )
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase service-role env not configured" },
-      { status: 503 },
-    )
-  }
-
-  const supabase = createClient<Database>(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
+export const GET = withCronRoute("/api/cron/drain-notifications", async (supabase) => {
   const startedAt = Date.now()
   const pdfResult = await renderDuePdfs(supabase, startedAt)
 
@@ -90,13 +60,12 @@ export async function GET(request: Request) {
 
   if (error) {
     logServerError("cron/drain-notifications", error, { step: "drain" })
-    return NextResponse.json({ ok: false }, { status: 500 })
+    // Opaque body: UUIDs and Supabase error strings could span tenants.
+    return { status: 500, body: { ok: false }, error: "drain failed" }
   }
 
   const row = Array.isArray(data) ? data[0] : data
   const summary = {
-    route: "/api/cron/drain-notifications",
-    duration_ms: Date.now() - startedAt,
     sent: row?.sent_count ?? 0,
     failed: row?.failed_count ?? 0,
     messages: row?.message_count ?? 0,
@@ -106,34 +75,25 @@ export async function GET(request: Request) {
     pdf_skipped: pdfResult.skipped,
     pdf_budget_exhausted: pdfResult.budgetExhausted,
   }
-  console.log("[cron/drain-notifications] run complete", JSON.stringify(summary))
   // Return counts only — never UUIDs or error strings.
-  return NextResponse.json({
-    ok: true,
-    sent: summary.sent,
-    failed: summary.failed,
-    messages: summary.messages,
-    pdf: {
-      attempted: pdfResult.attempted,
-      rendered: pdfResult.rendered,
-      failed: pdfResult.failed,
-      skipped: pdfResult.skipped,
-      budget_exhausted: pdfResult.budgetExhausted,
+  return {
+    body: {
+      ok: true,
+      sent: summary.sent,
+      failed: summary.failed,
+      messages: summary.messages,
+      pdf: {
+        attempted: pdfResult.attempted,
+        rendered: pdfResult.rendered,
+        failed: pdfResult.failed,
+        skipped: pdfResult.skipped,
+        budget_exhausted: pdfResult.budgetExhausted,
+      },
     },
-  })
-}
+    summary,
+  }
+})
 
-/**
- * Constant-time bearer-token comparison. Hashes both sides so length
- * differences don't leak via Buffer length checks.
- */
-function authorize(header: string | null, secret: string): boolean {
-  if (!header) return false
-  const expected = `Bearer ${secret}`
-  const a = createHash("sha256").update(header).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return a.length === b.length && timingSafeEqual(a, b)
-}
 
 type PdfStats = {
   attempted: number

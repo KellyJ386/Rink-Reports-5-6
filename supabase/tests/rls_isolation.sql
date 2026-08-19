@@ -2957,13 +2957,13 @@ select pg_temp.expect_count(
   1, 'I2: restoring the payload heals verification');
 reset role;
 
--- Partitioning pilot (migration 222, hardened in 239): audit_logs is
+-- Partitioning pilot (migration 222, hardened in 241): audit_logs is
 -- RANGE-partitioned by created_at. Parent RLS applies ONLY to queries that
 -- name the parent — row security is a per-relation flag, so a query naming a
 -- partition directly (which PostgREST allows: GET /rest/v1/audit_logs_y2026)
 -- is governed by the partition's own RLS state. Migration 222 shipped with
 -- RLS on the parent only, leaving every partition readable cross-facility;
--- 239 enables RLS on each partition and revokes anon/authenticated direct
+-- 241 enables RLS on each partition and revokes anon/authenticated direct
 -- access. Assert both the parent path and the direct-partition path.
 set local role postgres;
 select pg_temp.expect_count(
@@ -2972,14 +2972,14 @@ select pg_temp.expect_count(
        and relnamespace = 'public'::regnamespace
        and relkind = 'p'$$,
   1, 'PART-222: audit_logs is a partitioned table');
--- Every partition of audit_logs must carry its own RLS flag (migration 239).
+-- Every partition of audit_logs must carry its own RLS flag (migration 241).
 select pg_temp.expect_count(
   $$select count(*) from pg_inherits i
       join pg_class c on c.oid = i.inhrelid
      where i.inhparent = 'public.audit_logs'::regclass
        and not c.relrowsecurity$$,
-  0, 'PART-239: every audit_logs partition has RLS enabled');
--- META (would have caught PART-239 at CI time, and catches every future
+  0, 'PART-241: every audit_logs partition has RLS enabled');
+-- META (would have caught PART-241 at CI time, and catches every future
 -- table or partition added without RLS): no ordinary or partitioned table
 -- in public may lack row level security.
 select pg_temp.expect_count(
@@ -3001,17 +3001,17 @@ select pg_temp.expect_error(
 -- partition is the catch-all — neither may be readable by naming it directly.
 select pg_temp.expect_error(
   $$select count(*) from public.audit_logs_y2026$$,
-  'PART-239: direct SELECT on a yearly partition is denied');
+  'PART-241: direct SELECT on a yearly partition is denied');
 select pg_temp.expect_error(
   $$select count(*) from public.audit_logs_default$$,
-  'PART-239: direct SELECT on the default partition is denied');
+  'PART-241: direct SELECT on the default partition is denied');
 reset role;
--- anon has no privilege on audit_logs at all (migration 239 revoked the only
+-- anon has no privilege on audit_logs at all (migration 241 revoked the only
 -- anon table grant in the schema, from 222).
 set local role anon;
 select pg_temp.expect_error(
   $$select count(*) from public.audit_logs$$,
-  'PART-239: anon cannot SELECT audit_logs');
+  'PART-241: anon cannot SELECT audit_logs');
 reset role;
 
 -- Cron sweep (migration 218): verify_all_audit_chains verifies every facility
@@ -8416,6 +8416,59 @@ end$$;
 -- 3. Surface results.
 -- ---------------------------------------------------------------------------
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- 2ab. Dasher Boards retention (migration 239).
+--
+-- purge_old_dasher_boards_inspections() is a SECURITY DEFINER bulk-deleter
+-- wired into the run-retention-purge cron, so — like the migration-134/138
+-- workers — the EXECUTE grant (service_role only) IS the gate.
+--
+-- Also asserts the retention_module_floors row exists. Without it the
+-- migration-208 trigger rejects every dasher_boards retention rule a facility
+-- tries to save, which would make the new module row in the admin UI unusable.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.purge_old_dasher_boards_inspections()$$,
+  'PURGE-239: authenticated CANNOT execute purge_old_dasher_boards_inspections');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_error(
+  $$select public.purge_old_dasher_boards_inspections()$$,
+  'PURGE-239: anon CANNOT execute purge_old_dasher_boards_inspections');
+
+reset role;
+set local role service_role;
+
+select pg_temp.expect_ok(
+  $$select public.purge_old_dasher_boards_inspections()$$,
+  'PURGE-239: service_role CAN execute purge_old_dasher_boards_inspections');
+
+reset role;
+
+select pg_temp.expect_count(
+  $$select 1 from public.retention_module_floors where module_key = 'dasher_boards'$$,
+  1,
+  'RETENTION-239: dasher_boards has a retention floor row');
+
+-- An unresolved issue is a live safety defect, so the purge must never take it
+-- however old the walk that raised it is. Assert the manual purge keeps it:
+-- purge_module_data deletes only issues with resolved_at set.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'purge_module_data'
+       and pg_get_functiondef(p.oid) like '%resolved_at is not null%'$$,
+  1,
+  'RETENTION-239: purge_module_data only purges RESOLVED dasher_boards issues');
 
 do $$
 declare

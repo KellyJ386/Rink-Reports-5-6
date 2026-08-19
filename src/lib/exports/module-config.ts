@@ -675,16 +675,6 @@ const buildCommunications: ModuleBuilder = async ({ sb, facilityId, range, setti
   }
 }
 
-const SCHEDULING_COLUMNS = [
-  { key: "employee", label: "Employee" },
-  { key: "role_label", label: "Role" },
-  { key: "starts_at", label: "Starts" },
-  { key: "ends_at", label: "Ends" },
-  { key: "break_minutes", label: "Break (min)" },
-  { key: "status", label: "Status" },
-  { key: "notes", label: "Notes" },
-]
-
 const buildScheduling: ModuleBuilder = async ({ sb, facilityId, range, settings }) => {
   const fmt = dateFmt(settings)
   type Row = {
@@ -708,7 +698,7 @@ const buildScheduling: ModuleBuilder = async ({ sb, facilityId, range, settings 
   )
   const emps = await loadEmployeeNames(sb, facilityId, subs.map((s) => s.employee_id))
   return {
-    columns: SCHEDULING_COLUMNS,
+    columns: MODULE_COLUMN_OPTIONS.scheduling,
     rows: subs.map((s) => ({
       employee: s.employee_id ? (emps.get(s.employee_id) ?? "") : "(open shift)",
       role_label: s.role_label ?? "",
@@ -716,6 +706,103 @@ const buildScheduling: ModuleBuilder = async ({ sb, facilityId, range, settings 
       ends_at: fmt(s.ends_at),
       break_minutes: s.break_minutes == null ? "" : String(s.break_minutes),
       status: s.status,
+      notes: s.notes ?? "",
+    })),
+  }
+}
+
+const buildDasherBoards: ModuleBuilder = async ({ sb, facilityId, range, settings }) => {
+  const fmt = dateFmt(settings)
+  type Row = {
+    id: string
+    rink_id: string
+    inspector_id: string | null
+    started_at: string
+    completed_at: string | null
+    notes: string | null
+  }
+  // Anchored on started_at: a perimeter walk has no submitted_at, and an
+  // abandoned walk never gets a completed_at, so started_at is the only
+  // column every row is guaranteed to carry.
+  const subs = await fetchSubmissions<Row>(
+    sb,
+    "dasher_boards_inspections",
+    facilityId,
+    range,
+    "id, rink_id, inspector_id, started_at, completed_at, notes",
+    "started_at",
+  )
+  const subIds = subs.map((s) => s.id)
+  const [emps, rinkRes, checkRes, issueRes] = await Promise.all([
+    loadEmployeeNames(sb, facilityId, subs.map((s) => s.inspector_id)),
+    sb.from("dasher_boards_rinks").select("id, name").eq("facility_id", facilityId),
+    subIds.length
+      ? sb
+          .from("dasher_boards_asset_checks")
+          .select("inspection_id, asset_id, status")
+          .eq("facility_id", facilityId)
+          .in("inspection_id", subIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+    subIds.length
+      ? sb
+          .from("dasher_boards_issues")
+          .select("inspection_id")
+          .eq("facility_id", facilityId)
+          .in("inspection_id", subIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+  ])
+  const rinkName = new Map(
+    ((rinkRes.data ?? []) as Array<{ id: string; name: string }>).map((r) => [r.id, r.name]),
+  )
+
+  type Check = { inspection_id: string; asset_id: string; status: string }
+  const checks = (checkRes.data ?? []) as Check[]
+
+  // Label the failed assets rather than just counting them — "B12, G07" is
+  // what an operator actually needs out of a walk export.
+  const failedAssetIds = Array.from(
+    new Set(checks.filter((c) => c.status === "fail").map((c) => c.asset_id)),
+  )
+  const assetLabel = new Map<string, string>()
+  if (failedAssetIds.length) {
+    const { data } = await sb
+      .from("dasher_boards_assets")
+      .select("id, label")
+      .eq("facility_id", facilityId)
+      .in("id", failedAssetIds)
+    for (const a of (data ?? []) as Array<{ id: string; label: string | null }>) {
+      if (a.label) assetLabel.set(a.id, a.label)
+    }
+  }
+
+  const checkedBy = new Map<string, number>()
+  const failedBy = new Map<string, string[]>()
+  for (const c of checks) {
+    checkedBy.set(c.inspection_id, (checkedBy.get(c.inspection_id) ?? 0) + 1)
+    if (c.status === "fail") {
+      const labels = failedBy.get(c.inspection_id) ?? []
+      labels.push(assetLabel.get(c.asset_id) ?? c.asset_id)
+      failedBy.set(c.inspection_id, labels)
+    }
+  }
+
+  const issuesBy = new Map<string, number>()
+  for (const i of (issueRes.data ?? []) as Array<{ inspection_id: string | null }>) {
+    if (!i.inspection_id) continue
+    issuesBy.set(i.inspection_id, (issuesBy.get(i.inspection_id) ?? 0) + 1)
+  }
+
+  return {
+    columns: MODULE_COLUMN_OPTIONS.dasher_boards,
+    rows: subs.map((s) => ({
+      rink: rinkName.get(s.rink_id) ?? "",
+      inspector: s.inspector_id ? (emps.get(s.inspector_id) ?? "") : "",
+      started_at: fmt(s.started_at),
+      completed_at: s.completed_at ? fmt(s.completed_at) : "",
+      checked: String(checkedBy.get(s.id) ?? 0),
+      failed: String((failedBy.get(s.id) ?? []).length),
+      failed_assets: (failedBy.get(s.id) ?? []).join(", "),
+      issues_raised: String(issuesBy.get(s.id) ?? 0),
       notes: s.notes ?? "",
     })),
   }
@@ -731,6 +818,7 @@ const BUILDERS: Record<string, ModuleBuilder> = {
   ice_operations: buildIceOperations,
   communications: buildCommunications,
   scheduling: buildScheduling,
+  dasher_boards: buildDasherBoards,
 }
 
 /**

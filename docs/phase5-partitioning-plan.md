@@ -55,7 +55,7 @@ FK children and are edited (not pure append), so they carry higher risk.
   queries that name the parent; each partition's own `relrowsecurity` flag
   governs direct access, and PostgREST exposes partitions directly. Every
   partition needs `ENABLE ROW LEVEL SECURITY` (+ a privilege revoke) of its
-  own — migration 222 missed this and 239 closed it; `rls_isolation.sql` now
+  own — migration 222 missed this and 241 closed it; `rls_isolation.sql` now
   asserts it for every partition and every table in `public`.
 - **Retention semantics change.** `purge_old_*` is per-`keep_days`-per-facility;
   partition-drop is per-time-window across all facilities. This is the one open
@@ -128,8 +128,8 @@ a **7-year retention** requirement. Two costs bite:
    tables), so this is safe — but re-verify before each table.
 3. **RLS must be enabled on every partition, not just the parent.** Policies on the
    parent apply only when the query names the parent; a direct partition query (which
-   PostgREST permits) is governed by the partition's own RLS flag. See migration 239
-   and the PART-239/META assertions in `rls_isolation.sql`.
+   PostgREST permits) is governed by the partition's own RLS flag. See migration 241
+   and the PART-241/META assertions in `rls_isolation.sql`.
 4. **Retention semantics change.** `purge_old_*` deletes per-`keep_days`-per-facility;
    partition-drop is per-time-window **across all facilities**. Since `keep_days` can
    differ per facility, we either (a) keep row-level delete for facilities with shorter

@@ -3207,6 +3207,29 @@ begin
       get diagnostics v_deleted = row_count;
       v_total := v_total + v_deleted;
 
+    -- Dasher Boards. Walks past the cutoff go, and dasher_boards_asset_checks /
+    -- _checklist_responses cascade off the inspection FK. Issues do NOT: their
+    -- inspection_id is ON DELETE SET NULL, so without the second delete below
+    -- every issue ever raised would survive forever, detached from the walk
+    -- that found it.
+    --
+    -- Only RESOLVED issues are purged. An unresolved issue is a live safety
+    -- defect on the boards, not history, so it is kept regardless of age --
+    -- deleting one because the walk that found it aged out would silently drop
+    -- an open defect off the rink's record.
+    when 'dasher_boards' then
+      delete from public.dasher_boards_inspections
+       where facility_id = p_facility_id and started_at < v_cutoff;
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
+      delete from public.dasher_boards_issues
+       where facility_id = p_facility_id
+         and resolved_at is not null
+         and resolved_at < v_cutoff;
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
     else
       raise exception 'Unknown module key: %', p_module_key;
   end case;
@@ -3220,7 +3243,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Admin-triggered manual purge for one module in one facility. Deletes rows older than the facility''s retention_settings window. audit_logs is configurable since migration 215 with a 2555-day floor (0 = never purge). Requires super-admin or facility-admin; scheduling is not manually purgeable.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds dasher_boards (migration 239): walks past the cutoff plus their resolved issues; unresolved issues are kept at any age because an open issue is a live safety defect, not history.';
 
 
 --
@@ -3372,6 +3395,32 @@ COMMENT ON FUNCTION public.purge_old_communications() IS 'Deletes communication_
 
 
 --
+-- Name: purge_old_cron_runs(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_cron_runs() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_deleted integer;
+begin
+  delete from public.cron_runs
+   where started_at < now() - interval '90 days';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION purge_old_cron_runs(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_cron_runs() IS 'Drops cron_runs rows older than 90 days. Fixed window — this is operational telemetry, not per-facility data, so it is not configurable in retention_settings. Called by /api/cron/run-retention-purge.';
+
+
+--
 -- Name: purge_old_daily_reports(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3427,6 +3476,51 @@ $$;
 --
 
 COMMENT ON FUNCTION public.purge_old_daily_reports() IS 'Retention-aware purge for the Daily Reports module: submissions (cascading items + notes) plus the day-scoped assignment-routing rows (assignments, snapshots, notifications), per facility keep_days from retention_settings. Standing routing config is never purged. Invoked by the retention cron; service_role only.';
+
+
+--
+-- Name: purge_old_dasher_boards_inspections(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_dasher_boards_inspections() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_total   integer := 0;
+  v_deleted integer;
+  v_row     record;
+begin
+  for v_row in
+    select facility_id, keep_days
+      from public.retention_settings
+     where module_key = 'dasher_boards'
+       and auto_purge = true
+  loop
+    delete from public.dasher_boards_inspections
+     where facility_id = v_row.facility_id
+       and started_at < now() - (v_row.keep_days || ' days')::interval;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    -- Same resolved-only rule as the manual path above.
+    delete from public.dasher_boards_issues
+     where facility_id = v_row.facility_id
+       and resolved_at is not null
+       and resolved_at < now() - (v_row.keep_days || ' days')::interval;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+  end loop;
+  return v_total;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION purge_old_dasher_boards_inspections(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_dasher_boards_inspections() IS 'Nightly dasher_boards retention worker, called by /api/cron/run-retention-purge. Deletes walks past each facility keep_days (children cascade) plus their resolved issues. Unresolved issues are never purged.';
 
 
 --
@@ -9694,6 +9788,39 @@ COMMENT ON TABLE public.communication_templates IS 'Communications: reusable mes
 
 
 --
+-- Name: cron_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.cron_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    route text NOT NULL,
+    started_at timestamp with time zone NOT NULL,
+    finished_at timestamp with time zone DEFAULT now() NOT NULL,
+    duration_ms integer NOT NULL,
+    ok boolean NOT NULL,
+    summary jsonb DEFAULT '{}'::jsonb NOT NULL,
+    error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT cron_runs_duration_nonneg CHECK ((duration_ms >= 0)),
+    CONSTRAINT cron_runs_route_nonblank CHECK ((length(btrim(route)) > 0))
+);
+
+
+--
+-- Name: TABLE cron_runs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.cron_runs IS 'One row per cron route invocation. Written by withCronRoute() in src/lib/cron/with-cron-auth.ts. System-level (not facility-scoped), so it is super-admin-readable and service-role-writable only.';
+
+
+--
+-- Name: COLUMN cron_runs.summary; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cron_runs.summary IS 'The same structured summary the route logs — row counts, durations, per-step tallies. Shape varies per route by design.';
+
+
+--
 -- Name: daily_area_assignment_snapshots; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -13926,6 +14053,14 @@ ALTER TABLE ONLY public.communication_templates
 
 
 --
+-- Name: cron_runs cron_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cron_runs
+    ADD CONSTRAINT cron_runs_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: daily_area_assignment_snapshots daily_area_assignment_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -15888,6 +16023,20 @@ CREATE INDEX audit_logs_y2035_facility_id_seq_idx ON public.audit_logs_y2035 USI
 --
 
 CREATE UNIQUE INDEX certification_types_ci_uniq ON public.certification_types USING btree (facility_id, lower(btrim(name)));
+
+
+--
+-- Name: cron_runs_route_started_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cron_runs_route_started_idx ON public.cron_runs USING btree (route, started_at DESC);
+
+
+--
+-- Name: cron_runs_started_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cron_runs_started_at_idx ON public.cron_runs USING btree (started_at);
 
 
 --
@@ -23678,6 +23827,19 @@ CREATE POLICY communication_templates_select ON public.communication_templates F
 --
 
 CREATE POLICY communication_templates_update ON public.communication_templates FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('communications'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('communications'::text))));
+
+
+--
+-- Name: cron_runs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.cron_runs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: cron_runs cron_runs_select_super_admin; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY cron_runs_select_super_admin ON public.cron_runs FOR SELECT TO authenticated USING (public.is_super_admin());
 
 
 --

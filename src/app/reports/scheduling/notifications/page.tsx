@@ -8,6 +8,7 @@ import {
   CardHeader,
 } from "@/components/ui/card"
 import { requireUser } from "@/lib/auth"
+import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { createClient } from "@/lib/supabase/server"
 
 import { currentUserCan } from "@/lib/permissions/check"
@@ -112,7 +113,7 @@ export default async function NotificationsPage() {
 
   const { data: employeeRow } = await supabase
     .from("employees")
-    .select("id")
+    .select("id, facility_id")
     .eq("user_id", current.authUser.id)
     .eq("is_active", true)
     .limit(1)
@@ -148,6 +149,7 @@ export default async function NotificationsPage() {
     .order("created_at", { ascending: false })
     .limit(100)
 
+  const timezone = await getFacilityTimezone(supabase, employeeRow.facility_id)
   const rows = (rowsRaw ?? []) as NotifRow[]
   const unread = rows.filter((r) => r.read_at === null)
   const read = rows.filter((r) => r.read_at !== null)
@@ -168,7 +170,7 @@ export default async function NotificationsPage() {
             ) : null}
           </div>
           <span className="text-xs text-muted-foreground">
-            {formatRelativeAge(row.created_at)}
+            {formatRelativeAge(row.created_at, timezone)}
           </span>
         </div>
         {body ? <p className="text-sm">{body}</p> : null}

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000240_scope_storage_delete_policies.sql
+-- 00000000000242_scope_storage_delete_policies.sql
 --
 -- Scope the two early storage DELETE policies to their own buckets.
 --

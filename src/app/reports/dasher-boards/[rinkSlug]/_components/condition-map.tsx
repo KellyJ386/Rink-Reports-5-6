@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation"
 import { Footprints } from "lucide-react"
 import { toast } from "sonner"
 
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -384,24 +385,38 @@ export function ConditionMap(props: ConditionMapProps) {
     <div className="flex flex-col gap-4">
       {(!online || pendingCount > 0) && (
         <div className="bg-warning-soft text-warning-soft-foreground rounded-md border px-3 py-2 text-sm">
-          {!online
-            ? `Offline — showing data last synced ${
-                cacheSavedAt
-                  ? new Date(cacheSavedAt).toLocaleTimeString()
-                  : "earlier"
-              }. Reports queue on this device.`
-            : `${pendingCount} queued item(s) syncing…`}
+          {!online ? (
+            <>
+              Offline — showing data last synced{" "}
+              {cacheSavedAt ? (
+                <LocalDateTime
+                  iso={new Date(cacheSavedAt).toISOString()}
+                  format="time"
+                  placeholder="earlier"
+                />
+              ) : (
+                "earlier"
+              )}
+              . Reports queue on this device.
+            </>
+          ) : (
+            `${pendingCount} queued item(s) syncing…`
+          )}
         </div>
       )}
 
       {/* Toolbar: walk status line + the opt-in walk as a secondary action. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
-          {status?.lastCompletedAt
-            ? `Last walked ${new Date(status.lastCompletedAt).toLocaleDateString()}${
-                status.lastInspectorName ? ` by ${status.lastInspectorName}` : ""
-              }.`
-            : "No completed walks yet."}
+          {status?.lastCompletedAt ? (
+            <>
+              Last walked{" "}
+              <LocalDateTime iso={status.lastCompletedAt} format="date" />
+              {status.lastInspectorName ? ` by ${status.lastInspectorName}` : ""}.
+            </>
+          ) : (
+            "No completed walks yet."
+          )}
           {status && !status.walkedToday && " Due today."}
         </p>
         {!activeWalk && can.submit && (

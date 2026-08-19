@@ -15,7 +15,7 @@ name: E2E
 #     *-test@rinkreports.com accounts — see
 #     docs/module-functionality-check-2026-07.md). The old fallback that read
 #     cleartext passwords from an `e2e_temp_credentials` table in the live
-#     database was removed (and the table dropped, migration 241): storing
+#     database was removed (and the table dropped, migration 243): storing
 #     working interactive logins — including an admin account — in the
 #     database meant any DB/service-role compromise yielded live sessions,
 #     not just data.

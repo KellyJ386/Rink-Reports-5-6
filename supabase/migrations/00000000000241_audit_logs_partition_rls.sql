@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000239_audit_logs_partition_rls.sql
+-- 00000000000241_audit_logs_partition_rls.sql
 --
 -- Close a cross-tenant read hole left by the partitioning pilot (222).
 --

@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
 import { ComplianceTab } from "./_components/compliance-tab"
@@ -62,6 +63,7 @@ type SearchParams = Promise<{
   from?: string
   to?: string
   q?: string
+  show?: string
 }>
 
 function tabHref(tab: Tab): string {
@@ -312,6 +314,9 @@ async function ComplianceTabLoader({
 // History tab loader
 // ---------------------------------------------------------------------------
 
+/** Air-quality readings are logged several times a day. */
+const SHOW_OPTS = { initial: 200, step: 200 }
+
 async function HistoryTabLoader({
   facilityId,
   params,
@@ -327,9 +332,11 @@ async function HistoryTabLoader({
     to?: string
     q?: string
     location?: string
+    show?: string
   }
 }) {
   const supabase = await createClient()
+  const show = clampShow(params.show, SHOW_OPTS)
 
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
@@ -369,12 +376,28 @@ async function HistoryTabLoader({
   const equipmentList = (equipRes.data ?? []) as EquipmentRow[]
   const readingTypes = (rtRes.data ?? []) as ReadingTypeRow[]
 
+  // The reading-type filter used to run in memory over the already-capped
+  // page, so a match outside the first 200 rows was silently dropped and any
+  // "load more" count would have been wrong. Resolve it to report ids up front
+  // instead, so every filter is applied in-query and the window is honest.
+  let readingTypeReportIds: string[] | null = null
+  if (params.reading_type) {
+    const { data } = await supabase
+      .from("air_quality_readings")
+      .select("report_id")
+      .eq("facility_id", facilityId)
+      .eq("reading_type_id", params.reading_type)
+    readingTypeReportIds = Array.from(
+      new Set((data ?? []).map((r: { report_id: string }) => r.report_id)),
+    )
+  }
+
   let q = supabase
     .from("air_quality_reports")
     .select("*")
     .eq("facility_id", facilityId)
     .order("submitted_at", { ascending: false })
-    .limit(200)
+    .range(0, show)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (params.location) q = q.eq("location_id", params.location)
   if (params.equipment) q = q.eq("equipment_id", params.equipment)
@@ -383,24 +406,12 @@ async function HistoryTabLoader({
   if (from) q = q.gte("submitted_at", `${from}T00:00:00.000Z`)
   if (to) q = q.lte("submitted_at", `${to}T23:59:59.999Z`)
   if (params.q) q = q.ilike("notes", `%${params.q}%`)
+  if (readingTypeReportIds !== null) q = q.in("id", readingTypeReportIds)
 
   const { data: reportsRaw } = await q
-  let reports = (reportsRaw ?? []) as ReportRow[]
-
-  // Reading-type filter requires checking child readings.
-  if (params.reading_type && reports.length > 0) {
-    const rtId = params.reading_type
-    const ids = reports.map((r) => r.id)
-    const { data } = await supabase
-      .from("air_quality_readings")
-      .select("report_id")
-      .in("report_id", ids)
-      .eq("reading_type_id", rtId)
-    const matched = new Set(
-      (data ?? []).map((r: { report_id: string }) => r.report_id),
-    )
-    reports = reports.filter((r) => matched.has(r.id))
-  }
+  const fetched = (reportsRaw ?? []) as ReportRow[]
+  const hasMore = fetched.length > show
+  const reports = fetched.slice(0, show)
 
   // Aggregate readings per report.
   let readingAgg: Array<{ report_id: string; is_exceedance: boolean }> = []
@@ -526,6 +537,15 @@ async function HistoryTabLoader({
   }
   const backHref = `/admin/air-quality?${backSp.toString()}`
 
+  // "Load more" widens the window and keeps every active filter.
+  const more = nextShow(show, SHOW_OPTS)
+  let moreHref: string | null = null
+  if (hasMore && more !== null) {
+    const moreSp = new URLSearchParams(backSp)
+    moreSp.set("show", String(more))
+    moreHref = `/admin/air-quality?${moreSp.toString()}`
+  }
+
   return (
     <HistoryTab
       list={list}
@@ -537,6 +557,7 @@ async function HistoryTabLoader({
       readingTypes={readingTypes}
       params={{ ...params, from }}
       timezone={timezone}
+      moreHref={moreHref}
     />
   )
 }

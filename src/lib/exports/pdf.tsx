@@ -12,6 +12,8 @@ import React from "react"
 
 import type { ExportSettingsRow } from "@/app/admin/exports/types"
 
+import { formatPdfGeneratedAt } from "@/lib/notifications/pdf/format"
+
 import type { ExportTable } from "./types"
 
 const styles = StyleSheet.create({
@@ -85,10 +87,12 @@ function colFlex(count: number): number {
 function GenericTablePdf({
   table,
   settings,
+  timeZone,
   rangeLabel,
 }: {
   table: ExportTable
   settings: ExportSettingsRow
+  timeZone: string | null
   rangeLabel: string
 }) {
   const cols = table.headers.length
@@ -142,7 +146,7 @@ function GenericTablePdf({
           style={styles.footer}
           fixed
           render={({ pageNumber, totalPages }) =>
-            `${footer} · ${new Date().toLocaleString()} · Page ${pageNumber} of ${totalPages}`
+            `${footer} · ${formatPdfGeneratedAt(new Date(), timeZone)} · Page ${pageNumber} of ${totalPages}`
           }
         />
       </Page>
@@ -159,9 +163,15 @@ function GenericTablePdf({
 export async function renderTablePdf(
   table: ExportTable,
   settings: ExportSettingsRow,
+  timeZone: string | null,
   rangeLabel: string,
 ): Promise<Buffer> {
   return await renderToBuffer(
-    <GenericTablePdf table={table} settings={settings} rangeLabel={rangeLabel} />,
+    <GenericTablePdf
+      table={table}
+      settings={settings}
+      rangeLabel={rangeLabel}
+      timeZone={timeZone}
+    />,
   )
 }

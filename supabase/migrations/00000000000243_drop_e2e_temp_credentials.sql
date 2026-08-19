@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000241_drop_e2e_temp_credentials.sql
+-- 00000000000243_drop_e2e_temp_credentials.sql
 --
 -- Retire the ad-hoc e2e_temp_credentials table. It stored CLEARTEXT login
 -- passwords for the standing E2E test accounts (including an admin-role

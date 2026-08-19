@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000242_policies_explicit_to_authenticated.sql
+-- 00000000000244_policies_explicit_to_authenticated.sql
 --
 -- Add an explicit `TO authenticated` to the 23 policies that omitted a TO
 -- clause and therefore defaulted to PUBLIC (which includes anon). All 23

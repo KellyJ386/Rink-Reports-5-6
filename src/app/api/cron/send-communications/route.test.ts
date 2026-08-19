@@ -48,12 +48,20 @@ class FakeSupabase {
   private claimed = false
   readonly settlements: Settlement[] = []
   readonly claimTokens: string[] = []
+  /** Rows withCronRoute appends to cron_runs — one per invocation. */
+  readonly cronRuns: Array<Record<string, unknown>> = []
 
   constructor(private readonly row: RecipientFixture) {}
 
   from(table: string) {
+    if (table === "cron_runs") return new FakeCronRunsQuery(this)
     expect(table).toBe("communication_recipients")
     return new FakeQuery(this)
+  }
+
+  recordCronRun(payload: Record<string, unknown>) {
+    this.cronRuns.push(payload)
+    return { data: null, error: null }
   }
 
   loadRows() {
@@ -70,6 +78,15 @@ class FakeSupabase {
 
     this.settlements.push({ payload, filters })
     return { data: null, error: null }
+  }
+}
+
+/** The cron_runs insert the shared cron wrapper performs after every run. */
+class FakeCronRunsQuery {
+  constructor(private readonly supabase: FakeSupabase) {}
+
+  insert(payload: Record<string, unknown>) {
+    return Promise.resolve(this.supabase.recordCronRun(payload))
   }
 }
 
@@ -184,6 +201,15 @@ describe("send-communications cron route", () => {
       bodyText: "Check the resurfacer before opening.",
       attachments: undefined,
     })
+
+    // Both workers ran, so both are on the record — including the one that
+    // lost the claim race and sent nothing.
+    expect(supabase.cronRuns).toHaveLength(2)
+    for (const run of supabase.cronRuns) {
+      expect(run.route).toBe("/api/cron/send-communications")
+      expect(run.ok).toBe(true)
+      expect(typeof run.duration_ms).toBe("number")
+    }
 
     expect(supabase.claimTokens).toHaveLength(2)
     const winningToken = supabase.claimTokens[0]

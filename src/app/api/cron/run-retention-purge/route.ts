@@ -1,9 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto"
-
-import { createClient } from "@supabase/supabase-js"
-import { NextResponse } from "next/server"
-
-import type { Database } from "@/types/database"
+import { withCronRoute } from "@/lib/cron/with-cron-auth"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 export const dynamic = "force-dynamic"
@@ -30,42 +25,16 @@ const PURGE_FUNCTIONS = [
   "purge_old_air_quality_reports",
   "purge_old_ice_operations_submissions",
   "purge_old_ice_depth_sessions",
+  "purge_old_dasher_boards_inspections",
   "purge_old_audit_logs",
   "purge_old_notification_outbox",
   "purge_old_offline_sync_queue",
+  "purge_old_cron_runs",
 ] as const
 
 type PurgeFn = (typeof PURGE_FUNCTIONS)[number]
 
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET not configured" },
-      { status: 503 },
-    )
-  }
-  if (!authorize(request.headers.get("authorization"), secret)) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    )
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase service-role env not configured" },
-      { status: 503 },
-    )
-  }
-
-  const supabase = createClient<Database>(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const startedAt = Date.now()
+export const GET = withCronRoute("/api/cron/run-retention-purge", async (supabase) => {
   const results: Record<PurgeFn, number | "error"> = Object.fromEntries(
     PURGE_FUNCTIONS.map((fn) => [fn, 0 as number | "error"]),
   ) as Record<PurgeFn, number | "error">
@@ -101,32 +70,10 @@ export async function GET(request: Request) {
     })
   }
 
-  console.log(
-    "[cron/run-retention-purge] run complete",
-    JSON.stringify({
-      route: "/api/cron/run-retention-purge",
-      duration_ms: Date.now() - startedAt,
-      total,
-      results,
-      ok: !anyFailed,
-    }),
-  )
-
-  return NextResponse.json(
-    {
-      ok: !anyFailed,
-      total,
-      results,
-      stamped_at: stampedAt,
-    },
-    { status: anyFailed ? 500 : 200 },
-  )
-}
-
-function authorize(header: string | null, secret: string): boolean {
-  if (!header) return false
-  const expected = `Bearer ${secret}`
-  const a = createHash("sha256").update(header).digest()
-  const b = createHash("sha256").update(expected).digest()
-  return a.length === b.length && timingSafeEqual(a, b)
-}
+  return {
+    status: anyFailed ? 500 : 200,
+    body: { ok: !anyFailed, total, results, stamped_at: stampedAt },
+    summary: { total, results },
+    error: anyFailed ? "one or more purge functions failed" : undefined,
+  }
+})

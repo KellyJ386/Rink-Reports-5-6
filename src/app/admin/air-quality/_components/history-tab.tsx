@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { formatInTz } from "@/lib/timezone"
 
 import type {
@@ -45,6 +46,7 @@ type Props = {
   params: HistoryParams
   /** Facility IANA timezone; timestamps render as facility wall-clock. */
   timezone: string | null
+  moreHref?: string | null
 }
 
 function buildDetailHref(reportId: string, params: HistoryParams): string {
@@ -93,6 +95,7 @@ export function HistoryTab({
   readingTypes,
   params,
   timezone,
+  moreHref,
 }: Props) {
   if (detail) {
     return <ReportDetail detail={detail} backHref={backHref} timezone={timezone} />
@@ -142,7 +145,10 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <ReportsList list={list} params={params} timezone={timezone} />
+        <>
+          <ReportsList list={list} params={params} timezone={timezone} />
+          {moreHref ? <LoadMoreLink href={moreHref} shown={list.length} /> : null}
+        </>
       )}
     </div>
   )
