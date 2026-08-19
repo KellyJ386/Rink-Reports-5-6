@@ -106,6 +106,10 @@ e2e/
     08-admin-control-center.spec.ts
     09-multi-tenant-security.spec.ts
     10-quality-checks.spec.ts
+    11-module-walkthrough.spec.ts
+    12-dasher-boards.spec.ts
+    13-scheduling.spec.ts
+    14-communications.spec.ts
   TEST-PLAN.md         # maps every requested scenario → spec/test
 ```
 

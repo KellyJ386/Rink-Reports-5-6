@@ -13,6 +13,7 @@ import {
   isUuid,
   nextLabel,
   isAssetType,
+  type AssetType,
 } from "@/app/reports/dasher-boards/_lib/compute"
 import {
   GLASS_DISPLAY_NUMBER_RE,
@@ -1679,5 +1680,105 @@ export async function moveManagedRow(
   } catch (e) {
     logServerError(`admin/dasher-boards/moveManagedRow:${table}`, e)
     return { ok: false, error: "Failed to reorder." }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Default configuration seed
+// ---------------------------------------------------------------------------
+
+/** Stock door subtypes. Every rink has some version of these four. */
+const DEFAULT_DOOR_SUBTYPES = [
+  "Bench",
+  "Scoreboard",
+  "Public Skate",
+  "Zamboni",
+] as const
+
+/**
+ * Starter issue categories per asset type. Deliberately short — these exist so
+ * a new facility can log its first walk immediately, not to be exhaustive.
+ */
+const DEFAULT_ISSUE_CATEGORIES: Record<AssetType, readonly string[]> = {
+  board_panel: ["Cracked", "Loose / rattling", "Gouged", "Hardware missing"],
+  glass_panel: ["Cracked", "Chipped", "Loose in frame", "Clouded / scratched"],
+  door: ["Latch faulty", "Hinge damaged", "Gap at seal", "Does not close flush"],
+}
+
+/**
+ * Seed a facility's Dasher Boards lists with sensible defaults.
+ *
+ * Every other configurable module ships one of these; Dasher Boards had no
+ * bulk-seed path at all, so an admin had to create door subtypes and issue
+ * categories one at a time before the module was usable.
+ *
+ * Idempotent in the same way as the other modules' seeders: each list is only
+ * populated when it is currently empty, so re-running never duplicates rows or
+ * disturbs a facility that has already customized its lists. Rinks and the
+ * perimeter are NOT seeded — those are physical layout decisions with no
+ * sensible default.
+ */
+export async function seedDefaultDasherBoardsConfig(): Promise<ActionState> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const { count: subtypeCount, error: subtypeCountErr } = await ctx.supabase
+      .from("dasher_boards_asset_subtypes")
+      .select("id", { count: "exact", head: true })
+      .eq("facility_id", ctx.facilityId)
+    if (subtypeCountErr) {
+      return { ok: false, error: dbError(subtypeCountErr, "Failed to read subtypes.") }
+    }
+
+    if ((subtypeCount ?? 0) === 0) {
+      const { error } = await ctx.supabase
+        .from("dasher_boards_asset_subtypes")
+        .insert(
+          DEFAULT_DOOR_SUBTYPES.map((label, i) => ({
+            facility_id: ctx.facilityId,
+            asset_type: "door" as AssetType,
+            label,
+            // Spaced so the reorder controls have room to move rows between.
+            sort_order: (i + 1) * 10,
+          })),
+        )
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to seed door subtypes.") }
+      }
+    }
+
+    const { count: categoryCount, error: categoryCountErr } = await ctx.supabase
+      .from("dasher_boards_issue_categories")
+      .select("id", { count: "exact", head: true })
+      .eq("facility_id", ctx.facilityId)
+    if (categoryCountErr) {
+      return { ok: false, error: dbError(categoryCountErr, "Failed to read categories.") }
+    }
+
+    if ((categoryCount ?? 0) === 0) {
+      const rows = (
+        Object.keys(DEFAULT_ISSUE_CATEGORIES) as AssetType[]
+      ).flatMap((assetType) =>
+        DEFAULT_ISSUE_CATEGORIES[assetType].map((label, i) => ({
+          facility_id: ctx.facilityId,
+          asset_type: assetType,
+          label,
+          sort_order: (i + 1) * 10,
+        })),
+      )
+      const { error } = await ctx.supabase
+        .from("dasher_boards_issue_categories")
+        .insert(rows)
+      if (error) {
+        return { ok: false, error: dbError(error, "Failed to seed issue categories.") }
+      }
+    }
+
+    revalidateModule()
+    return { ok: true, message: "Default door subtypes and issue categories seeded." }
+  } catch (e) {
+    logServerError("admin/dasher-boards/seedDefaultDasherBoardsConfig", e)
+    return { ok: false, error: "Failed to seed defaults." }
   }
 }

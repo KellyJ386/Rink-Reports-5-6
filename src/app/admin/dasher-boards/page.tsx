@@ -8,9 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/admin/export-button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 import { resolveRinkGlassNumbers } from "@/app/reports/dasher-boards/_lib/queries"
 
@@ -38,7 +40,12 @@ import { TABS, asTab } from "./types"
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Dasher Boards | MFO / Rink Reports" }
 
-type SearchParams = Promise<{ tab?: string; rink?: string; walk?: string }>
+type SearchParams = Promise<{
+  tab?: string
+  rink?: string
+  walk?: string
+  show?: string
+}>
 
 function tabHref(tab: Tab, rinkId?: string): string {
   const sp = new URLSearchParams()
@@ -192,6 +199,7 @@ export default async function DasherBoardsAdminPage({
           facilityId={facilityId}
           rinkId={selectedRink.id}
           walkId={params.walk}
+          show={params.show}
         />
       )}
     </div>
@@ -205,16 +213,25 @@ export default async function DasherBoardsAdminPage({
 // loader pattern used by HistoryTabLoader in the Ice Depth admin console.
 // ---------------------------------------------------------------------------
 
+/** Walk history is dense but low-volume; 50 covers a season of daily walks. */
+const SHOW_OPTS = { initial: 50, step: 50 }
+
 async function WalksTabLoader({
   facilityId,
   rinkId,
   walkId,
+  show: showParam,
 }: {
   facilityId: string
   rinkId: string
   walkId?: string
+  show?: string
 }) {
   const supabase = await createClient()
+
+  // This list was previously unbounded — every walk a rink had ever recorded,
+  // fetched on each load, with the per-walk asset-check tally on top of it.
+  const show = clampShow(showParam, SHOW_OPTS)
 
   const [inspectionsRes, facilityRes] = await Promise.all([
     supabase
@@ -222,7 +239,9 @@ async function WalksTabLoader({
       .select("*")
       .eq("facility_id", facilityId)
       .eq("rink_id", rinkId)
-      .order("started_at", { ascending: false }),
+      .order("started_at", { ascending: false })
+      // One extra row is the "is there more?" probe; it is sliced off below.
+      .range(0, show),
     supabase
       .from("facilities")
       .select("timezone")
@@ -230,7 +249,9 @@ async function WalksTabLoader({
       .maybeSingle(),
   ])
 
-  const inspections = (inspectionsRes.data ?? []) as InspectionRow[]
+  const fetched = (inspectionsRes.data ?? []) as InspectionRow[]
+  const hasMore = fetched.length > show
+  const inspections = fetched.slice(0, show)
   const timezone = facilityRes.data?.timezone ?? null
 
   const tally = new Map<string, { fail: number; total: number }>()
@@ -282,6 +303,13 @@ async function WalksTabLoader({
   }))
 
   const backHref = `/admin/dasher-boards?tab=walks&rink=${rinkId}`
+
+  // "Load more" widens the window in place, preserving the selected rink.
+  const more = nextShow(show, SHOW_OPTS)
+  const moreHref =
+    hasMore && more !== null
+      ? `/admin/dasher-boards?tab=walks&rink=${rinkId}&show=${more}`
+      : null
 
   let detail: WalkDetailData | null = null
   if (walkId) {
@@ -379,6 +407,7 @@ async function WalksTabLoader({
       backHref={backHref}
       rinkId={rinkId}
       timezone={timezone}
+      moreHref={moreHref}
     />
   )
 }
@@ -388,6 +417,7 @@ function Header() {
     <PageHeader
       title="Dasher Boards"
       description="Spatial perimeter condition tracking. Configure the rink's board/glass/door sequence, cadenced checklist items, door subtypes, and issue categories. Labels are permanent identity — the editor never renumbers existing assets."
+      actions={<ExportButton moduleKey="dasher_boards" />}
     />
   )
 }

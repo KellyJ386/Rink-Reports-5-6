@@ -43,6 +43,7 @@ type SearchParams = Promise<{
   activity?: string
   medical_attention?: string
   wc?: string
+  show?: string
 }>
 
 function asTab(value: string | undefined): Tab {

@@ -89,6 +89,13 @@ export const MODULES: ReadonlyArray<{
     minDays: 30,
   },
   {
+    key: "dasher_boards",
+    label: "Dasher Boards",
+    description:
+      "Perimeter inspection walks. Resolved issues purge with them; unresolved issues are kept regardless of age.",
+    minDays: 30,
+  },
+  {
     key: "audit_logs",
     label: "Audit Log",
     description:

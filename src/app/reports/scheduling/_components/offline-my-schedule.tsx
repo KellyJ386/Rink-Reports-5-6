@@ -180,7 +180,10 @@ export function OfflineMySchedule() {
           <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
           <span>
             Offline — showing your last-synced schedule
-            {view.cachedAtIso ? ` (as of ${formatRelativeAge(view.cachedAtIso)})` : ""}.
+            {view.cachedAtIso
+              ? ` (as of ${formatRelativeAge(view.cachedAtIso, view.timezone)})`
+              : ""}
+            .
           </span>
         </div>
       ) : null}

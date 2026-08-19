@@ -11,6 +11,7 @@ import { useState } from "react"
 import { Footprints, ChevronDown, ChevronUp } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 
@@ -48,9 +49,13 @@ export function WalkBar({
             <div className="min-w-0">
               <p className="text-sm font-semibold">Walk in progress</p>
               <p className="text-muted-foreground truncate text-xs">
-                {synced && startedAt
-                  ? `Started ${new Date(startedAt).toLocaleTimeString()}`
-                  : "Started offline — syncs when you reconnect"}
+                {synced && startedAt ? (
+                  <>
+                    Started <LocalDateTime iso={startedAt} format="time" />
+                  </>
+                ) : (
+                  "Started offline — syncs when you reconnect"
+                )}
                 {" · tap problem assets; untapped assets are attested OK at sign-off"}
               </p>
             </div>

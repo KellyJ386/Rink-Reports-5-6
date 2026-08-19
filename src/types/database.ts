@@ -2627,6 +2627,42 @@ export type Database = {
           },
         ]
       }
+      cron_runs: {
+        Row: {
+          created_at: string
+          duration_ms: number
+          error: string | null
+          finished_at: string
+          id: string
+          ok: boolean
+          route: string
+          started_at: string
+          summary: Json
+        }
+        Insert: {
+          created_at?: string
+          duration_ms: number
+          error?: string | null
+          finished_at?: string
+          id?: string
+          ok: boolean
+          route: string
+          started_at: string
+          summary?: Json
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number
+          error?: string | null
+          finished_at?: string
+          id?: string
+          ok?: boolean
+          route?: string
+          started_at?: string
+          summary?: Json
+        }
+        Relationships: []
+      }
       daily_area_assignment_snapshots: {
         Row: {
           area_id: string
@@ -9254,7 +9290,15 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      purge_old_cron_runs: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       purge_old_daily_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      purge_old_dasher_boards_inspections: {
         Args: Record<PropertyKey, never>
         Returns: number
       }
