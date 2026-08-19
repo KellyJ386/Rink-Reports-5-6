@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import { MODULE_ACCENT_VAR, moduleKeyFromDashboard } from "@/components/ui/module-theme"
 import { LocalDateTime } from "@/components/app/local-datetime"
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { cn } from "@/lib/utils"
 
 import {
@@ -61,6 +62,8 @@ type Props = {
   alertDetail: AlertDetailData | null
   messages: MessageListItem[]
   params: InboxParams
+  /** Set when more rows exist beyond the current window. */
+  moreHref?: string | null
 }
 
 function ageString(ts: string): string {
@@ -123,6 +126,7 @@ export function InboxTab({
   alertDetail,
   messages,
   params,
+  moreHref,
 }: Props) {
   if (view === "alerts" && alertDetail) {
     return <AlertDrilldown detail={alertDetail} params={params} />
@@ -136,6 +140,12 @@ export function InboxTab({
       ) : (
         <MessagesList messages={messages} />
       )}
+      {moreHref ? (
+        <LoadMoreLink
+          href={moreHref}
+          shown={view === "alerts" ? alerts.length : messages.length}
+        />
+      ) : null}
     </div>
   )
 }

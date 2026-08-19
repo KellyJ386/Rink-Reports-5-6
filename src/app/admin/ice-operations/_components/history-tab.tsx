@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -52,6 +53,7 @@ type Props = {
   settings: SettingsRow | null
   params: HistoryParams
   timeZone: string | null
+  moreHref?: string | null
 }
 
 // Facility-zoned, like every other timestamp in the app. This list used to
@@ -97,6 +99,7 @@ export function HistoryTab({
   settings,
   params,
   timeZone,
+  moreHref,
 }: Props) {
   const tempUnit: TemperatureUnit =
     (settings?.temperature_unit as TemperatureUnit) ?? "F"
@@ -138,12 +141,15 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <SubmissionsList
-          list={list}
-          params={params}
-          tempUnit={tempUnit}
-          timeZone={timeZone}
-        />
+        <>
+          <SubmissionsList
+            list={list}
+            params={params}
+            tempUnit={tempUnit}
+            timeZone={timeZone}
+          />
+          {moreHref ? <LoadMoreLink href={moreHref} shown={list.length} /> : null}
+        </>
       )}
     </div>
   )

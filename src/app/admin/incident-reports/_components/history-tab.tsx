@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -41,6 +42,7 @@ type Props = {
   employees: EmployeeLite[]
   params: HistoryParams
   timeZone: string | null
+  moreHref?: string | null
 }
 
 // Facility-zoned, like every other timestamp in the app. This list used to
@@ -90,6 +92,7 @@ export function HistoryTab({
   employees,
   params,
   timeZone,
+  moreHref,
 }: Props) {
   if (detail) {
     return <ReportDetail detail={detail} backHref={backHref} />
@@ -119,7 +122,10 @@ export function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <ReportsList list={list} params={params} timeZone={timeZone} />
+        <>
+          <ReportsList list={list} params={params} timeZone={timeZone} />
+          {moreHref ? <LoadMoreLink href={moreHref} shown={list.length} /> : null}
+        </>
       )}
     </div>
   )
@@ -133,6 +139,7 @@ function ReportsList({
   list: IncidentReportListItem[]
   params: HistoryParams
   timeZone: string | null
+  moreHref?: string | null
 }) {
   return (
     <div className="overflow-auto rounded-md border">

@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
 import { AuditTab } from "./_components/audit-tab"
@@ -67,6 +68,9 @@ type SearchParams = Promise<{
   entity_type?: string
   action?: string
   actor?: string
+  // pagination — namespaced per tab, since tabs render independently
+  show?: string
+  audit_show?: string
 }>
 
 function tabHref(tab: Tab): string {
@@ -179,6 +183,54 @@ function TabBar({ active }: { active: Tab }) {
 // Inbox tab loader
 // ---------------------------------------------------------------------------
 
+// Inbox and audit paginate independently — they are separate tabs rendered by
+// separate loaders, so one "Load more" must not resize the other.
+const INBOX_SHOW_OPTS = { initial: 200, step: 200 }
+const AUDIT_SHOW_OPTS = { initial: 500, step: 500 }
+
+/** Widen the inbox window, preserving the active view and every filter. */
+function inboxMoreHref(
+  params: Record<string, string | undefined>,
+  show: number,
+  view: "alerts" | "messages",
+): string | null {
+  const more = nextShow(show, INBOX_SHOW_OPTS)
+  if (more === null) return null
+  const sp = new URLSearchParams()
+  sp.set("tab", "inbox")
+  sp.set("inbox", view)
+  for (const k of [
+    "module",
+    "severity",
+    "resolved",
+    "q",
+    "from",
+    "to",
+  ] as const) {
+    const v = params[k]
+    if (v) sp.set(k, v)
+  }
+  sp.set("show", String(more))
+  return `/admin/communications?${sp.toString()}`
+}
+
+/** Widen the audit window, preserving every filter. */
+function auditMoreHref(
+  params: Record<string, string | undefined>,
+  show: number,
+): string | null {
+  const more = nextShow(show, AUDIT_SHOW_OPTS)
+  if (more === null) return null
+  const sp = new URLSearchParams()
+  sp.set("tab", "audit")
+  for (const k of ["entity_type", "action", "actor", "from", "to"] as const) {
+    const v = params[k]
+    if (v) sp.set(k, v)
+  }
+  sp.set("audit_show", String(more))
+  return `/admin/communications?${sp.toString()}`
+}
+
 async function InboxTabLoader({
   facilityId,
   params,
@@ -193,10 +245,12 @@ async function InboxTabLoader({
     q?: string
     from?: string
     to?: string
+    show?: string
   }
 }) {
   const supabase = await createClient()
   const view = asInboxView(params.inbox)
+  const show = clampShow(params.show, INBOX_SHOW_OPTS)
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
 
@@ -217,7 +271,8 @@ async function InboxTabLoader({
       .select("*")
       .eq("facility_id", facilityId)
       .order("created_at", { ascending: false })
-      .limit(300)
+      // Was a hard .limit(300) with nothing on screen to say rows were cut.
+      .range(0, show)
     if (params.module) q = q.eq("source_module", params.module)
     if (params.severity) q = q.eq("severity", params.severity)
     if (params.resolved === "yes") q = q.not("resolved_at", "is", null)
@@ -230,7 +285,9 @@ async function InboxTabLoader({
     }
 
     const { data: alertsRaw } = await q
-    const alerts = (alertsRaw ?? []) as AlertRow[]
+    const alertsFetched = (alertsRaw ?? []) as AlertRow[]
+    const alertsHasMore = alertsFetched.length > show
+    const alerts = alertsFetched.slice(0, show)
 
     let acks: AcknowledgementRow[] = []
     if (alerts.length > 0) {
@@ -315,6 +372,9 @@ async function InboxTabLoader({
         alertDetail={detail}
         messages={[]}
         params={{ ...params, from }}
+        moreHref={
+          alertsHasMore ? inboxMoreHref(params, show, "alerts") : null
+        }
       />
     )
   }
@@ -325,7 +385,8 @@ async function InboxTabLoader({
     .select("*")
     .eq("facility_id", facilityId)
     .order("sent_at", { ascending: false })
-    .limit(200)
+    // Was a hard .limit(200), same silent truncation as the alerts view.
+    .range(0, show)
   if (from) mq = mq.gte("sent_at", `${from}T00:00:00.000Z`)
   if (to) mq = mq.lte("sent_at", `${to}T23:59:59.999Z`)
   if (params.q) {
@@ -333,7 +394,9 @@ async function InboxTabLoader({
     mq = mq.or(`subject.ilike.${pat},body.ilike.${pat}`)
   }
   const { data: msgsRaw } = await mq
-  const messages = (msgsRaw ?? []) as MessageRow[]
+  const msgsFetched = (msgsRaw ?? []) as MessageRow[]
+  const messagesHasMore = msgsFetched.length > show
+  const messages = msgsFetched.slice(0, show)
 
   let recipients: RecipientRow[] = []
   if (messages.length > 0) {
@@ -380,6 +443,9 @@ async function InboxTabLoader({
       alertDetail={null}
       messages={messageList}
       params={{ ...params, from }}
+      moreHref={
+        messagesHasMore ? inboxMoreHref(params, show, "messages") : null
+      }
     />
   )
 }
@@ -688,9 +754,11 @@ async function AuditTabLoader({
     actor?: string
     from?: string
     to?: string
+    audit_show?: string
   }
 }) {
   const supabase = await createClient()
+  const show = clampShow(params.audit_show, AUDIT_SHOW_OPTS)
   const from = params.from ?? defaultDateFrom()
   const to = params.to ?? null
 
@@ -699,14 +767,18 @@ async function AuditTabLoader({
     .select("*")
     .eq("facility_id", facilityId)
     .order("created_at", { ascending: false })
-    .limit(500)
+    // Was a hard .limit(500); the audit log is the one list where a silently
+    // dropped row is most misleading.
+    .range(0, show)
   if (params.entity_type) q = q.eq("entity_type", params.entity_type)
   if (params.action) q = q.eq("action", params.action)
   if (params.actor) q = q.eq("actor_employee_id", params.actor)
   if (from) q = q.gte("created_at", `${from}T00:00:00.000Z`)
   if (to) q = q.lte("created_at", `${to}T23:59:59.999Z`)
   const { data: rowsRaw } = await q
-  const rows = (rowsRaw ?? []) as AuditLogRow[]
+  const rowsFetched = (rowsRaw ?? []) as AuditLogRow[]
+  const hasMore = rowsFetched.length > show
+  const rows = rowsFetched.slice(0, show)
 
   const empIds = Array.from(
     new Set(
@@ -751,6 +823,7 @@ async function AuditTabLoader({
       entityTypes={entityTypes}
       actions={actions}
       params={{ ...params, from }}
+      moreHref={hasMore ? auditMoreHref(params, show) : null}
     />
   )
 }

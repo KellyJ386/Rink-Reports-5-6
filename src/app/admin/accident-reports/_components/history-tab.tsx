@@ -22,7 +22,9 @@ import type {
   EmployeeLite,
 } from "../types"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { formatInTz, localDayKey } from "@/lib/timezone"
 
 import { HistoryFilters } from "./history-filters"
@@ -39,6 +41,7 @@ type HistoryParams = {
   activity?: string
   medical_attention?: string
   wc?: string
+  show?: string
 }
 
 const FILTER_KEYS = [
@@ -94,6 +97,9 @@ function hasAnyExplicitFilter(p: HistoryParams): boolean {
 // Server loader
 // ---------------------------------------------------------------------------
 
+/** Accidents are rare; 200 is many years for most facilities. */
+const SHOW_OPTS = { initial: 200, step: 200 }
+
 export async function HistoryTabLoader({
   facilityId,
   params,
@@ -103,6 +109,7 @@ export async function HistoryTabLoader({
 }) {
   const supabase = await createClient()
   const timeZone = await getFacilityTimezone(supabase, facilityId)
+  const show = clampShow(params.show, SHOW_OPTS)
 
   // Effective date range — default to last 30 days when not provided.
   const fromDate = params.from || defaultFromDate()
@@ -190,7 +197,10 @@ export async function HistoryTabLoader({
     .select("*")
     .eq("facility_id", facilityId)
     .order("submitted_at", { ascending: false })
-    .limit(200)
+    // Was a hard .limit(200): older reports were absent with nothing on screen
+    // saying so. The body_part filter pre-resolves into an .in() before this
+    // runs, so every filter is in-query and a plain window is correct.
+    .range(0, show)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (params.severity) q = q.eq("severity_dropdown_id", params.severity)
   if (params.location) q = q.eq("location_dropdown_id", params.location)
@@ -204,7 +214,9 @@ export async function HistoryTabLoader({
   if (bodyPartReportIds) q = q.in("id", bodyPartReportIds)
 
   const { data: reportsRaw } = await q
-  const reports = (reportsRaw ?? []) as AccidentReportRow[]
+  const fetched = (reportsRaw ?? []) as AccidentReportRow[]
+  const hasMore = fetched.length > show
+  const reports = fetched.slice(0, show)
 
   // Resolve listed report employees.
   const empIds = Array.from(
@@ -372,6 +384,15 @@ export async function HistoryTabLoader({
   }
   const backHref = `/admin/accident-reports?${backSp.toString()}`
 
+  // "Load more" widens the window and keeps every active filter.
+  const more = nextShow(show, SHOW_OPTS)
+  let moreHref: string | null = null
+  if (hasMore && more !== null) {
+    const moreSp = new URLSearchParams(backSp)
+    moreSp.set("show", String(more))
+    moreHref = `/admin/accident-reports?${moreSp.toString()}`
+  }
+
   return (
     <HistoryTab
       list={list}
@@ -386,6 +407,7 @@ export async function HistoryTabLoader({
       bodyPartCountByReport={bodyPartCountByReport}
       params={{ ...params, from: fromDate, to: toDate }}
       timeZone={timeZone}
+      moreHref={moreHref}
     />
   )
 }
@@ -407,6 +429,7 @@ type Props = {
   bodyPartCountByReport: Map<string, number>
   params: HistoryParams
   timeZone: string | null
+  moreHref?: string | null
 }
 
 function HistoryTab({
@@ -422,6 +445,7 @@ function HistoryTab({
   bodyPartCountByReport,
   params,
   timeZone,
+  moreHref,
 }: Props) {
   if (detail) {
     return <ReportDetail detail={detail} backHref={backHref} />
@@ -454,12 +478,15 @@ function HistoryTab({
           </CardHeader>
         </Card>
       ) : (
-        <ReportsList
-          list={list}
-          params={params}
-          bodyPartCountByReport={bodyPartCountByReport}
-          timeZone={timeZone}
-        />
+        <>
+          <ReportsList
+            list={list}
+            params={params}
+            bodyPartCountByReport={bodyPartCountByReport}
+            timeZone={timeZone}
+          />
+          {moreHref ? <LoadMoreLink href={moreHref} shown={list.length} /> : null}
+        </>
       )}
     </div>
   )

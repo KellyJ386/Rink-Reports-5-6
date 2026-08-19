@@ -13,6 +13,7 @@ import { TabNav } from "@/components/ui/tab-nav"
 import { ExportButton } from "@/components/admin/export-button"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
+import { clampShow, nextShow } from "@/lib/pagination"
 import { createClient } from "@/lib/supabase/server"
 
 import { HistoryTab } from "./_components/history-tab"
@@ -54,6 +55,7 @@ type SearchParams = Promise<{
   from?: string
   to?: string
   q?: string
+  show?: string
 }>
 
 function tabHref(tab: Tab): string {
@@ -217,6 +219,9 @@ async function SetupTabLoader({ facilityId }: { facilityId: string }) {
 // History tab loader
 // ---------------------------------------------------------------------------
 
+/** Ice-ops logs several entries a day; 200 keeps the default page familiar. */
+const SHOW_OPTS = { initial: 200, step: 200 }
+
 async function HistoryTabLoader({
   facilityId,
   params,
@@ -232,6 +237,7 @@ async function HistoryTabLoader({
     from?: string
     to?: string
     q?: string
+    show?: string
   }
 }) {
   const supabase = await createClient()
@@ -272,13 +278,18 @@ async function HistoryTabLoader({
   const settings = (settingsRes.data ?? null) as SettingsRow | null
 
   const opTypes = asArray(params.op).filter(isOperationType)
+  const show = clampShow(params.show, SHOW_OPTS)
 
   let q = supabase
     .from("ice_operations_submissions")
     .select("*")
     .eq("facility_id", facilityId)
     .order("occurred_at", { ascending: false })
-    .limit(200)
+    // Was a hard .limit(200) with no affordance: anything older than the most
+    // recent 200 was simply absent, with nothing on screen to say so. Every
+    // filter here is applied in-query, so a plain window is correct — the
+    // extra row is the "is there more?" probe.
+    .range(0, show)
   if (params.employee) q = q.eq("employee_id", params.employee)
   if (params.rink) q = q.eq("rink_id", params.rink)
   if (params.equipment) q = q.eq("equipment_id", params.equipment)
@@ -290,7 +301,9 @@ async function HistoryTabLoader({
   if (params.q) q = q.ilike("notes", `%${params.q}%`)
 
   const { data: subsRaw } = await q
-  const submissions = (subsRaw ?? []) as SubmissionRow[]
+  const fetched = (subsRaw ?? []) as SubmissionRow[]
+  const hasMore = fetched.length > show
+  const submissions = fetched.slice(0, show)
 
   const empIds = Array.from(
     new Set(
@@ -415,6 +428,15 @@ async function HistoryTabLoader({
   for (const op of opTypes) backSp.append("op", op)
   const backHref = `/admin/ice-operations?${backSp.toString()}`
 
+  // "Load more" keeps every active filter — it only widens the window.
+  const more = nextShow(show, SHOW_OPTS)
+  let moreHref: string | null = null
+  if (hasMore && more !== null) {
+    const moreSp = new URLSearchParams(backSp)
+    moreSp.set("show", String(more))
+    moreHref = `/admin/ice-operations?${moreSp.toString()}`
+  }
+
   return (
     <HistoryTab
       list={list}
@@ -425,6 +447,7 @@ async function HistoryTabLoader({
       equipment={equipment}
       settings={settings}
       timeZone={timeZone}
+      moreHref={moreHref}
       params={{
         employee: params.employee,
         rink: params.rink,

@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -21,6 +22,8 @@ type Props = {
   rinkId: string
   /** Facility IANA timezone; timestamps render as facility wall-clock. */
   timezone: string | null
+  /** Set when more walks exist beyond the current window. */
+  moreHref?: string | null
 }
 
 function buildDetailHref(rinkId: string, walkId: string): string {
@@ -31,7 +34,14 @@ function buildDetailHref(rinkId: string, walkId: string): string {
   return `/admin/dasher-boards?${sp.toString()}`
 }
 
-export function WalksTab({ list, detail, backHref, rinkId, timezone }: Props) {
+export function WalksTab({
+  list,
+  detail,
+  backHref,
+  rinkId,
+  timezone,
+  moreHref,
+}: Props) {
   if (detail) {
     return (
       <WalkDetail detail={detail} backHref={backHref} timezone={timezone} />
@@ -51,7 +61,12 @@ export function WalksTab({ list, detail, backHref, rinkId, timezone }: Props) {
           </CardHeader>
         </Card>
       ) : (
-        <WalksList list={list} rinkId={rinkId} timezone={timezone} />
+        <>
+          <WalksList list={list} rinkId={rinkId} timezone={timezone} />
+          {moreHref ? (
+            <LoadMoreLink href={moreHref} shown={list.length} />
+          ) : null}
+        </>
       )}
     </div>
   )
