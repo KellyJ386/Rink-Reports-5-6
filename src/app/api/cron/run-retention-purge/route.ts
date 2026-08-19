@@ -30,6 +30,7 @@ const PURGE_FUNCTIONS = [
   "purge_old_air_quality_reports",
   "purge_old_ice_operations_submissions",
   "purge_old_ice_depth_sessions",
+  "purge_old_dasher_boards_inspections",
   "purge_old_audit_logs",
   "purge_old_notification_outbox",
   "purge_old_offline_sync_queue",
