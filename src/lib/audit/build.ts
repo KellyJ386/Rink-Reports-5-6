@@ -24,16 +24,39 @@ export type AuditRow = {
   user_agent: string | null
 }
 
-/** First hop of an x-forwarded-for list, or null when absent/blank. */
-export function firstForwardedIp(raw: string | null): string | null {
-  if (!raw) return null
-  return raw.split(",")[0]?.trim() || null
+/**
+ * Trusted client IP for the audit trail, or null when it can't be derived.
+ *
+ * Same derivation as the login and information-requests rate limiters:
+ * prefer x-real-ip (set by the Vercel edge to the true client IP,
+ * overwriting any client-sent value), else the RIGHTMOST x-forwarded-for
+ * hop (appended by our own trusted proxy) — never the leftmost, which is
+ * whatever the client chose to send. The previous leftmost-hop version let
+ * a client stamp an arbitrary (or even non-inet, insert-breaking) value
+ * into hash-chained audit rows.
+ */
+export function trustedClientIp(
+  realIp: string | null,
+  forwardedFor: string | null
+): string | null {
+  const real = realIp?.trim()
+  if (real) return real
+  if (!forwardedFor) return null
+  const hops = forwardedFor
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean)
+  return hops[hops.length - 1] ?? null
 }
 
 export function buildAuditRow(
   input: LogAuditInput,
   actor: { authUserId: string | null; employeeId: string | null },
-  request: { forwardedFor: string | null; userAgent: string | null }
+  request: {
+    realIp: string | null
+    forwardedFor: string | null
+    userAgent: string | null
+  }
 ): AuditRow {
   return {
     facility_id: input.facilityId,
@@ -44,7 +67,7 @@ export function buildAuditRow(
     entity_id: input.entityId ?? null,
     before: input.before ?? null,
     after: input.after ?? null,
-    ip: firstForwardedIp(request.forwardedFor),
+    ip: trustedClientIp(request.realIp, request.forwardedFor),
     user_agent: request.userAgent,
   }
 }
