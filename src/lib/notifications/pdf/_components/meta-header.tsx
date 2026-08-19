@@ -6,11 +6,19 @@ import React from "react"
 import { getCurrentTempForFacility } from "@/lib/weather/current-temp"
 import { createClient } from "@/lib/supabase/server"
 
+import { formatPdfTimestamp } from "../format"
+
 export type PdfMetaHeaderData = {
   userName: string
   submittedAt: string | null
   tempF: number | null
   tempLocation: string | null
+  /**
+   * The facility's IANA zone. Every timestamp in a generated PDF is formatted
+   * through this, because these documents render server-side (UTC on Vercel)
+   * but are read as the rink's own local record.
+   */
+  timeZone: string | null
 }
 
 const styles = StyleSheet.create({
@@ -40,15 +48,6 @@ const styles = StyleSheet.create({
   },
 })
 
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return "—"
-  try {
-    return new Date(iso).toLocaleString()
-  } catch {
-    return iso
-  }
-}
-
 export function PdfMetaHeader({ data }: { data: PdfMetaHeaderData }) {
   const tempLabel =
     typeof data.tempF === "number"
@@ -63,7 +62,7 @@ export function PdfMetaHeader({ data }: { data: PdfMetaHeaderData }) {
       </View>
       <View style={styles.metaCell}>
         <Text style={styles.metaLabel}>Submitted</Text>
-        <Text>{fmtDateTime(data.submittedAt)}</Text>
+        <Text>{formatPdfTimestamp(data.submittedAt, data.timeZone)}</Text>
       </View>
       <View style={styles.metaCell}>
         <Text style={styles.metaLabel}>Temp</Text>
@@ -86,7 +85,7 @@ export async function resolveMetaHeader(
   const sb = await createClient()
   const { data: facility } = await sb
     .from("facilities")
-    .select("city, state, zip_code")
+    .select("city, state, zip_code, timezone")
     .eq("id", facilityId)
     .maybeSingle()
 
@@ -96,5 +95,6 @@ export async function resolveMetaHeader(
     submittedAt,
     tempF: temp?.tempF ?? null,
     tempLocation: temp?.location ?? null,
+    timeZone: facility?.timezone ?? null,
   }
 }
