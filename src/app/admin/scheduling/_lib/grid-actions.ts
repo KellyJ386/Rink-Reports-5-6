@@ -1304,13 +1304,25 @@ export async function deleteGridShift(
         ])
       }
     } else {
-      const { error } = await supabase
+      const { data: deleted, error } = await supabase
         .from("schedule_shifts")
         .delete()
         .eq("id", parsedId.data)
         .eq("facility_id", ctx.facilityId)
+        .select("id")
       if (error) {
         return { ok: false, error: dbError(error, "Failed to delete shift.") }
+      }
+      // The publish-lock RLS fence (migration 245) scopes published rows out
+      // of direct deletes, so a shift published between our read above and
+      // this delete comes back as 0 rows, not an error. Report it instead of
+      // claiming success.
+      if (!deleted || deleted.length === 0) {
+        return {
+          ok: false,
+          error:
+            "Shift was not deleted — it may have just been published. Refresh and try again.",
+        }
       }
     }
 

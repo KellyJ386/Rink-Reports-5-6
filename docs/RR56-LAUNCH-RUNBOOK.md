@@ -63,6 +63,20 @@ _Last run: 2026-07-08 — all six PASS, zero 🔴. See the regression report for
 the role matrix and the four 🟡 follow-ups (all addressed in migration 180,
 `config.toml` HIBP, and this doc)._
 
+_Repo-side re-run: 2026-08-19 — checks 1, 2, 4, 6 PASS on main + migration
+245. (1) 153/153 tables have RLS; the only zero-policy tables are the 14
+audit-log partitions, deny-all by design with direct grants revoked
+(migration 241). (2) Publish-lock re-verified adversarially at all three
+layers; migration 245 adds the missing RLS backstop (status-aware
+schedule_shifts write policies + publish requests can only be REJECTED by
+direct update — approvals are RPC-only), with PLRB-245 regression
+assertions including the previously untested bypass-GUC gate from 226.
+(4) Facility scoping re-evidenced by the 2026-08-19 security audit: zero
+server actions or routes trust a client-supplied facility_id. (6) lint /
+tsc / build / cron-schedule all clean; 763 unit tests. Checks 3 and 5
+(role matrix, offline drain) are behavioral — unchanged since 2026-07-08
+and re-covered by the nightly E2E once the `E2E_*` secrets are configured._
+
 ### 1B — Deploy checklist (manual, browser)
 
 1. **Vercel project identity** — confirm you're deploying the **5-6** project,

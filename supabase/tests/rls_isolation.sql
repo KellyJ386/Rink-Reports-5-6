@@ -3640,15 +3640,27 @@ select pg_temp.expect_count(
        and missing_certs @> array['CPR']$$,
   1, 'SCHED-148: override writes an audit row (employee + missing cert)');
 
--- Publish-lock: direct UPDATE / DELETE of a published shift is rejected.
-select pg_temp.expect_error(
+-- Publish-lock: direct UPDATE / DELETE of a published shift is blocked.
+-- Since migration 245 the RLS USING fence (status <> 'published') scopes
+-- published rows out of direct writes BEFORE the trigger can fire, so the
+-- statement runs and affects 0 rows (same semantics as a cross-facility
+-- write) instead of raising — assert the row is untouched.
+select pg_temp.expect_ok(
   $$update public.schedule_shifts set notes = 'tampered'
      where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
-  'SCHED-148: direct UPDATE of a published shift is rejected (publish-lock)');
-select pg_temp.expect_error(
+  'SCHED-148: direct UPDATE of a published shift runs but RLS scopes it to 0 rows');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092' and notes = 'tampered'$$,
+  0, 'SCHED-148: the published shift was NOT modified by the direct UPDATE');
+select pg_temp.expect_ok(
   $$delete from public.schedule_shifts
      where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
-  'SCHED-148: direct DELETE of a published shift is rejected (publish-lock)');
+  'SCHED-148: direct DELETE of a published shift runs but RLS scopes it to 0 rows');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
+  1, 'SCHED-148: the published shift was NOT deleted by the direct DELETE');
 -- A draft shift stays editable.
 select pg_temp.expect_ok(
   $$update public.schedule_shifts set notes = 'draft edit ok'
@@ -3770,12 +3782,20 @@ select pg_temp.expect_count(
 -- Guards the new drag-persistence path added alongside the dnd-kit refit.
 -- (Role here is still Carol / facility A, authenticated, from section 2Q.)
 -- ---------------------------------------------------------------------------
-select pg_temp.expect_error(
+-- Since migration 245 the RLS fence scopes the published row away before the
+-- trigger fires: the drag-move runs, affects 0 rows, and the shift stays where
+-- SCHED-149's governed republish-edit put it (now() + 1 day).
+select pg_temp.expect_ok(
   $$update public.schedule_shifts
        set starts_at = now() + interval '5 days',
            ends_at   = now() + interval '5 days 4 hours'
      where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'$$,
-  'SCHED-DND: direct drag-move (starts_at/ends_at) of a PUBLISHED shift is rejected (publish-lock)');
+  'SCHED-DND: direct drag-move of a PUBLISHED shift runs but RLS scopes it to 0 rows');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5511-aaaa-aaaa-aaaa11110092'
+       and starts_at > now() + interval '4 days'$$,
+  0, 'SCHED-DND: the published shift was NOT relocated by the direct drag-move');
 -- Time edit invariant: end must be after start. The saved-shift time editor
 -- (and the move/resize paths) all persist starts_at/ends_at; a direct write with
 -- ends_at <= starts_at is rejected by the schedule_shifts_time_order_chk CHECK,
@@ -3869,6 +3889,105 @@ select pg_temp.expect_count(
   $$select count(*) from public.schedule_shifts
      where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181' and status = 'published'$$,
   1, 'SCHED-181: the approved draft is now published');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Publish-lock RLS backstop (migration 245) — PLRB-245.
+--
+-- 245 made the schedule_shifts write policies status-aware, so the lock no
+-- longer rests on trg_schedule_shifts_publish_lock alone. Three regressions
+-- pinned here, all as Carol (an AUTHORIZED scheduling admin):
+--   1. Setting the trigger's bypass GUC (rr.publish_lock_bypass) as an
+--      authenticated role must change NOTHING — migration 226 role-gated the
+--      GUC arm, and the 245 RLS fence holds independently of the trigger.
+--      Until now that gate had no test: reverting 226 failed nothing.
+--   2. A cancelled shift cannot be flipped straight to published.
+--   3. A publish REQUEST cannot be decided 'published' by direct PATCH —
+--      only 'rejected'. Approvals must run scheduling_approve_publish_request
+--      (re-validation, publish-events audit row, open-shift seeding,
+--      notifications); a direct decision used to silently skip all of it.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.schedule_shifts (id, facility_id, department_id, starts_at, ends_at, status)
+values ('aaaa1111-5515-aaaa-aaaa-aaaa11110245',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+        now() + interval '100 days', now() + interval '100 days 4 hours', 'draft')
+on conflict (id) do nothing;
+insert into public.schedule_publish_requests (
+  id, facility_id, requested_by_employee_id, range_starts_at, range_ends_at, status
+) values ('aaaa1111-5812-aaaa-aaaa-aaaa11110245',
+          '11111111-1111-1111-1111-111111111111',
+          'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          now() + interval '99 days', now() + interval '101 days', 'pending')
+on conflict (id) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+-- 1. The bypass GUC is inert for authenticated callers: every leg of the lock
+--    holds exactly as it does without it.
+select set_config('rr.publish_lock_bypass', 'on', true);
+select pg_temp.expect_error(
+  $$insert into public.schedule_shifts
+      (facility_id, department_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'aaaa1111-de71-aaaa-aaaa-aaaa11110091',
+            now() + interval '102 days', now() + interval '102 days 4 hours',
+            'published')$$,
+  'PLRB-245: INSERT of a published shift still rejected with the bypass GUC set');
+select pg_temp.expect_error(
+  $$update public.schedule_shifts set status = 'published'
+     where id = 'aaaa1111-5515-aaaa-aaaa-aaaa11110245'$$,
+  'PLRB-245: draft->published flip still rejected with the bypass GUC set');
+select pg_temp.expect_ok(
+  $$update public.schedule_shifts set notes = 'guc-tamper'
+     where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181'$$,
+  'PLRB-245: published-row UPDATE with the bypass GUC set still scopes to 0 rows');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5514-aaaa-aaaa-aaaa11110181' and notes = 'guc-tamper'$$,
+  0, 'PLRB-245: the published shift is untouched despite the bypass GUC');
+select set_config('rr.publish_lock_bypass', '', true);
+
+-- 2. A cancelled shift cannot be re-published by direct UPDATE (the WITH
+--    CHECK fence rejects any row landing in status=published).
+select pg_temp.expect_error(
+  $$update public.schedule_shifts set status = 'published'
+     where id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094'$$,
+  'PLRB-245: cancelled->published direct flip is rejected');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'aaaa1111-5513-aaaa-aaaa-aaaa11110094' and status = 'cancelled'$$,
+  1, 'PLRB-245: the cancelled shift is still cancelled');
+
+-- 3. Publish requests: a decider cannot mark a request published directly —
+--    only the governed RPC may — but recording a rejection still works.
+select pg_temp.expect_error(
+  $$update public.schedule_publish_requests
+       set status = 'published',
+           decided_by_employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+           decided_at = now()
+     where id = 'aaaa1111-5812-aaaa-aaaa-aaaa11110245'$$,
+  'PLRB-245: direct PATCH of a publish request to published is rejected');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_publish_requests
+     where id = 'aaaa1111-5812-aaaa-aaaa-aaaa11110245' and status = 'pending'$$,
+  1, 'PLRB-245: the publish request is still pending after the rejected PATCH');
+select pg_temp.expect_ok(
+  $$update public.schedule_publish_requests
+       set status = 'rejected',
+           decided_by_employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
+           decided_at = now()
+     where id = 'aaaa1111-5812-aaaa-aaaa-aaaa11110245'$$,
+  'PLRB-245: a decider can still record a REJECTION by direct update');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_publish_requests
+     where id = 'aaaa1111-5812-aaaa-aaaa-aaaa11110245' and status = 'rejected'
+       and decided_by_employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'$$,
+  1, 'PLRB-245: the rejection landed with the decider stamped');
 reset role;
 
 -- Staff (Alice): cannot override and cannot read the override audit log.
