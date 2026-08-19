@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/admin/export-button"
 import { PageHeader } from "@/components/ui/page-header"
 import { TabNav } from "@/components/ui/tab-nav"
 import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
@@ -388,6 +389,7 @@ function Header() {
     <PageHeader
       title="Dasher Boards"
       description="Spatial perimeter condition tracking. Configure the rink's board/glass/door sequence, cadenced checklist items, door subtypes, and issue categories. Labels are permanent identity — the editor never renumbers existing assets."
+      actions={<ExportButton moduleKey="dasher_boards" />}
     />
   )
 }
