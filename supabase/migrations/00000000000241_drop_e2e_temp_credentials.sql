@@ -1,0 +1,21 @@
+-- =============================================================================
+-- 00000000000241_drop_e2e_temp_credentials.sql
+--
+-- Retire the ad-hoc e2e_temp_credentials table. It stored CLEARTEXT login
+-- passwords for the standing E2E test accounts (including an admin-role
+-- account) plus the project's anon key, so the nightly E2E workflow could
+-- fetch them over the DB connection. That meant any database or service-role
+-- compromise yielded working interactive logins, not just data.
+--
+-- The E2E workflow now reads credentials exclusively from the
+-- E2E_<ROLE>_PASSWORD GitHub repo secrets (see .github/workflows/e2e.yml).
+-- ACTION REQUIRED before the next nightly run: configure those secrets (and
+-- the SUPABASE_PROJECT_REF repo variable for the cleanup step), and rotate
+-- the test-account passwords that sat in this table.
+--
+-- The table was created ad-hoc (never via a migration), so this is a no-op
+-- on migration-built databases (CI, fresh local stacks) and only bites on
+-- the live project where the table actually exists.
+-- =============================================================================
+
+drop table if exists public.e2e_temp_credentials;

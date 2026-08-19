@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation"
 
+import { checkRateLimit } from "@/lib/rate-limit/check"
 import { createClient } from "@/lib/supabase/server"
 
 export type UpdatePasswordState = {
@@ -34,6 +35,22 @@ export async function updatePasswordAction(
     return {
       error:
         "Your invite link has expired. Ask your administrator to re-send it.",
+    }
+  }
+
+  // Throttle per user: legitimate use is a handful of changes, ever. Fails
+  // open like the login limiter — a limiter blip must never strand an invited
+  // user who is setting their first password.
+  const allowed = await checkRateLimit({
+    bucket: "password_change",
+    identifier: user.id,
+    max: 5,
+    windowSeconds: 600,
+    failOpen: true,
+  })
+  if (!allowed) {
+    return {
+      error: "Too many password changes. Try again in a few minutes.",
     }
   }
 
