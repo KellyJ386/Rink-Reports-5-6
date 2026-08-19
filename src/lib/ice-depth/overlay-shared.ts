@@ -21,17 +21,20 @@ import {
 export const DOOR_MARKER_DEFAULT_COLOR = "#002244"
 export const DOOR_MARKER_SELECTED_COLOR = "#4DFF00"
 
-// Logo upload constraints. Transparency-capable raster/vector formats only.
+// Logo upload constraints. Transparency-capable RASTER formats only: SVG is
+// active content (scripts, foreignObject), and while the app renders logos
+// via <img>/react-pdf (inert), a stored SVG's signed URL opened directly
+// executes on the storage origin. Raster covers the use case without that
+// edge; previously-uploaded SVGs keep rendering, new uploads are rejected.
 export const MAX_RINK_LOGO_BYTES = 2 * 1024 * 1024 // 2 MB
 
-export const ALLOWED_RINK_LOGO_EXTENSIONS = ["png", "svg", "webp"] as const
+export const ALLOWED_RINK_LOGO_EXTENSIONS = ["png", "webp"] as const
 
 const RINK_LOGO_MIME_TYPES: Record<
   (typeof ALLOWED_RINK_LOGO_EXTENSIONS)[number],
   string
 > = {
   png: "image/png",
-  svg: "image/svg+xml",
   webp: "image/webp",
 }
 

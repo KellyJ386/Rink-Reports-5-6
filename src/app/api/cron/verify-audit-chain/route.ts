@@ -64,8 +64,14 @@ export async function GET(request: Request) {
   const startedAt = Date.now()
   const { data, error } = await supabase.rpc("verify_all_audit_chains")
   if (error) {
+    // Full error goes to server logs only; the response body stays opaque so
+    // schema/constraint text never leaves the server (matches the sibling
+    // cron routes' counts-only contract).
     logServerError("cron/verify-audit-chain", error)
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+    return NextResponse.json(
+      { ok: false, error: "verification failed — see server logs" },
+      { status: 500 },
+    )
   }
 
   const result = (data ?? {

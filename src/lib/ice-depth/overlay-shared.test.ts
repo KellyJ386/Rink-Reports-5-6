@@ -25,10 +25,10 @@ describe("rink logo file validation", () => {
     expect(rinkLogoExtension("trailingdot.")).toBe("")
   })
 
-  it("allows only transparency-capable formats", () => {
+  it("allows only transparency-capable raster formats (SVG is active content)", () => {
     expect(isAllowedRinkLogoExtension("png")).toBe(true)
-    expect(isAllowedRinkLogoExtension("svg")).toBe(true)
     expect(isAllowedRinkLogoExtension("webp")).toBe(true)
+    expect(isAllowedRinkLogoExtension("svg")).toBe(false)
     expect(isAllowedRinkLogoExtension("jpg")).toBe(false)
     expect(isAllowedRinkLogoExtension("gif")).toBe(false)
     expect(isAllowedRinkLogoExtension("")).toBe(false)
@@ -36,8 +36,8 @@ describe("rink logo file validation", () => {
 
   it("derives mime type from the validated extension", () => {
     expect(rinkLogoMimeType("png")).toBe("image/png")
-    expect(rinkLogoMimeType("svg")).toBe("image/svg+xml")
     expect(rinkLogoMimeType("webp")).toBe("image/webp")
+    expect(rinkLogoMimeType("svg")).toBe("application/octet-stream")
     expect(rinkLogoMimeType("exe")).toBe("application/octet-stream")
   })
 })

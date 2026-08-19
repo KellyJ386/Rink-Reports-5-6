@@ -321,7 +321,7 @@ function LayoutHeaderCard({
                 defaultValue={layout.logo_url ?? ""}
               />
               <p className="text-muted-foreground text-xs">
-                Displayed at center ice. Use a square PNG/SVG with a transparent background.
+                Displayed at center ice. Use a square PNG or WebP with a transparent background.
               </p>
             </div>
             <div className="flex flex-col gap-1">

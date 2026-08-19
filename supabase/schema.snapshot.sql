@@ -23242,7 +23242,7 @@ ALTER TABLE public.audit_logs_pending_destruction ENABLE ROW LEVEL SECURITY;
 -- Name: audit_logs audit_logs_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -24560,7 +24560,7 @@ ALTER TABLE public.employee_invites ENABLE ROW LEVEL SECURITY;
 -- Name: employee_invites employee_invites_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_invites_delete ON public.employee_invites FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
+CREATE POLICY employee_invites_delete ON public.employee_invites FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
    FROM (public.employees me
      JOIN public.roles r ON ((r.id = me.role_id)))
   WHERE ((me.user_id = ( SELECT auth.uid() AS uid)) AND me.is_active AND (r.key = ANY (ARRAY['admin'::text, 'super_admin'::text]))))))));
@@ -24570,7 +24570,7 @@ CREATE POLICY employee_invites_delete ON public.employee_invites FOR DELETE USIN
 -- Name: employee_invites employee_invites_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_invites_insert ON public.employee_invites FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
+CREATE POLICY employee_invites_insert ON public.employee_invites FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
    FROM (public.employees me
      JOIN public.roles r ON ((r.id = me.role_id)))
   WHERE ((me.user_id = ( SELECT auth.uid() AS uid)) AND me.is_active AND (r.key = ANY (ARRAY['admin'::text, 'super_admin'::text]))))))));
@@ -24580,14 +24580,14 @@ CREATE POLICY employee_invites_insert ON public.employee_invites FOR INSERT WITH
 -- Name: employee_invites employee_invites_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_invites_select ON public.employee_invites FOR SELECT USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+CREATE POLICY employee_invites_select ON public.employee_invites FOR SELECT TO authenticated USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --
 -- Name: employee_invites employee_invites_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employee_invites_update ON public.employee_invites FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
+CREATE POLICY employee_invites_update ON public.employee_invites FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
    FROM (public.employees me
      JOIN public.roles r ON ((r.id = me.role_id)))
   WHERE ((me.user_id = ( SELECT auth.uid() AS uid)) AND me.is_active AND (r.key = ANY (ARRAY['admin'::text, 'super_admin'::text])))))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
@@ -24715,7 +24715,7 @@ CREATE POLICY employees_delete ON public.employees FOR DELETE TO authenticated U
 -- Name: employees employees_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employees_insert ON public.employees FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY employees_insert ON public.employees FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -24729,7 +24729,7 @@ CREATE POLICY employees_select ON public.employees FOR SELECT TO authenticated U
 -- Name: employees employees_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY employees_update ON public.employees FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY employees_update ON public.employees FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -24749,7 +24749,7 @@ CREATE POLICY export_settings_delete ON public.export_settings FOR DELETE TO aut
 -- Name: export_settings export_settings_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY export_settings_insert ON public.export_settings FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY export_settings_insert ON public.export_settings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -24763,7 +24763,7 @@ CREATE POLICY export_settings_select ON public.export_settings FOR SELECT TO aut
 -- Name: export_settings export_settings_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY export_settings_update ON public.export_settings FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY export_settings_update ON public.export_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -25986,14 +25986,14 @@ ALTER TABLE public.module_area_permissions ENABLE ROW LEVEL SECURITY;
 -- Name: module_area_permissions module_area_permissions_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY module_area_permissions_delete ON public.module_area_permissions FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY module_area_permissions_delete ON public.module_area_permissions FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: module_area_permissions module_area_permissions_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY module_area_permissions_insert ON public.module_area_permissions FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY module_area_permissions_insert ON public.module_area_permissions FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26007,7 +26007,7 @@ CREATE POLICY module_area_permissions_select ON public.module_area_permissions F
 -- Name: module_area_permissions module_area_permissions_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY module_area_permissions_update ON public.module_area_permissions FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY module_area_permissions_update ON public.module_area_permissions FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26472,7 +26472,7 @@ CREATE POLICY retention_settings_delete ON public.retention_settings FOR DELETE 
 -- Name: retention_settings retention_settings_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY retention_settings_insert ON public.retention_settings FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY retention_settings_insert ON public.retention_settings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26486,7 +26486,7 @@ CREATE POLICY retention_settings_select ON public.retention_settings FOR SELECT 
 -- Name: retention_settings retention_settings_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY retention_settings_update ON public.retention_settings FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY retention_settings_update ON public.retention_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26499,14 +26499,14 @@ ALTER TABLE public.role_module_permission_defaults ENABLE ROW LEVEL SECURITY;
 -- Name: role_module_permission_defaults role_mp_defaults_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_mp_defaults_delete ON public.role_module_permission_defaults FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY role_mp_defaults_delete ON public.role_module_permission_defaults FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: role_module_permission_defaults role_mp_defaults_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_mp_defaults_insert ON public.role_module_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY role_mp_defaults_insert ON public.role_module_permission_defaults FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26520,7 +26520,7 @@ CREATE POLICY role_mp_defaults_select ON public.role_module_permission_defaults 
 -- Name: role_module_permission_defaults role_mp_defaults_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_mp_defaults_update ON public.role_module_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY role_mp_defaults_update ON public.role_module_permission_defaults FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26533,28 +26533,28 @@ ALTER TABLE public.role_permission_defaults ENABLE ROW LEVEL SECURITY;
 -- Name: role_permission_defaults role_permission_defaults_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults FOR DELETE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY role_permission_defaults_delete ON public.role_permission_defaults FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
 -- Name: role_permission_defaults role_permission_defaults_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
+CREATE POLICY role_permission_defaults_insert ON public.role_permission_defaults FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
 
 
 --
 -- Name: role_permission_defaults role_permission_defaults_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_select ON public.role_permission_defaults FOR SELECT USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+CREATE POLICY role_permission_defaults_select ON public.role_permission_defaults FOR SELECT TO authenticated USING ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --
 -- Name: role_permission_defaults role_permission_defaults_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
+CREATE POLICY role_permission_defaults_update ON public.role_permission_defaults FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (NOT ((module_name = 'admin'::text) AND (action = 'admin'::public.user_action) AND enabled)))));
 
 
 --
@@ -26574,7 +26574,7 @@ CREATE POLICY roles_delete ON public.roles FOR DELETE TO authenticated USING (pu
 -- Name: roles roles_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY roles_insert ON public.roles FOR INSERT WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+CREATE POLICY roles_insert ON public.roles FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
 
 
 --
@@ -26588,7 +26588,7 @@ CREATE POLICY roles_select ON public.roles FOR SELECT TO authenticated USING ((p
 -- Name: roles roles_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY roles_update ON public.roles FOR UPDATE USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (hierarchy_level >= COALESCE(public.current_role_hierarchy_floor(facility_id), hierarchy_level))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (hierarchy_level >= COALESCE(public.current_role_hierarchy_floor(facility_id), hierarchy_level)))));
+CREATE POLICY roles_update ON public.roles FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (hierarchy_level >= COALESCE(public.current_role_hierarchy_floor(facility_id), hierarchy_level))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])) AND (hierarchy_level >= COALESCE(public.current_role_hierarchy_floor(facility_id), hierarchy_level)))));
 
 
 --

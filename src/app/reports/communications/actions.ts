@@ -47,13 +47,20 @@ async function resolveCurrentEmployee() {
   const current = await requireUser()
   const supabase = await createClient()
 
-  const { data: employeeRow, error } = await supabase
+  // Pin to the profile's facility (matching requireUser and the offline-sync
+  // route): a user with active employee rows in two facilities must have the
+  // message attributed to the facility they're signed into, never an
+  // arbitrary row. Super admins can have no facility_id; they keep the
+  // unpinned lookup.
+  let query = supabase
     .from("employees")
     .select("id, facility_id")
     .eq("user_id", current.authUser.id)
     .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
+  if (current.profile?.facility_id) {
+    query = query.eq("facility_id", current.profile.facility_id)
+  }
+  const { data: employeeRow, error } = await query.limit(1).maybeSingle()
 
   return { supabase, current, employeeRow, error }
 }

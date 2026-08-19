@@ -52,8 +52,14 @@ export async function GET(request: Request) {
     "snapshot_closed_daily_assignment_days",
   )
   if (error) {
+    // Full error goes to server logs only; the response body stays opaque so
+    // schema/constraint text never leaves the server (matches the sibling
+    // cron routes' counts-only contract).
     logServerError("cron/snapshot-daily-assignments", error)
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+    return NextResponse.json(
+      { ok: false, error: "snapshot failed — see server logs" },
+      { status: 500 },
+    )
   }
 
   const frozen = typeof data === "number" ? data : 0

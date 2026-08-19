@@ -944,11 +944,11 @@ function LogoCard({
             id="logo-file"
             name="file"
             type="file"
-            accept=".png,.svg,.webp,image/png,image/svg+xml,image/webp"
+            accept=".png,.webp,image/png,image/webp"
             required
           />
           <p className="text-muted-foreground text-xs">
-            PNG, SVG, or WebP with a transparent background. Max 2 MB. Rendered
+            PNG or WebP with a transparent background. Max 2 MB. Rendered
             as a low-opacity watermark under the measurement points.
           </p>
           <div>

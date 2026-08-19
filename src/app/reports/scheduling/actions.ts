@@ -856,6 +856,11 @@ export async function rotateIcsToken(): Promise<
   const auth = await getActiveEmployee()
   if (!auth.ok) return { ok: false, error: auth.error }
   const supabase = await createClient()
+  // Same gate as getOrCreateIcsToken: without it, an employee locked out of
+  // scheduling could still mint/rotate a feed token for their own shifts.
+  if (!(await currentUserCan(supabase, "scheduling", "view"))) {
+    return { ok: false, error: "You don't have access to scheduling." }
+  }
 
   const token = newIcsToken()
   const { error } = await supabase
