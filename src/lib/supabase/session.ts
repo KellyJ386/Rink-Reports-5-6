@@ -31,17 +31,39 @@ const PROTECTED_PREFIXES = ["/admin", "/reports", "/dashboard", "/account"]
 // even a Report-Only copy of it would flood the console with HMR eval
 // violations on every edit, so dev intentionally gets no CSP header at all
 // (matches the prior next.config.ts behavior).
+// The app's own Supabase project host, for pinned CSP directives. A
+// `*.supabase.co` wildcard would let injected script (or a compromised
+// dependency) exfiltrate to an attacker's own free Supabase project while
+// staying CSP-clean — pin connect-src/img-src to the one project this app
+// talks to. Falls back to the wildcard only if the env URL is unparseable,
+// so a misconfigured deploy degrades to the old policy instead of breaking.
+function supabaseHost(): string | null {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).host
+  } catch {
+    return null
+  }
+}
+
 function buildCsp(nonce: string): string {
+  const sbHost = supabaseHost()
+  const sbConnect = sbHost
+    ? `https://${sbHost} wss://${sbHost}`
+    : "https://*.supabase.co wss://*.supabase.co"
+  // img-src: 'self' + data/blob for inline SVG + the Supabase storage host
+  // for signed-URL images (rink logos, document previews). Deliberately NOT
+  // a blanket https: — that is a classic CSP exfiltration side-channel.
+  const sbImg = sbHost ? ` https://${sbHost}` : " https://*.supabase.co"
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https:",
+    `img-src 'self' data: blob:${sbImg}`,
     "font-src 'self' data:",
     // *.i.posthog.com covers the default US cloud endpoint
     // (us.i.posthog.com); EU customers point at eu.i.posthog.com. For
     // self-hosted PostHog, add the host explicitly here.
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.i.posthog.com",
+    `connect-src 'self' ${sbConnect} https://*.i.posthog.com`,
     "worker-src 'self'",
     "object-src 'none'",
     "frame-ancestors 'none'",
@@ -49,6 +71,16 @@ function buildCsp(nonce: string): string {
     "form-action 'self'",
   ].join("; ")
 }
+
+// Explicit auth-cookie flags rather than library defaults. The Supabase auth
+// cookie cannot be httpOnly (createBrowserClient must read the session from
+// document.cookie — mitigated by the strict CSP above), but secure/sameSite
+// should not depend on @supabase/ssr defaults. `secure` is production-only so
+// plain-http localhost dev still gets a session cookie.
+export const AUTH_COOKIE_OPTIONS = {
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+} as const
 
 export async function updateSession(request: NextRequest) {
   const isProd = process.env.NODE_ENV === "production"
@@ -80,6 +112,7 @@ export async function updateSession(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: AUTH_COOKIE_OPTIONS,
       cookies: {
         getAll() {
           return request.cookies.getAll()

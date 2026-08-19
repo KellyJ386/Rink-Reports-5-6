@@ -56,10 +56,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # GitHub's ubuntu-latest images ship psql preinstalled; only fall back
+      # to apt when it's missing (the apt path is the flaky one — see the
+      # matching note in schema-drift.yml).
       - name: Install psql client
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client
+          if command -v psql >/dev/null; then
+            echo "postgresql-client preinstalled: $(psql --version)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
 
       - name: Wait for Postgres
         run: |

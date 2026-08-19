@@ -5,6 +5,7 @@ import { Resend } from "resend"
 import {
   type EmailDeliveryGate,
   resolveEmailDeliveryGate,
+  resolveEmailRecipient,
 } from "./delivery-gate"
 
 export type EmailAttachment = {
@@ -25,9 +26,13 @@ export type EmailSendResult =
   | { ok: true; providerId: string | null }
   | { ok: false; error: string }
 
-// Every outbound email is redirected here regardless of resolved recipient.
-// Intentional override — see sendEmail().
-const OVERRIDE_RECIPIENT = "kelly@maxfacility.com"
+// Non-production sink: outside production (dev clones, previews, staging QA
+// runs force-enabled via RESEND_ENABLED=true) every outbound email is
+// redirected here so real staff are never mailed from a non-production run.
+// Production always delivers to the real resolved recipient — see
+// resolveEmailRecipient() in delivery-gate.ts for why the sink must never
+// apply in production.
+const NON_PRODUCTION_SINK = "kelly@maxfacility.com"
 
 /**
  * Returns a configured Resend client, or null if RESEND_API_KEY is unset.
@@ -80,7 +85,12 @@ export async function sendEmail(
   try {
     const result = await client.emails.send({
       from,
-      to: OVERRIDE_RECIPIENT,
+      to: resolveEmailRecipient({
+        to: input.to,
+        sinkRecipient: NON_PRODUCTION_SINK,
+        vercelEnv: process.env.VERCEL_ENV,
+        nodeEnv: process.env.NODE_ENV,
+      }),
       subject: input.subject,
       text: input.bodyText,
       ...(input.bodyHtml ? { html: input.bodyHtml } : {}),

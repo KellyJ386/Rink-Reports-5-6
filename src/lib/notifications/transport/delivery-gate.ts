@@ -38,6 +38,41 @@ export type EmailDeliveryGate = {
  *    VERCEL_ENV is preferred over NODE_ENV because Vercel preview builds
  *    run with NODE_ENV=production but VERCEL_ENV=preview.
  */
+export type EmailRecipientEnv = {
+  /** The recipient the caller resolved (routing rules, account email, …). */
+  to: string
+  /** Non-production sink address; all non-production mail goes here. */
+  sinkRecipient: string
+  /** process.env.VERCEL_ENV — "production" | "preview" | "development". */
+  vercelEnv?: string
+  /** process.env.NODE_ENV — fallback when VERCEL_ENV is absent. */
+  nodeEnv?: string
+}
+
+/**
+ * Where an outbound email is actually delivered.
+ *
+ * Production sends to the resolved recipient verbatim. Every other
+ * environment (dev clones, previews, staging QA force-enabled via
+ * RESEND_ENABLED=true) is redirected to the sink so a non-production run
+ * can never mail real staff. Environment detection mirrors
+ * resolveEmailDeliveryGate: VERCEL_ENV wins over NODE_ENV because Vercel
+ * preview builds run with NODE_ENV=production.
+ *
+ * This replaces an unconditional hardcoded override that redirected
+ * PRODUCTION mail too — intended recipients got nothing while recipient
+ * rows were marked sent, and every facility's report PDFs landed in one
+ * inbox. The sink must never be able to swallow production mail again;
+ * delivery-gate.test.ts pins that behavior.
+ */
+export function resolveEmailRecipient(env: EmailRecipientEnv): string {
+  const deployEnv = env.vercelEnv?.trim().toLowerCase() || env.nodeEnv
+  if (deployEnv === "production") {
+    return env.to
+  }
+  return env.sinkRecipient
+}
+
 export function resolveEmailDeliveryGate(
   env: EmailDeliveryGateEnv,
 ): EmailDeliveryGate {

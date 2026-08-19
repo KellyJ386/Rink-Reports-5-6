@@ -32,10 +32,13 @@ type VerifyResult = {
 export const GET = withCronRoute("/api/cron/verify-audit-chain", async (supabase) => {
   const { data, error } = await supabase.rpc("verify_all_audit_chains")
   if (error) {
+    // Full error goes to server logs + the cron_runs record only; the
+    // response body stays opaque so schema/constraint text never leaves the
+    // server (matches the sibling cron routes' counts-only contract).
     logServerError("cron/verify-audit-chain", error)
     return {
       status: 500,
-      body: { ok: false, error: error.message },
+      body: { ok: false, error: "verification failed — see server logs" },
       error: error.message,
     }
   }

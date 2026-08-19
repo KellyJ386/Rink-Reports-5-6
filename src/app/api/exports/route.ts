@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
+import { checkRateLimit } from "@/lib/rate-limit/check"
 import { createClient } from "@/lib/supabase/server"
 import { authorizeExport } from "@/lib/exports/authorize"
 import { buildExport, type BuildExportInput } from "@/lib/exports/build-export"
@@ -26,6 +27,24 @@ export async function GET(request: NextRequest) {
   // redirect response, which is acceptable for this admin-only endpoint.
   const current = await requireAdmin()
   const profile = current.profile
+
+  // Each export renders up to a full facility's rows into CSV/PDF with a 60s
+  // budget — cap per-admin volume so a runaway client (or scripted session)
+  // can't monopolize serverless CPU. Fails open: a limiter blip should not
+  // block an admin's export.
+  const allowed = await checkRateLimit({
+    bucket: "exports",
+    identifier: current.authUser.id,
+    max: 20,
+    windowSeconds: 600,
+    failOpen: true,
+  })
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "Too many exports. Try again in a few minutes." },
+      { status: 429 }
+    )
+  }
 
   const params = request.nextUrl.searchParams
   const moduleName = params.get("module") ?? ""

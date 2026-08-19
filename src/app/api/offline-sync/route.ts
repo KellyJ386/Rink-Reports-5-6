@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { getCurrentUser } from "@/lib/auth"
 import { currentUserCan } from "@/lib/permissions/check"
+import { checkRateLimit } from "@/lib/rate-limit/check"
 import { wallTimeToUtc } from "@/lib/timezone"
 import type { Json } from "@/types/database"
 import {
@@ -70,6 +71,26 @@ export async function POST(request: NextRequest) {
   const { profile } = current
   if (!profile?.is_active || !profile?.facility_id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Per-user throttle. Generous ceiling: a device coming back online flushes
+  // its whole queue one POST per submission, so legitimate bursts are dozens,
+  // not hundreds. 429 is in the service worker's TRANSIENT_4XX set, so a
+  // limited item re-queues with backoff instead of parking as failed. Fails
+  // open — a limiter outage must never block report submission (RLS and the
+  // per-handler permission checks below still gate every write).
+  const withinLimit = await checkRateLimit({
+    bucket: "offline_sync",
+    identifier: current.authUser.id,
+    max: 240,
+    windowSeconds: 600,
+    failOpen: true,
+  })
+  if (!withinLimit) {
+    return NextResponse.json(
+      { error: "Too many submissions. Retrying shortly." },
+      { status: 429 }
+    )
   }
 
   let rawBody: unknown

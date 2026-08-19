@@ -51,9 +51,12 @@ FK children and are edited (not pure append), so they carry higher risk.
 - **PK change `id` → `(id, created_at)`** ripples to anything referencing these
   tables. Verified today that no FK points at `audit_logs` or the change logs
   (leaf tables), so it's safe — but re-verify per table.
-- **RLS carries over** to the partitioned parent automatically (no policy
-  rewrite), but `rls_isolation.sql` should add an assertion that a child
-  partition can't leak cross-facility.
+- **RLS does NOT carry over to partitions.** Parent policies apply only to
+  queries that name the parent; each partition's own `relrowsecurity` flag
+  governs direct access, and PostgREST exposes partitions directly. Every
+  partition needs `ENABLE ROW LEVEL SECURITY` (+ a privilege revoke) of its
+  own — migration 222 missed this and 241 closed it; `rls_isolation.sql` now
+  asserts it for every partition and every table in `public`.
 - **Retention semantics change.** `purge_old_*` is per-`keep_days`-per-facility;
   partition-drop is per-time-window across all facilities. This is the one open
   product decision (see below).
@@ -123,9 +126,10 @@ a **7-year retention** requirement. Two costs bite:
 2. **PK change `id` → `(id, created_at)`** ripples to anything referencing these tables.
    Verified today: **no FK points at `audit_logs` or the change-log tables** (they're leaf
    tables), so this is safe — but re-verify before each table.
-3. **RLS** carries over to partitioned parents automatically (policies live on the parent);
-   no policy rewrite needed, but the isolation test must add an assertion that a child
-   partition can't leak cross-facility.
+3. **RLS must be enabled on every partition, not just the parent.** Policies on the
+   parent apply only when the query names the parent; a direct partition query (which
+   PostgREST permits) is governed by the partition's own RLS flag. See migration 241
+   and the PART-241/META assertions in `rls_isolation.sql`.
 4. **Retention semantics change.** `purge_old_*` deletes per-`keep_days`-per-facility;
    partition-drop is per-time-window **across all facilities**. Since `keep_days` can
    differ per facility, we either (a) keep row-level delete for facilities with shorter

@@ -77,10 +77,18 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
+      # GitHub's ubuntu-latest images ship psql/pg_dump preinstalled; only
+      # fall back to apt when they're missing. The apt path once hung ~9
+      # minutes on a flaky mirror and blew the job's 10-minute timeout
+      # before migrations even started.
       - name: Install psql + pg_dump client
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client
+          if command -v psql >/dev/null && command -v pg_dump >/dev/null; then
+            echo "postgresql-client preinstalled: $(psql --version) / $(pg_dump --version)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
 
       - name: Wait for Postgres
         run: |

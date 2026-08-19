@@ -11,11 +11,14 @@ name: E2E
 # Configuration (see e2e/.env.e2e.example for the full variable list):
 #   - Target URL: workflow_dispatch `url` input, else vars.E2E_BASE_URL, else
 #     the production deployment.
-#   - Credentials: E2E_<ROLE>_PASSWORD repo secrets when configured; otherwise
-#     fetched at runtime from the service-role-only `e2e_temp_credentials`
-#     table in the project database over the SUPABASE_DB_PASSWORD secret
-#     (the standing *-test@rinkreports.com accounts — see
-#     docs/module-functionality-check-2026-07.md).
+#   - Credentials: E2E_<ROLE>_PASSWORD repo secrets, exclusively (the standing
+#     *-test@rinkreports.com accounts — see
+#     docs/module-functionality-check-2026-07.md). The old fallback that read
+#     cleartext passwords from an `e2e_temp_credentials` table in the live
+#     database was removed (and the table dropped, migration 243): storing
+#     working interactive logins — including an admin account — in the
+#     database meant any DB/service-role compromise yielded live sessions,
+#     not just data.
 #   - Seed deep links: vars.E2E_FACILITY_B_REPORT_PATH /
 #     vars.E2E_ICE_DEPTH_LAYOUT_SLUG / vars.E2E_DAILY_REPORT_PATH, with
 #     defaults matching the standing seed.
@@ -78,19 +81,18 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
-      # Gate: credentials come either from E2E_* repo secrets or,
-      # when those are absent, from the locked-down e2e_temp_credentials
-      # table in the project database (fetched below over the same
-      # SUPABASE_DB_PASSWORD secret Deploy Migrations uses). When NEITHER
-      # source is available, forks skip with a notice (they shouldn't get
-      # nightly failures) but the canonical repo FAILS — an unconfigured
-      # canonical run means a secret was deleted, and exiting green would
-      # hide a dead suite behind a passing badge. (The `==` comparison is
-      # case-insensitive in Actions expressions.)
+      # Gate: credentials come from E2E_* repo secrets ONLY. (A previous
+      # fallback fetched cleartext passwords from an e2e_temp_credentials
+      # table in the live database; that path was removed and the table
+      # dropped — see the header comment.) When unconfigured, forks skip
+      # with a notice (they shouldn't get nightly failures) but the
+      # canonical repo FAILS — an unconfigured canonical run means a secret
+      # was deleted, and exiting green would hide a dead suite behind a
+      # passing badge. (The `==` comparison is case-insensitive in Actions
+      # expressions.)
       - name: Check E2E credentials are configured
         id: gate
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           IS_CANONICAL: ${{ github.repository == 'KellyJ386/Rink-Reports-5-6' }}
         run: |
           fail_or_skip() {
@@ -106,90 +108,12 @@ jobs:
           elif [ -n "$E2E_ADMIN_PASSWORD" ]; then
             echo "Targeting $E2E_BASE_URL with E2E_* secrets"
             echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "source=secrets" >> "$GITHUB_OUTPUT"
-          elif [ -n "$SUPABASE_DB_PASSWORD" ]; then
-            echo "Targeting $E2E_BASE_URL with database-staged credentials"
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "source=database" >> "$GITHUB_OUTPUT"
           else
-            fail_or_skip "neither E2E_ADMIN_PASSWORD nor SUPABASE_DB_PASSWORD is configured. See e2e/README.md (CI section)."
+            fail_or_skip "E2E_ADMIN_PASSWORD is not configured. Add the E2E_<ROLE>_PASSWORD repo secrets (Settings > Secrets and variables > Actions). See e2e/README.md (CI section)."
           fi
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.gate.outputs.configured == 'true'
-
-      # When no E2E_* secrets exist, fetch the standing test-account passwords
-      # from the service-role-only e2e_temp_credentials table. GitHub runners
-      # are IPv4-only, so prefer the Supavisor pooler over the direct db host.
-      - name: Fetch E2E credentials from database
-        if: steps.gate.outputs.source == 'database'
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: |
-          set -euo pipefail
-          REF="bqbdgwlhbhabsibjgwmk"
-          CANDIDATES=()
-          [ -n "${SUPABASE_DB_URL:-}" ] && CANDIDATES+=("$SUPABASE_DB_URL")
-          if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
-            ENCPW=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'],safe=''))")
-            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-0-us-east-1.pooler.supabase.com:5432/postgres")
-            CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-1-us-east-1.pooler.supabase.com:5432/postgres")
-            CANDIDATES+=("postgresql://postgres:${ENCPW}@db.${REF}.supabase.co:5432/postgres")
-          fi
-          ROWS=""
-          for URL in "${CANDIDATES[@]}"; do
-            HOSTDESC=$(echo "$URL" | sed -E 's|.*@([^/:]+).*|\1|')
-            echo "Trying $HOSTDESC ..."
-            if ROWS=$(psql "$URL" -At -F '|' -w \
-              -c "select role_key, password from public.e2e_temp_credentials" 2>/tmp/psql.err); then
-              echo "Connected via $HOSTDESC"
-              break
-            fi
-            sed 's/:[^@:]*@/:***@/' /tmp/psql.err || true
-            ROWS=""
-          done
-          if [ -z "$ROWS" ]; then
-            echo "::error::Could not fetch e2e credentials from the database."
-            exit 1
-          fi
-          while IFS='|' read -r ROLE PW; do
-            [ -z "$ROLE" ] && continue
-            echo "::add-mask::$PW"
-            if [ "$ROLE" = "ANON_KEY" ]; then
-              # The project's public anon key, staged alongside the passwords
-              # so it never has to live in the repo (it trips secret scanners
-              # even though it ships in the deployed client bundle by design).
-              echo "SUPABASE_ANON_KEY=$PW" >> "$GITHUB_ENV"
-            else
-              echo "E2E_${ROLE}_PASSWORD=$PW" >> "$GITHUB_ENV"
-            fi
-          done <<< "$ROWS"
-          echo "Loaded credentials for: $(echo "$ROWS" | cut -d'|' -f1 | tr '\n' ' ')"
-
-      # Fail fast if the test accounts cannot authenticate — a full suite run
-      # is pointless when the password grant itself is broken. Runs only when
-      # the anon key came back with the database-staged credentials (it is a
-      # public client key, but keeping it out of the repo keeps secret
-      # scanners quiet).
-      - name: Auth preflight (admin test account)
-        if: steps.gate.outputs.source == 'database'
-        run: |
-          set -euo pipefail
-          if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
-            echo "::notice::No ANON_KEY row in e2e_temp_credentials — skipping preflight."
-            exit 0
-          fi
-          STATUS=$(curl -s -o /tmp/auth.json -w "%{http_code}" --max-time 30 \
-            -X POST "https://bqbdgwlhbhabsibjgwmk.supabase.co/auth/v1/token?grant_type=password" \
-            -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
-            -d "{\"email\":\"${E2E_ADMIN_EMAIL:-admin-test@rinkreports.com}\",\"password\":\"$E2E_ADMIN_PASSWORD\"}")
-          echo "Password grant -> $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            grep -o '"error_code":"[^"]*"\|"msg":"[^"]*"' /tmp/auth.json || true
-            echo "::error::Admin test account cannot log in (HTTP $STATUS)."
-            exit 1
-          fi
 
       # pnpm before setup-node so setup-node's built-in pnpm store cache can
       # find the binary. Version mirrors the lockfile (lockfileVersion 9.0 →
@@ -236,12 +160,16 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # Project ref as a repo VARIABLE, not a literal: not a secret, but a
+          # hardcoded ref hands any repo reader the exact auth host to target
+          # with credential stuffing.
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
           set -uo pipefail
-          REF="bqbdgwlhbhabsibjgwmk"
+          REF="${SUPABASE_PROJECT_REF:-}"
           CANDIDATES=()
           [ -n "${SUPABASE_DB_URL:-}" ] && CANDIDATES+=("$SUPABASE_DB_URL")
-          if [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
+          if [ -n "${SUPABASE_DB_PASSWORD:-}" ] && [ -n "$REF" ]; then
             ENCPW=$(python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['SUPABASE_DB_PASSWORD'],safe=''))")
             CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-0-us-east-1.pooler.supabase.com:5432/postgres")
             CANDIDATES+=("postgresql://postgres.${REF}:${ENCPW}@aws-1-us-east-1.pooler.supabase.com:5432/postgres")

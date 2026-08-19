@@ -48,6 +48,7 @@ export async function logAudit(input: LogAuditInput): Promise<boolean> {
       input,
       { authUserId, employeeId },
       {
+        realIp: h.get("x-real-ip"),
         forwardedFor: h.get("x-forwarded-for"),
         userAgent: h.get("user-agent"),
       }
