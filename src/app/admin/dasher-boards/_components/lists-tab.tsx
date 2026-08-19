@@ -22,6 +22,8 @@ import {
   upsertIssueCategory,
   upsertSubtype,
 } from "../actions"
+import { SeedDefaultsCard } from "./seed-defaults-card"
+
 import type { ActionState, IssueCategoryRow, SubtypeRow } from "../types"
 
 const NULL_STATE: ActionState = { ok: null }
@@ -40,9 +42,13 @@ export function ListsTab({
   categories: IssueCategoryRow[]
 }) {
   const doorSubtypes = subtypes.filter((s) => s.asset_type === "door")
+  // Until both lists exist a walk can't classify what it finds, so offer the
+  // one-click seed rather than making an admin type them in one at a time.
+  const unconfigured = subtypes.length === 0 && categories.length === 0
 
   return (
     <div className="flex flex-col gap-6">
+      {unconfigured ? <SeedDefaultsCard /> : null}
       <Card>
         <CardHeader>
           <CardTitle>Door subtypes ({doorSubtypes.length})</CardTitle>
