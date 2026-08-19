@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveEmailDeliveryGate } from "./delivery-gate"
+import {
+  resolveEmailDeliveryGate,
+  resolveEmailRecipient,
+} from "./delivery-gate"
 
 describe("resolveEmailDeliveryGate", () => {
   it("disables delivery in plain development", () => {
@@ -83,5 +86,39 @@ describe("resolveEmailDeliveryGate", () => {
       enabled: false,
       reason: "non-production",
     })
+  })
+})
+
+describe("resolveEmailRecipient", () => {
+  const base = { to: "staff@rink.example", sinkRecipient: "sink@example.com" }
+
+  it("delivers to the real recipient in production (the sink must never swallow production mail)", () => {
+    expect(
+      resolveEmailRecipient({
+        ...base,
+        vercelEnv: "production",
+        nodeEnv: "production",
+      }),
+    ).toBe("staff@rink.example")
+    expect(resolveEmailRecipient({ ...base, nodeEnv: "production" })).toBe(
+      "staff@rink.example",
+    )
+  })
+
+  it("redirects to the sink on Vercel preview even though NODE_ENV is production", () => {
+    expect(
+      resolveEmailRecipient({
+        ...base,
+        vercelEnv: "preview",
+        nodeEnv: "production",
+      }),
+    ).toBe("sink@example.com")
+  })
+
+  it("redirects to the sink in development and in an empty environment", () => {
+    expect(resolveEmailRecipient({ ...base, nodeEnv: "development" })).toBe(
+      "sink@example.com",
+    )
+    expect(resolveEmailRecipient(base)).toBe("sink@example.com")
   })
 })
