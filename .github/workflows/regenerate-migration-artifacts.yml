@@ -19,7 +19,9 @@ name: Regenerate Migration Artifacts
 #     introduces the workflow also runs it, covering the case where dispatch
 #     isn't available because the file isn't on the default branch yet.
 #     The regeneration commit touches only the two artifacts, which are NOT in
-#     this paths filter, so it can never retrigger itself.
+#     this paths filter, so it can never retrigger itself. Note the filter
+#     compares the push's before/after diff — a force-push that only rewrites
+#     a commit message will not fire it; the file content must change.
 
 on:
   workflow_dispatch:
