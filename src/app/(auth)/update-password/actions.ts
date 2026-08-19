@@ -16,8 +16,11 @@ export async function updatePasswordAction(
   const password = String(formData.get("password") ?? "")
   const confirm = String(formData.get("confirm_password") ?? "")
 
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." }
+  // Keep in sync with minimum_password_length in supabase/config.toml (and
+  // the hosted project's Auth settings) so GoTrue never rejects a password
+  // this form already accepted.
+  if (password.length < 12) {
+    return { error: "Password must be at least 12 characters." }
   }
   if (password !== confirm) {
     return { error: "Passwords do not match." }

@@ -31,7 +31,7 @@ export function UpdatePasswordForm({
           name="password"
           type="password"
           autoComplete="new-password"
-          minLength={8}
+          minLength={12}
           required
         />
       </div>
@@ -42,7 +42,7 @@ export function UpdatePasswordForm({
           name="confirm_password"
           type="password"
           autoComplete="new-password"
-          minLength={8}
+          minLength={12}
           required
         />
       </div>

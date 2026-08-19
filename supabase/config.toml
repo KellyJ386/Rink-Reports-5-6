@@ -42,7 +42,17 @@ additional_redirect_urls = ["http://localhost:3000", "http://localhost:3000/call
 jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
-enable_signup = true
+# No self-serve signup: the app has no signup page — accounts are provisioned
+# exclusively through the admin console via auth.admin.inviteUserByEmail /
+# generateLink, which are service-role admin endpoints and keep working with
+# signup disabled. Leaving signup open would let anyone on the internet mint
+# an `authenticated` JWT (tenant-less, but `authenticated` alone widens the
+# blast radius of any RLS/grant slip). HOSTED-PROJECT PARITY: this file only
+# governs the local stack — mirror these in the dashboard (Authentication →
+# Sign In / Providers): disable "Allow new users to sign up", set minimum
+# password length 12, and enable leaked-password protection (see NOTE below).
+enable_signup = false
+minimum_password_length = 12
 # NOTE: leaked-password protection ("Prevent Leaked Passwords" — rejecting
 # HaveIBeenPwned Pwned Passwords at sign-up / password-change) is NOT
 # configurable via config.toml. The Supabase CLI auth config exposes no
@@ -53,7 +63,8 @@ enable_signup = true
 # (PATCH /v1/projects/{ref}/config/auth { "password_hibp_enabled": true }).
 
 [auth.email]
-enable_signup = true
+# Mirrors [auth].enable_signup — invites are admin-API calls, not signups.
+enable_signup = false
 double_confirm_changes = true
 enable_confirmations = false
 
