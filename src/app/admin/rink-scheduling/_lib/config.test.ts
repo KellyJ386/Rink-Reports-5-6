@@ -4,6 +4,7 @@ import {
   DAY_LABELS,
   MAX_ACTIVE_RINKS,
   defaultOccupancyWindow,
+  describeLastSeen,
   formatTaxRateAsPercent,
   isHexColor,
   minutesToTime,
@@ -220,5 +221,35 @@ describe("locker room occupancy", () => {
 describe("MAX_ACTIVE_RINKS", () => {
   it("is the 10 the module spec caps a facility at", () => {
     expect(MAX_ACTIVE_RINKS).toBe(10)
+  })
+})
+
+describe("describeLastSeen", () => {
+  const now = Date.UTC(2026, 8, 1, 12, 0, 0)
+  const minutesAgo = (n: number) => new Date(now - n * 60_000).toISOString()
+
+  it("reports a revoked display as revoked, whatever its last check-in", () => {
+    expect(describeLastSeen(minutesAgo(1), now, true)).toBe("revoked")
+  })
+
+  it("spells out a display that has never checked in", () => {
+    // The case an admin most needs to notice: a screen that was never plugged
+    // in looks identical to a healthy one if this renders blank.
+    expect(describeLastSeen(null, now, false)).toBe("never checked in")
+  })
+
+  it("treats a very recent poll as active", () => {
+    expect(describeLastSeen(minutesAgo(0), now, false)).toBe("active now")
+    expect(describeLastSeen(minutesAgo(1), now, false)).toBe("active now")
+  })
+
+  it("scales from minutes to hours to days", () => {
+    expect(describeLastSeen(minutesAgo(30), now, false)).toBe("last seen 30m ago")
+    expect(describeLastSeen(minutesAgo(60 * 5), now, false)).toBe("last seen 5h ago")
+    expect(describeLastSeen(minutesAgo(60 * 24 * 3), now, false)).toBe("last seen 3d ago")
+  })
+
+  it("does not crash on an unparseable timestamp", () => {
+    expect(describeLastSeen("not-a-date", now, false)).toBe("never checked in")
   })
 })

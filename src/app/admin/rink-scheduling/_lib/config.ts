@@ -190,3 +190,36 @@ export function windowsOverlap(
 ): boolean {
   return aFromMs < bUntilMs && bFromMs < aUntilMs
 }
+
+/**
+ * Human summary of when a lobby display last checked in.
+ *
+ * Takes `nowMs` rather than reading the clock itself, for two reasons: it stays
+ * pure (so it is unit-testable and safe under React's purity rule, which
+ * forbids calling Date.now() during a client render), and it must be evaluated
+ * on the SERVER — computing it in the browser would disagree with the
+ * server-rendered markup whenever the two clocks differ, producing a hydration
+ * mismatch on every display row.
+ *
+ * A display that has gone dark is the thing an admin actually wants to spot,
+ * so "never checked in" is spelled out rather than shown as a blank.
+ */
+export function describeLastSeen(
+  lastSeenIso: string | null,
+  nowMs: number,
+  revoked: boolean,
+): string {
+  if (revoked) return "revoked"
+  if (!lastSeenIso) return "never checked in"
+
+  const then = new Date(lastSeenIso).getTime()
+  if (!Number.isFinite(then)) return "never checked in"
+
+  const mins = Math.round((nowMs - then) / 60_000)
+  if (mins < 2) return "active now"
+  if (mins < 60) return `last seen ${mins}m ago`
+
+  const hours = Math.round(mins / 60)
+  if (hours < 48) return `last seen ${hours}h ago`
+  return `last seen ${Math.round(hours / 24)}d ago`
+}
