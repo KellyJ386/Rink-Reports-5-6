@@ -2108,13 +2108,18 @@ declare
   v_msg_id       uuid;
   v_outbox_ids   uuid[];
 begin
-  if not (public.is_super_admin() or session_user = 'postgres' or session_user = 'service_role') then
+  if not (
+    public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
+    or session_user in ('postgres', 'supabase_admin')
+  ) then
     raise exception 'drain_notification_outbox: not authorised';
   end if;
 
   if p_facility_id is null
      and public.is_super_admin()
-     and session_user not in ('postgres', 'service_role') then
+     and coalesce(auth.role(), '') <> 'service_role'
+     and session_user not in ('postgres', 'supabase_admin') then
     raise notice 'drain_notification_outbox: super_admin called without p_facility_id; draining all tenants';
   end if;
 
@@ -7692,8 +7697,8 @@ begin
   -- Internal-only: cron route with the service key (or a superuser).
   if not (
     public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
     or session_user in ('postgres', 'supabase_admin')
-    or current_user in ('postgres', 'supabase_admin', 'service_role')
   ) then
     raise exception 'snapshot_closed_daily_assignment_days: not authorized'
       using errcode = '42501';
@@ -8392,7 +8397,8 @@ declare
 begin
   if not (
     public.is_super_admin()
-    or session_user in ('postgres', 'service_role', 'supabase_admin')
+    or coalesce(auth.role(), '') = 'service_role'
+    or session_user in ('postgres', 'supabase_admin')
   ) then
     raise exception 'verify_all_audit_chains: service-role or super-admin only'
       using errcode = '42501';
