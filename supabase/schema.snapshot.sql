@@ -13421,7 +13421,7 @@ CREATE TABLE public.rink_bookings (
     starts_at timestamp with time zone NOT NULL,
     ends_at timestamp with time zone NOT NULL,
     buffer_minutes_after integer DEFAULT 0 NOT NULL,
-    blocks_until timestamp with time zone NOT NULL,
+    blocks_until timestamp with time zone DEFAULT now() NOT NULL,
     status text DEFAULT 'tentative'::text NOT NULL,
     rate_snapshot_hourly numeric(10,2),
     rate_snapshot_prime boolean,
@@ -13456,7 +13456,7 @@ COMMENT ON TABLE public.rink_bookings IS 'Rink Scheduling: one row per ice slot.
 -- Name: COLUMN rink_bookings.blocks_until; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.rink_bookings.blocks_until IS 'ends_at + buffer_minutes_after, maintained by trg_rink_bookings_blocks_until. Never write this from application code: an exclusion constraint needs an IMMUTABLE expression and timestamptz + interval is only STABLE, so the sum must be materialised. Change buffer_minutes_after instead.';
+COMMENT ON COLUMN public.rink_bookings.blocks_until IS 'ends_at + buffer_minutes_after, maintained by trg_rink_bookings_blocks_until. Never write this from application code: an exclusion constraint needs an IMMUTABLE expression and timestamptz + interval is only STABLE, so the sum must be materialised. The now() default exists solely so generated types mark the column optional; the BEFORE trigger always overwrites it. Change buffer_minutes_after instead.';
 
 
 --

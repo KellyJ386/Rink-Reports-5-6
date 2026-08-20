@@ -7995,7 +7995,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
-          blocks_until: string
+          blocks_until?: string
           booking_type_id: string
           buffer_minutes_after?: number
           cancellation_reason?: string | null
