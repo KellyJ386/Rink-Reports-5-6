@@ -24,8 +24,11 @@ import type {
   BookingTypeRow,
   BookingView,
   CustomerRow,
+  LockerAssignmentView,
+  LockerRoomRow,
   RinkRow,
 } from "../_lib/types"
+import { LockerRoomPanel } from "./locker-room-panel"
 
 type SheetState =
   | { mode: "create"; rinkId: string; dayKey: string; startMinute: number }
@@ -37,6 +40,8 @@ type Props = {
   bookingTypes: BookingTypeRow[]
   customers: CustomerRow[]
   timeZone: string | null
+  lockerRooms: LockerRoomRow[]
+  lockerAssignments: LockerAssignmentView[]
   slotMinutes: number
   canCreate: boolean
   canEdit: boolean
@@ -400,6 +405,19 @@ export function BookingSheet(props: Props) {
               endTime={endTime}
               canEdit={canEdit}
               onDone={onClose}
+            />
+          )}
+
+          {isEdit && (
+            <LockerRoomPanel
+              bookingId={booking!.id}
+              bookingCancelled={booking!.status === "cancelled"}
+              rooms={props.lockerRooms}
+              assignments={props.lockerAssignments.filter(
+                (a) => a.booking_id === booking!.id,
+              )}
+              timeZone={timeZone}
+              canEdit={canEdit}
             />
           )}
 

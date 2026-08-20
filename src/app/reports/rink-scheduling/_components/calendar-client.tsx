@@ -30,6 +30,8 @@ import type {
   CalendarView,
   CustomerRow,
   HoursExceptionRow,
+  LockerAssignmentView,
+  LockerRoomRow,
   OperatingHoursRow,
   RinkRow,
 } from "../_lib/types"
@@ -48,6 +50,8 @@ type Props = {
   bookings: BookingView[]
   hours: OperatingHoursRow[]
   exceptions: HoursExceptionRow[]
+  lockerRooms: LockerRoomRow[]
+  lockerAssignments: LockerAssignmentView[]
   slotMinutes: number
   bufferMinutes: number
   selectedRinkId: string | null
@@ -183,6 +187,8 @@ export function CalendarClient(props: Props) {
           bookingTypes={props.bookingTypes}
           customers={props.customers}
           timeZone={props.timeZone}
+          lockerRooms={props.lockerRooms}
+          lockerAssignments={props.lockerAssignments}
           slotMinutes={props.slotMinutes}
           canCreate={canCreate}
           canEdit={props.canEdit}

@@ -6,6 +6,18 @@ export type BookingTypeRow = Tables<"rink_booking_types">
 export type CustomerRow = Tables<"rink_customers">
 export type OperatingHoursRow = Tables<"facility_operating_hours">
 export type HoursExceptionRow = Tables<"facility_operating_hours_exceptions">
+export type LockerRoomRow = Tables<"facility_locker_rooms">
+
+/** One room held by one booking, as the booking sheet needs it. */
+export type LockerAssignmentView = {
+  id: string
+  booking_id: string
+  locker_room_id: string
+  occupies_from: string
+  occupies_until: string
+  display_label_override: string | null
+  roomName: string
+}
 
 /** A booking joined with the labels the grid needs, so the client does not
  *  have to hold the whole customer and type tables to render a block. */

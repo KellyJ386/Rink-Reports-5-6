@@ -8478,7 +8478,8 @@ select pg_temp.expect_count(
 -- the spec's staff/supervisor/facility_manager/org_admin); the tentative-only
 -- INSERT rule that splits supervisor from facility_manager; the booking
 -- overlap exclusion constraint; append-only payments; one-live-invoice-per-
--- booking; and the anon lockout on the display-token table.
+-- booking; the anon lockout on the display-token table; and (DISP) the anon
+-- lockout on every table the public locker-room display reads.
 -- ===========================================================================
 
 set local role postgres;
@@ -8852,6 +8853,44 @@ select pg_temp.expect_count(
   $$select count(*) from public.rink_invoices$$,
   0, 'RS36: anon reads no invoices');
 
+-- ---------------------------------------------------------------------------
+-- Public locker-room display (/display/[token]). Label prefix DISP.
+--
+-- The display endpoint reads with the SERVICE-ROLE key inside a Route Handler
+-- that has already resolved the token, precisely so that `anon` keeps zero
+-- grants on the tables it reads. That is a claim about the database, so it is
+-- asserted here rather than trusted to the handler: if a future migration ever
+-- adds an anon-readable policy to make the display "simpler", these fail.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_locker_rooms$$,
+  0, 'DISP1: anon reads NO locker rooms — the board is served by the Route Handler, not by RLS');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_locker_room_assignments$$,
+  0, 'DISP2: anon reads NO locker room assignments');
+
+-- As with RS26/RS27: no policy for this role means the statement matches zero
+-- rows, not that it raises. Asserting an error would assert the wrong thing.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_display_tokens set last_seen_at = now()
+       returning 1)
+    select count(*) from u$$,
+  0, 'DISP3: anon CANNOT stamp last_seen_at (no policy; 0 rows match) — only the service-role handler does');
+
+reset role;
+
+-- Structural: no Module 12 policy names anon at all. RS34-36 and DISP1-2 each
+-- prove one table; this proves the rule, so a new table added to the module
+-- cannot quietly arrive with an anon policy nobody wrote an assertion for.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from pg_policies
+     where schemaname = 'public'
+       and (tablename like 'rink\_%' or tablename like 'facility\_locker\_%')
+       and 'anon' = any (roles)$$,
+  0, 'DISP4: no Rink Scheduling policy grants anything to anon');
 reset role;
 
 -- ---------------------------------------------------------------------------

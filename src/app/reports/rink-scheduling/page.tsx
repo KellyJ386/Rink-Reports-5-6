@@ -12,6 +12,8 @@ import type {
   CalendarView,
   CustomerRow,
   HoursExceptionRow,
+  LockerAssignmentView,
+  LockerRoomRow,
   OperatingHoursRow,
 } from "./_lib/types"
 import { asCalendarView } from "./_lib/types"
@@ -80,6 +82,7 @@ export default async function RinkSchedulePage({
     hoursRes,
     exceptionsRes,
     settingsRes,
+    lockerRoomsRes,
     canCreate,
     canEdit,
   ] = await Promise.all([
@@ -116,6 +119,11 @@ export default async function RinkSchedulePage({
       .select("slot_increment_minutes, default_buffer_minutes")
       .eq("facility_id", facilityId)
       .maybeSingle(),
+    supabase
+      .from("facility_locker_rooms")
+      .select("*")
+      .eq("facility_id", facilityId)
+      .order("sort_order", { ascending: true }),
     currentUserCan(supabase, "rink_scheduling", "submit"),
     currentUserCan(supabase, "rink_scheduling", "edit"),
   ])
@@ -130,8 +138,28 @@ export default async function RinkSchedulePage({
     .lte("starts_at", `${toKey}T23:59:59.999Z`)
     .order("starts_at", { ascending: true })
 
+  // Assignments are fetched for exactly the bookings on screen, so a wide date
+  // range does not pull the whole history of every room.
+  const visibleBookingIds = (bookingRows ?? []).map((b) => b.id)
+  const { data: lockerAssignmentRows } = visibleBookingIds.length
+    ? await supabase
+        .from("rink_locker_room_assignments")
+        .select(
+          "id, booking_id, locker_room_id, occupies_from, occupies_until, display_label_override",
+        )
+        .eq("facility_id", facilityId)
+        .in("booking_id", visibleBookingIds)
+        .order("occupies_from", { ascending: true })
+    : { data: [] }
+
   const rinks = rinksRes.data ?? []
   const types = typesRes.data ?? []
+  const lockerRooms = (lockerRoomsRes.data ?? []) as LockerRoomRow[]
+  const lockerRoomById = new Map(lockerRooms.map((r) => [r.id, r]))
+  const lockerAssignments: LockerAssignmentView[] = (lockerAssignmentRows ?? []).map((a) => ({
+    ...a,
+    roomName: lockerRoomById.get(a.locker_room_id)?.name ?? "Locker room",
+  }))
   const customers = (customersRes.data ?? []) as CustomerRow[]
 
   const rinkById = new Map(rinks.map((r) => [r.id, r]))
@@ -166,6 +194,8 @@ export default async function RinkSchedulePage({
         bookings={bookings}
         hours={(hoursRes.data ?? []) as OperatingHoursRow[]}
         exceptions={(exceptionsRes.data ?? []) as HoursExceptionRow[]}
+        lockerRooms={lockerRooms}
+        lockerAssignments={lockerAssignments}
         slotMinutes={settingsRes.data?.slot_increment_minutes ?? 30}
         bufferMinutes={settingsRes.data?.default_buffer_minutes ?? 15}
         selectedRinkId={params.rink ?? rinks[0]?.id ?? null}
