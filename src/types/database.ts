@@ -10660,6 +10660,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      purge_old_rink_scheduling_records: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       reactivate_role: {
         Args: { p_role_id: string }
         Returns: boolean

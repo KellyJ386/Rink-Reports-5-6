@@ -8934,6 +8934,59 @@ select pg_temp.expect_count(
 
 reset role;
 
+-- Retention (migration 250). Financial records, so the floor is the point.
+select pg_temp.expect_count(
+  $$select count(*) from public.retention_module_floors
+     where module_key = 'rink_scheduling' and min_days = 2555$$,
+  1, 'RETENTION-250: rink_scheduling carries a 7-year (2555 day) retention floor');
+
+-- A booking still cited by an invoice line is billing evidence and must survive
+-- the purge whatever its age; without the NOT EXISTS guard the delete would hit
+-- the ON DELETE RESTRICT FK and abort the whole purge run.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'purge_module_data'
+       and pg_get_functiondef(p.oid) like '%rink_invoice_line_items li%'
+       and pg_get_functiondef(p.oid) like '%not exists%'$$,
+  1, 'RETENTION-250: purge_module_data KEEPS bookings cited by an invoice line');
+
+-- Configuration must never be purged by age: deleting a customer or rate card
+-- would orphan newer bookings and strand the snapshots justifying past invoices.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'purge_module_data'
+       and pg_get_functiondef(p.oid) not like '%delete from public.rink_customers%'
+       and pg_get_functiondef(p.oid) not like '%delete from public.rink_rate_cards%'
+       and pg_get_functiondef(p.oid) not like '%delete from public.facility_rinks%'$$,
+  1, 'RETENTION-250: the purge never deletes customers, rate cards or rinks');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.purge_old_rink_scheduling_records()$$,
+  'PURGE-250: authenticated CANNOT execute purge_old_rink_scheduling_records');
+
+reset role;
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.purge_old_rink_scheduling_records()$$,
+  'PURGE-250: anon CANNOT execute purge_old_rink_scheduling_records');
+
+reset role;
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_rink_scheduling_records()$$,
+  'PURGE-250: service_role CAN execute purge_old_rink_scheduling_records');
+
+reset role;
+
 do $$
 declare
   v_failed int;

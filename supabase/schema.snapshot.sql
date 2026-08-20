@@ -3238,6 +3238,38 @@ begin
       get diagnostics v_deleted = row_count;
       v_total := v_total + v_deleted;
 
+    -- Rink Scheduling & Billing. Financial history, floored at 7 years by
+    -- retention_module_floors. See this migration's header for the ordering
+    -- rationale; in short, payments before invoices (RESTRICT), and a booking
+    -- still cited by a line item is kept whatever its age.
+    when 'rink_scheduling' then
+      delete from public.rink_payments p
+       where p.facility_id = p_facility_id
+         and exists (
+           select 1 from public.rink_invoices i
+            where i.id = p.invoice_id
+              and i.facility_id = p_facility_id
+              and i.issue_date < v_cutoff::date
+         );
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
+      delete from public.rink_invoices
+       where facility_id = p_facility_id
+         and issue_date < v_cutoff::date;
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
+      delete from public.rink_bookings b
+       where b.facility_id = p_facility_id
+         and b.starts_at < v_cutoff
+         and not exists (
+           select 1 from public.rink_invoice_line_items li
+            where li.booking_id = b.id
+         );
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
     else
       raise exception 'Unknown module key: %', p_module_key;
   end case;
@@ -3251,7 +3283,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds dasher_boards (migration 239): walks past the cutoff plus their resolved issues; unresolved issues are kept at any age because an open issue is a live safety defect, not history.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds rink_scheduling (migration 250): payments, then their invoices (line items cascade), then bookings not cited by any invoice line. Customers, rate cards and facility setup are configuration and are never purged by age.';
 
 
 --
@@ -3756,6 +3788,76 @@ begin
   return v_total;
 end;
 $$;
+
+
+--
+-- Name: purge_old_rink_scheduling_records(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_rink_scheduling_records() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  r         record;
+  v_cutoff  timestamptz;
+  v_deleted integer;
+  v_total   integer := 0;
+begin
+  for r in
+    select facility_id, keep_days
+      from public.retention_settings
+     where module_key = 'rink_scheduling'
+       and auto_purge = true
+       and keep_days is not null
+       and keep_days > 0
+  loop
+    v_cutoff := now() - make_interval(days => greatest(r.keep_days, 2555));
+
+    delete from public.rink_payments p
+     where p.facility_id = r.facility_id
+       and exists (
+         select 1 from public.rink_invoices i
+          where i.id = p.invoice_id
+            and i.facility_id = r.facility_id
+            and i.issue_date < v_cutoff::date
+       );
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.rink_invoices
+     where facility_id = r.facility_id
+       and issue_date < v_cutoff::date;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.rink_bookings b
+     where b.facility_id = r.facility_id
+       and b.starts_at < v_cutoff
+       and not exists (
+         select 1 from public.rink_invoice_line_items li
+          where li.booking_id = b.id
+       );
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    update public.retention_settings
+       set last_purged_at  = now(),
+           last_purge_count = v_total
+     where facility_id = r.facility_id
+       and module_key  = 'rink_scheduling';
+  end loop;
+
+  return v_total;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION purge_old_rink_scheduling_records(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_rink_scheduling_records() IS 'Nightly retention worker for Rink Scheduling & Billing. Financial records, so the cutoff is clamped to the 7-year floor regardless of the configured keep_days. Service-role only.';
 
 
 --
