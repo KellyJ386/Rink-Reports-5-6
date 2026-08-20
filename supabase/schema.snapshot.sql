@@ -702,7 +702,15 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('admin','dasher_boards','admin'::public.user_action),
       ('manager','dasher_boards','edit'::public.user_action),
       ('staff','dasher_boards','submit'::public.user_action),
-      ('driver','dasher_boards','submit'::public.user_action)
+      ('driver','dasher_boards','submit'::public.user_action),
+      -- rink_scheduling (added migration 249). manager stops at edit: rate
+      -- cards and module settings are the admin tier, matching the module
+      -- spec's org_admin-only row. staff and driver are read-only.
+      ('super_admin','rink_scheduling','admin'::public.user_action),
+      ('admin','rink_scheduling','admin'::public.user_action),
+      ('manager','rink_scheduling','edit'::public.user_action),
+      ('staff','rink_scheduling','view'::public.user_action),
+      ('driver','rink_scheduling','view'::public.user_action)
   ),
   action_levels(action, lvl) as (
     values
@@ -722,7 +730,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. facility_paperwork added in migration 175; dasher_boards in migration 193; full matrix restated in 198 after 193 clobbered the 175 rows.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 249.';
 
 
 --
@@ -3235,6 +3243,38 @@ begin
       get diagnostics v_deleted = row_count;
       v_total := v_total + v_deleted;
 
+    -- Rink Scheduling & Billing. Financial history, floored at 7 years by
+    -- retention_module_floors. See this migration's header for the ordering
+    -- rationale; in short, payments before invoices (RESTRICT), and a booking
+    -- still cited by a line item is kept whatever its age.
+    when 'rink_scheduling' then
+      delete from public.rink_payments p
+       where p.facility_id = p_facility_id
+         and exists (
+           select 1 from public.rink_invoices i
+            where i.id = p.invoice_id
+              and i.facility_id = p_facility_id
+              and i.issue_date < v_cutoff::date
+         );
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
+      delete from public.rink_invoices
+       where facility_id = p_facility_id
+         and issue_date < v_cutoff::date;
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
+      delete from public.rink_bookings b
+       where b.facility_id = p_facility_id
+         and b.starts_at < v_cutoff
+         and not exists (
+           select 1 from public.rink_invoice_line_items li
+            where li.booking_id = b.id
+         );
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
     else
       raise exception 'Unknown module key: %', p_module_key;
   end case;
@@ -3248,7 +3288,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds dasher_boards (migration 239): walks past the cutoff plus their resolved issues; unresolved issues are kept at any age because an open issue is a live safety defect, not history.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds rink_scheduling (migration 251): payments, then their invoices (line items cascade), then bookings not cited by any invoice line. Customers, rate cards and facility setup are configuration and are never purged by age.';
 
 
 --
@@ -3753,6 +3793,76 @@ begin
   return v_total;
 end;
 $$;
+
+
+--
+-- Name: purge_old_rink_scheduling_records(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_rink_scheduling_records() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  r         record;
+  v_cutoff  timestamptz;
+  v_deleted integer;
+  v_total   integer := 0;
+begin
+  for r in
+    select facility_id, keep_days
+      from public.retention_settings
+     where module_key = 'rink_scheduling'
+       and auto_purge = true
+       and keep_days is not null
+       and keep_days > 0
+  loop
+    v_cutoff := now() - make_interval(days => greatest(r.keep_days, 2555));
+
+    delete from public.rink_payments p
+     where p.facility_id = r.facility_id
+       and exists (
+         select 1 from public.rink_invoices i
+          where i.id = p.invoice_id
+            and i.facility_id = r.facility_id
+            and i.issue_date < v_cutoff::date
+       );
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.rink_invoices
+     where facility_id = r.facility_id
+       and issue_date < v_cutoff::date;
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.rink_bookings b
+     where b.facility_id = r.facility_id
+       and b.starts_at < v_cutoff
+       and not exists (
+         select 1 from public.rink_invoice_line_items li
+          where li.booking_id = b.id
+       );
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    update public.retention_settings
+       set last_purged_at  = now(),
+           last_purge_count = v_total
+     where facility_id = r.facility_id
+       and module_key  = 'rink_scheduling';
+  end loop;
+
+  return v_total;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION purge_old_rink_scheduling_records(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_rink_scheduling_records() IS 'Nightly retention worker for Rink Scheduling & Billing. Financial records, so the cutoff is clamped to the 7-year floor regardless of the configured keep_days. Service-role only.';
 
 
 --
@@ -4370,6 +4480,307 @@ $$;
 --
 
 COMMENT ON FUNCTION public.retention_settings_enforce_floor() IS 'BEFORE INSERT/UPDATE guard on retention_settings. Enforces the per-module floor from retention_module_floors, and coerces auto_purge to false whenever keep_days = 0 so a keep-forever row can never be selected by a purge loop. Enforced for every role including service_role — the floor is a compliance minimum, not a permission check. Adjusting a floor requires super_admin rights on retention_module_floors.';
+
+
+--
+-- Name: rink_bookings_require_customer(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_bookings_require_customer() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_billable boolean;
+begin
+  if new.customer_id is not null then
+    return new;
+  end if;
+
+  select bt.is_billable into v_billable
+  from public.rink_booking_types bt
+  where bt.id = new.booking_type_id;
+
+  if coalesce(v_billable, true) then
+    raise exception 'rink_scheduling: a billable booking requires a customer'
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_bookings_require_customer(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_bookings_require_customer() IS 'Enforces "customer_id is optional only for non-billable booking types" (Maintenance Block). A cross-row rule, so it cannot be a CHECK constraint.';
+
+
+--
+-- Name: rink_bookings_sync_blocks_until(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_bookings_sync_blocks_until() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  new.blocks_until := new.ends_at
+    + make_interval(mins => coalesce(new.buffer_minutes_after, 0));
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_bookings_sync_blocks_until(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_bookings_sync_blocks_until() IS 'Materialises rink_bookings.blocks_until so the overlap exclusion constraint has an IMMUTABLE expression to index. Overwrites any client-supplied value unconditionally.';
+
+
+--
+-- Name: rink_invoice_line_items_inherit_void(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_invoice_line_items_inherit_void() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  select (i.status = 'void') into new.voided
+  from public.rink_invoices i
+  where i.id = new.invoice_id;
+
+  new.voided := coalesce(new.voided, false);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_invoice_line_items_inherit_void(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_invoice_line_items_inherit_void() IS 'Keeps rink_invoice_line_items.voided truthful on insert so the one-live-invoice-per-booking partial index cannot be defeated by adding a line to an already-void invoice.';
+
+
+--
+-- Name: rink_invoices_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_invoices_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if public.rink_scheduling_guard_exempt() then
+    return new;
+  end if;
+
+  -- A void invoice is terminal.
+  if old.status = 'void' and new.status <> 'void' then
+    raise exception 'rink_scheduling: a void invoice cannot be reopened'
+      using errcode = '42501';
+  end if;
+
+  -- paid / partially_paid are DERIVED from the payment sum. They may only be
+  -- reached from a state the payment recorder controls, never set by hand on a
+  -- draft.
+  if new.status in ('partially_paid', 'paid')
+     and old.status = 'draft' then
+    raise exception 'rink_scheduling: payment status is derived — send the invoice before recording payment'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_invoices_guard(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_invoices_guard() IS 'Invoice lifecycle guard: void is terminal, and the derived payment statuses cannot be hand-set on a draft.';
+
+
+--
+-- Name: rink_invoices_propagate_void(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_invoices_propagate_void() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.status is distinct from old.status then
+    update public.rink_invoice_line_items
+       set voided = (new.status = 'void')
+     where invoice_id = new.id
+       and voided is distinct from (new.status = 'void');
+  end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_invoices_propagate_void(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_invoices_propagate_void() IS 'Propagates an invoice''s void state onto its line items. Voiding an invoice is what releases its bookings back to uninvoiced, so this is the mechanism behind that product rule.';
+
+
+--
+-- Name: rink_payments_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_payments_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_status text;
+begin
+  if public.rink_scheduling_guard_exempt() then
+    return coalesce(new, old);
+  end if;
+
+  if tg_op = 'INSERT' then
+    -- A void invoice states that nothing is owed. Money recorded against it
+    -- corrupts amount_paid, and every AR report reads that column.
+    select i.status into v_status
+      from public.rink_invoices i
+     where i.id = new.invoice_id;
+
+    if v_status = 'void' then
+      raise exception 'rink_scheduling: cannot record a payment against a void invoice'
+        using errcode = '42501';
+    end if;
+
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    raise exception 'rink_scheduling: payments are immutable — record a reversal instead'
+      using errcode = '42501';
+  elsif tg_op = 'DELETE' then
+    raise exception 'rink_scheduling: payments cannot be deleted — record a reversal instead'
+      using errcode = '42501';
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_payments_guard(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_payments_guard() IS 'Money guard for rink_payments: append-only (no edits, no deletes) and no payment against a void invoice. Re-states at the trigger layer what RLS and the server actions already enforce, so direct SQL from a non-exempt owner session cannot corrupt amount_paid.';
+
+
+--
+-- Name: rink_scheduling_enqueue_on_shift_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_scheduling_enqueue_on_shift_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid;
+  v_relevant    boolean := false;
+begin
+  -- SECURITY DEFINER because the caller is whoever changed the shift — a
+  -- scheduling admin who may hold no rink_scheduling grant at all, and whose
+  -- INSERT would otherwise be refused by this queue's RLS policy.
+  begin
+    v_facility_id := coalesce(new.facility_id, old.facility_id);
+    if v_facility_id is null then
+      return coalesce(new, old);
+    end if;
+
+    -- Only PUBLISHED shifts provide coverage, so only transitions that change
+    -- published coverage matter. A draft being edited changes nothing.
+    if tg_op = 'INSERT' then
+      v_relevant := new.status = 'published';
+    elsif tg_op = 'DELETE' then
+      v_relevant := old.status = 'published';
+    else
+      v_relevant :=
+        old.status = 'published'
+        or new.status = 'published';
+      -- An edit that moved neither the window nor the published state cannot
+      -- change coverage; skip it so a bulk metadata update stays cheap.
+      if v_relevant
+         and old.status = new.status
+         and old.starts_at = new.starts_at
+         and old.ends_at = new.ends_at
+         and old.employee_id is not distinct from new.employee_id then
+        v_relevant := false;
+      end if;
+    end if;
+
+    if not v_relevant then
+      return coalesce(new, old);
+    end if;
+
+    -- The partial unique index collapses a whole publish batch into one row.
+    insert into public.rink_coverage_reeval_queue (facility_id, reason, status)
+    values (v_facility_id, 'shift_change', 'pending')
+    on conflict do nothing;
+
+  exception when others then
+    -- Never let a coverage bookkeeping failure take down a scheduling write.
+    null;
+  end;
+
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_scheduling_enqueue_on_shift_change(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_scheduling_enqueue_on_shift_change() IS 'Enqueues a Rink Scheduling coverage re-evaluation when published shift coverage changes. Reads schedule_shifts, writes only rink_coverage_reeval_queue — never writes to any scheduling table. All failures are swallowed so a publish can never fail because of coverage bookkeeping.';
+
+
+--
+-- Name: rink_scheduling_guard_exempt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_scheduling_guard_exempt() RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select public.is_super_admin()
+      or coalesce(auth.role(), '') = 'service_role'
+      or current_user = 'service_role'
+      -- The GUC escape hatch is honored ONLY for a privileged owner/backend
+      -- role (migration 226's D-3 hardening): a client-settable GUC must never
+      -- be part of the security boundary. Note `postgres` is deliberately NOT
+      -- exempt on its own — direct SQL from an owner session is exactly the
+      -- case these guards exist to catch, so the operator must opt out
+      -- explicitly by setting the flag.
+      or (
+        coalesce(current_setting('rr.rink_scheduling_guard_bypass', true), '') = 'on'
+        and current_user in ('postgres', 'supabase_admin', 'service_role')
+      );
+$$;
+
+
+--
+-- Name: FUNCTION rink_scheduling_guard_exempt(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_scheduling_guard_exempt() IS 'Exemption tier for rink_scheduling guard triggers: super admins, the service role (cron sweeps, the public display endpoint), and the migration/owner roles.';
 
 
 --
@@ -7280,7 +7691,8 @@ begin
     ('scheduling'),
     ('communications'),
     ('facility_paperwork'),
-    ('dasher_boards')
+    ('dasher_boards'),
+    ('rink_scheduling')
   ) as m(k)
   on conflict (facility_id, module_key) do nothing;
 end;
@@ -7291,7 +7703,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. dasher_boards as of migration 193). Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 249). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --
@@ -7500,6 +7912,100 @@ $$;
 --
 
 COMMENT ON FUNCTION public.seed_default_refrigeration_sections(p_facility_id uuid) IS 'Seeds canonical refrigeration_sections (compressors, pumps, condensers, supply-return, machine-hours, alarms) and a default refrigeration_settings row for a facility. Idempotent, and slug-compatible with the admin console''s inline seeder.';
+
+
+--
+-- Name: seed_default_rink_scheduling_config(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.seed_default_rink_scheduling_config(p_facility_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  -- Module settings (one row per facility).
+  insert into public.rink_scheduling_settings (facility_id)
+  values (p_facility_id)
+  on conflict (facility_id) do nothing;
+
+  -- Invoice counter.
+  insert into public.rink_invoice_counters (facility_id)
+  values (p_facility_id)
+  on conflict (facility_id) do nothing;
+
+  -- Booking types. Maintenance Block is is_system + non-billable: it occupies
+  -- ice (so it participates in conflict detection) but never reaches an
+  -- invoice, and it is the one type that may omit a customer.
+  insert into public.rink_booking_types
+    (facility_id, name, slug, color, is_billable, is_system, sort_order)
+  select p_facility_id, t.name, t.slug, t.color, t.is_billable, t.is_system, t.sort_order
+  from (values
+    ('Ice Rental',        'ice-rental',        '#002244', true,  false, 0),
+    ('Practice',          'practice',          '#1F5C8B', true,  false, 1),
+    ('Game',              'game',              '#B3261E', true,  false, 2),
+    ('Public Skate',      'public-skate',      '#2F9E00', true,  false, 3),
+    ('Learn to Skate',    'learn-to-skate',    '#7A4FBF', true,  false, 4),
+    ('Camp/Clinic',       'camp-clinic',       '#9A6700', true,  false, 5),
+    ('Maintenance Block', 'maintenance-block', '#56666F', false, true,  6)
+  ) as t(name, slug, color, is_billable, is_system, sort_order)
+  on conflict (facility_id, slug) do nothing;
+
+  -- Customer types.
+  insert into public.rink_customer_types (facility_id, name, slug, sort_order)
+  select p_facility_id, c.name, c.slug, c.sort_order
+  from (values
+    ('Internal Program',      'internal-program', 0),
+    ('University Department', 'su-department',    1),
+    ('Team',                  'team',             2),
+    ('League',                'league',           3),
+    ('School',                'school',           4),
+    ('Individual',            'individual',       5),
+    ('Other',                 'other',            6)
+  ) as c(name, slug, sort_order)
+  on conflict (facility_id, slug) do nothing;
+
+  -- Payment methods. "Card (recorded)" logs a card payment taken elsewhere —
+  -- this module never handles card data.
+  insert into public.rink_payment_methods (facility_id, name, slug, sort_order)
+  select p_facility_id, m.name, m.slug, m.sort_order
+  from (values
+    ('Check',               'check',               0),
+    ('ACH',                 'ach',                 1),
+    ('Card (recorded)',     'card-recorded',       2),
+    ('Internal Chargeback', 'internal-chargeback', 3),
+    ('Cash',                'cash',                4),
+    ('Other',               'other',               5)
+  ) as m(name, slug, sort_order)
+  on conflict (facility_id, slug) do nothing;
+
+  -- Operating hours: a full Mon–Sun grid so the coverage engine always has a
+  -- row to read. 06:00–23:00 mirrors schedule_settings' 360/1380 minute
+  -- defaults (migration 232) so the two modules agree out of the box.
+  insert into public.facility_operating_hours (facility_id, day_of_week, open_time, close_time, is_closed)
+  select p_facility_id, d, time '06:00', time '23:00', false
+  from generate_series(0, 6) as d
+  on conflict (facility_id, day_of_week) do nothing;
+
+  -- A default rate card so rate resolution always finds exactly one card.
+  -- Rates start at 0.00: a real number is a facility business decision, and
+  -- seeding a plausible-looking rate risks it being invoiced by accident.
+  insert into public.rink_rate_cards
+    (facility_id, name, effective_start, effective_end, is_default,
+     hourly_rate_prime, hourly_rate_nonprime)
+  select p_facility_id, 'Standard Rates', date '2000-01-01', null, true, 0, 0
+  where not exists (
+    select 1 from public.rink_rate_cards rc
+    where rc.facility_id = p_facility_id and rc.is_default
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION seed_default_rink_scheduling_config(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.seed_default_rink_scheduling_config(p_facility_id uuid) IS 'Seeds per-facility Rink Scheduling config: settings, invoice counter, booking types, customer types, payment methods, a Mon-Sun operating-hours grid, and a zero-rate default rate card. Idempotent. Rinks and locker rooms are deliberately NOT seeded — those are facility-specific and entered in Facility Setup.';
 
 
 --
@@ -8124,6 +8630,21 @@ CREATE FUNCTION public.tg_seed_facility_modules() RETURNS trigger
     AS $$
 begin
   perform public.seed_default_facility_modules(new.id);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: tg_seed_rink_scheduling_config(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.tg_seed_rink_scheduling_config() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.seed_default_rink_scheduling_config(new.id);
   return new;
 end;
 $$;
@@ -11125,6 +11646,43 @@ COMMENT ON TABLE public.facility_dropdown_options IS 'Generic per-facility admin
 
 
 --
+-- Name: facility_locker_rooms; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_locker_rooms (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    short_code text NOT NULL,
+    capacity integer,
+    default_rink_id uuid,
+    notes text,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_locker_rooms_capacity_sane CHECK (((capacity IS NULL) OR ((capacity >= 1) AND (capacity <= 500)))),
+    CONSTRAINT facility_locker_rooms_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 80))),
+    CONSTRAINT facility_locker_rooms_short_code_len CHECK (((char_length(btrim(short_code)) >= 1) AND (char_length(btrim(short_code)) <= 8)))
+);
+
+
+--
+-- Name: TABLE facility_locker_rooms; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_locker_rooms IS 'Rink Scheduling: bookable locker rooms per facility. Assigned to bookings via rink_locker_room_assignments and surfaced on the public TV display by short_code.';
+
+
+--
+-- Name: COLUMN facility_locker_rooms.default_rink_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_locker_rooms.default_rink_id IS 'Optional rink association — rooms usually sit rink-side. Advisory only; a room may be assigned to a booking on any rink.';
+
+
+--
 -- Name: facility_modules; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -11136,6 +11694,64 @@ CREATE TABLE public.facility_modules (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: facility_operating_hours; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_operating_hours (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    day_of_week integer NOT NULL,
+    open_time time without time zone,
+    close_time time without time zone,
+    is_closed boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_operating_hours_dow CHECK (((day_of_week >= 0) AND (day_of_week <= 6))),
+    CONSTRAINT facility_operating_hours_times_present CHECK (((is_closed AND (open_time IS NULL) AND (close_time IS NULL)) OR ((NOT is_closed) AND (open_time IS NOT NULL) AND (close_time IS NOT NULL))))
+);
+
+
+--
+-- Name: TABLE facility_operating_hours; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_operating_hours IS 'Rink Scheduling: per-facility weekly operating hours in FACILITY-LOCAL wall clock (facilities.timezone). Authoritative for coverage gap_hours checks and calendar shading. day_of_week: 0=Sunday..6=Saturday, matching schedule_settings.week_start_day.';
+
+
+--
+-- Name: COLUMN facility_operating_hours.open_time; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_operating_hours.open_time IS 'Facility-local. When open_time > close_time the day wraps past midnight into the following calendar day.';
+
+
+--
+-- Name: facility_operating_hours_exceptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_operating_hours_exceptions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    exception_date date NOT NULL,
+    open_time time without time zone,
+    close_time time without time zone,
+    is_closed boolean DEFAULT false NOT NULL,
+    label text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_hours_exceptions_label_len CHECK (((char_length(btrim(label)) >= 1) AND (char_length(btrim(label)) <= 120))),
+    CONSTRAINT facility_hours_exceptions_times_present CHECK (((is_closed AND (open_time IS NULL) AND (close_time IS NULL)) OR ((NOT is_closed) AND (open_time IS NOT NULL) AND (close_time IS NOT NULL))))
+);
+
+
+--
+-- Name: TABLE facility_operating_hours_exceptions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_operating_hours_exceptions IS 'Rink Scheduling: holiday / special-day overrides. A row for a date fully REPLACES that date''s facility_operating_hours row for coverage and shading purposes.';
 
 
 --
@@ -11176,6 +11792,48 @@ COMMENT ON TABLE public.facility_rink_diagram_config IS 'Ice Depth diagram overl
 --
 
 COMMENT ON COLUMN public.facility_rink_diagram_config.rink_id IS 'Which physical sheet of ice (ice_depth_rinks) this logo config belongs to. Pinned to the same facility as facility_id via a composite FK. One row per rink (unique).';
+
+
+--
+-- Name: facility_rinks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_rinks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    short_code text NOT NULL,
+    display_color text DEFAULT '#4DFF00'::text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT facility_rinks_color_hex CHECK ((display_color ~ '^#[0-9A-Fa-f]{6}$'::text)),
+    CONSTRAINT facility_rinks_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 80))),
+    CONSTRAINT facility_rinks_short_code_len CHECK (((char_length(btrim(short_code)) >= 1) AND (char_length(btrim(short_code)) <= 8)))
+);
+
+
+--
+-- Name: TABLE facility_rinks; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_rinks IS 'Rink Scheduling: physical ice surfaces per facility. The calendar renders one column per active rink in sort_order. A facility is capped at 10 ACTIVE rinks; that cap is enforced in the server action (see src/app/admin/rink-scheduling) because it is a product rule, not a data invariant — deactivating below the cap must always remain possible.';
+
+
+--
+-- Name: COLUMN facility_rinks.short_code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_rinks.short_code IS 'Compact label for the TV display and dense grid headers (e.g. "MAIN", "OVAL").';
+
+
+--
+-- Name: COLUMN facility_rinks.display_color; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_rinks.display_color IS 'Hex color for calendar blocks. Stored as a literal because it is admin-chosen per rink; app chrome still uses semantic tokens.';
 
 
 --
@@ -12758,6 +13416,644 @@ COMMENT ON COLUMN public.retention_settings.last_purge_count IS 'Number of recor
 
 
 --
+-- Name: rink_booking_series; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_booking_series (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    customer_id uuid,
+    rink_id uuid NOT NULL,
+    booking_type_id uuid NOT NULL,
+    title text,
+    frequency text DEFAULT 'weekly'::text NOT NULL,
+    interval_weeks integer DEFAULT 1 NOT NULL,
+    days_of_week integer[] NOT NULL,
+    start_time time without time zone NOT NULL,
+    end_time time without time zone NOT NULL,
+    series_start_date date NOT NULL,
+    series_end_date date NOT NULL,
+    rate_card_id uuid,
+    notes text,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_booking_series_date_order CHECK ((series_end_date >= series_start_date)),
+    CONSTRAINT rink_booking_series_dow_chk CHECK ((((array_length(days_of_week, 1) >= 1) AND (array_length(days_of_week, 1) <= 7)) AND (days_of_week <@ ARRAY[0, 1, 2, 3, 4, 5, 6]))),
+    CONSTRAINT rink_booking_series_frequency_chk CHECK ((frequency = 'weekly'::text)),
+    CONSTRAINT rink_booking_series_interval_chk CHECK (((interval_weeks >= 1) AND (interval_weeks <= 12))),
+    CONSTRAINT rink_booking_series_status_chk CHECK ((status = ANY (ARRAY['active'::text, 'cancelled'::text]))),
+    CONSTRAINT rink_booking_series_time_order CHECK ((end_time > start_time))
+);
+
+
+--
+-- Name: TABLE rink_booking_series; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_booking_series IS 'Rink Scheduling: recurring booking contracts. Recurrence is structured (frequency + interval_weeks + days_of_week + times + date range) rather than an RRULE string so the UI can edit it directly. start_time/end_time are FACILITY-LOCAL; each generated occurrence resolves them against facilities.timezone for the occurrence date, so a series spanning a DST boundary keeps its wall-clock time.';
+
+
+--
+-- Name: COLUMN rink_booking_series.days_of_week; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_booking_series.days_of_week IS '0=Sunday..6=Saturday, matching facility_operating_hours.day_of_week.';
+
+
+--
+-- Name: rink_booking_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_booking_types (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    color text DEFAULT '#002244'::text NOT NULL,
+    is_billable boolean DEFAULT true NOT NULL,
+    is_system boolean DEFAULT false NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_booking_types_color_hex CHECK ((color ~ '^#[0-9A-Fa-f]{6}$'::text)),
+    CONSTRAINT rink_booking_types_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 60)))
+);
+
+
+--
+-- Name: TABLE rink_booking_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_booking_types IS 'Rink Scheduling: admin-configurable booking types. is_billable = false means the slot occupies ice but never reaches an invoice (Maintenance Block). is_system marks seeded types whose billability the UI protects from edits.';
+
+
+--
+-- Name: COLUMN rink_booking_types.is_system; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_booking_types.is_system IS 'True for the seeded Maintenance Block type. System types may be renamed and recolored but not made billable and not deleted, because the "customer optional" rule keys off a non-billable type.';
+
+
+--
+-- Name: rink_bookings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_bookings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    customer_id uuid,
+    series_id uuid,
+    booking_type_id uuid NOT NULL,
+    title text,
+    starts_at timestamp with time zone NOT NULL,
+    ends_at timestamp with time zone NOT NULL,
+    buffer_minutes_after integer DEFAULT 0 NOT NULL,
+    blocks_until timestamp with time zone DEFAULT now() NOT NULL,
+    status text DEFAULT 'tentative'::text NOT NULL,
+    rate_snapshot_hourly numeric(10,2),
+    rate_snapshot_prime boolean,
+    computed_amount numeric(12,2),
+    coverage_status text DEFAULT 'covered'::text NOT NULL,
+    coverage_checked_at timestamp with time zone,
+    notes text,
+    created_by uuid,
+    cancelled_at timestamp with time zone,
+    cancelled_by uuid,
+    cancellation_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_bookings_amount_nonneg CHECK (((computed_amount IS NULL) OR (computed_amount >= (0)::numeric))),
+    CONSTRAINT rink_bookings_blocks_until_chk CHECK ((blocks_until >= ends_at)),
+    CONSTRAINT rink_bookings_buffer_chk CHECK (((buffer_minutes_after >= 0) AND (buffer_minutes_after <= 120))),
+    CONSTRAINT rink_bookings_cancel_coherent CHECK ((((status = 'cancelled'::text) AND (cancelled_at IS NOT NULL)) OR ((status <> 'cancelled'::text) AND (cancelled_at IS NULL)))),
+    CONSTRAINT rink_bookings_coverage_chk CHECK ((coverage_status = ANY (ARRAY['covered'::text, 'gap_hours'::text, 'gap_staffing'::text, 'gap_both'::text]))),
+    CONSTRAINT rink_bookings_status_chk CHECK ((status = ANY (ARRAY['tentative'::text, 'confirmed'::text, 'cancelled'::text]))),
+    CONSTRAINT rink_bookings_time_order CHECK ((ends_at > starts_at))
+);
+
+
+--
+-- Name: TABLE rink_bookings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_bookings IS 'Rink Scheduling: one row per ice slot. Overlap prevention (buffer inclusive) is enforced by the rink_bookings_no_overlap exclusion constraint, which is the source of truth — server actions insert and translate 23P01 into a conflict resolution flow rather than relying on a pre-check.';
+
+
+--
+-- Name: COLUMN rink_bookings.blocks_until; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.blocks_until IS 'ends_at + buffer_minutes_after, maintained by trg_rink_bookings_blocks_until. Never write this from application code: an exclusion constraint needs an IMMUTABLE expression and timestamptz + interval is only STABLE, so the sum must be materialised. The now() default exists solely so generated types mark the column optional; the BEFORE trigger always overwrites it. Change buffer_minutes_after instead.';
+
+
+--
+-- Name: COLUMN rink_bookings.rate_snapshot_hourly; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.rate_snapshot_hourly IS 'Rate captured at save time. Later rate-card edits never mutate an existing booking. NULL for non-billable types.';
+
+
+--
+-- Name: COLUMN rink_bookings.rate_snapshot_prime; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.rate_snapshot_prime IS 'True when the whole slot fell in prime time, false when wholly non-prime, NULL when it straddled a boundary and computed_amount is the blended total of both segments.';
+
+
+--
+-- Name: COLUMN rink_bookings.coverage_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.coverage_status IS 'Maintained by the coverage engine, never set by hand. gap_hours = outside facility operating hours; gap_staffing = no published shift spans the window; gap_both = both.';
+
+
+--
+-- Name: rink_coverage_reeval_queue; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_coverage_reeval_queue (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    reason text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    processed_at timestamp with time zone,
+    CONSTRAINT rink_coverage_queue_reason_chk CHECK ((reason = ANY (ARRAY['booking_change'::text, 'shift_change'::text, 'hours_change'::text, 'settings_change'::text, 'manual'::text]))),
+    CONSTRAINT rink_coverage_queue_status_chk CHECK ((status = ANY (ARRAY['pending'::text, 'done'::text])))
+);
+
+
+--
+-- Name: TABLE rink_coverage_reeval_queue; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_coverage_reeval_queue IS 'Rink Scheduling: debounce queue for coverage re-evaluation. One pending row per facility (partial unique index), so publishing a full week of shifts produces exactly one evaluation pass rather than one per shift row. Drained by /api/cron/rink-coverage-sweep.';
+
+
+--
+-- Name: rink_customer_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_customer_types (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_customer_types_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 60)))
+);
+
+
+--
+-- Name: TABLE rink_customer_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_customer_types IS 'Rink Scheduling: admin-extendable customer classification (internal program, university department, team, league, school, individual, other). Deactivate rather than delete once referenced.';
+
+
+--
+-- Name: rink_customers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_customers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    customer_type_id uuid,
+    contact_name text,
+    contact_email text,
+    contact_phone text,
+    billing_address_line1 text,
+    billing_address_line2 text,
+    billing_city text,
+    billing_state text,
+    billing_zip text,
+    payment_terms_days integer,
+    default_rate_card_id uuid,
+    internal_chargeback_code text,
+    notes text,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_customers_email_chk CHECK (((contact_email IS NULL) OR (contact_email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'::text))),
+    CONSTRAINT rink_customers_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 120))),
+    CONSTRAINT rink_customers_terms_chk CHECK (((payment_terms_days IS NULL) OR ((payment_terms_days >= 0) AND (payment_terms_days <= 365))))
+);
+
+
+--
+-- Name: TABLE rink_customers; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_customers IS 'Rink Scheduling: billing and booking parties. payment_terms_days NULL means inherit rink_scheduling_settings.default_payment_terms_days at invoice time; default_rate_card_id NULL means use the facility default card in effect on the booking date.';
+
+
+--
+-- Name: COLUMN rink_customers.internal_chargeback_code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_customers.internal_chargeback_code IS 'Internal cost-centre / chargeback code for university departments and internal programs billed by journal transfer rather than invoice payment.';
+
+
+--
+-- Name: rink_display_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_display_tokens (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    token_hash text NOT NULL,
+    label text NOT NULL,
+    display_type text DEFAULT 'locker_rooms'::text NOT NULL,
+    settings jsonb DEFAULT '{}'::jsonb NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_by uuid,
+    last_seen_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_display_tokens_hash_chk CHECK ((token_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT rink_display_tokens_label_len CHECK (((char_length(btrim(label)) >= 1) AND (char_length(btrim(label)) <= 60))),
+    CONSTRAINT rink_display_tokens_settings_object CHECK ((jsonb_typeof(settings) = 'object'::text)),
+    CONSTRAINT rink_display_tokens_type_chk CHECK ((display_type = 'locker_rooms'::text))
+);
+
+
+--
+-- Name: TABLE rink_display_tokens; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_display_tokens IS 'Rink Scheduling: facility-scoped tokens for unauthenticated TV displays. Stores ONLY a sha256 hash of the token; the plaintext is shown once at creation and is unrecoverable. Validated server-side in a Route Handler with the service-role client — never queried from a browser.';
+
+
+--
+-- Name: COLUMN rink_display_tokens.display_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_display_tokens.display_type IS 'Seeded with locker_rooms. The CHECK is widened (drop + add, whole list restated) when a new display type such as ice_schedule ships.';
+
+
+--
+-- Name: COLUMN rink_display_tokens.settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_display_tokens.settings IS 'Display configuration: hours_ahead (window), refresh_seconds, and which columns to show. Object-shaped by CHECK.';
+
+
+--
+-- Name: COLUMN rink_display_tokens.last_seen_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_display_tokens.last_seen_at IS 'Stamped on each successful poll so admins can spot a display that has gone dark. Written by the public endpoint via the service-role client.';
+
+
+--
+-- Name: rink_invoice_counters; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_invoice_counters (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    next_seq integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_invoice_counters_seq_chk CHECK ((next_seq >= 1))
+);
+
+
+--
+-- Name: TABLE rink_invoice_counters; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_invoice_counters IS 'Rink Scheduling: per-facility invoice number sequence. Claimed with an atomic UPDATE ... RETURNING so no SECURITY DEFINER function is needed. Deliberately separate from rink_scheduling_settings because invoicing is edit-tier while settings are admin-tier.';
+
+
+--
+-- Name: rink_invoice_line_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_invoice_line_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    invoice_id uuid NOT NULL,
+    booking_id uuid,
+    description text NOT NULL,
+    quantity_hours numeric(8,2) NOT NULL,
+    unit_rate numeric(10,2) NOT NULL,
+    amount numeric(12,2) NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    voided boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_invoice_line_items_amount_nonneg CHECK ((amount >= (0)::numeric)),
+    CONSTRAINT rink_invoice_line_items_desc_len CHECK (((char_length(btrim(description)) >= 1) AND (char_length(btrim(description)) <= 300))),
+    CONSTRAINT rink_invoice_line_items_qty_pos CHECK ((quantity_hours > (0)::numeric)),
+    CONSTRAINT rink_invoice_line_items_rate_nonneg CHECK ((unit_rate >= (0)::numeric))
+);
+
+
+--
+-- Name: TABLE rink_invoice_line_items; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_invoice_line_items IS 'Rink Scheduling: invoice lines. booking_id NULL means a manual line. A booking can appear on at most one non-void invoice, enforced by rink_invoice_line_items_booking_live_uniq.';
+
+
+--
+-- Name: COLUMN rink_invoice_line_items.voided; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_invoice_line_items.voided IS 'Mirrors the parent invoice''s void state. Denormalised solely so the one-live-invoice-per-booking rule can be a partial unique index; maintained by triggers, never written by application code.';
+
+
+--
+-- Name: rink_invoices; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_invoices (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    customer_id uuid NOT NULL,
+    invoice_number text NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    issue_date date NOT NULL,
+    due_date date NOT NULL,
+    subtotal numeric(12,2) DEFAULT 0 NOT NULL,
+    tax_amount numeric(12,2) DEFAULT 0 NOT NULL,
+    total numeric(12,2) DEFAULT 0 NOT NULL,
+    amount_paid numeric(12,2) DEFAULT 0 NOT NULL,
+    tax_rate numeric(6,4),
+    notes text,
+    created_by uuid,
+    sent_at timestamp with time zone,
+    voided_at timestamp with time zone,
+    voided_by uuid,
+    void_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_invoices_date_order CHECK ((due_date >= issue_date)),
+    CONSTRAINT rink_invoices_status_chk CHECK ((status = ANY (ARRAY['draft'::text, 'sent'::text, 'partially_paid'::text, 'paid'::text, 'void'::text]))),
+    CONSTRAINT rink_invoices_subtotal_nonneg CHECK ((subtotal >= (0)::numeric)),
+    CONSTRAINT rink_invoices_tax_nonneg CHECK ((tax_amount >= (0)::numeric)),
+    CONSTRAINT rink_invoices_total_nonneg CHECK ((total >= (0)::numeric)),
+    CONSTRAINT rink_invoices_void_coherent CHECK ((((status = 'void'::text) AND (voided_at IS NOT NULL)) OR ((status <> 'void'::text) AND (voided_at IS NULL))))
+);
+
+
+--
+-- Name: TABLE rink_invoices; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_invoices IS 'Rink Scheduling: accounts receivable. status partially_paid/paid are DERIVED from the payment sum and recomputed server-side on every payment write — never set by hand. Voiding releases the invoice''s bookings back to uninvoiced.';
+
+
+--
+-- Name: COLUMN rink_invoices.amount_paid; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_invoices.amount_paid IS 'Recomputed server-side as the sum of rink_payments (reversals included, they are negative) after every payment write. Chosen over a trigger so the invoice status transition and the sum are decided in one place.';
+
+
+--
+-- Name: COLUMN rink_invoices.tax_rate; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_invoices.tax_rate IS 'Tax rate snapshotted from module settings at generation, so a later settings change never restates an issued invoice.';
+
+
+--
+-- Name: rink_locker_room_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_locker_room_assignments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    booking_id uuid NOT NULL,
+    locker_room_id uuid NOT NULL,
+    occupies_from timestamp with time zone NOT NULL,
+    occupies_until timestamp with time zone NOT NULL,
+    display_label_override text,
+    notes text,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_locker_assignments_label_len CHECK (((display_label_override IS NULL) OR ((char_length(btrim(display_label_override)) >= 1) AND (char_length(btrim(display_label_override)) <= 40)))),
+    CONSTRAINT rink_locker_assignments_time_order CHECK ((occupies_until > occupies_from))
+);
+
+
+--
+-- Name: TABLE rink_locker_room_assignments; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_locker_room_assignments IS 'Rink Scheduling: locker rooms attached to a booking. A booking may hold several rooms (home/visitor) and a room may host many bookings. Overlaps are ALLOWED BY DESIGN and surfaced as warnings — fast turnover is normal. Rows cascade away when their booking is deleted; the display drops them as soon as the booking is cancelled.';
+
+
+--
+-- Name: COLUMN rink_locker_room_assignments.occupies_from; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_locker_room_assignments.occupies_from IS 'Defaults to booking start minus rink_scheduling_settings.locker_lead_minutes, overridable per assignment.';
+
+
+--
+-- Name: COLUMN rink_locker_room_assignments.display_label_override; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_locker_room_assignments.display_label_override IS 'What the public TV display shows instead of the customer name (e.g. "Home", "Visitors"). Also the privacy lever for bookings whose customer name should not be on a lobby screen.';
+
+
+--
+-- Name: rink_payment_methods; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_payment_methods (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_payment_methods_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 60)))
+);
+
+
+--
+-- Name: TABLE rink_payment_methods; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_payment_methods IS 'Rink Scheduling: admin-configurable payment methods (Check, ACH, Card (recorded), Internal Chargeback, Cash, Other). "Card (recorded)" is a record of a card payment taken elsewhere — this module never touches card data.';
+
+
+--
+-- Name: rink_payments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_payments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    invoice_id uuid NOT NULL,
+    amount numeric(12,2) NOT NULL,
+    payment_method_id uuid,
+    payment_date date NOT NULL,
+    reference_number text,
+    reverses_payment_id uuid,
+    recorded_by uuid,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT rink_payments_amount_nonzero CHECK ((amount <> (0)::numeric)),
+    CONSTRAINT rink_payments_reversal_sign CHECK ((((reverses_payment_id IS NULL) AND (amount > (0)::numeric)) OR ((reverses_payment_id IS NOT NULL) AND (amount < (0)::numeric))))
+);
+
+
+--
+-- Name: TABLE rink_payments; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_payments IS 'Rink Scheduling: payments against invoices. APPEND-ONLY — there are no UPDATE or DELETE policies. A mistaken payment is corrected by inserting a negative-amount reversal row referencing the original via reverses_payment_id, which keeps the audit trail intact.';
+
+
+--
+-- Name: rink_rate_card_type_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_rate_card_type_overrides (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rate_card_id uuid NOT NULL,
+    booking_type_id uuid NOT NULL,
+    hourly_rate_prime numeric(10,2) DEFAULT 0 NOT NULL,
+    hourly_rate_nonprime numeric(10,2) DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_rate_type_overrides_nonprime_nonneg CHECK ((hourly_rate_nonprime >= (0)::numeric)),
+    CONSTRAINT rink_rate_type_overrides_prime_nonneg CHECK ((hourly_rate_prime >= (0)::numeric))
+);
+
+
+--
+-- Name: TABLE rink_rate_card_type_overrides; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_rate_card_type_overrides IS 'Rink Scheduling: per-booking-type rate override on a card. Lets an internal program or chargeback type carry $0 or a reduced rate while the same card prices commercial rentals normally.';
+
+
+--
+-- Name: rink_rate_card_windows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_rate_card_windows (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rate_card_id uuid NOT NULL,
+    day_of_week integer NOT NULL,
+    start_time time without time zone NOT NULL,
+    end_time time without time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_rate_card_windows_dow CHECK (((day_of_week >= 0) AND (day_of_week <= 6))),
+    CONSTRAINT rink_rate_card_windows_time_order CHECK ((end_time > start_time))
+);
+
+
+--
+-- Name: TABLE rink_rate_card_windows; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_rate_card_windows IS 'Rink Scheduling: prime-time windows for a rate card, in FACILITY-LOCAL wall clock. Any part of a booking outside every window for its day is non-prime. A booking straddling a boundary is split across both rates by the rate engine.';
+
+
+--
+-- Name: rink_rate_cards; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_rate_cards (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    name text NOT NULL,
+    effective_start date NOT NULL,
+    effective_end date,
+    is_default boolean DEFAULT false NOT NULL,
+    hourly_rate_prime numeric(10,2) DEFAULT 0 NOT NULL,
+    hourly_rate_nonprime numeric(10,2) DEFAULT 0 NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_rate_cards_currency_chk CHECK ((currency ~ '^[A-Z]{3}$'::text)),
+    CONSTRAINT rink_rate_cards_date_order CHECK (((effective_end IS NULL) OR (effective_end >= effective_start))),
+    CONSTRAINT rink_rate_cards_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 80))),
+    CONSTRAINT rink_rate_cards_nonprime_nonneg CHECK ((hourly_rate_nonprime >= (0)::numeric)),
+    CONSTRAINT rink_rate_cards_prime_nonneg CHECK ((hourly_rate_prime >= (0)::numeric))
+);
+
+
+--
+-- Name: TABLE rink_rate_cards; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_rate_cards IS 'Rink Scheduling: dated rate schedules. Anything outside a rink_rate_card_windows prime window is billed at hourly_rate_nonprime. Rates are SNAPSHOTTED onto each booking at save, so editing a card never mutates existing bookings or issued invoices.';
+
+
+--
+-- Name: rink_scheduling_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_scheduling_settings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    default_buffer_minutes integer DEFAULT 15 NOT NULL,
+    slot_increment_minutes integer DEFAULT 30 NOT NULL,
+    default_payment_terms_days integer DEFAULT 30 NOT NULL,
+    invoice_prefix text DEFAULT 'INV-'::text NOT NULL,
+    tax_rate numeric(6,4),
+    coverage_check_enabled boolean DEFAULT true NOT NULL,
+    locker_lead_minutes integer DEFAULT 45 NOT NULL,
+    locker_vacate_minutes integer DEFAULT 30 NOT NULL,
+    display_refresh_seconds integer DEFAULT 60 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_scheduling_settings_buffer_chk CHECK (((default_buffer_minutes >= 0) AND (default_buffer_minutes <= 120))),
+    CONSTRAINT rink_scheduling_settings_lead_chk CHECK (((locker_lead_minutes >= 0) AND (locker_lead_minutes <= 480))),
+    CONSTRAINT rink_scheduling_settings_prefix_chk CHECK ((invoice_prefix ~ '^[A-Za-z0-9-]{0,12}$'::text)),
+    CONSTRAINT rink_scheduling_settings_refresh_chk CHECK (((display_refresh_seconds >= 15) AND (display_refresh_seconds <= 3600))),
+    CONSTRAINT rink_scheduling_settings_slot_chk CHECK ((slot_increment_minutes = ANY (ARRAY[5, 10, 15, 20, 30, 60]))),
+    CONSTRAINT rink_scheduling_settings_tax_chk CHECK (((tax_rate IS NULL) OR ((tax_rate >= (0)::numeric) AND (tax_rate <= (1)::numeric)))),
+    CONSTRAINT rink_scheduling_settings_terms_chk CHECK (((default_payment_terms_days >= 0) AND (default_payment_terms_days <= 365))),
+    CONSTRAINT rink_scheduling_settings_vacate_chk CHECK (((locker_vacate_minutes >= 0) AND (locker_vacate_minutes <= 480)))
+);
+
+
+--
+-- Name: TABLE rink_scheduling_settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_scheduling_settings IS 'Rink Scheduling: per-facility module settings, one row per facility (schedule_settings pattern). Read with maybeSingle() and fall back to these defaults; SELECT * when loading for the settings form so an omitted column cannot silently revert a flag on save.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.default_buffer_minutes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.default_buffer_minutes IS 'Resurfacing buffer copied onto each booking at creation (rink_bookings.buffer_minutes_after). Changing it never mutates existing bookings.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.tax_rate; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.tax_rate IS 'Tax as a FRACTION, not a percentage: 0.0875 = 8.75%. NULL means no tax line on invoices.';
+
+
+--
 -- Name: role_module_permission_defaults; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -13492,7 +14788,7 @@ CREATE TABLE public.user_permissions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     source text DEFAULT 'role_default'::text NOT NULL,
-    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'admin'::text]))),
+    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'rink_scheduling'::text, 'admin'::text]))),
     CONSTRAINT user_permissions_source_check CHECK ((source = ANY (ARRAY['role_default'::text, 'manual_override'::text])))
 );
 
@@ -14563,6 +15859,46 @@ ALTER TABLE ONLY public.facility_dropdown_options
 
 
 --
+-- Name: facility_operating_hours_exceptions facility_hours_exceptions_facility_date_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_operating_hours_exceptions
+    ADD CONSTRAINT facility_hours_exceptions_facility_date_uniq UNIQUE (facility_id, exception_date);
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_facility_short_code_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_locker_rooms
+    ADD CONSTRAINT facility_locker_rooms_facility_short_code_uniq UNIQUE (facility_id, short_code);
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_locker_rooms
+    ADD CONSTRAINT facility_locker_rooms_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_locker_rooms
+    ADD CONSTRAINT facility_locker_rooms_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_locker_rooms
+    ADD CONSTRAINT facility_locker_rooms_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: facility_modules facility_modules_facility_id_module_key_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14579,6 +15915,30 @@ ALTER TABLE ONLY public.facility_modules
 
 
 --
+-- Name: facility_operating_hours_exceptions facility_operating_hours_exceptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_operating_hours_exceptions
+    ADD CONSTRAINT facility_operating_hours_exceptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: facility_operating_hours facility_operating_hours_facility_dow_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_operating_hours
+    ADD CONSTRAINT facility_operating_hours_facility_dow_uniq UNIQUE (facility_id, day_of_week);
+
+
+--
+-- Name: facility_operating_hours facility_operating_hours_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_operating_hours
+    ADD CONSTRAINT facility_operating_hours_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: facility_rink_diagram_config facility_rink_diagram_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14592,6 +15952,38 @@ ALTER TABLE ONLY public.facility_rink_diagram_config
 
 ALTER TABLE ONLY public.facility_rink_diagram_config
     ADD CONSTRAINT facility_rink_diagram_config_rink_uniq UNIQUE (rink_id);
+
+
+--
+-- Name: facility_rinks facility_rinks_facility_short_code_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rinks
+    ADD CONSTRAINT facility_rinks_facility_short_code_uniq UNIQUE (facility_id, short_code);
+
+
+--
+-- Name: facility_rinks facility_rinks_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rinks
+    ADD CONSTRAINT facility_rinks_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: facility_rinks facility_rinks_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rinks
+    ADD CONSTRAINT facility_rinks_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: facility_rinks facility_rinks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rinks
+    ADD CONSTRAINT facility_rinks_pkey PRIMARY KEY (id);
 
 
 --
@@ -15144,6 +16536,316 @@ ALTER TABLE ONLY public.retention_settings
 
 ALTER TABLE ONLY public.retention_settings
     ADD CONSTRAINT retention_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_booking_series rink_booking_series_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_booking_series rink_booking_series_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_booking_types rink_booking_types_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_types
+    ADD CONSTRAINT rink_booking_types_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: rink_booking_types rink_booking_types_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_types
+    ADD CONSTRAINT rink_booking_types_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_booking_types rink_booking_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_types
+    ADD CONSTRAINT rink_booking_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_bookings rink_bookings_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_bookings rink_bookings_no_overlap; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_no_overlap EXCLUDE USING gist (rink_id WITH =, tstzrange(starts_at, blocks_until, '[)'::text) WITH &&) WHERE ((status <> 'cancelled'::text));
+
+
+--
+-- Name: rink_bookings rink_bookings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_coverage_reeval_queue rink_coverage_reeval_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_coverage_reeval_queue
+    ADD CONSTRAINT rink_coverage_reeval_queue_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_customer_types rink_customer_types_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customer_types
+    ADD CONSTRAINT rink_customer_types_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: rink_customer_types rink_customer_types_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customer_types
+    ADD CONSTRAINT rink_customer_types_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_customer_types rink_customer_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customer_types
+    ADD CONSTRAINT rink_customer_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_customers rink_customers_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customers
+    ADD CONSTRAINT rink_customers_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_customers rink_customers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customers
+    ADD CONSTRAINT rink_customers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_hash_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_display_tokens
+    ADD CONSTRAINT rink_display_tokens_hash_uniq UNIQUE (token_hash);
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_display_tokens
+    ADD CONSTRAINT rink_display_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_invoice_counters rink_invoice_counters_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_counters
+    ADD CONSTRAINT rink_invoice_counters_facility_uniq UNIQUE (facility_id);
+
+
+--
+-- Name: rink_invoice_counters rink_invoice_counters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_counters
+    ADD CONSTRAINT rink_invoice_counters_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_line_items
+    ADD CONSTRAINT rink_invoice_line_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_invoices rink_invoices_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_invoices rink_invoices_number_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_number_uniq UNIQUE (facility_id, invoice_number);
+
+
+--
+-- Name: rink_invoices rink_invoices_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_booking_room_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_locker_room_assignments
+    ADD CONSTRAINT rink_locker_assignments_booking_room_uniq UNIQUE (booking_id, locker_room_id);
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_room_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_locker_room_assignments
+    ADD CONSTRAINT rink_locker_room_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payment_methods
+    ADD CONSTRAINT rink_payment_methods_facility_slug_uniq UNIQUE (facility_id, slug);
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payment_methods
+    ADD CONSTRAINT rink_payment_methods_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payment_methods
+    ADD CONSTRAINT rink_payment_methods_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_payments rink_payments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_payments rink_payments_reversal_once; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_reversal_once UNIQUE (reverses_payment_id);
+
+
+--
+-- Name: CONSTRAINT rink_payments_reversal_once ON rink_payments; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT rink_payments_reversal_once ON public.rink_payments IS 'A payment can be reversed at most once; a second reversal of the same row would double-credit the invoice.';
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_card_type_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_type_overrides
+    ADD CONSTRAINT rink_rate_card_type_overrides_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_windows
+    ADD CONSTRAINT rink_rate_card_windows_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_cards
+    ADD CONSTRAINT rink_rate_cards_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_no_default_overlap; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_cards
+    ADD CONSTRAINT rink_rate_cards_no_default_overlap EXCLUDE USING gist (facility_id WITH =, daterange(effective_start, COALESCE(effective_end, 'infinity'::date), '[]'::text) WITH &&) WHERE (is_default);
+
+
+--
+-- Name: CONSTRAINT rink_rate_cards_no_default_overlap ON rink_rate_cards; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT rink_rate_cards_no_default_overlap ON public.rink_rate_cards IS 'Guarantees a single unambiguous default card per facility per date. Non-default cards may overlap; they are chosen explicitly per customer.';
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_cards
+    ADD CONSTRAINT rink_rate_cards_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_card_type_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_type_overrides
+    ADD CONSTRAINT rink_rate_type_overrides_card_type_uniq UNIQUE (rate_card_id, booking_type_id);
+
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_scheduling_settings
+    ADD CONSTRAINT rink_scheduling_settings_facility_uniq UNIQUE (facility_id);
+
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_scheduling_settings
+    ADD CONSTRAINT rink_scheduling_settings_pkey PRIMARY KEY (id);
 
 
 --
@@ -16029,6 +17731,20 @@ CREATE INDEX audit_logs_y2035_facility_id_seq_idx ON public.audit_logs_y2035 USI
 --
 
 CREATE UNIQUE INDEX certification_types_ci_uniq ON public.certification_types USING btree (facility_id, lower(btrim(name)));
+
+
+--
+-- Name: communication_alerts_rink_scheduling_open_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX communication_alerts_rink_scheduling_open_uniq ON public.communication_alerts USING btree (facility_id, source_record_id) WHERE ((source_module = 'rink_scheduling'::text) AND (resolved_at IS NULL));
+
+
+--
+-- Name: INDEX communication_alerts_rink_scheduling_open_uniq; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON INDEX public.communication_alerts_rink_scheduling_open_uniq IS 'At most one UNRESOLVED rink_scheduling alert per booking, so the recurring coverage sweep updates rather than duplicates. Deliberately scoped to this module: other modules may legitimately hold several open alerts for one record.';
 
 
 --
@@ -17033,6 +18749,27 @@ CREATE INDEX idx_facility_dropdown_options_facility_domain_active_sort ON public
 
 
 --
+-- Name: idx_facility_hours_exceptions_facility_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_hours_exceptions_facility_date ON public.facility_operating_hours_exceptions USING btree (facility_id, exception_date);
+
+
+--
+-- Name: idx_facility_locker_rooms_facility_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_locker_rooms_facility_active ON public.facility_locker_rooms USING btree (facility_id, is_active, sort_order);
+
+
+--
+-- Name: idx_facility_rinks_facility_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_rinks_facility_active ON public.facility_rinks USING btree (facility_id, is_active, sort_order);
+
+
+--
 -- Name: idx_facility_spaces_facility; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -17740,6 +19477,139 @@ CREATE INDEX idx_retention_settings_facility_id ON public.retention_settings USI
 
 
 --
+-- Name: idx_rink_booking_series_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_booking_series_facility ON public.rink_booking_series USING btree (facility_id, status, series_start_date);
+
+
+--
+-- Name: idx_rink_booking_types_facility_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_booking_types_facility_active ON public.rink_booking_types USING btree (facility_id, is_active, sort_order);
+
+
+--
+-- Name: idx_rink_bookings_coverage_gaps; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_bookings_coverage_gaps ON public.rink_bookings USING btree (facility_id, starts_at) WHERE ((coverage_status <> 'covered'::text) AND (status <> 'cancelled'::text));
+
+
+--
+-- Name: idx_rink_bookings_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_bookings_customer ON public.rink_bookings USING btree (customer_id, starts_at);
+
+
+--
+-- Name: idx_rink_bookings_facility_rink_start; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_bookings_facility_rink_start ON public.rink_bookings USING btree (facility_id, rink_id, starts_at);
+
+
+--
+-- Name: idx_rink_bookings_facility_start; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_bookings_facility_start ON public.rink_bookings USING btree (facility_id, starts_at);
+
+
+--
+-- Name: idx_rink_bookings_series; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_bookings_series ON public.rink_bookings USING btree (series_id, starts_at) WHERE (series_id IS NOT NULL);
+
+
+--
+-- Name: idx_rink_coverage_queue_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_coverage_queue_pending ON public.rink_coverage_reeval_queue USING btree (status, requested_at) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: idx_rink_customers_facility_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_customers_facility_active ON public.rink_customers USING btree (facility_id, is_active, name);
+
+
+--
+-- Name: idx_rink_display_tokens_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_display_tokens_facility ON public.rink_display_tokens USING btree (facility_id, is_active);
+
+
+--
+-- Name: idx_rink_invoice_line_items_invoice; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_invoice_line_items_invoice ON public.rink_invoice_line_items USING btree (invoice_id, sort_order);
+
+
+--
+-- Name: idx_rink_invoices_customer; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_invoices_customer ON public.rink_invoices USING btree (customer_id, issue_date);
+
+
+--
+-- Name: idx_rink_invoices_facility_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_invoices_facility_status ON public.rink_invoices USING btree (facility_id, status, due_date);
+
+
+--
+-- Name: idx_rink_locker_assignments_booking; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_locker_assignments_booking ON public.rink_locker_room_assignments USING btree (booking_id);
+
+
+--
+-- Name: idx_rink_locker_assignments_room_window; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_locker_assignments_room_window ON public.rink_locker_room_assignments USING btree (facility_id, locker_room_id, occupies_from, occupies_until);
+
+
+--
+-- Name: idx_rink_payments_facility_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_payments_facility_date ON public.rink_payments USING btree (facility_id, payment_date);
+
+
+--
+-- Name: idx_rink_payments_invoice; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_payments_invoice ON public.rink_payments USING btree (invoice_id, payment_date);
+
+
+--
+-- Name: idx_rink_rate_card_windows_card; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_rate_card_windows_card ON public.rink_rate_card_windows USING btree (rate_card_id, day_of_week);
+
+
+--
+-- Name: idx_rink_rate_cards_facility_dates; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_rate_cards_facility_dates ON public.rink_rate_cards USING btree (facility_id, effective_start, effective_end);
+
+
+--
 -- Name: idx_role_mp_defaults_facility_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -18087,6 +19957,20 @@ CREATE INDEX rate_limit_counters_window_start_idx ON public.rate_limit_counters 
 --
 
 CREATE UNIQUE INDEX report_area_assignments_active_uniq ON public.report_area_assignments USING btree (facility_id, report_date, area_id, employee_id) WHERE (superseded_at IS NULL);
+
+
+--
+-- Name: rink_coverage_queue_one_pending_per_facility; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX rink_coverage_queue_one_pending_per_facility ON public.rink_coverage_reeval_queue USING btree (facility_id) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: rink_invoice_line_items_booking_live_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX rink_invoice_line_items_booking_live_uniq ON public.rink_invoice_line_items USING btree (booking_id) WHERE ((booking_id IS NOT NULL) AND (NOT voided));
 
 
 --
@@ -18916,6 +20800,13 @@ CREATE TRIGGER facilities_seed_modules AFTER INSERT ON public.facilities FOR EAC
 
 
 --
+-- Name: facilities facilities_seed_rink_scheduling; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER facilities_seed_rink_scheduling AFTER INSERT ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.tg_seed_rink_scheduling_config();
+
+
+--
 -- Name: facility_modules facility_modules_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -19581,10 +21472,38 @@ CREATE TRIGGER trg_facility_dropdown_options_updated_at BEFORE UPDATE ON public.
 
 
 --
+-- Name: facility_operating_hours_exceptions trg_facility_hours_exceptions_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_hours_exceptions_updated_at BEFORE UPDATE ON public.facility_operating_hours_exceptions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: facility_locker_rooms trg_facility_locker_rooms_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_locker_rooms_updated_at BEFORE UPDATE ON public.facility_locker_rooms FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: facility_operating_hours trg_facility_operating_hours_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_operating_hours_updated_at BEFORE UPDATE ON public.facility_operating_hours FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: facility_rink_diagram_config trg_facility_rink_diagram_config_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER trg_facility_rink_diagram_config_updated_at BEFORE UPDATE ON public.facility_rink_diagram_config FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: facility_rinks trg_facility_rinks_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_facility_rinks_updated_at BEFORE UPDATE ON public.facility_rinks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -19844,6 +21763,160 @@ CREATE TRIGGER trg_retention_settings_enforce_floor BEFORE INSERT OR UPDATE ON p
 --
 
 CREATE TRIGGER trg_retention_settings_updated_at BEFORE UPDATE ON public.retention_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_booking_series trg_rink_booking_series_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_booking_series_updated_at BEFORE UPDATE ON public.rink_booking_series FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_booking_types trg_rink_booking_types_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_booking_types_updated_at BEFORE UPDATE ON public.rink_booking_types FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_bookings trg_rink_bookings_blocks_until; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_bookings_blocks_until BEFORE INSERT OR UPDATE ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.rink_bookings_sync_blocks_until();
+
+
+--
+-- Name: rink_bookings trg_rink_bookings_require_customer; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_bookings_require_customer BEFORE INSERT OR UPDATE OF customer_id, booking_type_id ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.rink_bookings_require_customer();
+
+
+--
+-- Name: rink_bookings trg_rink_bookings_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_bookings_updated_at BEFORE UPDATE ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_customer_types trg_rink_customer_types_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_customer_types_updated_at BEFORE UPDATE ON public.rink_customer_types FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_customers trg_rink_customers_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_customers_updated_at BEFORE UPDATE ON public.rink_customers FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_display_tokens trg_rink_display_tokens_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_display_tokens_updated_at BEFORE UPDATE ON public.rink_display_tokens FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_invoice_counters trg_rink_invoice_counters_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_invoice_counters_updated_at BEFORE UPDATE ON public.rink_invoice_counters FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_invoice_line_items trg_rink_invoice_line_items_inherit_void; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_invoice_line_items_inherit_void BEFORE INSERT ON public.rink_invoice_line_items FOR EACH ROW EXECUTE FUNCTION public.rink_invoice_line_items_inherit_void();
+
+
+--
+-- Name: rink_invoice_line_items trg_rink_invoice_line_items_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_invoice_line_items_updated_at BEFORE UPDATE ON public.rink_invoice_line_items FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_invoices trg_rink_invoices_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_invoices_guard BEFORE UPDATE ON public.rink_invoices FOR EACH ROW EXECUTE FUNCTION public.rink_invoices_guard();
+
+
+--
+-- Name: rink_invoices trg_rink_invoices_propagate_void; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_invoices_propagate_void AFTER UPDATE OF status ON public.rink_invoices FOR EACH ROW EXECUTE FUNCTION public.rink_invoices_propagate_void();
+
+
+--
+-- Name: rink_invoices trg_rink_invoices_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_invoices_updated_at BEFORE UPDATE ON public.rink_invoices FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_locker_room_assignments trg_rink_locker_assignments_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_locker_assignments_updated_at BEFORE UPDATE ON public.rink_locker_room_assignments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_payment_methods trg_rink_payment_methods_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_payment_methods_updated_at BEFORE UPDATE ON public.rink_payment_methods FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_payments trg_rink_payments_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_payments_guard BEFORE INSERT OR DELETE OR UPDATE ON public.rink_payments FOR EACH ROW EXECUTE FUNCTION public.rink_payments_guard();
+
+
+--
+-- Name: rink_rate_card_windows trg_rink_rate_card_windows_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_rate_card_windows_updated_at BEFORE UPDATE ON public.rink_rate_card_windows FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_rate_cards trg_rink_rate_cards_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_rate_cards_updated_at BEFORE UPDATE ON public.rink_rate_cards FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_rate_card_type_overrides trg_rink_rate_type_overrides_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_rate_type_overrides_updated_at BEFORE UPDATE ON public.rink_rate_card_type_overrides FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: rink_scheduling_settings trg_rink_scheduling_settings_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_scheduling_settings_updated_at BEFORE UPDATE ON public.rink_scheduling_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: schedule_shifts trg_rink_scheduling_shift_coverage; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_scheduling_shift_coverage AFTER INSERT OR DELETE OR UPDATE ON public.schedule_shifts FOR EACH ROW EXECUTE FUNCTION public.rink_scheduling_enqueue_on_shift_change();
 
 
 --
@@ -21471,11 +23544,43 @@ ALTER TABLE ONLY public.facility_dropdown_options
 
 
 --
+-- Name: facility_locker_rooms facility_locker_rooms_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_locker_rooms
+    ADD CONSTRAINT facility_locker_rooms_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_rink_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_locker_rooms
+    ADD CONSTRAINT facility_locker_rooms_rink_fk FOREIGN KEY (default_rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE SET NULL;
+
+
+--
 -- Name: facility_modules facility_modules_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.facility_modules
     ADD CONSTRAINT facility_modules_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_operating_hours_exceptions facility_operating_hours_exceptions_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_operating_hours_exceptions
+    ADD CONSTRAINT facility_operating_hours_exceptions_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: facility_operating_hours facility_operating_hours_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_operating_hours
+    ADD CONSTRAINT facility_operating_hours_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
 
 
 --
@@ -21500,6 +23605,14 @@ ALTER TABLE ONLY public.facility_rink_diagram_config
 
 ALTER TABLE ONLY public.facility_rink_diagram_config
     ADD CONSTRAINT facility_rink_diagram_config_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: facility_rinks facility_rinks_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_rinks
+    ADD CONSTRAINT facility_rinks_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
 
 
 --
@@ -22308,6 +24421,374 @@ ALTER TABLE ONLY public.report_area_assignments
 
 ALTER TABLE ONLY public.retention_settings
     ADD CONSTRAINT retention_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_booking_series rink_booking_series_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_booking_series rink_booking_series_customer_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_customer_fk FOREIGN KEY (customer_id, facility_id) REFERENCES public.rink_customers(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_booking_series rink_booking_series_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_booking_series rink_booking_series_rate_card_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_rate_card_fk FOREIGN KEY (rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_booking_series rink_booking_series_rink_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_rink_fk FOREIGN KEY (rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_booking_series rink_booking_series_type_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_type_fk FOREIGN KEY (booking_type_id, facility_id) REFERENCES public.rink_booking_types(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_booking_types rink_booking_types_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_types
+    ADD CONSTRAINT rink_booking_types_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_bookings rink_bookings_cancelled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_bookings rink_bookings_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_bookings rink_bookings_customer_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_customer_fk FOREIGN KEY (customer_id, facility_id) REFERENCES public.rink_customers(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_bookings rink_bookings_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_bookings rink_bookings_rink_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_rink_fk FOREIGN KEY (rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_bookings rink_bookings_series_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_series_fk FOREIGN KEY (series_id, facility_id) REFERENCES public.rink_booking_series(id, facility_id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_bookings rink_bookings_type_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_type_fk FOREIGN KEY (booking_type_id, facility_id) REFERENCES public.rink_booking_types(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_coverage_reeval_queue rink_coverage_reeval_queue_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_coverage_reeval_queue
+    ADD CONSTRAINT rink_coverage_reeval_queue_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_customer_types rink_customer_types_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customer_types
+    ADD CONSTRAINT rink_customer_types_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_customers rink_customers_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customers
+    ADD CONSTRAINT rink_customers_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_customers rink_customers_rate_card_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customers
+    ADD CONSTRAINT rink_customers_rate_card_fk FOREIGN KEY (default_rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_customers rink_customers_type_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_customers
+    ADD CONSTRAINT rink_customers_type_fk FOREIGN KEY (customer_type_id, facility_id) REFERENCES public.rink_customer_types(id, facility_id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_display_tokens
+    ADD CONSTRAINT rink_display_tokens_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_display_tokens
+    ADD CONSTRAINT rink_display_tokens_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_invoice_counters rink_invoice_counters_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_counters
+    ADD CONSTRAINT rink_invoice_counters_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_booking_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_line_items
+    ADD CONSTRAINT rink_invoice_line_items_booking_fk FOREIGN KEY (booking_id, facility_id) REFERENCES public.rink_bookings(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_line_items
+    ADD CONSTRAINT rink_invoice_line_items_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_invoice_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoice_line_items
+    ADD CONSTRAINT rink_invoice_line_items_invoice_fk FOREIGN KEY (invoice_id, facility_id) REFERENCES public.rink_invoices(id, facility_id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_invoices rink_invoices_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_invoices rink_invoices_customer_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_customer_fk FOREIGN KEY (customer_id, facility_id) REFERENCES public.rink_customers(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_invoices rink_invoices_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_invoices rink_invoices_voided_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_voided_by_fkey FOREIGN KEY (voided_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_booking_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_locker_room_assignments
+    ADD CONSTRAINT rink_locker_assignments_booking_fk FOREIGN KEY (booking_id, facility_id) REFERENCES public.rink_bookings(id, facility_id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_room_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_locker_room_assignments
+    ADD CONSTRAINT rink_locker_assignments_room_fk FOREIGN KEY (locker_room_id, facility_id) REFERENCES public.facility_locker_rooms(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_room_assignments_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_locker_room_assignments
+    ADD CONSTRAINT rink_locker_room_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_room_assignments_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_locker_room_assignments
+    ADD CONSTRAINT rink_locker_room_assignments_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payment_methods
+    ADD CONSTRAINT rink_payment_methods_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_payments rink_payments_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_payments rink_payments_invoice_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_invoice_fk FOREIGN KEY (invoice_id, facility_id) REFERENCES public.rink_invoices(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_payments rink_payments_method_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_method_fk FOREIGN KEY (payment_method_id, facility_id) REFERENCES public.rink_payment_methods(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_payments rink_payments_recorded_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_payments rink_payments_reverses_payment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_payments
+    ADD CONSTRAINT rink_payments_reverses_payment_id_fkey FOREIGN KEY (reverses_payment_id) REFERENCES public.rink_payments(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_card_type_overrides_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_type_overrides
+    ADD CONSTRAINT rink_rate_card_type_overrides_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_card_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_windows
+    ADD CONSTRAINT rink_rate_card_windows_card_fk FOREIGN KEY (rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_windows
+    ADD CONSTRAINT rink_rate_card_windows_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_cards
+    ADD CONSTRAINT rink_rate_cards_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_card_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_type_overrides
+    ADD CONSTRAINT rink_rate_type_overrides_card_fk FOREIGN KEY (rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_type_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_rate_card_type_overrides
+    ADD CONSTRAINT rink_rate_type_overrides_type_fk FOREIGN KEY (booking_type_id, facility_id) REFERENCES public.rink_booking_types(id, facility_id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_scheduling_settings
+    ADD CONSTRAINT rink_scheduling_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
 
 
 --
@@ -25139,6 +27620,68 @@ CREATE POLICY facility_dropdown_options_update ON public.facility_dropdown_optio
 
 
 --
+-- Name: facility_operating_hours_exceptions facility_hours_exceptions_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_hours_exceptions_delete ON public.facility_operating_hours_exceptions FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_operating_hours_exceptions facility_hours_exceptions_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_hours_exceptions_insert ON public.facility_operating_hours_exceptions FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_operating_hours_exceptions facility_hours_exceptions_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_hours_exceptions_select ON public.facility_operating_hours_exceptions FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_operating_hours_exceptions facility_hours_exceptions_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_hours_exceptions_update ON public.facility_operating_hours_exceptions FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: facility_locker_rooms; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_locker_rooms ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_locker_rooms_delete ON public.facility_locker_rooms FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_locker_rooms_insert ON public.facility_locker_rooms FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_locker_rooms_select ON public.facility_locker_rooms FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_locker_rooms facility_locker_rooms_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_locker_rooms_update ON public.facility_locker_rooms FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
 -- Name: facility_modules; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -25173,6 +27716,46 @@ CREATE POLICY facility_modules_update ON public.facility_modules FOR UPDATE TO a
 
 
 --
+-- Name: facility_operating_hours; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_operating_hours ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_operating_hours facility_operating_hours_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_operating_hours_delete ON public.facility_operating_hours FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_operating_hours_exceptions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_operating_hours_exceptions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_operating_hours facility_operating_hours_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_operating_hours_insert ON public.facility_operating_hours FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_operating_hours facility_operating_hours_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_operating_hours_select ON public.facility_operating_hours FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_operating_hours facility_operating_hours_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_operating_hours_update ON public.facility_operating_hours FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
 -- Name: facility_rink_diagram_config; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -25204,6 +27787,40 @@ CREATE POLICY facility_rink_diagram_config_select ON public.facility_rink_diagra
 --
 
 CREATE POLICY facility_rink_diagram_config_update ON public.facility_rink_diagram_config FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('ice_depth'::text))));
+
+
+--
+-- Name: facility_rinks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_rinks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_rinks facility_rinks_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rinks_delete ON public.facility_rinks FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_rinks facility_rinks_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rinks_insert ON public.facility_rinks FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_rinks facility_rinks_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rinks_select ON public.facility_rinks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: facility_rinks facility_rinks_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_rinks_update ON public.facility_rinks FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --
@@ -26655,6 +29272,559 @@ CREATE POLICY retention_settings_select ON public.retention_settings FOR SELECT 
 --
 
 CREATE POLICY retention_settings_update ON public.retention_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text]))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_user_role() = ANY (ARRAY['admin'::text, 'super_admin'::text])))));
+
+
+--
+-- Name: rink_booking_series; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_booking_series ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_booking_series rink_booking_series_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_series_delete ON public.rink_booking_series FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: rink_booking_series rink_booking_series_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_series_insert ON public.rink_booking_series FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_booking_series rink_booking_series_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_series_select ON public.rink_booking_series FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_booking_series rink_booking_series_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_series_update ON public.rink_booking_series FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_booking_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_booking_types ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_booking_types rink_booking_types_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_types_delete ON public.rink_booking_types FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_booking_types rink_booking_types_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_types_insert ON public.rink_booking_types FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_booking_types rink_booking_types_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_types_select ON public.rink_booking_types FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_booking_types rink_booking_types_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_types_update ON public.rink_booking_types FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_bookings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_bookings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_bookings rink_bookings_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_bookings_delete ON public.rink_bookings FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: rink_bookings rink_bookings_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_bookings_insert ON public.rink_bookings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_edit_access('rink_scheduling'::text) OR (public.has_module_submit_access('rink_scheduling'::text) AND (status = 'tentative'::text))))));
+
+
+--
+-- Name: rink_bookings rink_bookings_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_bookings_select ON public.rink_bookings FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_bookings rink_bookings_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_bookings_update ON public.rink_bookings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_coverage_reeval_queue rink_coverage_queue_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_coverage_queue_insert ON public.rink_coverage_reeval_queue FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_coverage_reeval_queue rink_coverage_queue_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_coverage_queue_select ON public.rink_coverage_reeval_queue FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_coverage_reeval_queue; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_coverage_reeval_queue ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_customer_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_customer_types ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_customer_types rink_customer_types_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customer_types_delete ON public.rink_customer_types FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_customer_types rink_customer_types_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customer_types_insert ON public.rink_customer_types FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_customer_types rink_customer_types_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customer_types_select ON public.rink_customer_types FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_customer_types rink_customer_types_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customer_types_update ON public.rink_customer_types FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_customers; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_customers ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_customers rink_customers_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customers_delete ON public.rink_customers FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: rink_customers rink_customers_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customers_insert ON public.rink_customers FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_customers rink_customers_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customers_select ON public.rink_customers FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_customers rink_customers_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_customers_update ON public.rink_customers FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_display_tokens; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_display_tokens ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_display_tokens rink_display_tokens_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_display_tokens_delete ON public.rink_display_tokens FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_display_tokens_insert ON public.rink_display_tokens FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_display_tokens_select ON public.rink_display_tokens FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_display_tokens rink_display_tokens_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_display_tokens_update ON public.rink_display_tokens FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_invoice_counters; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_invoice_counters ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_invoice_counters rink_invoice_counters_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_counters_insert ON public.rink_invoice_counters FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_invoice_counters rink_invoice_counters_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_counters_select ON public.rink_invoice_counters FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_invoice_counters rink_invoice_counters_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_counters_update ON public.rink_invoice_counters FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_invoice_line_items; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_invoice_line_items ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_line_items_delete ON public.rink_invoice_line_items FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text) AND (EXISTS ( SELECT 1
+   FROM public.rink_invoices i
+  WHERE ((i.id = rink_invoice_line_items.invoice_id) AND (i.facility_id = public.current_facility_id()) AND (i.status = 'draft'::text)))))));
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_line_items_insert ON public.rink_invoice_line_items FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text) AND (EXISTS ( SELECT 1
+   FROM public.rink_invoices i
+  WHERE ((i.id = rink_invoice_line_items.invoice_id) AND (i.facility_id = public.current_facility_id()) AND (i.status = 'draft'::text)))))));
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_line_items_select ON public.rink_invoice_line_items FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_invoice_line_items rink_invoice_line_items_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoice_line_items_update ON public.rink_invoice_line_items FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text) AND (EXISTS ( SELECT 1
+   FROM public.rink_invoices i
+  WHERE ((i.id = rink_invoice_line_items.invoice_id) AND (i.facility_id = public.current_facility_id()) AND (i.status = 'draft'::text))))))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_invoices; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_invoices ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_invoices rink_invoices_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoices_delete ON public.rink_invoices FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: rink_invoices rink_invoices_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoices_insert ON public.rink_invoices FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_invoices rink_invoices_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoices_select ON public.rink_invoices FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_invoices rink_invoices_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_invoices_update ON public.rink_invoices FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_locker_assignments_delete ON public.rink_locker_room_assignments FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_locker_assignments_insert ON public.rink_locker_room_assignments FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text) AND (EXISTS ( SELECT 1
+   FROM public.rink_bookings b
+  WHERE ((b.id = rink_locker_room_assignments.booking_id) AND (b.facility_id = public.current_facility_id()) AND (b.status <> 'cancelled'::text)))))));
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_locker_assignments_select ON public.rink_locker_room_assignments FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_locker_room_assignments rink_locker_assignments_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_locker_assignments_update ON public.rink_locker_room_assignments FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_locker_room_assignments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_locker_room_assignments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_payment_methods; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_payment_methods ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_payment_methods rink_payment_methods_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_payment_methods_delete ON public.rink_payment_methods FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_payment_methods_insert ON public.rink_payment_methods FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_payment_methods_select ON public.rink_payment_methods FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_payment_methods rink_payment_methods_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_payment_methods_update ON public.rink_payment_methods FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_payments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_payments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_payments rink_payments_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_payments_insert ON public.rink_payments FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text) AND (EXISTS ( SELECT 1
+   FROM public.rink_invoices i
+  WHERE ((i.id = rink_payments.invoice_id) AND (i.facility_id = public.current_facility_id()) AND (i.status <> 'void'::text)))))));
+
+
+--
+-- Name: rink_payments rink_payments_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_payments_select ON public.rink_payments FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_type_overrides; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_rate_card_type_overrides ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_rate_card_windows; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_rate_card_windows ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_card_windows_delete ON public.rink_rate_card_windows FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_card_windows_insert ON public.rink_rate_card_windows FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_card_windows_select ON public.rink_rate_card_windows FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_windows rink_rate_card_windows_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_card_windows_update ON public.rink_rate_card_windows FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_rate_cards; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_rate_cards ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_rate_cards rink_rate_cards_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_cards_delete ON public.rink_rate_cards FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_cards_insert ON public.rink_rate_cards FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_cards_select ON public.rink_rate_cards FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_cards rink_rate_cards_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_cards_update ON public.rink_rate_cards FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_type_overrides_delete ON public.rink_rate_card_type_overrides FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_type_overrides_insert ON public.rink_rate_card_type_overrides FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_type_overrides_select ON public.rink_rate_card_type_overrides FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_submit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_rate_card_type_overrides rink_rate_type_overrides_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_rate_type_overrides_update ON public.rink_rate_card_type_overrides FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_scheduling_settings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_scheduling_settings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_scheduling_settings_delete ON public.rink_scheduling_settings FOR DELETE TO authenticated USING (public.is_super_admin());
+
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_scheduling_settings_insert ON public.rink_scheduling_settings FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_scheduling_settings_select ON public.rink_scheduling_settings FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_scheduling_settings rink_scheduling_settings_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_scheduling_settings_update ON public.rink_scheduling_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
 
 
 --

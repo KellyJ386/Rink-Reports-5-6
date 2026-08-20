@@ -25,6 +25,7 @@ export type AlertSourceModule =
   | "air_quality"
   | "incident_reports"
   | "scheduling"
+  | "rink_scheduling"
 
 export type InboxTab = "alerts" | "messages"
 

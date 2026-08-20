@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 
 import { createClient } from "@/lib/supabase/client"
+import { clearCalendarCache } from "@/lib/offline/calendar-cache"
 import { clearDailyAreasCache } from "@/lib/offline/daily-areas-cache"
 import { clearDailyFormsCache } from "@/lib/offline/daily-forms-cache"
 import { clearScheduleCache } from "@/lib/offline/schedule-cache"
@@ -61,6 +62,7 @@ export function AuthStateListener() {
         void clearScheduleCache()
         void clearDailyAreasCache()
         void clearDailyFormsCache()
+        void clearCalendarCache()
       }
       // Reconcile the origin-global queue against the resolved owner even when
       // `previous` is unknown (e.g. localStorage cleared while IndexedDB was
@@ -85,6 +87,7 @@ export function AuthStateListener() {
         void clearScheduleCache()
         void clearDailyAreasCache()
         void clearDailyFormsCache()
+        void clearCalendarCache()
         setCurrentOwnerId(null)
         lastUserId.current = null
         return
@@ -95,6 +98,7 @@ export function AuthStateListener() {
           void clearScheduleCache()
           void clearDailyAreasCache()
           void clearDailyFormsCache()
+          void clearCalendarCache()
         }
         // Quarantine anything queued by someone other than the new owner.
         void postToServiceWorker({

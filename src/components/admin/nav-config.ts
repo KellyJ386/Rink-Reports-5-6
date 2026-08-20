@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Building2,
   Calendar,
+  CalendarClock,
   Crown,
   Database,
   Fence,
@@ -83,6 +84,15 @@ export const adminNavGroups: AdminNavGroup[] = [
       },
       { label: "Air Quality Admin", href: "/admin/air-quality", icon: Wind },
       { label: "Scheduling Admin", href: "/admin/scheduling", icon: Calendar },
+      // Sits next to Scheduling Admin deliberately: that one is EMPLOYEE
+      // scheduling (shifts), this one is ICE scheduling (bookings and
+      // billing). Adjacent placement with distinct labels is what keeps an
+      // admin from opening the wrong console.
+      {
+        label: "Rink Scheduling Admin",
+        href: "/admin/rink-scheduling",
+        icon: CalendarClock,
+      },
       {
         label: "Communications Admin",
         href: "/admin/communications",

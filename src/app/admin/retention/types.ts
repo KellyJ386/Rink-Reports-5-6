@@ -96,6 +96,13 @@ export const MODULES: ReadonlyArray<{
     minDays: 30,
   },
   {
+    key: "rink_scheduling",
+    label: "Rink Scheduling & Billing",
+    description:
+      "Bookings, invoices and payments. Financial floor: 7 years — the window can be raised, never shortened. Customers, rate cards and facility setup are configuration and are never purged by age.",
+    minDays: 2555,
+  },
+  {
     key: "audit_logs",
     label: "Audit Log",
     description:

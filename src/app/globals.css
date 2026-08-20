@@ -304,6 +304,7 @@
   --module-scheduling:  var(--violet-600);
   --module-paperwork:   #475569;
   --module-dasher:      #00695C;
+  --module-rink-sched:  #002244;
 }
 
 /* ═══════════ Semantic — DARK ═══════════ */
@@ -405,6 +406,7 @@
   --module-scheduling:  var(--violet-300);
   --module-paperwork:   #94A3B8;
   --module-dasher:      #4DB6AC;
+  --module-rink-sched:  #4DFF00;
 }
 
 /* `.light` mirror of :root for explicit-class toggling */
@@ -488,6 +490,7 @@
   --module-scheduling:  var(--violet-600);
   --module-paperwork:   #475569;
   --module-dasher:      #00695C;
+  --module-rink-sched:  #002244;
 }
 
 @theme inline {
@@ -574,6 +577,7 @@
   --color-module-scheduling: var(--module-scheduling);
   --color-module-paperwork: var(--module-paperwork);
   --color-module-dasher: var(--module-dasher);
+  --color-module-rink-sched: var(--module-rink-sched);
 
   /* RinkReports raw-token utilities — bg-rr-green, text-rr-navy-dark,
      border-rr-line, etc. (faithful access to the rr.* palette). */

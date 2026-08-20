@@ -33,6 +33,7 @@ export const MODULE_NAMES = [
   "communications",
   "dasher_boards",
   "facility_paperwork",
+  "rink_scheduling",
   "admin",
 ] as const
 
@@ -50,6 +51,10 @@ export const MODULE_LABELS: Record<ModuleName, string> = {
   communications: "Communications",
   dasher_boards: "Dasher Boards",
   facility_paperwork: "Facility Paperwork",
+  // "Rink Scheduling", not "Scheduling": `scheduling` above is EMPLOYEE
+  // scheduling (module 7). These two are adjacent in the permissions grid and
+  // an ambiguous label there grants the wrong thing.
+  rink_scheduling: "Rink Scheduling",
   admin: "Admin",
 }
 

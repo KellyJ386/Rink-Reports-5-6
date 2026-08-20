@@ -8470,8 +8470,823 @@ select pg_temp.expect_count(
   1,
   'RETENTION-239: purge_module_data only purges RESOLVED dasher_boards issues');
 
+-- ===========================================================================
+-- Module 12: Rink Scheduling & Billing (migrations 247-250). Label prefix RS.
+--
+-- Covers, in order: the auto-seed trigger; tenant isolation on every new
+-- table; the four-tier gate mapping (view/submit/edit/admin standing in for
+-- the spec's staff/supervisor/facility_manager/org_admin); the tentative-only
+-- INSERT rule that splits supervisor from facility_manager; the booking
+-- overlap exclusion constraint; append-only payments; one-live-invoice-per-
+-- booking; the anon lockout on the display-token table; and (DISP) the anon
+-- lockout on every table the public locker-room display reads.
+-- ===========================================================================
+
+set local role postgres;
+
+-- The facilities fixture above fires facilities_seed_rink_scheduling, so both
+-- facilities already carry booking types, customer types, payment methods,
+-- settings, an invoice counter and a default rate card. Assert that before
+-- relying on it.
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_types
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  7, 'RS1: facility auto-seed created the 7 booking types');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_scheduling_settings
+     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  1, 'RS2: facility auto-seed created a settings row for facility B too');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_operating_hours
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  7, 'RS3: facility auto-seed created a full Mon-Sun operating hours grid');
+
+-- Rinks in BOTH facilities.
+insert into public.facility_rinks (id, facility_id, name, slug, short_code, sort_order)
+values
+  ('a5000001-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'A Main', 'a-main', 'AMAIN', 0),
+  ('b5000002-0000-4000-8000-000000000002', '22222222-2222-2222-2222-222222222222',
+   'B Main', 'b-main', 'BMAIN', 0)
+on conflict (id) do nothing;
+
+insert into public.facility_locker_rooms (id, facility_id, name, slug, short_code, sort_order)
+values
+  ('a5000001-0000-4000-8000-000000001dd1', '11111111-1111-1111-1111-111111111111',
+   'A Locker 1', 'a-locker-1', 'A1', 0)
+on conflict (id) do nothing;
+
+insert into public.rink_customers (id, facility_id, name)
+values
+  ('a5000001-0000-4000-8000-0000000000c1', '11111111-1111-1111-1111-111111111111',
+   'A Hockey Club'),
+  ('b5000002-0000-4000-8000-0000000000c2', '22222222-2222-2222-2222-222222222222',
+   'B Hockey Club')
+on conflict (id) do nothing;
+
+-- One booking per facility, using each facility's own seeded Ice Rental type.
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at,
+   buffer_minutes_after, status)
+select 'a5000001-0000-4000-8000-0000000000b1',
+       '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001',
+       'a5000001-0000-4000-8000-0000000000c1',
+       bt.id, '2026-10-01 18:00:00-04', '2026-10-01 19:00:00-04', 15, 'confirmed'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at,
+   buffer_minutes_after, status)
+select 'b5000002-0000-4000-8000-0000000000b2',
+       '22222222-2222-2222-2222-222222222222',
+       'b5000002-0000-4000-8000-000000000002',
+       'b5000002-0000-4000-8000-0000000000c2',
+       bt.id, '2026-10-01 18:00:00-04', '2026-10-01 19:00:00-04', 15, 'confirmed'
+from public.rink_booking_types bt
+where bt.facility_id = '22222222-2222-2222-2222-222222222222' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+-- An invoice in each facility, so the money-is-edit-tier assertions are real.
+insert into public.rink_invoices
+  (id, facility_id, customer_id, invoice_number, status, issue_date, due_date,
+   subtotal, tax_amount, total)
+values
+  ('a5000001-0000-4000-8000-0000000000f1', '11111111-1111-1111-1111-111111111111',
+   'a5000001-0000-4000-8000-0000000000c1', 'INV-1', 'draft',
+   date '2026-10-02', date '2026-11-01', 100, 0, 100),
+  ('b5000002-0000-4000-8000-0000000000f2', '22222222-2222-2222-2222-222222222222',
+   'b5000002-0000-4000-8000-0000000000c2', 'INV-1', 'draft',
+   date '2026-10-02', date '2026-11-01', 100, 0, 100)
+on conflict (id) do nothing;
+
+insert into public.rink_display_tokens (id, facility_id, token_hash, label)
+values
+  ('a5000001-0000-4000-8000-0000000000d1', '11111111-1111-1111-1111-111111111111',
+   repeat('a', 64), 'A Lobby TV'),
+  ('b5000002-0000-4000-8000-0000000000d2', '22222222-2222-2222-2222-222222222222',
+   repeat('b', 64), 'B Lobby TV')
+on conflict (id) do nothing;
+
+-- Alice: SUPERVISOR tier in Facility A (view + submit, deliberately NOT edit).
+-- Carol: FACILITY_MANAGER tier in Facility A (view + submit + edit, NOT admin).
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+select 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'rink_scheduling', a::public.user_action, true
+from unnest(array['view', 'submit']) as a
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+select 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'rink_scheduling', a::public.user_action, true
+from unnest(array['view', 'submit', 'edit']) as a
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
 -- ---------------------------------------------------------------------------
--- GATE-246: cron RPC caller gates (migration 246).
+-- Alice — supervisor tier, Facility A.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_rinks
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RS4: alice CAN read her own facility''s rinks');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_rinks
+     where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'RS5: alice CANNOT read facility B''s rinks');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings$$,
+  1, 'RS6: alice sees only her own facility''s bookings (1 of 2)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_customers$$,
+  1, 'RS7: alice sees only her own facility''s customers');
+
+-- Money is edit-tier: a supervisor sees no invoices at all, even her own
+-- facility's.
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoices$$,
+  0, 'RS8: alice (no edit grant) sees NO invoices, not even her own facility''s');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_payments$$,
+  0, 'RS9: alice (no edit grant) sees no payments');
+
+-- Display tokens carry token hashes; supervisors must not read them.
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_display_tokens$$,
+  0, 'RS10: alice (no edit grant) CANNOT read display tokens');
+
+-- Rate cards are submit-tier readable (the booking sheet's rate preview).
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_rate_cards$$,
+  1, 'RS11: alice (submit grant) CAN read her facility''s rate card for rate preview');
+
+-- One arithmetic probe pins all four helper tiers at once.
+select pg_temp.expect_count(
+  $$select (case when public.has_module_access('rink_scheduling') then 1 else 0 end)
+        + (case when public.has_module_submit_access('rink_scheduling') then 10 else 0 end)
+        + (case when public.has_module_edit_access('rink_scheduling') then 0 else 100 end)
+        + (case when public.has_module_admin_access('rink_scheduling') then 0 else 1000 end)$$,
+  1111, 'RS12: helper tiers — alice has view+submit but NOT edit and NOT admin');
+
+-- THE supervisor/facility_manager split: tentative yes, confirmed no.
+select pg_temp.expect_ok(
+  $$insert into public.rink_bookings
+      (facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at, status)
+    select '11111111-1111-1111-1111-111111111111',
+           'a5000001-0000-4000-8000-000000000001',
+           'a5000001-0000-4000-8000-0000000000c1', bt.id,
+           '2026-10-02 09:00:00-04', '2026-10-02 10:00:00-04', 'tentative'
+    from public.rink_booking_types bt
+    where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'$$,
+  'RS13: alice (submit) CAN create a TENTATIVE booking');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_bookings
+      (facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at, status)
+    select '11111111-1111-1111-1111-111111111111',
+           'a5000001-0000-4000-8000-000000000001',
+           'a5000001-0000-4000-8000-0000000000c1', bt.id,
+           '2026-10-02 11:00:00-04', '2026-10-02 12:00:00-04', 'confirmed'
+    from public.rink_booking_types bt
+    where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'$$,
+  'RS14: alice (submit, no edit) CANNOT create a CONFIRMED booking');
+
+-- Editing/confirming an existing booking is edit-tier: the UPDATE matches no
+-- rows rather than erroring, which is how RLS denies an UPDATE.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_bookings set status = 'confirmed'
+       where id = 'a5000001-0000-4000-8000-0000000000b1'
+       returning 1)
+    select count(*) from u$$,
+  0, 'RS15: alice (no edit grant) CANNOT confirm/edit a booking (0 rows match)');
+
+-- Cross-tenant write attempt: naming facility B explicitly must still fail.
+select pg_temp.expect_error(
+  $$insert into public.facility_rinks (facility_id, name, slug, short_code)
+    values ('22222222-2222-2222-2222-222222222222', 'Rogue', 'rogue', 'RGE')$$,
+  'RS16: alice CANNOT create a rink in facility B');
+
+-- Locker room assignment is the supervisor's other write capability.
+select pg_temp.expect_ok(
+  $$insert into public.rink_locker_room_assignments
+      (facility_id, booking_id, locker_room_id, occupies_from, occupies_until, display_label_override)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000b1',
+            'a5000001-0000-4000-8000-000000001dd1',
+            '2026-10-01 17:15:00-04', '2026-10-01 19:30:00-04', 'Home')$$,
+  'RS17: alice (submit) CAN assign a locker room to a booking');
+
+-- Locker room overlaps are ALLOWED BY DESIGN — fast turnover is normal.
+select pg_temp.expect_ok(
+  $$insert into public.rink_locker_room_assignments
+      (facility_id, booking_id, locker_room_id, occupies_from, occupies_until)
+    select '11111111-1111-1111-1111-111111111111', b.id,
+           'a5000001-0000-4000-8000-000000001dd1',
+           '2026-10-01 19:00:00-04', '2026-10-01 20:00:00-04'
+      from public.rink_bookings b
+     where b.starts_at = '2026-10-02 09:00:00-04'
+       and b.facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'RS18: overlapping locker room occupancy is ALLOWED (warned in UI, not blocked)');
+
+-- The booking overlap constraint fires for ordinary users too, buffer included.
+select pg_temp.expect_error(
+  $$insert into public.rink_bookings
+      (facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at, status)
+    select '11111111-1111-1111-1111-111111111111',
+           'a5000001-0000-4000-8000-000000000001',
+           'a5000001-0000-4000-8000-0000000000c1', bt.id,
+           '2026-10-01 19:05:00-04', '2026-10-01 20:00:00-04', 'tentative'
+    from public.rink_booking_types bt
+    where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'$$,
+  'RS19: a booking landing inside the 15-minute resurfacing buffer is REJECTED');
+
+-- ---------------------------------------------------------------------------
+-- Carol — facility_manager tier, Facility A.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoices$$,
+  1, 'RS20: carol (edit grant) CAN read her own facility''s invoices — and only those');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_display_tokens$$,
+  1, 'RS21: carol (edit grant) CAN read her own facility''s display tokens only');
+
+select pg_temp.expect_ok(
+  $$update public.rink_bookings set status = 'confirmed'
+     where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
+  'RS22: carol (edit) CAN confirm a booking');
+
+-- Rate cards and module settings are the ADMIN tier — carol must be refused.
+select pg_temp.expect_error(
+  $$insert into public.rink_rate_cards
+      (facility_id, name, effective_start, is_default, hourly_rate_prime, hourly_rate_nonprime)
+    values ('11111111-1111-1111-1111-111111111111', 'Rogue Card', date '2027-01-01', false, 500, 400)$$,
+  'RS23: carol (edit, no admin) CANNOT create a rate card');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_scheduling_settings set tax_rate = 0.5
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+       returning 1)
+    select count(*) from u$$,
+  0, 'RS24: carol (edit, no admin) CANNOT change module settings (0 rows match)');
+
+-- Money: append-only, and never against a void invoice.
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments
+      (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000f1', 40.00, date '2026-10-05')$$,
+  'RS25: carol (edit) CAN record a payment');
+
+-- Two layers, asserted separately. At the RLS layer there is simply no
+-- UPDATE/DELETE policy, so the statement matches zero rows rather than
+-- raising — that is how RLS denies a write, and asserting an error here would
+-- be asserting the wrong thing.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_payments set amount = 999
+       where invoice_id = 'a5000001-0000-4000-8000-0000000000f1'
+       returning 1)
+    select count(*) from u$$,
+  0, 'RS26: RLS layer — carol CANNOT update a payment (no policy; 0 rows match)');
+
+select pg_temp.expect_count(
+  $$with d as (
+      delete from public.rink_payments
+       where invoice_id = 'a5000001-0000-4000-8000-0000000000f1'
+       returning 1)
+    select count(*) from d$$,
+  0, 'RS27: RLS layer — carol CANNOT delete a payment (no policy; 0 rows match)');
+
+-- One live invoice per booking.
+select pg_temp.expect_ok(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000f1',
+            'a5000001-0000-4000-8000-0000000000b1',
+            'Ice Rental - A Main - 2026-10-01 18:00-19:00', 1.00, 100.00, 100.00)$$,
+  'RS28: carol CAN add a line item billing a booking');
+
+set local role postgres;
+insert into public.rink_invoices
+  (id, facility_id, customer_id, invoice_number, status, issue_date, due_date, subtotal, tax_amount, total)
+values ('a5000001-0000-4000-8000-0000000000f3', '11111111-1111-1111-1111-111111111111',
+        'a5000001-0000-4000-8000-0000000000c1', 'INV-3', 'draft',
+        date '2026-10-02', date '2026-11-01', 100, 0, 100)
+on conflict (id) do nothing;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_error(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000f3',
+            'a5000001-0000-4000-8000-0000000000b1',
+            'Double-billed', 1.00, 100.00, 100.00)$$,
+  'RS29: the SAME booking CANNOT appear on a second live invoice');
+
+-- Voiding the first invoice releases its booking back to uninvoiced.
+select pg_temp.expect_ok(
+  $$update public.rink_invoices
+       set status = 'void', voided_at = now()
+     where id = 'a5000001-0000-4000-8000-0000000000f1'$$,
+  'RS30: carol CAN void an invoice');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000f3',
+            'a5000001-0000-4000-8000-0000000000b1',
+            'Re-billed after void', 1.00, 100.00, 100.00)$$,
+  'RS31: voiding RELEASES the booking — it can be billed on a new invoice');
+
+select pg_temp.expect_error(
+  $$update public.rink_invoices set status = 'draft'
+     where id = 'a5000001-0000-4000-8000-0000000000f1'$$,
+  'RS32: a VOID invoice is terminal and cannot be reopened');
+
+-- ---------------------------------------------------------------------------
+-- Bob (facility B) and anon.
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims to '{"sub":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  0, 'RS33: bob (facility B, no grant) CANNOT read facility A bookings');
+
+reset role;
+set local role anon;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings$$,
+  0, 'RS34: anon reads NO bookings (every policy is TO authenticated)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_display_tokens$$,
+  0, 'RS35: anon CANNOT read display tokens — the public display never touches this table directly');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoices$$,
+  0, 'RS36: anon reads no invoices');
+
+-- ---------------------------------------------------------------------------
+-- Public locker-room display (/display/[token]). Label prefix DISP.
+--
+-- The display endpoint reads with the SERVICE-ROLE key inside a Route Handler
+-- that has already resolved the token, precisely so that `anon` keeps zero
+-- grants on the tables it reads. That is a claim about the database, so it is
+-- asserted here rather than trusted to the handler: if a future migration ever
+-- adds an anon-readable policy to make the display "simpler", these fail.
+-- ---------------------------------------------------------------------------
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_locker_rooms$$,
+  0, 'DISP1: anon reads NO locker rooms — the board is served by the Route Handler, not by RLS');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_locker_room_assignments$$,
+  0, 'DISP2: anon reads NO locker room assignments');
+
+-- As with RS26/RS27: no policy for this role means the statement matches zero
+-- rows, not that it raises. Asserting an error would assert the wrong thing.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_display_tokens set last_seen_at = now()
+       returning 1)
+    select count(*) from u$$,
+  0, 'DISP3: anon CANNOT stamp last_seen_at (no policy; 0 rows match) — only the service-role handler does');
+
+reset role;
+
+-- Structural: no Module 12 policy names anon at all. RS34-36 and DISP1-2 each
+-- prove one table; this proves the rule, so a new table added to the module
+-- cannot quietly arrive with an anon policy nobody wrote an assertion for.
+set local role postgres;
+select pg_temp.expect_count(
+  $$select count(*) from pg_policies
+     where schemaname = 'public'
+       and (tablename like 'rink\_%' or tablename like 'facility\_locker\_%')
+       and 'anon' = any (roles)$$,
+  0, 'DISP4: no Rink Scheduling policy grants anything to anon');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Structural guarantees.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- Trigger layer: `postgres` bypasses RLS entirely, so this proves the
+-- append-only rule survives direct SQL and is not merely a policy artifact.
+select pg_temp.expect_error(
+  $$update public.rink_payments set amount = 999
+     where invoice_id = 'a5000001-0000-4000-8000-0000000000f1'$$,
+  'RS26b: trigger layer — direct-SQL UPDATE of a payment RAISES');
+
+select pg_temp.expect_error(
+  $$delete from public.rink_payments
+     where invoice_id = 'a5000001-0000-4000-8000-0000000000f1'$$,
+  'RS27b: trigger layer — direct-SQL DELETE of a payment RAISES');
+
+-- The documented escape hatch still works for an owner role that opts in
+-- explicitly, and only for one.
+select set_config('rr.rink_scheduling_guard_bypass', 'on', true);
+select pg_temp.expect_ok(
+  $$update public.rink_payments set notes = 'corrected by operator'
+     where invoice_id = 'a5000001-0000-4000-8000-0000000000f1'$$,
+  'RS27c: an owner role that explicitly sets the bypass GUC CAN repair a payment');
+select set_config('rr.rink_scheduling_guard_bypass', 'off', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_constraint
+     where conname = 'rink_bookings_no_overlap' and contype = 'x'$$,
+  1, 'RS37: the booking overlap EXCLUSION constraint exists');
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_constraint
+     where conname = 'rink_rate_cards_no_default_overlap' and contype = 'x'$$,
+  1, 'RS38: default rate cards cannot overlap in time (exclusion constraint exists)');
+
+-- Two default cards covering the same dates would make rate resolution
+-- ambiguous.
+select pg_temp.expect_error(
+  $$insert into public.rink_rate_cards
+      (facility_id, name, effective_start, effective_end, is_default,
+       hourly_rate_prime, hourly_rate_nonprime)
+    values ('11111111-1111-1111-1111-111111111111', 'Overlapping Default',
+            date '2020-01-01', null, true, 10, 10)$$,
+  'RS39: a second overlapping DEFAULT rate card is REJECTED');
+
+-- The coverage debounce: one pending row per facility, so a whole publish
+-- batch collapses into a single evaluation pass.
+insert into public.rink_coverage_reeval_queue (facility_id, reason)
+values ('11111111-1111-1111-1111-111111111111', 'shift_change')
+on conflict do nothing;
+
+select pg_temp.expect_error(
+  $$insert into public.rink_coverage_reeval_queue (facility_id, reason)
+    values ('11111111-1111-1111-1111-111111111111', 'shift_change')$$,
+  'RS40: only ONE pending coverage re-evaluation per facility (publish debounce)');
+
+-- The module must be registered, or every has_module_* helper returns false.
+select pg_temp.expect_ok(
+  $$insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            '11111111-1111-1111-1111-111111111111', 'rink_scheduling', 'admin', true)
+    on conflict (user_id, facility_id, module_name, action) do nothing$$,
+  'RS41: rink_scheduling is an accepted user_permissions.module_name');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_modules
+     where module_key = 'rink_scheduling'
+       and facility_id in ('11111111-1111-1111-1111-111111111111',
+                           '22222222-2222-2222-2222-222222222222')$$,
+  2, 'RS42: rink_scheduling is registered as a nav toggle for both fixture facilities');
+
+-- Retired role keys must never reappear in the new module's seed matrix.
+select pg_temp.expect_count(
+  $$select count(*) from public.canonical_role_permission_grants()
+     where module_name = 'rink_scheduling' and role_key in ('gm', 'supervisor')$$,
+  0, 'RS43: the rink_scheduling grant matrix contains NO retired role keys');
+
+reset role;
+
+-- Retention (migration 251). Financial records, so the floor is the point.
+select pg_temp.expect_count(
+  $$select count(*) from public.retention_module_floors
+     where module_key = 'rink_scheduling' and min_days = 2555$$,
+  1, 'RETENTION-250: rink_scheduling carries a 7-year (2555 day) retention floor');
+
+-- A booking still cited by an invoice line is billing evidence and must survive
+-- the purge whatever its age; without the NOT EXISTS guard the delete would hit
+-- the ON DELETE RESTRICT FK and abort the whole purge run.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'purge_module_data'
+       and pg_get_functiondef(p.oid) like '%rink_invoice_line_items li%'
+       and pg_get_functiondef(p.oid) like '%not exists%'$$,
+  1, 'RETENTION-250: purge_module_data KEEPS bookings cited by an invoice line');
+
+-- Configuration must never be purged by age: deleting a customer or rate card
+-- would orphan newer bookings and strand the snapshots justifying past invoices.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'purge_module_data'
+       and pg_get_functiondef(p.oid) not like '%delete from public.rink_customers%'
+       and pg_get_functiondef(p.oid) not like '%delete from public.rink_rate_cards%'
+       and pg_get_functiondef(p.oid) not like '%delete from public.facility_rinks%'$$,
+  1, 'RETENTION-250: the purge never deletes customers, rate cards or rinks');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.purge_old_rink_scheduling_records()$$,
+  'PURGE-250: authenticated CANNOT execute purge_old_rink_scheduling_records');
+
+reset role;
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.purge_old_rink_scheduling_records()$$,
+  'PURGE-250: anon CANNOT execute purge_old_rink_scheduling_records');
+
+reset role;
+set local role service_role;
+select pg_temp.expect_ok(
+  $$select public.purge_old_rink_scheduling_records()$$,
+  'PURGE-250: service_role CAN execute purge_old_rink_scheduling_records');
+
+reset role;
+
+-- Coverage detection (migration 253). Label prefix COV.
+--
+-- The trigger on schedule_shifts is the only place this module touches another
+-- module's table, so these assertions pin down exactly what it may do: enqueue
+-- into a Rink Scheduling table, never write to scheduling, and never be able to
+-- break a publish.
+
+set local role postgres;
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+     where c.relname = 'schedule_shifts'
+       and t.tgname = 'trg_rink_scheduling_shift_coverage'
+       and not t.tgisinternal$$,
+  1, 'COV1: the coverage trigger is installed on schedule_shifts');
+
+-- The read-only-integration guarantee, asserted against the function body.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'rink_scheduling_enqueue_on_shift_change'
+       and pg_get_functiondef(p.oid) like '%rink_coverage_reeval_queue%'
+       and pg_get_functiondef(p.oid) not like '%update public.schedule%'
+       and pg_get_functiondef(p.oid) not like '%insert into public.schedule%'
+       and pg_get_functiondef(p.oid) not like '%delete from public.schedule%'$$,
+  1, 'COV2: the trigger writes ONLY the coverage queue — never a scheduling table');
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname='public' and p.proname='rink_scheduling_enqueue_on_shift_change'
+       and has_function_privilege('authenticated', p.oid, 'execute')$$,
+  0, 'COV3: the trigger function is not callable by authenticated');
+
+-- Publishing a whole week must produce ONE evaluation pass, not one per shift.
+insert into public.employees (id, facility_id, role_id, first_name, last_name, email, is_active)
+select 'aaaa1111-c091-aaaa-aaaa-aaaa11110077'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       r.id, 'Cov', 'Sweeper', 'cov@fac-a.test', true
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+ limit 1
+on conflict (id) do nothing;
+
+delete from public.rink_coverage_reeval_queue
+ where facility_id = '11111111-1111-1111-1111-111111111111';
+
+insert into public.schedule_shifts (facility_id, employee_id, starts_at, ends_at, status)
+select '11111111-1111-1111-1111-111111111111',
+       'aaaa1111-c091-aaaa-aaaa-aaaa11110077',
+       '2028-01-03 08:00:00-05'::timestamptz + (n || ' days')::interval,
+       '2028-01-03 16:00:00-05'::timestamptz + (n || ' days')::interval,
+       'draft'
+  from generate_series(1, 20) n;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_coverage_reeval_queue
+     where facility_id = '11111111-1111-1111-1111-111111111111' and status = 'pending'$$,
+  0, 'COV4: creating DRAFT shifts enqueues nothing — drafts provide no coverage');
+
+update public.schedule_shifts
+   set status = 'published', published_at = now()
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and starts_at >= '2028-01-01';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_coverage_reeval_queue
+     where facility_id = '11111111-1111-1111-1111-111111111111' and status = 'pending'$$,
+  1, 'COV5: publishing 20 shifts in one statement produces exactly ONE pending pass');
+
+-- One open alert per booking, so a five-minute sweep updates rather than piles up.
+select pg_temp.expect_count(
+  $$select count(*) from pg_indexes
+     where schemaname = 'public'
+       and indexname = 'communication_alerts_rink_scheduling_open_uniq'$$,
+  1, 'COV6: the one-open-alert-per-booking index exists');
+
+insert into public.communication_alerts
+  (facility_id, source_module, source_record_id, severity, title, body)
+values ('11111111-1111-1111-1111-111111111111', 'rink_scheduling',
+        'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Ice booked without cover', 'first');
+
+select pg_temp.expect_error(
+  $$insert into public.communication_alerts
+      (facility_id, source_module, source_record_id, severity, title, body)
+    values ('11111111-1111-1111-1111-111111111111', 'rink_scheduling',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Ice booked without cover', 'duplicate')$$,
+  'COV7: a SECOND unresolved alert for the same booking is REJECTED');
+
+-- Once resolved, a later recurrence may legitimately open a fresh alert.
+update public.communication_alerts
+   set resolved_at = now()
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and source_module = 'rink_scheduling';
+
+select pg_temp.expect_ok(
+  $$insert into public.communication_alerts
+      (facility_id, source_module, source_record_id, severity, title, body)
+    values ('11111111-1111-1111-1111-111111111111', 'rink_scheduling',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Ice booked without cover', 'reopened')$$,
+  'COV8: after the gap clears and returns, a NEW alert is allowed');
+
+-- The index must not constrain any other module.
+select pg_temp.expect_ok(
+  $$insert into public.communication_alerts
+      (facility_id, source_module, source_record_id, severity, title, body)
+    values ('11111111-1111-1111-1111-111111111111', 'refrigeration',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Other module', 'one'),
+           ('11111111-1111-1111-1111-111111111111', 'refrigeration',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Other module', 'two')$$,
+  'COV9: other modules may still hold several open alerts for one record');
+
+reset role;
+
+-- ===========================================================================
+-- Module 12 invoicing & AR (migrations 247, 254). Label prefix AR.
+--
+-- Money rules asserted at BOTH layers, the way the dasher_boards block does:
+-- what RLS refuses for an ordinary user, and what the guard trigger refuses
+-- even for direct SQL from a non-exempt owner session.
+-- ===========================================================================
+
+set local role postgres;
+
+insert into public.rink_customers (id, facility_id, name)
+values ('a9990001-0000-4000-8000-00000000000c',
+        '11111111-1111-1111-1111-111111111111', 'AR Test Club')
+on conflict (id) do nothing;
+
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at,
+   buffer_minutes_after, status, computed_amount)
+select 'a9990001-0000-4000-8000-00000000000b',
+       '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001',
+       'a9990001-0000-4000-8000-00000000000c',
+       bt.id, '2027-05-04 18:00:00-04', '2027-05-04 20:00:00-04', 15, 'confirmed', 600
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+insert into public.rink_invoices
+  (id, facility_id, customer_id, invoice_number, status, issue_date, due_date,
+   subtotal, tax_amount, total)
+values
+  ('a9990001-0000-4000-8000-0000000000f1', '11111111-1111-1111-1111-111111111111',
+   'a9990001-0000-4000-8000-00000000000c', 'AR-0001', 'draft',
+   date '2027-05-05', date '2027-06-04', 600, 0, 600),
+  ('a9990001-0000-4000-8000-0000000000f2', '11111111-1111-1111-1111-111111111111',
+   'a9990001-0000-4000-8000-00000000000c', 'AR-0002', 'draft',
+   date '2027-05-05', date '2027-06-04', 600, 0, 600)
+on conflict (id) do nothing;
+
+-- A booking reaches at most ONE live invoice.
+select pg_temp.expect_ok(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f1',
+            'a9990001-0000-4000-8000-00000000000b', 'Ice', 2, 300, 600)$$,
+  'AR1: a booking can be billed on an invoice');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2',
+            'a9990001-0000-4000-8000-00000000000b', 'Ice again', 2, 300, 600)$$,
+  'AR2: the SAME booking CANNOT appear on a second live invoice');
+
+-- Voiding releases the booking: the propagate trigger flips its lines to
+-- voided, dropping them out of the partial unique index.
+select pg_temp.expect_ok(
+  $$update public.rink_invoices set status = 'void', voided_at = now()
+     where id = 'a9990001-0000-4000-8000-0000000000f1'$$,
+  'AR3: an invoice can be voided');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoice_line_items
+     where invoice_id = 'a9990001-0000-4000-8000-0000000000f1' and voided$$,
+  1, 'AR4: voiding an invoice marks its line items voided');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2',
+            'a9990001-0000-4000-8000-00000000000b', 'Re-billed', 2, 300, 600)$$,
+  'AR5: voiding RELEASES the booking to be billed again');
+
+-- Money: append-only, correctly signed, reversible exactly once.
+update public.rink_invoices set status = 'sent', sent_at = now()
+ where id = 'a9990001-0000-4000-8000-0000000000f2';
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments (id, facility_id, invoice_id, amount, payment_date)
+    values ('a9990001-0000-4000-8000-00000000a0a1',
+            '11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', 250, date '2027-05-10')$$,
+  'AR6: a payment can be recorded against a sent invoice');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -250, date '2027-05-11')$$,
+  'AR7: a negative amount that reverses nothing is REJECTED');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments
+      (facility_id, invoice_id, amount, payment_date, reverses_payment_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -250, date '2027-05-11',
+            'a9990001-0000-4000-8000-00000000a0a1')$$,
+  'AR8: a proper reversal row is accepted');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments
+      (facility_id, invoice_id, amount, payment_date, reverses_payment_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -250, date '2027-05-12',
+            'a9990001-0000-4000-8000-00000000a0a1')$$,
+  'AR9: the same payment CANNOT be reversed twice (no double credit)');
+
+-- Trigger layer: `postgres` bypasses RLS and is deliberately NOT guard-exempt,
+-- so these prove the lock survives direct SQL.
+select pg_temp.expect_error(
+  $$update public.rink_payments set amount = 999
+     where id = 'a9990001-0000-4000-8000-00000000a0a1'$$,
+  'AR10: trigger layer — a payment cannot be edited');
+
+select pg_temp.expect_error(
+  $$delete from public.rink_payments
+     where id = 'a9990001-0000-4000-8000-00000000a0a1'$$,
+  'AR11: trigger layer — a payment cannot be deleted');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f1', 10, date '2027-05-13')$$,
+  'AR12: trigger layer — no payment against a VOID invoice (migration 254)');
+
+-- Money is edit-tier: alice holds view+submit only and must see none of it.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoice_line_items$$,
+  0, 'AR13: a submit-only user sees no invoice lines');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_payments$$,
+  0, 'AR14: a submit-only user sees no payments');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- GATE-246: cron RPC caller gates (migration 247).
 --
 -- The first production cron runs proved a `session_user = 'service_role'`
 -- branch can NEVER pass through PostgREST (session_user is 'authenticator';

@@ -20,13 +20,18 @@
 // network-first cache entry, so any client on an older SW re-evaluates and
 // cleans its caches on activate, guaranteeing a clean swap to the new
 // strategy.
-const CACHE_NAME = "rink-reports-v7"
-const STATIC_CACHE = "rink-reports-static-v7"
+const CACHE_NAME = "rink-reports-v8"
+const STATIC_CACHE = "rink-reports-static-v8"
 
 // Data-free page shells that are SAFE to cache for offline navigation: they
 // render no user data server-side (per-user content comes from per-user
 // IndexedDB caches on the client). Everything else stays network-only.
-const OFFLINE_SHELLS = ["/offline-schedule", "/offline-daily", "/offline-forms"]
+const OFFLINE_SHELLS = [
+  "/offline-schedule",
+  "/offline-daily",
+  "/offline-forms",
+  "/offline-rink-schedule",
+]
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1
 const STORE_NAME = "submissions"
