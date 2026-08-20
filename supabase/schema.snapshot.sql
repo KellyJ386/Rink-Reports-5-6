@@ -703,7 +703,7 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('manager','dasher_boards','edit'::public.user_action),
       ('staff','dasher_boards','submit'::public.user_action),
       ('driver','dasher_boards','submit'::public.user_action),
-      -- rink_scheduling (added migration 248). manager stops at edit: rate
+      -- rink_scheduling (added migration 249). manager stops at edit: rate
       -- cards and module settings are the admin tier, matching the module
       -- spec's org_admin-only row. staff and driver are read-only.
       ('super_admin','rink_scheduling','admin'::public.user_action),
@@ -730,7 +730,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 248.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 249.';
 
 
 --
@@ -2116,13 +2116,18 @@ declare
   v_msg_id       uuid;
   v_outbox_ids   uuid[];
 begin
-  if not (public.is_super_admin() or session_user = 'postgres' or session_user = 'service_role') then
+  if not (
+    public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
+    or session_user in ('postgres', 'supabase_admin')
+  ) then
     raise exception 'drain_notification_outbox: not authorised';
   end if;
 
   if p_facility_id is null
      and public.is_super_admin()
-     and session_user not in ('postgres', 'service_role') then
+     and coalesce(auth.role(), '') <> 'service_role'
+     and session_user not in ('postgres', 'supabase_admin') then
     raise notice 'drain_notification_outbox: super_admin called without p_facility_id; draining all tenants';
   end if;
 
@@ -3283,7 +3288,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds rink_scheduling (migration 250): payments, then their invoices (line items cascade), then bookings not cited by any invoice line. Customers, rate cards and facility setup are configuration and are never purged by age.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds rink_scheduling (migration 251): payments, then their invoices (line items cascade), then bookings not cited by any invoice line. Customers, rate cards and facility setup are configuration and are never purged by age.';
 
 
 --
@@ -7698,7 +7703,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 248). Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 249). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --
@@ -8198,8 +8203,8 @@ begin
   -- Internal-only: cron route with the service key (or a superuser).
   if not (
     public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
     or session_user in ('postgres', 'supabase_admin')
-    or current_user in ('postgres', 'supabase_admin', 'service_role')
   ) then
     raise exception 'snapshot_closed_daily_assignment_days: not authorized'
       using errcode = '42501';
@@ -8913,7 +8918,8 @@ declare
 begin
   if not (
     public.is_super_admin()
-    or session_user in ('postgres', 'service_role', 'supabase_admin')
+    or coalesce(auth.role(), '') = 'service_role'
+    or session_user in ('postgres', 'supabase_admin')
   ) then
     raise exception 'verify_all_audit_chains: service-role or super-admin only'
       using errcode = '42501';

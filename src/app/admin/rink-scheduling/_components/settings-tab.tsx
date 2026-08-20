@@ -28,7 +28,7 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
     if (state.ok === false) toast.error(state.error)
   }, [state])
 
-  // Defaults mirror the column defaults in migration 246, so the first save of
+  // Defaults mirror the column defaults in migration 247, so the first save of
   // a facility that has never had a settings row cannot silently change a
   // value the admin never touched.
   const s = {

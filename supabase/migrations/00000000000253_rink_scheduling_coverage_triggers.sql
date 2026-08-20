@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000252_rink_scheduling_coverage_triggers.sql
+-- 00000000000253_rink_scheduling_coverage_triggers.sql
 -- Make coverage detection BIDIRECTIONAL, and stop gap alerts duplicating.
 --
 -- 1. A trigger on public.schedule_shifts that enqueues a coverage
@@ -25,7 +25,7 @@
 -- self-heals within minutes.
 --
 -- WHY ONE ROW PER FACILITY. rink_coverage_queue_one_pending_per_facility
--- (migration 246) is a partial unique index on (facility_id) WHERE status =
+-- (migration 247) is a partial unique index on (facility_id) WHERE status =
 -- 'pending'. A publish touching 60 shifts therefore produces ONE pending row,
 -- not 60 — the debounce the module spec asks for, enforced by the database
 -- rather than by application bookkeeping.

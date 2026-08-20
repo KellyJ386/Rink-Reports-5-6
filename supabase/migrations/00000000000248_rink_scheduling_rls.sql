@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000247_rink_scheduling_rls.sql
+-- 00000000000248_rink_scheduling_rls.sql
 -- Module #12 "rink_scheduling" — row level security.
 --
 -- Every policy is `to authenticated` (migration 244's house rule). This is not

@@ -27,7 +27,7 @@ const ADMIN_PATH = "/admin/rink-scheduling"
 // Error mapping
 //
 // A local dbError rather than the shared @/lib/db-error, which the shared
-// helper's own doc comment sanctions for exactly this case: migration 246
+// helper's own doc comment sanctions for exactly this case: migration 247
 // leans hard on CHECK constraints (23514) and adds the booking overlap
 // EXCLUSION constraint (23P01), neither of which the shared mapper words
 // usefully. A raw "new row violates check constraint

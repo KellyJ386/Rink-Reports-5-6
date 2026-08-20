@@ -2,7 +2,7 @@
 // config. Kept free of `server-only` imports so vitest can exercise it in a
 // plain Node environment (see CLAUDE.md on the test runner's scope).
 //
-// Every rule here mirrors a CHECK constraint in migration 246. The point of
+// Every rule here mirrors a CHECK constraint in migration 247. The point of
 // duplicating them is to turn a raw 23514 into a sentence an admin can act on;
 // the database remains the authority.
 

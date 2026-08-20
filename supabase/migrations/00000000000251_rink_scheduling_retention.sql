@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000250_rink_scheduling_retention.sql
+-- 00000000000251_rink_scheduling_retention.sql
 -- Retention for module #12 'rink_scheduling'.
 --
 -- WHY THE FLOOR IS 2555 DAYS (7 YEARS)
@@ -226,7 +226,7 @@ end;
 $function$;
 
 comment on function public.purge_module_data(uuid, text) is
-  'Manual per-module purge for a facility. Adds rink_scheduling (migration 250): '
+  'Manual per-module purge for a facility. Adds rink_scheduling (migration 251): '
   'payments, then their invoices (line items cascade), then bookings not cited by '
   'any invoice line. Customers, rate cards and facility setup are configuration '
   'and are never purged by age.';

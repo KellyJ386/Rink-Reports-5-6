@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000253_rink_payments_void_invoice_guard.sql
+-- 00000000000254_rink_payments_void_invoice_guard.sql
 -- Refuse a payment recorded against a VOID invoice at the trigger layer.
 --
 -- WHY, given RLS already refuses it. The rink_payments INSERT policy carries
@@ -12,7 +12,7 @@
 --
 -- This repo already treats money locks as needing two layers: rink_payments
 -- are append-only via BOTH the absent UPDATE/DELETE policies AND
--- rink_payments_guard (migration 247), and the RLS harness asserts each layer
+-- rink_payments_guard (migration 248), and the RLS harness asserts each layer
 -- separately. This closes the same gap on the insert side, and was found by
 -- exactly that kind of two-layer test.
 --

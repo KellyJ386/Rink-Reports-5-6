@@ -1,12 +1,12 @@
 -- =============================================================================
--- 00000000000251_rink_bookings_blocks_until_default.sql
+-- 00000000000252_rink_bookings_blocks_until_default.sql
 -- Give rink_bookings.blocks_until a column default.
 --
 -- WHY. blocks_until is derived (ends_at + buffer_minutes_after) and is
 -- maintained unconditionally by trg_rink_bookings_blocks_until, a BEFORE
 -- INSERT/UPDATE trigger. It exists as a stored column only because an
 -- exclusion constraint needs an IMMUTABLE expression to index and
--- `timestamptz + interval` is merely STABLE (see migration 246's header).
+-- `timestamptz + interval` is merely STABLE (see migration 247's header).
 --
 -- Without a default, the column is NOT NULL with no default, so the generated
 -- TypeScript Insert type marks it REQUIRED — pushing every caller to send a

@@ -217,7 +217,7 @@ export async function generateInvoice(input: {
 
     // Claim the next number atomically. UPDATE takes a row lock, so two
     // simultaneous generations cannot take the same sequence — no SECURITY
-    // DEFINER function required (see migration 246's note on this table).
+    // DEFINER function required (see migration 247's note on this table).
     const { data: counter, error: counterError } = await supabase
       .from("rink_invoice_counters")
       .select("next_seq")
@@ -491,7 +491,7 @@ export async function sendInvoice(invoiceId: string): Promise<SimpleResult> {
 
 /**
  * Voiding is what releases an invoice's bookings back to uninvoiced: the
- * trigger from migration 246 flips its line items to voided, which drops them
+ * trigger from migration 247 flips its line items to voided, which drops them
  * out of the partial unique index.
  */
 export async function voidInvoice(
@@ -646,7 +646,7 @@ export async function reversePayment(
 /**
  * Recompute amount_paid from the payment rows and re-derive the status.
  *
- * Server-side recomputation rather than a trigger — migration 246 required
+ * Server-side recomputation rather than a trigger — migration 247 required
  * picking one and being consistent. Doing it here keeps the sum and the status
  * transition in a single place, so they cannot disagree.
  */

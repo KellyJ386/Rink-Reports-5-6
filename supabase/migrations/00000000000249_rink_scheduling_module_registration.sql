@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000248_rink_scheduling_module_registration.sql
+-- 00000000000249_rink_scheduling_module_registration.sql
 -- Register module #12 'rink_scheduling' in the permission + module-toggle model.
 -- Mirrors migration 193 (dasher_boards), the most recent worked example.
 --
@@ -96,7 +96,7 @@ end;
 $$;
 
 comment on function public.seed_default_facility_modules(uuid) is
-  'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 248). Idempotent via on conflict do nothing on (facility_id, module_key).';
+  'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 249). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 revoke execute on function public.seed_default_facility_modules(uuid) from public;
 grant  execute on function public.seed_default_facility_modules(uuid) to service_role;
@@ -196,7 +196,7 @@ as $$
       ('manager','dasher_boards','edit'::public.user_action),
       ('staff','dasher_boards','submit'::public.user_action),
       ('driver','dasher_boards','submit'::public.user_action),
-      -- rink_scheduling (added migration 248). manager stops at edit: rate
+      -- rink_scheduling (added migration 249). manager stops at edit: rate
       -- cards and module settings are the admin tier, matching the module
       -- spec's org_admin-only row. staff and driver are read-only.
       ('super_admin','rink_scheduling','admin'::public.user_action),
@@ -219,7 +219,7 @@ as $$
 $$;
 
 comment on function public.canonical_role_permission_grants() is
-  'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 248.';
+  'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 249.';
 
 -- Targeted re-seed of role_permission_defaults for the new module only.
 insert into public.role_permission_defaults (facility_id, role_id, module_name, action, enabled)

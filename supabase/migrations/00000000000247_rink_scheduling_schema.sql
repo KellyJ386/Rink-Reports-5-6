@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000246_rink_scheduling_schema.sql
+-- 00000000000247_rink_scheduling_schema.sql
 -- Module #12 "rink_scheduling" (Rink Scheduling & Billing) — tables.
 --
 -- Scoping: facility -> facility_rinks / facility_locker_rooms / operating hours

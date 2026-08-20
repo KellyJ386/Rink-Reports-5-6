@@ -210,7 +210,7 @@ export async function sweepFacility(
 /**
  * Open or refresh the alert for one gapped booking.
  *
- * communication_alerts_rink_scheduling_open_uniq (migration 252) means at most
+ * communication_alerts_rink_scheduling_open_uniq (migration 253) means at most
  * one UNRESOLVED alert exists per booking, so a sweep every five minutes
  * updates the existing row instead of growing a new one each time. Returns
  * true only when a genuinely new alert was created, so the caller can count
