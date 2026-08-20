@@ -158,6 +158,26 @@ function caughtSimple(e: unknown): SimpleResult {
   return { ok: false, error: e instanceof Error ? e.message : "Unknown error." }
 }
 
+
+/**
+ * Operating hours and the coverage toggle both change what "covered" means, so
+ * editing them re-checks every future booking. Best-effort: a queue failure
+ * must not fail the save, and the cron sweep runs on its own schedule anyway.
+ */
+async function enqueueCoverageRecheck(
+  facilityId: string,
+  reason: "hours_change" | "settings_change",
+): Promise<void> {
+  try {
+    const supabase = await createClient()
+    await supabase
+      .from("rink_coverage_reeval_queue")
+      .insert({ facility_id: facilityId, reason, status: "pending" })
+  } catch {
+    // Intentionally swallowed.
+  }
+}
+
 // ===========================================================================
 // RINKS
 // ===========================================================================
@@ -534,6 +554,7 @@ export async function saveOperatingHours(
       .upsert(rows, { onConflict: "facility_id,day_of_week" })
     if (error) return fail(dbError(error, "Failed to save operating hours."))
 
+    await enqueueCoverageRecheck(facility.facilityId, "hours_change")
     revalidatePath(ADMIN_PATH)
     return { ok: true, message: "Operating hours saved." }
   } catch (e) {
@@ -586,6 +607,7 @@ export async function createHoursException(
       return fail(dbError(error, "Failed to add the exception."))
     }
 
+    await enqueueCoverageRecheck(facility.facilityId, "hours_change")
     revalidatePath(ADMIN_PATH)
     return { ok: true, message: "Exception added." }
   } catch (e) {
@@ -609,6 +631,7 @@ export async function deleteHoursException(id: string): Promise<SimpleResult> {
       return { ok: false, error: dbError(error, "Failed to remove the exception.") }
     }
 
+    await enqueueCoverageRecheck(facility.facilityId, "hours_change")
     revalidatePath(ADMIN_PATH)
     return { ok: true }
   } catch (e) {
@@ -1289,6 +1312,7 @@ export async function updateModuleSettings(
     )
     if (error) return fail(dbError(error, "Failed to save settings."))
 
+    await enqueueCoverageRecheck(facility.facilityId, "settings_change")
     revalidatePath(ADMIN_PATH)
     return { ok: true, message: "Settings saved." }
   } catch (e) {

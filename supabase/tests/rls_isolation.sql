@@ -8987,6 +8987,123 @@ select pg_temp.expect_ok(
 
 reset role;
 
+-- Coverage detection (migration 252). Label prefix COV.
+--
+-- The trigger on schedule_shifts is the only place this module touches another
+-- module's table, so these assertions pin down exactly what it may do: enqueue
+-- into a Rink Scheduling table, never write to scheduling, and never be able to
+-- break a publish.
+
+set local role postgres;
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+     where c.relname = 'schedule_shifts'
+       and t.tgname = 'trg_rink_scheduling_shift_coverage'
+       and not t.tgisinternal$$,
+  1, 'COV1: the coverage trigger is installed on schedule_shifts');
+
+-- The read-only-integration guarantee, asserted against the function body.
+select pg_temp.expect_count(
+  $$select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'rink_scheduling_enqueue_on_shift_change'
+       and pg_get_functiondef(p.oid) like '%rink_coverage_reeval_queue%'
+       and pg_get_functiondef(p.oid) not like '%update public.schedule%'
+       and pg_get_functiondef(p.oid) not like '%insert into public.schedule%'
+       and pg_get_functiondef(p.oid) not like '%delete from public.schedule%'$$,
+  1, 'COV2: the trigger writes ONLY the coverage queue — never a scheduling table');
+
+select pg_temp.expect_count(
+  $$select count(*) from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname='public' and p.proname='rink_scheduling_enqueue_on_shift_change'
+       and has_function_privilege('authenticated', p.oid, 'execute')$$,
+  0, 'COV3: the trigger function is not callable by authenticated');
+
+-- Publishing a whole week must produce ONE evaluation pass, not one per shift.
+insert into public.employees (id, facility_id, role_id, first_name, last_name, email, is_active)
+select 'aaaa1111-c091-aaaa-aaaa-aaaa11110077'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       r.id, 'Cov', 'Sweeper', 'cov@fac-a.test', true
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+ limit 1
+on conflict (id) do nothing;
+
+delete from public.rink_coverage_reeval_queue
+ where facility_id = '11111111-1111-1111-1111-111111111111';
+
+insert into public.schedule_shifts (facility_id, employee_id, starts_at, ends_at, status)
+select '11111111-1111-1111-1111-111111111111',
+       'aaaa1111-c091-aaaa-aaaa-aaaa11110077',
+       '2028-01-03 08:00:00-05'::timestamptz + (n || ' days')::interval,
+       '2028-01-03 16:00:00-05'::timestamptz + (n || ' days')::interval,
+       'draft'
+  from generate_series(1, 20) n;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_coverage_reeval_queue
+     where facility_id = '11111111-1111-1111-1111-111111111111' and status = 'pending'$$,
+  0, 'COV4: creating DRAFT shifts enqueues nothing — drafts provide no coverage');
+
+update public.schedule_shifts
+   set status = 'published', published_at = now()
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and starts_at >= '2028-01-01';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_coverage_reeval_queue
+     where facility_id = '11111111-1111-1111-1111-111111111111' and status = 'pending'$$,
+  1, 'COV5: publishing 20 shifts in one statement produces exactly ONE pending pass');
+
+-- One open alert per booking, so a five-minute sweep updates rather than piles up.
+select pg_temp.expect_count(
+  $$select count(*) from pg_indexes
+     where schemaname = 'public'
+       and indexname = 'communication_alerts_rink_scheduling_open_uniq'$$,
+  1, 'COV6: the one-open-alert-per-booking index exists');
+
+insert into public.communication_alerts
+  (facility_id, source_module, source_record_id, severity, title, body)
+values ('11111111-1111-1111-1111-111111111111', 'rink_scheduling',
+        'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Ice booked without cover', 'first');
+
+select pg_temp.expect_error(
+  $$insert into public.communication_alerts
+      (facility_id, source_module, source_record_id, severity, title, body)
+    values ('11111111-1111-1111-1111-111111111111', 'rink_scheduling',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Ice booked without cover', 'duplicate')$$,
+  'COV7: a SECOND unresolved alert for the same booking is REJECTED');
+
+-- Once resolved, a later recurrence may legitimately open a fresh alert.
+update public.communication_alerts
+   set resolved_at = now()
+ where facility_id = '11111111-1111-1111-1111-111111111111'
+   and source_module = 'rink_scheduling';
+
+select pg_temp.expect_ok(
+  $$insert into public.communication_alerts
+      (facility_id, source_module, source_record_id, severity, title, body)
+    values ('11111111-1111-1111-1111-111111111111', 'rink_scheduling',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Ice booked without cover', 'reopened')$$,
+  'COV8: after the gap clears and returns, a NEW alert is allowed');
+
+-- The index must not constrain any other module.
+select pg_temp.expect_ok(
+  $$insert into public.communication_alerts
+      (facility_id, source_module, source_record_id, severity, title, body)
+    values ('11111111-1111-1111-1111-111111111111', 'refrigeration',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Other module', 'one'),
+           ('11111111-1111-1111-1111-111111111111', 'refrigeration',
+            'a5000001-0000-4000-8000-0000000000b1', 'warn', 'Other module', 'two')$$,
+  'COV9: other modules may still hold several open alerts for one record');
+
+reset role;
+
 do $$
 declare
   v_failed int;

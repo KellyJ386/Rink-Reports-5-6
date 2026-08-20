@@ -40,6 +40,7 @@ const SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "air_quality", label: "Air Quality" },
   { value: "incident_reports", label: "Incident" },
   { value: "scheduling", label: "Scheduling" },
+  { value: "rink_scheduling", label: "Rink Schedule" },
 ]
 
 const SEVERITY_OPTIONS = ["info", "warn", "high", "critical"] as const

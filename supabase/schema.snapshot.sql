@@ -4663,6 +4663,74 @@ COMMENT ON FUNCTION public.rink_payments_guard() IS 'Re-states the append-only p
 
 
 --
+-- Name: rink_scheduling_enqueue_on_shift_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_scheduling_enqueue_on_shift_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid;
+  v_relevant    boolean := false;
+begin
+  -- SECURITY DEFINER because the caller is whoever changed the shift — a
+  -- scheduling admin who may hold no rink_scheduling grant at all, and whose
+  -- INSERT would otherwise be refused by this queue's RLS policy.
+  begin
+    v_facility_id := coalesce(new.facility_id, old.facility_id);
+    if v_facility_id is null then
+      return coalesce(new, old);
+    end if;
+
+    -- Only PUBLISHED shifts provide coverage, so only transitions that change
+    -- published coverage matter. A draft being edited changes nothing.
+    if tg_op = 'INSERT' then
+      v_relevant := new.status = 'published';
+    elsif tg_op = 'DELETE' then
+      v_relevant := old.status = 'published';
+    else
+      v_relevant :=
+        old.status = 'published'
+        or new.status = 'published';
+      -- An edit that moved neither the window nor the published state cannot
+      -- change coverage; skip it so a bulk metadata update stays cheap.
+      if v_relevant
+         and old.status = new.status
+         and old.starts_at = new.starts_at
+         and old.ends_at = new.ends_at
+         and old.employee_id is not distinct from new.employee_id then
+        v_relevant := false;
+      end if;
+    end if;
+
+    if not v_relevant then
+      return coalesce(new, old);
+    end if;
+
+    -- The partial unique index collapses a whole publish batch into one row.
+    insert into public.rink_coverage_reeval_queue (facility_id, reason, status)
+    values (v_facility_id, 'shift_change', 'pending')
+    on conflict do nothing;
+
+  exception when others then
+    -- Never let a coverage bookkeeping failure take down a scheduling write.
+    null;
+  end;
+
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_scheduling_enqueue_on_shift_change(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_scheduling_enqueue_on_shift_change() IS 'Enqueues a Rink Scheduling coverage re-evaluation when published shift coverage changes. Reads schedule_shifts, writes only rink_coverage_reeval_queue — never writes to any scheduling table. All failures are swallowed so a publish can never fail because of coverage bookkeeping.';
+
+
+--
 -- Name: rink_scheduling_guard_exempt(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -17643,6 +17711,20 @@ CREATE UNIQUE INDEX certification_types_ci_uniq ON public.certification_types US
 
 
 --
+-- Name: communication_alerts_rink_scheduling_open_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX communication_alerts_rink_scheduling_open_uniq ON public.communication_alerts USING btree (facility_id, source_record_id) WHERE ((source_module = 'rink_scheduling'::text) AND (resolved_at IS NULL));
+
+
+--
+-- Name: INDEX communication_alerts_rink_scheduling_open_uniq; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON INDEX public.communication_alerts_rink_scheduling_open_uniq IS 'At most one UNRESOLVED rink_scheduling alert per booking, so the recurring coverage sweep updates rather than duplicates. Deliberately scoped to this module: other modules may legitimately hold several open alerts for one record.';
+
+
+--
 -- Name: cron_runs_route_started_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21805,6 +21887,13 @@ CREATE TRIGGER trg_rink_rate_type_overrides_updated_at BEFORE UPDATE ON public.r
 --
 
 CREATE TRIGGER trg_rink_scheduling_settings_updated_at BEFORE UPDATE ON public.rink_scheduling_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: schedule_shifts trg_rink_scheduling_shift_coverage; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_scheduling_shift_coverage AFTER INSERT OR DELETE OR UPDATE ON public.schedule_shifts FOR EACH ROW EXECUTE FUNCTION public.rink_scheduling_enqueue_on_shift_change();
 
 
 --
