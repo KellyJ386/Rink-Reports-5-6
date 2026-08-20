@@ -24,7 +24,7 @@ name: Regenerate Migration Artifacts
 #     a commit message will not fire it; the file content must change.
 #     When a migration PR is authored where workflow_dispatch isn't available
 #     (the GitHub App lacks actions:write), edit this comment block in the same
-#     push to fire the run — done for migrations 239/240 and again for 246.
+#     push to fire the run — done for migrations 239/240, 246, and 255.
 
 on:
   workflow_dispatch:
