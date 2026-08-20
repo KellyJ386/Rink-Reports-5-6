@@ -8470,6 +8470,74 @@ select pg_temp.expect_count(
   1,
   'RETENTION-239: purge_module_data only purges RESOLVED dasher_boards issues');
 
+-- ---------------------------------------------------------------------------
+-- GATE-246: cron RPC caller gates (migration 246).
+--
+-- The first production cron runs proved a `session_user = 'service_role'`
+-- branch can NEVER pass through PostgREST (session_user is 'authenticator';
+-- inside SECURITY DEFINER current_user is the owner). Migration 246 rebases
+-- the three cron-called gates onto auth.role(). Two layers of coverage:
+--
+--   (a) Functional: a PostgREST-shaped service-role caller (SET ROLE
+--       service_role + a JWT claiming role=service_role) can execute all
+--       three. Caveat: under this harness session_user stays 'postgres', so
+--       (a) alone could not catch a session_user regression — which is what
+--       (b) is for.
+--   (b) Source pins: each function's definition must contain the auth.role()
+--       check and must NOT contain any of the session_user/current_user
+--       patterns the old gates used. A future restatement that resurrects
+--       them (the known lost-in-restatement failure mode, cf. the
+--       notification_type CHECK) fails here instead of in production.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role service_role;
+-- Both claim shapes, mirroring the impersonation blocks above: the plural
+-- `request.jwt.claims` (hosted/newer auth.role()) and the singular
+-- `request.jwt.claim.role` (older readers).
+set local request.jwt.claims to '{"role":"service_role"}';
+select set_config('request.jwt.claim.role', 'service_role', true);
+
+select pg_temp.expect_ok(
+  $$select count(*) from public.drain_notification_outbox(1, null)$$,
+  'GATE-246: service_role (PostgREST-shaped) CAN execute drain_notification_outbox');
+
+select pg_temp.expect_ok(
+  $$select public.verify_all_audit_chains()$$,
+  'GATE-246: service_role (PostgREST-shaped) CAN execute verify_all_audit_chains');
+
+select pg_temp.expect_ok(
+  $$select public.snapshot_closed_daily_assignment_days()$$,
+  'GATE-246: service_role (PostgREST-shaped) CAN execute snapshot_closed_daily_assignment_days');
+
+reset role;
+
+select pg_temp.expect_count(
+  $$select count(*)
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('drain_notification_outbox',
+                         'verify_all_audit_chains',
+                         'snapshot_closed_daily_assignment_days')
+       and pg_get_functiondef(p.oid)
+             like '%coalesce(auth.role(), '''') = ''service_role''%'$$,
+  3,
+  'GATE-246: all three cron RPC gates check auth.role() = service_role');
+
+select pg_temp.expect_count(
+  $$select count(*)
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('drain_notification_outbox',
+                         'verify_all_audit_chains',
+                         'snapshot_closed_daily_assignment_days')
+       and (pg_get_functiondef(p.oid) like '%session_user = ''service_role''%'
+         or pg_get_functiondef(p.oid) like '%''postgres'', ''service_role''%'
+         or pg_get_functiondef(p.oid) like '%current_user%')$$,
+  0,
+  'GATE-246: no cron RPC gate matches session_user/current_user against service_role (unreachable via PostgREST)');
+
 do $$
 declare
   v_failed int;
