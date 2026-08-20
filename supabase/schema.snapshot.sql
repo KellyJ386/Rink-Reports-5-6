@@ -2144,7 +2144,10 @@ begin
     requires_acknowledgement boolean
   ) on commit drop;
 
-  delete from _drain_claim;
+  -- pg_safeupdate is loaded on Supabase's PostgREST sessions and rejects an
+  -- unqualified DELETE (21000: "DELETE requires a WHERE clause") even inside a
+  -- SECURITY DEFINER function. WHERE true satisfies it verbatim.
+  delete from _drain_claim where true;
 
   insert into _drain_claim (
     id, facility_id, rule_id, source_module, source_record_id,
