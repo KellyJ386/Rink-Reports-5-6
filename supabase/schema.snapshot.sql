@@ -4637,9 +4637,26 @@ CREATE FUNCTION public.rink_payments_guard() RETURNS trigger
     LANGUAGE plpgsql
     SET search_path TO 'public', 'pg_temp'
     AS $$
+declare
+  v_status text;
 begin
   if public.rink_scheduling_guard_exempt() then
     return coalesce(new, old);
+  end if;
+
+  if tg_op = 'INSERT' then
+    -- A void invoice states that nothing is owed. Money recorded against it
+    -- corrupts amount_paid, and every AR report reads that column.
+    select i.status into v_status
+      from public.rink_invoices i
+     where i.id = new.invoice_id;
+
+    if v_status = 'void' then
+      raise exception 'rink_scheduling: cannot record a payment against a void invoice'
+        using errcode = '42501';
+    end if;
+
+    return new;
   end if;
 
   if tg_op = 'UPDATE' then
@@ -4659,7 +4676,7 @@ $$;
 -- Name: FUNCTION rink_payments_guard(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.rink_payments_guard() IS 'Re-states the append-only payment rule at the trigger layer, so even direct SQL from a privileged-but-not-exempt session cannot rewrite payment history.';
+COMMENT ON FUNCTION public.rink_payments_guard() IS 'Money guard for rink_payments: append-only (no edits, no deletes) and no payment against a void invoice. Re-states at the trigger layer what RLS and the server actions already enforce, so direct SQL from a non-exempt owner session cannot corrupt amount_paid.';
 
 
 --
@@ -21858,7 +21875,7 @@ CREATE TRIGGER trg_rink_payment_methods_updated_at BEFORE UPDATE ON public.rink_
 -- Name: rink_payments trg_rink_payments_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_rink_payments_guard BEFORE DELETE OR UPDATE ON public.rink_payments FOR EACH ROW EXECUTE FUNCTION public.rink_payments_guard();
+CREATE TRIGGER trg_rink_payments_guard BEFORE INSERT OR DELETE OR UPDATE ON public.rink_payments FOR EACH ROW EXECUTE FUNCTION public.rink_payments_guard();
 
 
 --

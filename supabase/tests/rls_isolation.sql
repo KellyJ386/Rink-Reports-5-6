@@ -9104,6 +9104,148 @@ select pg_temp.expect_ok(
 
 reset role;
 
+-- ===========================================================================
+-- Module 12 invoicing & AR (migrations 246, 253). Label prefix AR.
+--
+-- Money rules asserted at BOTH layers, the way the dasher_boards block does:
+-- what RLS refuses for an ordinary user, and what the guard trigger refuses
+-- even for direct SQL from a non-exempt owner session.
+-- ===========================================================================
+
+set local role postgres;
+
+insert into public.rink_customers (id, facility_id, name)
+values ('a9990001-0000-4000-8000-00000000000c',
+        '11111111-1111-1111-1111-111111111111', 'AR Test Club')
+on conflict (id) do nothing;
+
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at,
+   buffer_minutes_after, status, computed_amount)
+select 'a9990001-0000-4000-8000-00000000000b',
+       '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001',
+       'a9990001-0000-4000-8000-00000000000c',
+       bt.id, '2027-05-04 18:00:00-04', '2027-05-04 20:00:00-04', 15, 'confirmed', 600
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+insert into public.rink_invoices
+  (id, facility_id, customer_id, invoice_number, status, issue_date, due_date,
+   subtotal, tax_amount, total)
+values
+  ('a9990001-0000-4000-8000-0000000000f1', '11111111-1111-1111-1111-111111111111',
+   'a9990001-0000-4000-8000-00000000000c', 'AR-0001', 'draft',
+   date '2027-05-05', date '2027-06-04', 600, 0, 600),
+  ('a9990001-0000-4000-8000-0000000000f2', '11111111-1111-1111-1111-111111111111',
+   'a9990001-0000-4000-8000-00000000000c', 'AR-0002', 'draft',
+   date '2027-05-05', date '2027-06-04', 600, 0, 600)
+on conflict (id) do nothing;
+
+-- A booking reaches at most ONE live invoice.
+select pg_temp.expect_ok(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f1',
+            'a9990001-0000-4000-8000-00000000000b', 'Ice', 2, 300, 600)$$,
+  'AR1: a booking can be billed on an invoice');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2',
+            'a9990001-0000-4000-8000-00000000000b', 'Ice again', 2, 300, 600)$$,
+  'AR2: the SAME booking CANNOT appear on a second live invoice');
+
+-- Voiding releases the booking: the propagate trigger flips its lines to
+-- voided, dropping them out of the partial unique index.
+select pg_temp.expect_ok(
+  $$update public.rink_invoices set status = 'void', voided_at = now()
+     where id = 'a9990001-0000-4000-8000-0000000000f1'$$,
+  'AR3: an invoice can be voided');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoice_line_items
+     where invoice_id = 'a9990001-0000-4000-8000-0000000000f1' and voided$$,
+  1, 'AR4: voiding an invoice marks its line items voided');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_invoice_line_items
+      (facility_id, invoice_id, booking_id, description, quantity_hours, unit_rate, amount)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2',
+            'a9990001-0000-4000-8000-00000000000b', 'Re-billed', 2, 300, 600)$$,
+  'AR5: voiding RELEASES the booking to be billed again');
+
+-- Money: append-only, correctly signed, reversible exactly once.
+update public.rink_invoices set status = 'sent', sent_at = now()
+ where id = 'a9990001-0000-4000-8000-0000000000f2';
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments (id, facility_id, invoice_id, amount, payment_date)
+    values ('a9990001-0000-4000-8000-00000000a0a1',
+            '11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', 250, date '2027-05-10')$$,
+  'AR6: a payment can be recorded against a sent invoice');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -250, date '2027-05-11')$$,
+  'AR7: a negative amount that reverses nothing is REJECTED');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments
+      (facility_id, invoice_id, amount, payment_date, reverses_payment_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -250, date '2027-05-11',
+            'a9990001-0000-4000-8000-00000000a0a1')$$,
+  'AR8: a proper reversal row is accepted');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments
+      (facility_id, invoice_id, amount, payment_date, reverses_payment_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -250, date '2027-05-12',
+            'a9990001-0000-4000-8000-00000000a0a1')$$,
+  'AR9: the same payment CANNOT be reversed twice (no double credit)');
+
+-- Trigger layer: `postgres` bypasses RLS and is deliberately NOT guard-exempt,
+-- so these prove the lock survives direct SQL.
+select pg_temp.expect_error(
+  $$update public.rink_payments set amount = 999
+     where id = 'a9990001-0000-4000-8000-00000000a0a1'$$,
+  'AR10: trigger layer — a payment cannot be edited');
+
+select pg_temp.expect_error(
+  $$delete from public.rink_payments
+     where id = 'a9990001-0000-4000-8000-00000000a0a1'$$,
+  'AR11: trigger layer — a payment cannot be deleted');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f1', 10, date '2027-05-13')$$,
+  'AR12: trigger layer — no payment against a VOID invoice (migration 253)');
+
+-- Money is edit-tier: alice holds view+submit only and must see none of it.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_invoice_line_items$$,
+  0, 'AR13: a submit-only user sees no invoice lines');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_payments$$,
+  0, 'AR14: a submit-only user sees no payments');
+
+reset role;
+
 do $$
 declare
   v_failed int;

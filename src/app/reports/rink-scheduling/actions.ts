@@ -352,7 +352,7 @@ export async function updateBooking(input: {
     const windowMoved =
       existing.starts_at !== input.startsAt || existing.ends_at !== input.endsAt
 
-    const patch: TablesUpdate<"rink_bookings"> = {
+    const updates: TablesUpdate<"rink_bookings"> = {
       rink_id: input.rinkId,
       customer_id: input.customerId,
       booking_type_id: input.bookingTypeId,
@@ -371,15 +371,15 @@ export async function updateBooking(input: {
         customerId: input.customerId,
       })
       if (quote.ok) {
-        patch.rate_snapshot_hourly = quote.quote.snapshotHourlyRate
-        patch.rate_snapshot_prime = quote.quote.allPrime
-        patch.computed_amount = quote.quote.totalAmount
+        updates.rate_snapshot_hourly = quote.quote.snapshotHourlyRate
+        updates.rate_snapshot_prime = quote.quote.allPrime
+        updates.computed_amount = quote.quote.totalAmount
       }
     }
 
     const { error } = await supabase
       .from("rink_bookings")
-      .update(patch)
+      .update(updates)
       .eq("id", input.id)
       .eq("facility_id", facilityId)
 

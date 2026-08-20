@@ -6,7 +6,7 @@
 // queued offline would be validated against a world that has since moved on,
 // and replaying it could either fail confusingly hours later or, worse, be
 // accepted after someone else took the slot. Viewing offline is genuinely
-// useful at a rink with patchy wifi, so the read path is cached and the write
+// useful at a rink with unreliable wifi, so the read path is cached and the write
 // path is refused with a clear message.
 //
 // Hand-rolled IndexedDB rather than a wrapper library, matching the four
