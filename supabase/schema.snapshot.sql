@@ -703,7 +703,7 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('manager','dasher_boards','edit'::public.user_action),
       ('staff','dasher_boards','submit'::public.user_action),
       ('driver','dasher_boards','submit'::public.user_action),
-      -- rink_scheduling (added migration 247). manager stops at edit: rate
+      -- rink_scheduling (added migration 248). manager stops at edit: rate
       -- cards and module settings are the admin tier, matching the module
       -- spec's org_admin-only row. staff and driver are read-only.
       ('super_admin','rink_scheduling','admin'::public.user_action),
@@ -730,7 +730,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 247.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 248.';
 
 
 --
@@ -7511,7 +7511,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 247). Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 248). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --

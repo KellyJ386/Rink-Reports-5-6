@@ -8471,7 +8471,7 @@ select pg_temp.expect_count(
   'RETENTION-239: purge_module_data only purges RESOLVED dasher_boards issues');
 
 -- ===========================================================================
--- Module 12: Rink Scheduling & Billing (migrations 245-248). Label prefix RS.
+-- Module 12: Rink Scheduling & Billing (migrations 246-249). Label prefix RS.
 --
 -- Covers, in order: the auto-seed trigger; tenant isolation on every new
 -- table; the four-tier gate mapping (view/submit/edit/admin standing in for

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000248_rink_scheduling_seed.sql
+-- 00000000000249_rink_scheduling_seed.sql
 -- Rink Scheduling & Billing seeds.
 --
 -- 1. seed_default_rink_scheduling_config(facility) — settings row, invoice
