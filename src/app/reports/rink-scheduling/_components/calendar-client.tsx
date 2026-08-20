@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/client"
 import { addDaysToKey, weekdayOfKey } from "@/lib/timezone"
 
 import { BookingSheet } from "./booking-sheet"
+import { SeriesSheet } from "./series-sheet"
 import {
   blockGeometry,
   bookingMinutesOnDay,
@@ -76,6 +77,7 @@ export function CalendarClient(props: Props) {
   } = props
 
   const [sheet, setSheet] = useState<SheetState>({ mode: "closed" })
+  const [seriesOpen, setSeriesOpen] = useState(false)
 
   useCalendarCacheWriter(props)
 
@@ -118,7 +120,11 @@ export function CalendarClient(props: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <Toolbar {...props} futureGapCount={futureGapCount} />
+      <Toolbar
+        {...props}
+        futureGapCount={futureGapCount}
+        onNewSeries={() => setSeriesOpen(true)}
+      />
 
       {view === "day" && (
         <DayGrid
@@ -159,6 +165,17 @@ export function CalendarClient(props: Props) {
         />
       )}
 
+      {seriesOpen && (
+        <SeriesSheet
+          rinks={rinks}
+          bookingTypes={props.bookingTypes}
+          customers={props.customers}
+          defaultDayKey={focusKey}
+          canEdit={props.canEdit}
+          onClose={() => setSeriesOpen(false)}
+        />
+      )}
+
       {sheet.mode !== "closed" && (
         <BookingSheet
           state={sheet}
@@ -189,7 +206,9 @@ function Toolbar({
   showCancelled,
   gapsOnly,
   futureGapCount,
-}: Props & { futureGapCount: number }) {
+  canEdit,
+  onNewSeries,
+}: Props & { futureGapCount: number; onNewSeries: () => void }) {
   function href(next: Partial<Record<string, string>>): string {
     const sp = new URLSearchParams()
     sp.set("view", next.view ?? view)
@@ -254,6 +273,11 @@ function Toolbar({
       )}
 
       <div className="ml-auto flex items-center gap-1">
+        {canEdit && (
+          <Button variant="outline" size="sm" onClick={onNewSeries}>
+            New series
+          </Button>
+        )}
         <Button asChild variant={gapsOnly ? "default" : "outline"} size="sm">
           <Link href={href({ gaps: gapsOnly ? "" : "1" })}>
             Coverage gaps

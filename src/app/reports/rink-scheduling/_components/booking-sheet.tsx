@@ -17,6 +17,7 @@ import {
   quickCreateCustomer,
   updateBooking,
 } from "../actions"
+import { cancelSeries, detachOccurrence, splitSeries } from "../series-actions"
 import type { RateQuote } from "../_lib/rate-engine"
 import type {
   BookingConflict,
@@ -385,6 +386,23 @@ export function BookingSheet(props: Props) {
             </fieldset>
           </div>
 
+          {isEdit && booking!.series_id && (
+            <SeriesScopePanel
+              booking={booking!}
+              dayKey={dayKey}
+              rinkId={rinkId}
+              typeId={typeId}
+              customerId={customerId || null}
+              title={title}
+              notes={notes}
+              status={status}
+              startTime={startTime}
+              endTime={endTime}
+              canEdit={canEdit}
+              onDone={onClose}
+            />
+          )}
+
           <RatePreview quote={shownQuote} durationLabel={durationLabel} />
 
           {conflicts.length > 0 && <ConflictList conflicts={conflicts} />}
@@ -533,6 +551,170 @@ function ConflictList({ conflicts }: { conflicts: BookingConflict[] }) {
         The resurfacing buffer counts as occupied ice, so a slot can clash even
         when the times themselves do not touch.
       </p>
+    </div>
+  )
+}
+
+
+/**
+ * Editing one date of a recurring contract is ambiguous until the user says
+ * what they mean, so the choice is explicit rather than inferred.
+ *
+ * "This occurrence" DETACHES the booking from the series first, so the normal
+ * save path can change it without silently rewriting the contract. "This and
+ * future" splits the series: the old one ends the day before and a new one
+ * carries the changed pattern, because past occurrences were quoted and
+ * possibly invoiced at the old terms and must not be restated.
+ */
+function SeriesScopePanel({
+  booking,
+  dayKey,
+  rinkId,
+  typeId,
+  customerId,
+  title,
+  notes,
+  status,
+  startTime,
+  endTime,
+  canEdit,
+  onDone,
+}: {
+  booking: BookingView
+  dayKey: string
+  rinkId: string
+  typeId: string
+  customerId: string | null
+  title: string
+  notes: string
+  status: "tentative" | "confirmed"
+  startTime: string
+  endTime: string
+  canEdit: boolean
+  onDone: () => void
+}) {
+  const [pending, startTransition] = useTransition()
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelling, setCancelling] = useState(false)
+
+  if (!canEdit) {
+    return (
+      <p className="text-muted-foreground rounded-md border p-3 text-sm">
+        This booking is part of a recurring series. Changing it needs the Rink
+        Scheduling edit permission.
+      </p>
+    )
+  }
+
+  function onDetach() {
+    startTransition(async () => {
+      const r = await detachOccurrence(booking.id)
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      toast.success("This date is now separate from the series. Save your changes.")
+    })
+  }
+
+  function onSplit() {
+    startTransition(async () => {
+      const r = await splitSeries({
+        seriesId: booking.series_id as string,
+        fromDayKey: dayKey,
+        rinkId,
+        bookingTypeId: typeId,
+        customerId,
+        title: title.trim() || null,
+        notes: notes.trim() || null,
+        status,
+        startTime,
+        endTime,
+        // Keep the weekday pattern implied by this occurrence.
+        daysOfWeek: [new Date(`${dayKey}T00:00:00Z`).getUTCDay()],
+        intervalWeeks: 1,
+      })
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      const parts = [`${r.replaced} future date${r.replaced === 1 ? "" : "s"} updated`]
+      if (r.keptBilled > 0) {
+        parts.push(`${r.keptBilled} left alone because they are already invoiced`)
+      }
+      if (r.failed.length > 0) parts.push(`${r.failed.length} clashed and were skipped`)
+      toast.success(parts.join(", ") + ".")
+      onDone()
+    })
+  }
+
+  function onCancelSeries() {
+    startTransition(async () => {
+      const r = await cancelSeries(booking.series_id as string, cancelReason)
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      const parts = [`${r.cancelled} future date${r.cancelled === 1 ? "" : "s"} cancelled`]
+      if (r.keptBilled > 0) parts.push(`${r.keptBilled} kept because they are invoiced`)
+      toast.success(parts.join(", ") + ". Past dates were left untouched.")
+      onDone()
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3">
+      <p className="text-sm font-medium">Part of a recurring series</p>
+      <p className="text-muted-foreground text-xs">
+        Choose what a change should affect. Past dates are never rewritten.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={onDetach} disabled={pending}>
+          This occurrence only
+        </Button>
+        <Button size="sm" variant="outline" onClick={onSplit} disabled={pending}>
+          This and future dates
+        </Button>
+        {!cancelling && (
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setCancelling(true)}
+            disabled={pending}
+          >
+            Cancel the series…
+          </Button>
+        )}
+      </div>
+
+      {cancelling && (
+        <div className="flex flex-col gap-2 border-t pt-2">
+          <Label htmlFor="sr-cancel-reason">Reason for cancelling the series</Label>
+          <Input
+            id="sr-cancel-reason"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="Team withdrew from the league"
+          />
+          <p className="text-muted-foreground text-xs">
+            Only future dates are cancelled. Anything already invoiced stays as
+            it is.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={onCancelSeries}
+              disabled={pending || !cancelReason.trim()}
+            >
+              {pending ? "Cancelling…" : "Cancel future dates"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setCancelling(false)}>
+              Keep the series
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
