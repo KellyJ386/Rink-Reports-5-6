@@ -9349,7 +9349,12 @@ select pg_temp.expect_count(
                          'snapshot_closed_daily_assignment_days')
        and (pg_get_functiondef(p.oid) like '%session_user = ''service_role''%'
          or pg_get_functiondef(p.oid) like '%''postgres'', ''service_role''%'
-         or pg_get_functiondef(p.oid) like '%current_user%')$$,
+         or pg_get_functiondef(p.oid) like '%current_user%'
+         -- pg_safeupdate (loaded on PostgREST sessions, absent here and in
+         -- psql) rejects an unqualified DELETE; migration 255 qualified the
+         -- drain's claim-table DELETE with WHERE true and this pin keeps a
+         -- future restatement from silently reverting it.
+         or pg_get_functiondef(p.oid) like '%delete from _drain_claim;%')$$,
   0,
   'GATE-246: no cron RPC gate matches session_user/current_user against service_role (unreachable via PostgREST)');
 
