@@ -12,7 +12,7 @@ import {
   type CachedBooking,
 } from "@/lib/offline/calendar-cache"
 import { createClient } from "@/lib/supabase/client"
-import { addDaysToKey, weekdayOfKey } from "@/lib/timezone"
+import { addDaysToKey, formatInTz, weekdayOfKey } from "@/lib/timezone"
 
 import { BookingSheet } from "./booking-sheet"
 import { SeriesSheet } from "./series-sheet"
@@ -23,7 +23,14 @@ import {
   gridExtent,
   hourTicks,
   resolveDayWindow,
+  type DayWindow,
 } from "../_lib/grid-model"
+import {
+  addMonthsToKey,
+  buildMonthGrid,
+  monthLabel,
+  type MonthCell,
+} from "../_lib/month-model"
 import type {
   BookingTypeRow,
   BookingView,
@@ -55,6 +62,10 @@ type Props = {
   slotMinutes: number
   bufferMinutes: number
   selectedRinkId: string | null
+  /** The `rink` query param as given, WITHOUT the day/week fallback to the
+   *  first rink. The month view shows every rink unless one was explicitly
+   *  chosen, so it needs to tell "none picked" from "picked the first". */
+  explicitRinkId: string | null
   showCancelled: boolean
   gapsOnly: boolean
   canCreate: boolean
@@ -157,6 +168,25 @@ export function CalendarClient(props: Props) {
         />
       )}
 
+      {view === "month" && (
+        <MonthGrid
+          {...props}
+          bookings={visible}
+          onCreate={(dayKey) =>
+            setSheet({
+              mode: "create",
+              rinkId: props.explicitRinkId ?? props.selectedRinkId ?? rinks[0].id,
+              dayKey,
+              // A month cell has no time axis to pick from, so a new booking
+              // opens at the facility's opening minute for that day and the
+              // sheet's own time fields take it from there.
+              startMinute: resolveDayWindow(dayKey, hours, exceptions).openMinute,
+            })
+          }
+          onOpen={(booking) => setSheet({ mode: "edit", booking })}
+        />
+      )}
+
       {view === "list" && (
         <AgendaList
           bookings={visible}
@@ -209,6 +239,7 @@ function Toolbar({
   todayKey,
   rinks,
   selectedRinkId,
+  explicitRinkId,
   showCancelled,
   gapsOnly,
   futureGapCount,
@@ -228,13 +259,18 @@ function Toolbar({
     return `/reports/rink-scheduling?${sp.toString()}`
   }
 
-  const step = view === "week" ? 7 : 1
+  // Month pages by whole calendar months; a fixed day step would drift through
+  // months of unequal length.
+  const stepBy = (n: number) =>
+    view === "month"
+      ? addMonthsToKey(focusKey, n)
+      : addDaysToKey(focusKey, n * (view === "week" ? 7 : 1))
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-1">
         <Button asChild variant="outline" size="sm">
-          <Link href={href({ date: addDaysToKey(focusKey, -step) })} aria-label="Previous">
+          <Link href={href({ date: stepBy(-1) })} aria-label="Previous">
             ←
           </Link>
         </Button>
@@ -242,13 +278,15 @@ function Toolbar({
           <Link href={href({ date: todayKey })}>Today</Link>
         </Button>
         <Button asChild variant="outline" size="sm">
-          <Link href={href({ date: addDaysToKey(focusKey, step) })} aria-label="Next">
+          <Link href={href({ date: stepBy(1) })} aria-label="Next">
             →
           </Link>
         </Button>
       </div>
 
-      <span className="font-mono text-sm tabular-nums">{focusKey}</span>
+      <span className="font-mono text-sm tabular-nums">
+        {view === "month" ? monthLabel(focusKey) : focusKey}
+      </span>
 
       <div className="flex items-center gap-1">
         {CALENDAR_VIEWS.map((v) => (
@@ -263,13 +301,26 @@ function Toolbar({
         ))}
       </div>
 
-      {view === "week" && rinks.length > 1 && (
+      {(view === "week" || view === "month") && rinks.length > 1 && (
         <div className="flex items-center gap-1">
+          {view === "month" && (
+            <Button
+              asChild
+              variant={explicitRinkId ? "outline" : "default"}
+              size="sm"
+            >
+              <Link href={href({ rink: "" })}>All</Link>
+            </Button>
+          )}
           {rinks.map((r) => (
             <Button
               key={r.id}
               asChild
-              variant={r.id === selectedRinkId ? "default" : "outline"}
+              variant={
+                (view === "month" ? explicitRinkId : selectedRinkId) === r.id
+                  ? "default"
+                  : "outline"
+              }
               size="sm"
             >
               <Link href={href({ rink: r.id })}>{r.short_code}</Link>
@@ -505,6 +556,205 @@ function WeekGrid({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Month view — a date grid, not a time axis.
+//
+// The other two views answer "when in the day"; this one answers "which days".
+// So a cell is a list of chips rather than positioned blocks, and the things
+// worth seeing from across the room are the day's load and whether anything on
+// it has an unresolved coverage gap.
+//
+// All rinks by default: the point of a month is the whole building at a glance.
+// The toolbar's rink buttons narrow it, and "All" clears that.
+// ---------------------------------------------------------------------------
+
+/** Chips shown before a cell collapses the rest into "+N more". Four keeps a
+ *  six-row grid on one screen at laptop height. */
+const MONTH_CELL_CHIPS = 4
+
+function MonthGrid({
+  focusKey,
+  todayKey,
+  timeZone,
+  bookings,
+  hours,
+  exceptions,
+  explicitRinkId,
+  showCancelled,
+  gapsOnly,
+  canCreate,
+  onCreate,
+  onOpen,
+}: Props & {
+  onCreate: (dayKey: string) => void
+  onOpen: (b: BookingView) => void
+}) {
+  const grid = buildMonthGrid(focusKey, bookings, timeZone, todayKey, {
+    rinkId: explicitRinkId,
+    showCancelled,
+  })
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <p className="text-muted-foreground border-b px-4 py-2 text-sm">
+          {monthLabel(grid.monthKey)} · {grid.monthLiveCount}{" "}
+          {grid.monthLiveCount === 1 ? "booking" : "bookings"}
+          {/* The gaps filter has already narrowed `bookings`, so say so rather
+              than presenting a filtered count as the month's total. */}
+          {gapsOnly ? " with coverage gaps" : ""}
+        </p>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[720px]">
+            <div className="bg-muted/40 grid grid-cols-7 border-b">
+              {DAY_NAMES.map((name) => (
+                <div
+                  key={name}
+                  className="text-muted-foreground px-2 py-1.5 text-xs font-medium"
+                >
+                  {name}
+                </div>
+              ))}
+            </div>
+
+            {grid.weeks.map((week) => (
+              <div key={week[0].dayKey} className="grid grid-cols-7 border-b last:border-b-0">
+                {week.map((cell) => (
+                  <MonthCellView
+                    key={cell.dayKey}
+                    cell={cell}
+                    window={resolveDayWindow(cell.dayKey, hours, exceptions)}
+                    timeZone={timeZone}
+                    canCreate={canCreate}
+                    onCreate={onCreate}
+                    onOpen={onOpen}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MonthCellView({
+  cell,
+  window,
+  timeZone,
+  canCreate,
+  onCreate,
+  onOpen,
+}: {
+  cell: MonthCell<BookingView>
+  window: DayWindow
+  timeZone: string | null
+  canCreate: boolean
+  onCreate: (dayKey: string) => void
+  onOpen: (b: BookingView) => void
+}) {
+  const shown = cell.bookings.slice(0, MONTH_CELL_CHIPS)
+  const overflow = cell.bookings.length - shown.length
+
+  return (
+    <div
+      className={`min-h-28 border-r p-1.5 last:border-r-0 ${
+        cell.inMonth ? "" : "bg-muted/30"
+      } ${window.isClosed ? "bg-muted/50" : ""}`}
+    >
+      <div className="mb-1 flex items-center justify-between gap-1">
+        <span
+          className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 font-mono text-xs tabular-nums ${
+            cell.isToday
+              ? "bg-primary text-primary-foreground font-semibold"
+              : cell.inMonth
+                ? "text-foreground"
+                : "text-muted-foreground"
+          }`}
+        >
+          {cell.dayOfMonth}
+        </span>
+
+        <span className="flex items-center gap-1">
+          {cell.hasCoverageGap && (
+            <span
+              className="bg-destructive inline-block size-2 rounded-full"
+              title="A booking on this day has a coverage gap"
+              aria-label="Coverage gap"
+            />
+          )}
+          {canCreate && !window.isClosed && (
+            <button
+              type="button"
+              onClick={() => onCreate(cell.dayKey)}
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring rounded px-1 text-sm leading-none focus-visible:ring-2 focus-visible:outline-none"
+              aria-label={`Add a booking on ${cell.dayKey}`}
+            >
+              +
+            </button>
+          )}
+        </span>
+      </div>
+
+      {window.isClosed && cell.bookings.length === 0 ? (
+        <p className="text-muted-foreground px-0.5 text-[10px]">Closed</p>
+      ) : null}
+
+      <ul className="flex flex-col gap-0.5">
+        {shown.map((booking) => (
+          <li key={booking.id}>
+            <MonthChip booking={booking} timeZone={timeZone} onOpen={onOpen} />
+          </li>
+        ))}
+      </ul>
+
+      {overflow > 0 && (
+        <p className="text-muted-foreground mt-0.5 px-0.5 text-[10px]">
+          +{overflow} more
+        </p>
+      )}
+    </div>
+  )
+}
+
+function MonthChip({
+  booking,
+  timeZone,
+  onOpen,
+}: {
+  booking: BookingView
+  timeZone: string | null
+  onOpen: (b: BookingView) => void
+}) {
+  const cancelled = booking.status === "cancelled"
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(booking)}
+      className={`focus-visible:ring-ring flex w-full items-center gap-1 overflow-hidden rounded border px-1 py-0.5 text-left focus-visible:ring-2 focus-visible:outline-none ${
+        cancelled ? "opacity-50 line-through" : ""
+      }`}
+      style={{
+        backgroundColor: `color-mix(in oklab, ${booking.typeColor} 18%, var(--color-card))`,
+        borderColor: booking.typeColor,
+      }}
+    >
+      <span className="shrink-0 font-mono text-[10px] tabular-nums">
+        {formatInTz(booking.starts_at, timeZone, {
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </span>
+      <span className="truncate text-[11px]">
+        {booking.customerName ?? booking.title ?? booking.typeName}
+      </span>
+    </button>
   )
 }
 
