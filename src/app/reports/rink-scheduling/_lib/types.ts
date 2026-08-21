@@ -29,11 +29,12 @@ export type BookingView = BookingRow & {
   customerName: string | null
 }
 
-export type CalendarView = "day" | "week" | "list"
+export type CalendarView = "day" | "week" | "month" | "list"
 
 export const CALENDAR_VIEWS: ReadonlyArray<{ key: CalendarView; label: string }> = [
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
   { key: "list", label: "Agenda" },
 ]
 

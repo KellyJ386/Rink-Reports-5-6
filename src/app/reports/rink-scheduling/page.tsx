@@ -7,6 +7,7 @@ import { addDaysToKey, dayKeyInTz } from "@/lib/timezone"
 
 import { CalendarClient } from "./_components/calendar-client"
 import { NotAvailable } from "./_components/not-available"
+import { monthGridRange } from "./_lib/month-model"
 import type {
   BookingView,
   CalendarView,
@@ -37,10 +38,26 @@ function nowDate(): Date {
   return new Date()
 }
 
-/** Window loaded around the focus date. Wide enough that the week view and a
- *  fortnight of agenda never need a second round trip. */
+/** Window loaded around the focus date for the day/week/agenda views. Wide
+ *  enough that the week view and a fortnight of agenda never need a second
+ *  round trip. The month view sizes its own window — see loadWindow(). */
 const LOAD_BEFORE_DAYS = 9
 const LOAD_AFTER_DAYS = 23
+
+/**
+ * Day-key range to query for a view.
+ *
+ * The month view asks monthGridRange() for exactly the days its grid renders,
+ * padding weeks included, so the query and the layout can never disagree about
+ * where the month begins. Everything else keeps the fixed window.
+ */
+function loadWindow(view: CalendarView, focusKey: string): { fromKey: string; toKey: string } {
+  if (view === "month") return monthGridRange(focusKey)
+  return {
+    fromKey: addDaysToKey(focusKey, -LOAD_BEFORE_DAYS),
+    toKey: addDaysToKey(focusKey, LOAD_AFTER_DAYS),
+  }
+}
 
 export default async function RinkSchedulePage({
   searchParams,
@@ -72,8 +89,7 @@ export default async function RinkSchedulePage({
     ? (params.date as string)
     : todayKey
 
-  const fromKey = addDaysToKey(focusKey, -LOAD_BEFORE_DAYS)
-  const toKey = addDaysToKey(focusKey, LOAD_AFTER_DAYS)
+  const { fromKey, toKey } = loadWindow(view, focusKey)
 
   const [
     rinksRes,
@@ -130,12 +146,21 @@ export default async function RinkSchedulePage({
 
   // The window is generous on both sides so a booking that starts before the
   // range but runs into it still renders.
+  //
+  // The bounds below are UTC instants but fromKey/toKey are facility-LOCAL day
+  // keys, so they are slack by one day on each side: 8pm local on the last grid
+  // day is already the next date in UTC for any facility west of Greenwich, and
+  // would fall outside a tight bound. Each view re-filters to the days it
+  // actually renders (the month grid via monthGridRange), so over-fetching a
+  // day is free and under-fetching would silently drop edge bookings.
+  const queryFromKey = addDaysToKey(fromKey, -1)
+  const queryToKey = addDaysToKey(toKey, 1)
   const { data: bookingRows } = await supabase
     .from("rink_bookings")
     .select("*")
     .eq("facility_id", facilityId)
-    .gte("starts_at", `${fromKey}T00:00:00.000Z`)
-    .lte("starts_at", `${toKey}T23:59:59.999Z`)
+    .gte("starts_at", `${queryFromKey}T00:00:00.000Z`)
+    .lte("starts_at", `${queryToKey}T23:59:59.999Z`)
     .order("starts_at", { ascending: true })
 
   // Assignments are fetched for exactly the bookings on screen, so a wide date
@@ -199,6 +224,7 @@ export default async function RinkSchedulePage({
         slotMinutes={settingsRes.data?.slot_increment_minutes ?? 30}
         bufferMinutes={settingsRes.data?.default_buffer_minutes ?? 15}
         selectedRinkId={params.rink ?? rinks[0]?.id ?? null}
+        explicitRinkId={params.rink ?? null}
         showCancelled={params.showCancelled === "1"}
         gapsOnly={params.gaps === "1"}
         canCreate={canCreate || canEdit}
