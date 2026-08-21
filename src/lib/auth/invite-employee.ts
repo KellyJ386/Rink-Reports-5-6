@@ -100,7 +100,7 @@ export async function inviteEmployeeByEmail(params: {
   }
 
   // Upsert the profile row. Service-role bypasses RLS, so we set only the
-  // fields we trust here — facility assignment happens via the admin UI.
+  // fields we trust here.
   const { error: profileErr } = await admin.from("users").upsert(
     {
       id: userId,
@@ -113,6 +113,26 @@ export async function inviteEmployeeByEmail(params: {
     return {
       ok: false,
       error: `Auth user created but profile setup failed: ${profileErr.message}`,
+    }
+  }
+
+  // Heal a missing facility assignment — but ONLY when it is missing. This
+  // upsert deliberately never puts facility_id in the object above: for the
+  // `alreadyExisted` branch, userId can point at a person who already
+  // belongs to a DIFFERENT facility (a duplicate-email invite typo, most
+  // commonly), and unconditionally writing facilityId here would silently
+  // reassign them across the tenant boundary. Restricting the write to rows
+  // where facility_id is still null covers the actual bug — a brand-new
+  // profile, or one an earlier invite left unset — without that risk.
+  const { error: facilityErr } = await admin
+    .from("users")
+    .update({ facility_id: facilityId })
+    .eq("id", userId)
+    .is("facility_id", null)
+  if (facilityErr) {
+    return {
+      ok: false,
+      error: `Auth user created but facility assignment failed: ${facilityErr.message}`,
     }
   }
 

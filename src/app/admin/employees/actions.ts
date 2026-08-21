@@ -741,7 +741,7 @@ export async function inviteEmployee(
     // Scenario B: check if a public.users profile already exists for this email.
     const { data: existingUsers } = await adminClient
       .from("users")
-      .select("id, email")
+      .select("id, email, facility_id")
       .eq("email", emp.email)
       .limit(1)
 
@@ -754,6 +754,21 @@ export async function inviteEmployee(
         .update({ user_id: existingUser.id })
         .eq("id", employeeId)
       if (linkErr) return { ok: false, error: linkErr.message }
+
+      // Heal a missing facility assignment on the existing profile — but ONLY
+      // when it is missing. A row found by email can belong to someone who
+      // already works at a different facility, and unconditionally writing
+      // here would silently move them across the tenant boundary. This is
+      // the fix for the actual bug (a profile left with facility_id null by
+      // an earlier invite that never set it): it heals that case without
+      // reassigning anyone who is already correctly scoped elsewhere.
+      if (!existingUser.facility_id) {
+        await adminClient
+          .from("users")
+          .update({ facility_id: emp.facility_id })
+          .eq("id", existingUser.id)
+          .is("facility_id", null)
+      }
 
       // Seed this role's default permissions now that a login is linked.
       await seedRolePermissionDefaults({
