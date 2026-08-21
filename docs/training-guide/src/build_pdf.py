@@ -6,9 +6,21 @@ Supports a small markdown subset: #/##/###/#### headings, paragraphs,
 | tables |, > callouts, **bold**, *italic*, `code`, --- page breaks.
 """
 import html
+import os
 import re
 import sys
 from pathlib import Path
+
+COVER_SUBTITLE = os.environ.get(
+    "GUIDE_SUBTITLE", "Complete Training Guide — All Modules & Admin Console")
+COVER_BLURB = os.environ.get("GUIDE_BLURB", (
+    "A field guide for staff and administrators covering every module:\n"
+    "daily reports, incidents, accidents, ice depth, ice operations,\n"
+    "refrigeration, air quality, dasher boards, communications, scheduling,\n"
+    "and the full admin console — permissions, employees, exports,\n"
+    "retention, audit log, and facility configuration."))
+HEADER_LABEL = os.environ.get("GUIDE_HEADER", "Rink Reports — Training Guide")
+EDITION = os.environ.get("GUIDE_EDITION", "August 2026 edition")
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -204,18 +216,11 @@ class GuideDoc(BaseDocTemplate):
         canv.drawString(0.9 * inch, h - 2.05 * inch, "Rink Reports")
         canv.setFont("Helvetica", 17)
         canv.setFillColor(colors.HexColor("#bcd6ea"))
-        canv.drawString(0.9 * inch, h - 2.5 * inch,
-                        "Complete Training Guide — All Modules & Admin Console")
+        canv.drawString(0.9 * inch, h - 2.5 * inch, COVER_SUBTITLE)
         canv.setStrokeColor(colors.HexColor("#3f7cab"))
         canv.setLineWidth(3)
         canv.line(0.9 * inch, h - 3.1 * inch, w - 0.9 * inch, h - 3.1 * inch)
-        blurb = [
-            "A field guide for staff and administrators covering every module:",
-            "daily reports, incidents, accidents, ice depth, ice operations,",
-            "refrigeration, air quality, dasher boards, communications, scheduling,",
-            "and the full admin console — permissions, employees, exports,",
-            "retention, audit log, and facility configuration.",
-        ]
+        blurb = COVER_BLURB.split("\n")
         canv.setFont("Helvetica", 12)
         canv.setFillColor(colors.HexColor("#dbe9f4"))
         y = h - 3.7 * inch
@@ -224,7 +229,7 @@ class GuideDoc(BaseDocTemplate):
             y -= 0.28 * inch
         canv.setFont("Helvetica", 10)
         canv.setFillColor(colors.HexColor("#9db8cd"))
-        canv.drawString(0.9 * inch, 1.0 * inch, "August 2026 edition")
+        canv.drawString(0.9 * inch, 1.0 * inch, EDITION)
         canv.restoreState()
 
     def draw_chrome(self, canv, doc):
@@ -235,7 +240,7 @@ class GuideDoc(BaseDocTemplate):
         canv.line(0.75 * inch, h - 0.55 * inch, w - 0.75 * inch, h - 0.55 * inch)
         canv.setFont("Helvetica", 8)
         canv.setFillColor(MUTED)
-        canv.drawString(0.75 * inch, h - 0.45 * inch, "Rink Reports — Training Guide")
+        canv.drawString(0.75 * inch, h - 0.45 * inch, HEADER_LABEL)
         canv.drawRightString(w - 0.75 * inch, h - 0.45 * inch,
                              f"Page {doc.page}")
         canv.restoreState()
