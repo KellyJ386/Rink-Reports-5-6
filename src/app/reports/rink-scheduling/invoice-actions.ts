@@ -17,6 +17,7 @@ import {
   type InvoiceStatus,
 } from "@/lib/rink-scheduling/ar"
 import { createClient } from "@/lib/supabase/server"
+import { deliverInvoiceEmail, type InvoiceEmailOutcome } from "@/lib/rink-scheduling/deliver-invoice-email"
 import { dayKeyInTz, formatInTz } from "@/lib/timezone"
 
 import type { SimpleResult } from "./_lib/types"
@@ -450,15 +451,34 @@ async function recomputeInvoice(invoiceId: string, facilityId: string): Promise<
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-export async function sendInvoice(invoiceId: string): Promise<SimpleResult> {
+/** How a delivery outcome reads to the biller. The state change already
+ *  happened; these only report what reached the customer. */
+function describeDelivery(outcome: InvoiceEmailOutcome, invoiceNumber: string): string {
+  if (outcome.delivered) {
+    return `Invoice ${invoiceNumber} emailed to ${outcome.to} with the PDF attached.`
+  }
+  switch (outcome.reason) {
+    case "no_email":
+      return `Invoice ${invoiceNumber} marked sent. No billing email is on file for this customer — add one to deliver invoices automatically.`
+    case "not_configured":
+      return `Invoice ${invoiceNumber} marked sent. Email delivery isn't configured for this environment, so nothing was emailed.`
+    default:
+      return `Invoice ${invoiceNumber} marked sent, but emailing ${outcome.to} failed. Use “Email invoice” to retry.`
+  }
+}
+
+export async function sendInvoice(
+  invoiceId: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   try {
     const ctx = await requireBiller()
     if (!ctx.ok) return { ok: false, error: ctx.error }
 
     const supabase = await createClient()
+    // The full row: delivery needs everything the PDF renders from.
     const { data: invoice } = await supabase
       .from("rink_invoices")
-      .select("status, total, amount_paid")
+      .select("*")
       .eq("id", invoiceId)
       .eq("facility_id", ctx.facilityId)
       .maybeSingle()
@@ -482,8 +502,64 @@ export async function sendInvoice(invoiceId: string): Promise<SimpleResult> {
       .eq("facility_id", ctx.facilityId)
     if (error) return { ok: false, error: error.message || "Failed to send the invoice." }
 
+    // Deliver AFTER the state change, and never roll it back on a delivery
+    // problem: "sent" means the biller issued the document; whether the email
+    // landed is reported, not conflated with the invoice's status.
+    const outcome = await deliverInvoiceEmail(supabase, { ...invoice, status })
+
     revalidatePath(AR_PATH)
-    return { ok: true }
+    return { ok: true, message: describeDelivery(outcome, invoice.invoice_number) }
+  } catch (e) {
+    return caught(e)
+  }
+}
+
+/**
+ * Re-send the invoice email for an already-issued invoice — the retry path
+ * for a bounced or failed delivery, or for a customer whose email address was
+ * added after the invoice went out. Deliberately NOT available for drafts
+ * (nothing has been issued) or void invoices (there is nothing to pay).
+ */
+export async function emailInvoice(
+  invoiceId: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const ctx = await requireBiller()
+    if (!ctx.ok) return { ok: false, error: ctx.error }
+
+    const supabase = await createClient()
+    const { data: invoice } = await supabase
+      .from("rink_invoices")
+      .select("*")
+      .eq("id", invoiceId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!invoice) return { ok: false, error: "Invoice not found." }
+    if (invoice.status === "draft") {
+      return { ok: false, error: "Send the invoice first — drafts are not delivered." }
+    }
+    if (invoice.status === "void") {
+      return { ok: false, error: "A void invoice is not sent to the customer." }
+    }
+
+    const outcome = await deliverInvoiceEmail(supabase, invoice)
+    if (!outcome.delivered) {
+      switch (outcome.reason) {
+        case "no_email":
+          return {
+            ok: false,
+            error: "No billing email is on file for this customer — add one first.",
+          }
+        case "not_configured":
+          return { ok: false, error: "Email delivery isn't configured for this environment." }
+        default:
+          return { ok: false, error: `Emailing ${outcome.to} failed: ${outcome.detail}` }
+      }
+    }
+    return {
+      ok: true,
+      message: `Invoice ${invoice.invoice_number} emailed to ${outcome.to} with the PDF attached.`,
+    }
   } catch (e) {
     return caught(e)
   }
