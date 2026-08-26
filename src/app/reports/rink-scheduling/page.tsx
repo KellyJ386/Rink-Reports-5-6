@@ -207,6 +207,16 @@ export default async function RinkSchedulePage({
       : null,
   }))
 
+  // An EXPLICIT rink choice is a param that names one of this facility's
+  // rinks. Anything else — absent, empty string (`?rink=`), or a stale id
+  // from another facility or a deleted rink — normalizes to null here, once,
+  // so no downstream consumer has to re-litigate it: the month view reads
+  // null as "all rinks", the week view falls back to the first rink, and the
+  // create path can never hand the booking sheet an id that isn't real.
+  const explicitRinkId = rinks.some((r) => r.id === params.rink)
+    ? (params.rink as string)
+    : null
+
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 py-6">
       <PageHeader
@@ -228,8 +238,8 @@ export default async function RinkSchedulePage({
         lockerAssignments={lockerAssignments}
         slotMinutes={settingsRes.data?.slot_increment_minutes ?? 30}
         bufferMinutes={settingsRes.data?.default_buffer_minutes ?? 15}
-        selectedRinkId={params.rink ?? rinks[0]?.id ?? null}
-        explicitRinkId={params.rink ?? null}
+        selectedRinkId={explicitRinkId ?? rinks[0]?.id ?? null}
+        explicitRinkId={explicitRinkId}
         showCancelled={params.showCancelled === "1"}
         gapsOnly={params.gaps === "1"}
         canCreate={canCreate || canEdit}
