@@ -9724,6 +9724,42 @@ select pg_temp.expect_count(
 
 set local rr.dasher_boards_guard_bypass = 'off';
 
+-- DSL17: tenant pinning of rink_id (the migration-257 composite FKs). RLS
+-- validates facility_id against the caller, but rink_id is client-supplied;
+-- the (rink_id, facility_id) FKs onto dasher_boards_rinks are what stop a
+-- facility-A module admin from placing rows onto facility B's rink and
+-- squatting B's per-rink uniqueness domains (zone names, labels, positions).
+-- Mona gains the admin grant here — nothing below this point relies on her
+-- being edit-only.
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '11111111-1111-1111-1111-111111111111',
+        'dasher_boards', 'admin', true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_zones (facility_id, rink_id, name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b', 'Rogue Zone')$$,
+  'DSL17a: a facility-A admin CANNOT create a zone on facility B''s rink (composite FK)');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set rink_id = 'dab0000b-0000-4000-8000-00000000000b'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL17b: a facility-A admin CANNOT retarget an asset onto facility B''s rink (composite FK)');
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_zones (facility_id, rink_id, name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'Mezzanine Side')$$,
+  'DSL17c: the same admin CAN create a zone on their own facility''s rink');
+
+reset role;
+
 do $$
 declare
   v_failed int;

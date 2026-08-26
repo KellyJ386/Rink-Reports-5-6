@@ -60,6 +60,18 @@ begin;
 -- -----------------------------------------------------------------------------
 -- 1. dasher_boards_zones — admin-configurable per-rink grouping list
 -- -----------------------------------------------------------------------------
+
+-- Same-facility pinning target (the migration-207 ice_depth_rinks pattern):
+-- child tables pin (rink_id, facility_id) against this so a row whose
+-- facility_id passes the RLS check can never smuggle in ANOTHER tenant's
+-- rink_id — without it, a facility-A module admin could insert a zone (or
+-- retarget an asset) onto facility B's rink and squat B's per-rink uniqueness
+-- domains (zone names, labels, sequence positions).
+alter table public.dasher_boards_rinks
+  drop constraint if exists dasher_boards_rinks_id_facility_uniq;
+alter table public.dasher_boards_rinks
+  add constraint dasher_boards_rinks_id_facility_uniq unique (id, facility_id);
+
 create table if not exists public.dasher_boards_zones (
   id           uuid primary key default gen_random_uuid(),
   facility_id  uuid not null references public.facilities(id) on delete restrict,
@@ -79,6 +91,15 @@ create table if not exists public.dasher_boards_zones (
 
 comment on table public.dasher_boards_zones is
   'Dasher Boards: admin-configurable perimeter zones per rink (North End, Home Bench, …), seeded with a standard set on rink creation. Assets reference a zone of their own rink via a composite FK. Display/grouping only — position order remains sequence_position.';
+
+-- A zone's rink must belong to the zone's own facility (tenant pinning — the
+-- RLS policies validate facility_id against the caller, this closes rink_id).
+alter table public.dasher_boards_zones
+  drop constraint if exists dasher_boards_zones_rink_same_facility_fkey;
+alter table public.dasher_boards_zones
+  add constraint dasher_boards_zones_rink_same_facility_fkey
+    foreign key (rink_id, facility_id)
+    references public.dasher_boards_rinks (id, facility_id);
 
 create index if not exists idx_dasher_boards_zones_rink_active_sort
   on public.dasher_boards_zones (rink_id, is_active, sort_order);
@@ -257,6 +278,18 @@ alter table public.dasher_boards_assets
 create index if not exists idx_dasher_boards_assets_zone
   on public.dasher_boards_assets (zone_id)
   where zone_id is not null;
+
+-- An asset's rink must belong to the asset's own facility (tenant pinning,
+-- closing the pre-existing gap the zone FK above would otherwise inherit: a
+-- module admin's UPDATE passes RLS on facility_id alone, so without this a
+-- facility-A asset could be retargeted onto facility B's rink and squat B's
+-- label/position uniqueness domains).
+alter table public.dasher_boards_assets
+  drop constraint if exists dasher_boards_assets_rink_same_facility_fkey;
+alter table public.dasher_boards_assets
+  add constraint dasher_boards_assets_rink_same_facility_fkey
+    foreign key (rink_id, facility_id)
+    references public.dasher_boards_rinks (id, facility_id);
 
 -- -----------------------------------------------------------------------------
 -- 4. New segment types + generalized panel spec.
