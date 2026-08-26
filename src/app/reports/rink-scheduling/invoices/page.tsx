@@ -48,7 +48,7 @@ export default async function InvoicesPage({
 }: {
   searchParams: SearchParams
 }) {
-  await requireUser()
+  const current = await requireUser()
   const supabase = await createClient()
 
   // AR is edit-tier: a staff or supervisor account can see the calendar but
@@ -57,11 +57,16 @@ export default async function InvoicesPage({
     return <NotAvailable />
   }
 
-  const { data: profileRow } = await supabase
-    .from("users")
-    .select("facility_id")
-    .maybeSingle()
-  const facilityId = profileRow?.facility_id ?? null
+  // requireUser() already resolves the caller's OWN profile row scoped by id
+  // (see getCurrentUser()). The equivalent unscoped `.from("users").select(...)
+  // .maybeSingle()` this replaced broke for every is_super_admin account: the
+  // users_select RLS policy grants a super admin every row in the table, so
+  // with no `.eq("id", ...)` filter the query matched all of them,
+  // `.maybeSingle()` errored on the multi-row result, and the discarded
+  // `error` left `data` (and so `facilityId`) null — rendering this exact
+  // "not attached to a facility" screen for an account that had a perfectly
+  // valid facility_id all along.
+  const facilityId = current.profile?.facility_id ?? null
   if (!facilityId) return <NotAvailable reason="no-facility" />
 
   const params = await searchParams
