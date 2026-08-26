@@ -1437,8 +1437,9 @@ begin
 
   if tg_op = 'UPDATE' then
     if new.inspection_id is distinct from old.inspection_id
-       or new.asset_id    is distinct from old.asset_id
-       or new.facility_id is distinct from old.facility_id
+       or new.asset_id       is distinct from old.asset_id
+       or new.facility_id    is distinct from old.facility_id
+       or new.label_snapshot is distinct from old.label_snapshot
     then
       raise exception 'dasher_boards: asset-check linkage columns are immutable';
     end if;
@@ -1446,6 +1447,23 @@ begin
   end if;
 
   return coalesce(new, old);
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_asset_checks_snapshot_label(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_asset_checks_snapshot_label() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  select coalesce(a.custom_label, a.label) into new.label_snapshot
+    from public.dasher_boards_assets a
+   where a.id = new.asset_id;
+  return new;
 end;
 $$;
 
@@ -1498,21 +1516,24 @@ begin
   end if;
 
   if public.has_module_edit_access('dasher_boards') then
-    -- Edit tier (managers): the five spec columns only. `updated_at` is left
-    -- free (the set_updated_at trigger maintains it).
+    -- Edit tier (managers): the five spec columns + out_of_service only.
+    -- `updated_at` is left free (the set_updated_at trigger maintains it).
     if new.id                is distinct from old.id
        or new.facility_id       is distinct from old.facility_id
        or new.rink_id           is distinct from old.rink_id
        or new.asset_type        is distinct from old.asset_type
        or new.subtype_id        is distinct from old.subtype_id
        or new.label             is distinct from old.label
+       or new.custom_label      is distinct from old.custom_label
+       or new.aliases           is distinct from old.aliases
+       or new.zone_id           is distinct from old.zone_id
        or new.display_number    is distinct from old.display_number
        or new.sequence_position is distinct from old.sequence_position
        or new.parent_board_id   is distinct from old.parent_board_id
        or new.is_active         is distinct from old.is_active
        or new.created_at        is distinct from old.created_at
     then
-      raise exception 'dasher_boards: edit grant may only change the glass replacement spec';
+      raise exception 'dasher_boards: edit grant may only change the panel spec and out-of-service status';
     end if;
     return new;
   end if;
@@ -1528,7 +1549,7 @@ $$;
 -- Name: FUNCTION dasher_boards_assets_guard(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.dasher_boards_assets_guard() IS 'BEFORE UPDATE column guard on dasher_boards_assets: exempt roles and module admins may change any column; edit-tier (managers) may change ONLY the glass replacement spec (glass_width_in/glass_height_in/glass_thickness_in/glass_material/spec_notes); all else — including display_number, the glass numbering override — is rejected. Pairs with the admin-OR-edit UPDATE policy so edit-tier cannot rewrite structural/identity columns via a direct request.';
+COMMENT ON FUNCTION public.dasher_boards_assets_guard() IS 'BEFORE UPDATE column guard on dasher_boards_assets: exempt roles and module admins may change any column; edit-tier (managers) may change ONLY the panel spec (glass_width_in/glass_height_in/glass_thickness_in/glass_material/spec_notes) and out_of_service; all else — label, custom_label, aliases, zone_id, display_number, structure — is rejected. Pairs with the admin-OR-edit UPDATE policy so edit-tier cannot rewrite structural/identity columns via a direct request.';
 
 
 --
@@ -1555,6 +1576,53 @@ begin
   return new;
 end;
 $$;
+
+
+--
+-- Name: dasher_boards_assets_log_display_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_assets_log_display_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.custom_label is distinct from old.custom_label then
+    insert into public.dasher_boards_asset_events
+      (facility_id, asset_id, event_type, detail, employee_id)
+    values (
+      new.facility_id, new.id, 'relabeled',
+      jsonb_build_object(
+        'label_kind', 'custom_label',
+        'old', old.custom_label,
+        'new', new.custom_label
+      ),
+      public.current_employee_id()
+    );
+  end if;
+
+  if new.out_of_service is distinct from old.out_of_service then
+    insert into public.dasher_boards_asset_events
+      (facility_id, asset_id, event_type, detail, employee_id)
+    values (
+      new.facility_id, new.id,
+      case when new.out_of_service then 'marked_out_of_service'
+           else 'returned_to_service' end,
+      jsonb_build_object('out_of_service', new.out_of_service),
+      public.current_employee_id()
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_assets_log_display_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_assets_log_display_events() IS 'AFTER UPDATE trigger on dasher_boards_assets: writes the mandatory asset event for every custom_label change (relabeled, detail.label_kind=custom_label) and every out_of_service flip (marked_out_of_service / returned_to_service). SECURITY DEFINER so the audit row does not depend on the caller''s asset_events INSERT grant (admin-only) — an edit-tier status change must still be audited. Trigger-only; execute revoked from public.';
 
 
 --
@@ -1839,6 +1907,7 @@ begin
      or new.checklist_item_id is distinct from old.checklist_item_id
      or new.reported_by       is distinct from old.reported_by
      or new.inspection_id     is distinct from old.inspection_id
+     or new.label_snapshot    is distinct from old.label_snapshot
      or new.created_at        is distinct from old.created_at
   then
     raise exception 'dasher_boards: issue identity/linkage columns are immutable';
@@ -1897,6 +1966,27 @@ begin
     raise exception 'dasher_boards: reporters may only edit description/category on their own unresolved issues';
   end if;
 
+  return new;
+end;
+$$;
+
+
+--
+-- Name: dasher_boards_issues_snapshot_label(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_issues_snapshot_label() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if new.asset_id is not null then
+    select coalesce(a.custom_label, a.label) into new.label_snapshot
+      from public.dasher_boards_assets a
+     where a.id = new.asset_id;
+  else
+    new.label_snapshot := null;
+  end if;
   return new;
 end;
 $$;
@@ -7491,14 +7581,17 @@ CREATE FUNCTION public.seed_default_dasher_boards_config(p_facility_id uuid) RET
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
-  -- Door subtypes.
+  -- Door subtypes (the standard gate taxonomy: player/bench, scoreboard,
+  -- spectator/public, machine/zamboni, penalty, emergency).
   insert into public.dasher_boards_asset_subtypes (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'door', s.label, s.sort_order
   from (values
     ('Bench', 0),
     ('Scoreboard', 1),
     ('Public Skate', 2),
-    ('Zamboni', 3)
+    ('Zamboni', 3),
+    ('Penalty', 4),
+    ('Emergency', 5)
   ) as s(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
@@ -7547,6 +7640,28 @@ begin
     ('Other', 8)
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
+
+  -- Issue categories: corner radius segments (migration 257).
+  insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
+  select p_facility_id, 'corner_radius', c.label, c.sort_order
+  from (values
+    ('Facing damage', 0),
+    ('Protruding/missing fastener', 1),
+    ('Radius joint misalignment', 2),
+    ('Needs cleaning', 3),
+    ('Other', 4)
+  ) as c(label, sort_order)
+  on conflict (facility_id, asset_type, label) do nothing;
+
+  -- Issue categories: post gaps (migration 257).
+  insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
+  select p_facility_id, 'post_gap', c.label, c.sort_order
+  from (values
+    ('Padding/trim damage', 0),
+    ('Gap obstruction', 1),
+    ('Other', 2)
+  ) as c(label, sort_order)
+  on conflict (facility_id, asset_type, label) do nothing;
 end;
 $$;
 
@@ -7556,6 +7671,48 @@ $$;
 --
 
 COMMENT ON FUNCTION public.seed_default_dasher_boards_config(p_facility_id uuid) IS 'Seeds Dasher Boards door subtypes and per-asset-type issue categories for a facility. Idempotent (on conflict do nothing). Internal-only execute, mirroring seed_default_facility_modules.';
+
+
+--
+-- Name: seed_default_dasher_boards_zones(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.seed_default_dasher_boards_zones(p_rink_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid;
+begin
+  select r.facility_id into v_facility_id
+    from public.dasher_boards_rinks r
+   where r.id = p_rink_id;
+
+  if v_facility_id is null then
+    return;
+  end if;
+
+  insert into public.dasher_boards_zones (facility_id, rink_id, name, sort_order)
+  select v_facility_id, p_rink_id, z.name, z.sort_order
+  from (values
+    ('North End', 0),
+    ('South End', 1),
+    ('East Side', 2),
+    ('West Side', 3),
+    ('Home Bench', 4),
+    ('Visitor Bench', 5),
+    ('Penalty Boxes', 6)
+  ) as z(name, sort_order)
+  on conflict (rink_id, name) do nothing;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION seed_default_dasher_boards_zones(p_rink_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.seed_default_dasher_boards_zones(p_rink_id uuid) IS 'Seeds the standard seven perimeter zones for a Dasher Boards rink. Idempotent (on conflict do nothing). Internal-only execute, mirroring seed_default_dasher_boards_config.';
 
 
 --
@@ -8588,6 +8745,21 @@ CREATE FUNCTION public.tg_seed_dasher_boards_config() RETURNS trigger
     AS $$
 begin
   perform public.seed_default_dasher_boards_config(new.id);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: tg_seed_dasher_boards_zones(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.tg_seed_dasher_boards_zones() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.seed_default_dasher_boards_zones(new.id);
   return new;
 end;
 $$;
@@ -10771,6 +10943,7 @@ CREATE TABLE public.dasher_boards_asset_checks (
     checked_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    label_snapshot text,
     CONSTRAINT dasher_boards_asset_checks_status_check CHECK ((status = ANY (ARRAY['pass'::text, 'fail'::text])))
 );
 
@@ -10780,6 +10953,13 @@ CREATE TABLE public.dasher_boards_asset_checks (
 --
 
 COMMENT ON TABLE public.dasher_boards_asset_checks IS 'Dasher Boards: per-asset Pass/Fail condition check recorded during a walk (one row per inspection+asset). Written by the walk''s inspector (submit grant) while the walk is open; immutable once the inspection is completed. Separate from the persistent issue pipeline and the cadenced checklist.';
+
+
+--
+-- Name: COLUMN dasher_boards_asset_checks.label_snapshot; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_asset_checks.label_snapshot IS 'The asset''s display label (custom_label, else the permanent label) at the moment the check was recorded. Server-derived by trigger — client-supplied values are overwritten. Frozen on update by the asset-checks guard.';
 
 
 --
@@ -10794,7 +10974,7 @@ CREATE TABLE public.dasher_boards_asset_events (
     detail jsonb,
     employee_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT dasher_boards_asset_events_event_type_check CHECK ((event_type = ANY (ARRAY['created'::text, 'converted_to_door'::text, 'converted_to_board'::text, 'relabeled'::text, 'deactivated'::text, 'reactivated'::text, 'glass_toggled'::text, 'spec_updated'::text, 'renumbered'::text])))
+    CONSTRAINT dasher_boards_asset_events_event_type_check CHECK ((event_type = ANY (ARRAY['created'::text, 'converted_to_door'::text, 'converted_to_board'::text, 'relabeled'::text, 'deactivated'::text, 'reactivated'::text, 'glass_toggled'::text, 'spec_updated'::text, 'renumbered'::text, 'marked_out_of_service'::text, 'returned_to_service'::text])))
 );
 
 
@@ -10818,7 +10998,7 @@ CREATE TABLE public.dasher_boards_asset_subtypes (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    CONSTRAINT dasher_boards_asset_subtypes_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text])))
+    CONSTRAINT dasher_boards_asset_subtypes_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text, 'corner_radius'::text, 'post_gap'::text])))
 );
 
 
@@ -10851,14 +11031,19 @@ CREATE TABLE public.dasher_boards_assets (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     display_number text,
-    CONSTRAINT dasher_boards_assets_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text]))),
-    CONSTRAINT dasher_boards_assets_board_no_glass_spec CHECK (((asset_type <> 'board_panel'::text) OR ((glass_width_in IS NULL) AND (glass_height_in IS NULL) AND (glass_thickness_in IS NULL) AND (glass_material IS NULL) AND (spec_notes IS NULL)))),
+    custom_label text,
+    aliases text[] DEFAULT '{}'::text[] NOT NULL,
+    zone_id uuid,
+    out_of_service boolean DEFAULT false NOT NULL,
+    CONSTRAINT dasher_boards_assets_aliases_shape CHECK (((cardinality(aliases) <= 12) AND (array_position(aliases, NULL::text) IS NULL) AND (array_position(aliases, ''::text) IS NULL))),
+    CONSTRAINT dasher_boards_assets_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text, 'corner_radius'::text, 'post_gap'::text]))),
+    CONSTRAINT dasher_boards_assets_custom_label_shape CHECK (((custom_label IS NULL) OR ((custom_label = btrim(custom_label)) AND ((char_length(custom_label) >= 1) AND (char_length(custom_label) <= 40))))),
     CONSTRAINT dasher_boards_assets_display_number_shape CHECK (((display_number IS NULL) OR (display_number ~ '^[A-Za-z0-9][A-Za-z0-9 ./-]{0,15}$'::text))),
     CONSTRAINT dasher_boards_assets_glass_height_in_check CHECK ((glass_height_in > (0)::numeric)),
-    CONSTRAINT dasher_boards_assets_glass_material_check CHECK ((glass_material = ANY (ARRAY['tempered'::text, 'acrylic'::text, 'polycarbonate'::text]))),
+    CONSTRAINT dasher_boards_assets_glass_material_check CHECK ((glass_material = ANY (ARRAY['tempered'::text, 'acrylic'::text, 'polycarbonate'::text, 'hdpe'::text, 'other'::text]))),
     CONSTRAINT dasher_boards_assets_glass_thickness_in_check CHECK ((glass_thickness_in > (0)::numeric)),
     CONSTRAINT dasher_boards_assets_glass_width_in_check CHECK ((glass_width_in > (0)::numeric)),
-    CONSTRAINT dasher_boards_assets_position_shape CHECK ((((asset_type = ANY (ARRAY['board_panel'::text, 'door'::text])) AND (parent_board_id IS NULL) AND ((sequence_position IS NOT NULL) OR (is_active = false))) OR ((asset_type = 'glass_panel'::text) AND (parent_board_id IS NOT NULL) AND (sequence_position IS NULL)))),
+    CONSTRAINT dasher_boards_assets_position_shape CHECK ((((asset_type = ANY (ARRAY['board_panel'::text, 'door'::text, 'corner_radius'::text, 'post_gap'::text])) AND (parent_board_id IS NULL) AND ((sequence_position IS NOT NULL) OR (is_active = false))) OR ((asset_type = 'glass_panel'::text) AND (parent_board_id IS NOT NULL) AND (sequence_position IS NULL)))),
     CONSTRAINT dasher_boards_assets_subtype_door_only CHECK (((subtype_id IS NULL) OR (asset_type = 'door'::text)))
 );
 
@@ -10878,6 +11063,13 @@ COMMENT ON COLUMN public.dasher_boards_assets.glass_thickness_in IS 'Decimal inc
 
 
 --
+-- Name: COLUMN dasher_boards_assets.glass_material; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.glass_material IS 'Segment material. Historically glass-only (tempered/acrylic/polycarbonate); since migration 257 any segment may carry its panel spec, adding hdpe (board facing) and other. Column names keep the glass_ prefix for compatibility.';
+
+
+--
 -- Name: COLUMN dasher_boards_assets.display_number; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -10885,10 +11077,38 @@ COMMENT ON COLUMN public.dasher_boards_assets.display_number IS 'Optional per-pa
 
 
 --
+-- Name: COLUMN dasher_boards_assets.custom_label; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.custom_label IS 'The facility''s own name for this segment ("Zam Gate Left", "N-3"). DISPLAY ONLY — `label` remains permanent identity and is what issue history follows; renaming writes a `relabeled` asset event and never touches history. NULL = display the permanent label (or the glass numbering scheme, which custom_label overrides when set). Unique per rink, case-insensitively.';
+
+
+--
+-- Name: COLUMN dasher_boards_assets.aliases; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.aliases IS 'Alternate search names for the segment ("the Zam gate glass"). Search-only; never displayed as the primary label.';
+
+
+--
+-- Name: COLUMN dasher_boards_assets.zone_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.zone_id IS 'Optional perimeter zone (dasher_boards_zones) for grouping in the builder and reports. Composite FK pins it to a zone of the asset''s own rink.';
+
+
+--
+-- Name: COLUMN dasher_boards_assets.out_of_service; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_assets.out_of_service IS 'Explicit operator-set status: the segment is present but out of service (e.g. glass removed pending replacement). Distinct from is_active (retired from the perimeter) and from the open-issue severity rollup. Every flip writes an asset event (trigger-enforced) — no silent status write.';
+
+
+--
 -- Name: CONSTRAINT dasher_boards_assets_position_shape ON dasher_boards_assets; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON CONSTRAINT dasher_boards_assets_position_shape ON public.dasher_boards_assets IS 'Active boards/doors are positioned; retired (is_active=false) ones float with a null position so the sequence gap can close without renumbering labels. Glass rows always ride their parent board.';
+COMMENT ON CONSTRAINT dasher_boards_assets_position_shape ON public.dasher_boards_assets IS 'Active boards/doors/corner segments/post gaps are positioned; retired (is_active=false) ones float with a null position so the sequence gap can close without renumbering labels. Glass rows always ride their parent position.';
 
 
 --
@@ -10979,7 +11199,7 @@ CREATE TABLE public.dasher_boards_issue_categories (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    CONSTRAINT dasher_boards_issue_categories_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text])))
+    CONSTRAINT dasher_boards_issue_categories_asset_type_check CHECK ((asset_type = ANY (ARRAY['board_panel'::text, 'glass_panel'::text, 'door'::text, 'corner_radius'::text, 'post_gap'::text])))
 );
 
 
@@ -11013,6 +11233,7 @@ CREATE TABLE public.dasher_boards_issues (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     source_local_id uuid,
+    label_snapshot text,
     CONSTRAINT dasher_boards_issues_a_requires_supervisor CHECK (((severity <> 'a'::text) OR ((supervisor_id IS NOT NULL) AND (action_taken IS NOT NULL)))),
     CONSTRAINT dasher_boards_issues_category_spatial_only CHECK (((asset_id IS NOT NULL) OR (category_id IS NULL))),
     CONSTRAINT dasher_boards_issues_one_target CHECK ((num_nonnulls(asset_id, checklist_item_id) = 1)),
@@ -11032,6 +11253,13 @@ COMMENT ON TABLE public.dasher_boards_issues IS 'Dasher Boards: condition issues
 --
 
 COMMENT ON COLUMN public.dasher_boards_issues.source_local_id IS 'Offline-queue local id of the submission that created this issue (null for online reports). Makes a crash-window replay re-drive idempotent via the partial unique index below.';
+
+
+--
+-- Name: COLUMN dasher_boards_issues.label_snapshot; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_issues.label_snapshot IS 'The asset''s display label (custom_label, else the permanent label) at the moment the issue was logged. Server-derived by trigger — client-supplied values are overwritten. NULL for checklist-target issues. Frozen on update by the issues column guard, so history reads correctly after renames.';
 
 
 --
@@ -11162,6 +11390,30 @@ COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_anchor_offset IS 'Frac
 --
 
 COMMENT ON COLUMN public.dasher_boards_rinks.glass_number_include_doors IS 'Whether a door position consumes a glass number. Default true: a door carries its own glass (convertAssetToDoor parks the position''s separate glass row), so it is a physical panel in the count.';
+
+
+--
+-- Name: dasher_boards_zones; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dasher_boards_zones (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    rink_id uuid NOT NULL,
+    name text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT dasher_boards_zones_name_shape CHECK (((name = btrim(name)) AND ((char_length(name) >= 1) AND (char_length(name) <= 60))))
+);
+
+
+--
+-- Name: TABLE dasher_boards_zones; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dasher_boards_zones IS 'Dasher Boards: admin-configurable perimeter zones per rink (North End, Home Bench, …), seeded with a standard set on rink creation. Assets reference a zone of their own rink via a composite FK. Display/grouping only — position order remains sequence_position.';
 
 
 --
@@ -15662,6 +15914,30 @@ ALTER TABLE ONLY public.dasher_boards_rinks
 
 
 --
+-- Name: dasher_boards_zones dasher_boards_zones_id_rink_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_zones
+    ADD CONSTRAINT dasher_boards_zones_id_rink_uniq UNIQUE (id, rink_id);
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_zones
+    ADD CONSTRAINT dasher_boards_zones_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_rink_name_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_zones
+    ADD CONSTRAINT dasher_boards_zones_rink_name_uniq UNIQUE (rink_id, name);
+
+
+--
 -- Name: departments departments_facility_slug_uniq; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -18479,6 +18755,13 @@ CREATE INDEX idx_dasher_boards_asset_events_asset_created ON public.dasher_board
 
 
 --
+-- Name: idx_dasher_boards_assets_custom_label_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_dasher_boards_assets_custom_label_uniq ON public.dasher_boards_assets USING btree (rink_id, lower(custom_label)) WHERE (custom_label IS NOT NULL);
+
+
+--
 -- Name: idx_dasher_boards_assets_display_number_uniq; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -18504,6 +18787,13 @@ CREATE UNIQUE INDEX idx_dasher_boards_assets_rink_position_uniq ON public.dasher
 --
 
 CREATE INDEX idx_dasher_boards_assets_rink_type ON public.dasher_boards_assets USING btree (rink_id, asset_type, is_active);
+
+
+--
+-- Name: idx_dasher_boards_assets_zone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_assets_zone ON public.dasher_boards_assets USING btree (zone_id) WHERE (zone_id IS NOT NULL);
 
 
 --
@@ -18602,6 +18892,13 @@ CREATE INDEX idx_dasher_boards_rinks_facility_active_sort ON public.dasher_board
 --
 
 CREATE UNIQUE INDEX idx_dasher_boards_rinks_one_default_per_facility ON public.dasher_boards_rinks USING btree (facility_id) WHERE is_default;
+
+
+--
+-- Name: idx_dasher_boards_zones_rink_active_sort; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_zones_rink_active_sort ON public.dasher_boards_zones USING btree (rink_id, is_active, sort_order);
 
 
 --
@@ -20775,6 +21072,13 @@ ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_y2035_pkey
 
 
 --
+-- Name: dasher_boards_rinks dasher_boards_rinks_seed_zones; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER dasher_boards_rinks_seed_zones AFTER INSERT ON public.dasher_boards_rinks FOR EACH ROW EXECUTE FUNCTION public.tg_seed_dasher_boards_zones();
+
+
+--
 -- Name: facilities facilities_seed_air_quality_config; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21230,6 +21534,13 @@ CREATE TRIGGER trg_dasher_boards_asset_checks_guard BEFORE INSERT OR DELETE OR U
 
 
 --
+-- Name: dasher_boards_asset_checks trg_dasher_boards_asset_checks_snapshot_label; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_asset_checks_snapshot_label BEFORE INSERT ON public.dasher_boards_asset_checks FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_asset_checks_snapshot_label();
+
+
+--
 -- Name: dasher_boards_asset_checks trg_dasher_boards_asset_checks_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21262,6 +21573,13 @@ CREATE TRIGGER trg_dasher_boards_assets_guard BEFORE UPDATE ON public.dasher_boa
 --
 
 CREATE TRIGGER trg_dasher_boards_assets_label_check BEFORE INSERT OR UPDATE OF label ON public.dasher_boards_assets FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_assets_label_check();
+
+
+--
+-- Name: dasher_boards_assets trg_dasher_boards_assets_log_display_events; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_assets_log_display_events AFTER UPDATE ON public.dasher_boards_assets FOR EACH ROW WHEN (((old.custom_label IS DISTINCT FROM new.custom_label) OR (old.out_of_service IS DISTINCT FROM new.out_of_service))) EXECUTE FUNCTION public.dasher_boards_assets_log_display_events();
 
 
 --
@@ -21342,6 +21660,13 @@ CREATE TRIGGER trg_dasher_boards_issues_guard BEFORE UPDATE ON public.dasher_boa
 
 
 --
+-- Name: dasher_boards_issues trg_dasher_boards_issues_snapshot_label; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_issues_snapshot_label BEFORE INSERT ON public.dasher_boards_issues FOR EACH ROW EXECUTE FUNCTION public.dasher_boards_issues_snapshot_label();
+
+
+--
 -- Name: dasher_boards_issues trg_dasher_boards_issues_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21353,6 +21678,13 @@ CREATE TRIGGER trg_dasher_boards_issues_updated_at BEFORE UPDATE ON public.dashe
 --
 
 CREATE TRIGGER trg_dasher_boards_rinks_updated_at BEFORE UPDATE ON public.dasher_boards_rinks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: dasher_boards_zones trg_dasher_boards_zones_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_zones_updated_at BEFORE UPDATE ON public.dasher_boards_zones FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -23131,6 +23463,14 @@ ALTER TABLE ONLY public.dasher_boards_assets
 
 
 --
+-- Name: dasher_boards_assets dasher_boards_assets_zone_same_rink; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_zone_same_rink FOREIGN KEY (zone_id, rink_id) REFERENCES public.dasher_boards_zones(id, rink_id) ON DELETE SET NULL (zone_id);
+
+
+--
 -- Name: dasher_boards_checklist_items dasher_boards_checklist_items_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -23304,6 +23644,22 @@ ALTER TABLE ONLY public.dasher_boards_retired_labels
 
 ALTER TABLE ONLY public.dasher_boards_rinks
     ADD CONSTRAINT dasher_boards_rinks_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_zones
+    ADD CONSTRAINT dasher_boards_zones_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_zones
+    ADD CONSTRAINT dasher_boards_zones_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
 
 
 --
@@ -27132,6 +27488,40 @@ CREATE POLICY dasher_boards_rinks_select ON public.dasher_boards_rinks FOR SELEC
 --
 
 CREATE POLICY dasher_boards_rinks_update ON public.dasher_boards_rinks FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_zones; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.dasher_boards_zones ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_zones_delete ON public.dasher_boards_zones FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_zones_insert ON public.dasher_boards_zones FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_zones_select ON public.dasher_boards_zones FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('dasher_boards'::text))));
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY dasher_boards_zones_update ON public.dasher_boards_zones FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('dasher_boards'::text))));
 
 
 --
