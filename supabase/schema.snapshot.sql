@@ -15906,6 +15906,14 @@ ALTER TABLE ONLY public.dasher_boards_rinks
 
 
 --
+-- Name: dasher_boards_rinks dasher_boards_rinks_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_rinks
+    ADD CONSTRAINT dasher_boards_rinks_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
 -- Name: dasher_boards_rinks dasher_boards_rinks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -23455,6 +23463,14 @@ ALTER TABLE ONLY public.dasher_boards_assets
 
 
 --
+-- Name: dasher_boards_assets dasher_boards_assets_rink_same_facility_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_assets
+    ADD CONSTRAINT dasher_boards_assets_rink_same_facility_fkey FOREIGN KEY (rink_id, facility_id) REFERENCES public.dasher_boards_rinks(id, facility_id);
+
+
+--
 -- Name: dasher_boards_assets dasher_boards_assets_subtype_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -23660,6 +23676,14 @@ ALTER TABLE ONLY public.dasher_boards_zones
 
 ALTER TABLE ONLY public.dasher_boards_zones
     ADD CONSTRAINT dasher_boards_zones_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.dasher_boards_rinks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: dasher_boards_zones dasher_boards_zones_rink_same_facility_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dasher_boards_zones
+    ADD CONSTRAINT dasher_boards_zones_rink_same_facility_fkey FOREIGN KEY (rink_id, facility_id) REFERENCES public.dasher_boards_rinks(id, facility_id);
 
 
 --

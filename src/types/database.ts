@@ -3712,6 +3712,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "dasher_boards_assets_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
             foreignKeyName: "dasher_boards_assets_subtype_id_fkey"
             columns: ["subtype_id"]
             isOneToOne: false
@@ -4239,6 +4246,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_zones_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
