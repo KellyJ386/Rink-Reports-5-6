@@ -91,7 +91,7 @@ export function NewInvoicePanel({ customers, todayKey }: Props) {
   }
 
   const chosen = (bookings ?? []).filter((b) => selected.has(b.id))
-  const subtotal = chosen.reduce((s, b) => s + b.amount, 0)
+  const subtotal = chosen.reduce((s, b) => s + (b.amount ?? 0), 0)
 
   return (
     <Card>
@@ -196,7 +196,7 @@ export function NewInvoicePanel({ customers, todayKey }: Props) {
                         {b.rateSnapshot === null ? "—" : formatMoney(b.rateSnapshot)}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono text-xs tabular-nums">
-                        {formatMoney(b.amount)}
+                        {b.amount === null ? "—" : formatMoney(b.amount)}
                       </td>
                     </tr>
                   ))}
