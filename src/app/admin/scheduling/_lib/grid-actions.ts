@@ -1313,7 +1313,7 @@ export async function deleteGridShift(
       if (error) {
         return { ok: false, error: dbError(error, "Failed to delete shift.") }
       }
-      // The publish-lock RLS fence (migration 245) scopes published rows out
+      // The publish-lock RLS fence (migration 256) scopes published rows out
       // of direct deletes, so a shift published between our read above and
       // this delete comes back as 0 rows, not an error. Report it instead of
       // claiming success.

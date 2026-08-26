@@ -67,9 +67,9 @@ _Repo-side re-run: 2026-08-19 — checks 1, 2, 4, 6 PASS on main + migration
 245. (1) 153/153 tables have RLS; the only zero-policy tables are the 14
 audit-log partitions, deny-all by design with direct grants revoked
 (migration 241). (2) Publish-lock re-verified adversarially at all three
-layers; migration 245 adds the missing RLS backstop (status-aware
+layers; migration 256 adds the missing RLS backstop (status-aware
 schedule_shifts write policies + publish requests can only be REJECTED by
-direct update — approvals are RPC-only), with PLRB-245 regression
+direct update — approvals are RPC-only), with PLRB-256 regression
 assertions including the previously untested bypass-GUC gate from 226.
 (4) Facility scoping re-evidenced by the 2026-08-19 security audit: zero
 server actions or routes trust a client-supplied facility_id. (6) lint /

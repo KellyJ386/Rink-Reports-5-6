@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000245_publish_lock_rls_backstop.sql
+-- 00000000000256_publish_lock_rls_backstop.sql
 --
 -- Give the scheduling publish lock an RLS fence of its own.
 --
@@ -40,7 +40,7 @@
 -- trigger and are uncallable from PostgREST), but restore the pattern.
 --
 -- rls_isolation.sql: SCHED-148/DND direct-write probes updated to the
--- 0-row semantics, plus new PLRB-245 assertions (fence holds with the
+-- 0-row semantics, plus new PLRB-256 assertions (fence holds with the
 -- bypass GUC set as authenticated; cancelled rows can't be re-published;
 -- publish requests can't be decided 'published' by direct PATCH).
 -- =============================================================================
