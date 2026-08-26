@@ -30159,7 +30159,7 @@ CREATE POLICY schedule_publish_requests_select ON public.schedule_publish_reques
 -- Name: schedule_publish_requests schedule_publish_requests_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY schedule_publish_requests_update ON public.schedule_publish_requests FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('scheduling'::text) >= 'publish'::public.module_permission_level) AND (requested_by_employee_id <> public.current_employee_id()) AND (status = 'pending'::public.schedule_publish_request_status)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('scheduling'::text) >= 'publish'::public.module_permission_level) AND (requested_by_employee_id <> public.current_employee_id()) AND (status = ANY (ARRAY['published'::public.schedule_publish_request_status, 'rejected'::public.schedule_publish_request_status])) AND (decided_by_employee_id = public.current_employee_id()))));
+CREATE POLICY schedule_publish_requests_update ON public.schedule_publish_requests FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('scheduling'::text) >= 'publish'::public.module_permission_level) AND (requested_by_employee_id <> public.current_employee_id()) AND (status = 'pending'::public.schedule_publish_request_status)))) WITH CHECK (((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.current_employee_module_permission('scheduling'::text) >= 'publish'::public.module_permission_level) AND (requested_by_employee_id <> public.current_employee_id()) AND (decided_by_employee_id = public.current_employee_id()))) AND (status = 'rejected'::public.schedule_publish_request_status)));
 
 
 --
@@ -30240,14 +30240,14 @@ ALTER TABLE public.schedule_shifts ENABLE ROW LEVEL SECURITY;
 -- Name: schedule_shifts schedule_shifts_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY schedule_shifts_delete ON public.schedule_shifts FOR DELETE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))));
+CREATE POLICY schedule_shifts_delete ON public.schedule_shifts FOR DELETE TO authenticated USING (((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))) AND (status <> 'published'::text)));
 
 
 --
 -- Name: schedule_shifts schedule_shifts_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY schedule_shifts_insert ON public.schedule_shifts FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))));
+CREATE POLICY schedule_shifts_insert ON public.schedule_shifts FOR INSERT TO authenticated WITH CHECK (((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))) AND (status <> 'published'::text)));
 
 
 --
@@ -30261,7 +30261,7 @@ CREATE POLICY schedule_shifts_select ON public.schedule_shifts FOR SELECT TO aut
 -- Name: schedule_shifts schedule_shifts_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY schedule_shifts_update ON public.schedule_shifts FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))));
+CREATE POLICY schedule_shifts_update ON public.schedule_shifts FOR UPDATE TO authenticated USING (((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))) AND (status <> 'published'::text))) WITH CHECK (((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('scheduling'::text))) AND (status <> 'published'::text)));
 
 
 --
