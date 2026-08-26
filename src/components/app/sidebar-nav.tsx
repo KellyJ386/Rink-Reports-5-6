@@ -6,6 +6,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Calendar,
+  CalendarClock,
   ClipboardList,
   Fence,
   FolderOpen,
@@ -42,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Incidents",        href: "/reports/incidents",      icon: AlertCircle, moduleKey: "incident_reports" },
   { label: "Accidents",        href: "/reports/accidents",      icon: AlertTriangle, moduleKey: "accident_reports" },
   { label: "Scheduling",       href: "/reports/scheduling",     icon: Calendar, moduleKey: "scheduling" },
+  { label: "Rink Schedule",    href: "/reports/rink-scheduling", icon: CalendarClock, moduleKey: "rink_scheduling" },
   { label: "Communications",   href: "/reports/communications", icon: Mail, moduleKey: "communications" },
   { label: "Facility Paperwork", href: "/reports/facility-paperwork", icon: FolderOpen, moduleKey: "facility_paperwork" },
 ]

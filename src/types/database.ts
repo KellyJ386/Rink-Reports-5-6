@@ -4979,6 +4979,66 @@ export type Database = {
           },
         ]
       }
+      facility_locker_rooms: {
+        Row: {
+          capacity: number | null
+          created_at: string
+          default_rink_id: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          short_code: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          capacity?: number | null
+          created_at?: string
+          default_rink_id?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          short_code: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          capacity?: number | null
+          created_at?: string
+          default_rink_id?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          short_code?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_locker_rooms_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_locker_rooms_rink_fk"
+            columns: ["default_rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_rinks"
+            referencedColumns: ["id", "facility_id"]
+          },
+        ]
+      }
       facility_modules: {
         Row: {
           created_at: string
@@ -5007,6 +5067,91 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "facility_modules_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_operating_hours: {
+        Row: {
+          close_time: string | null
+          created_at: string
+          day_of_week: number
+          facility_id: string
+          id: string
+          is_closed: boolean
+          open_time: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          close_time?: string | null
+          created_at?: string
+          day_of_week: number
+          facility_id: string
+          id?: string
+          is_closed?: boolean
+          open_time?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          close_time?: string | null
+          created_at?: string
+          day_of_week?: number
+          facility_id?: string
+          id?: string
+          is_closed?: boolean
+          open_time?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_operating_hours_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_operating_hours_exceptions: {
+        Row: {
+          close_time: string | null
+          created_at: string
+          exception_date: string
+          facility_id: string
+          id: string
+          is_closed: boolean
+          label: string
+          open_time: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          close_time?: string | null
+          created_at?: string
+          exception_date: string
+          facility_id: string
+          id?: string
+          is_closed?: boolean
+          label: string
+          open_time?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          close_time?: string | null
+          created_at?: string
+          exception_date?: string
+          facility_id?: string
+          id?: string
+          is_closed?: boolean
+          label?: string
+          open_time?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_operating_hours_exceptions_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facilities"
@@ -5080,6 +5225,53 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_rinks: {
+        Row: {
+          created_at: string
+          display_color: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          short_code: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_color?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          short_code: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_color?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          short_code?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_rinks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]
@@ -7616,6 +7808,1116 @@ export type Database = {
           },
         ]
       }
+      rink_booking_series: {
+        Row: {
+          booking_type_id: string
+          created_at: string
+          created_by: string | null
+          customer_id: string | null
+          days_of_week: number[]
+          end_time: string
+          facility_id: string
+          frequency: string
+          id: string
+          interval_weeks: number
+          notes: string | null
+          rate_card_id: string | null
+          rink_id: string
+          series_end_date: string
+          series_start_date: string
+          start_time: string
+          status: string
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          booking_type_id: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          days_of_week: number[]
+          end_time: string
+          facility_id: string
+          frequency?: string
+          id?: string
+          interval_weeks?: number
+          notes?: string | null
+          rate_card_id?: string | null
+          rink_id: string
+          series_end_date: string
+          series_start_date: string
+          start_time: string
+          status?: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          booking_type_id?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          days_of_week?: number[]
+          end_time?: string
+          facility_id?: string
+          frequency?: string
+          id?: string
+          interval_weeks?: number
+          notes?: string | null
+          rate_card_id?: string | null
+          rink_id?: string
+          series_end_date?: string
+          series_start_date?: string
+          start_time?: string
+          status?: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_booking_series_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_booking_series_customer_fk"
+            columns: ["customer_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_customers"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_booking_series_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_booking_series_rate_card_fk"
+            columns: ["rate_card_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_rate_cards"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_booking_series_rink_fk"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_rinks"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_booking_series_type_fk"
+            columns: ["booking_type_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_booking_types"
+            referencedColumns: ["id", "facility_id"]
+          },
+        ]
+      }
+      rink_booking_types: {
+        Row: {
+          color: string
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          is_billable: boolean
+          is_system: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          is_billable?: boolean
+          is_system?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          is_billable?: boolean
+          is_system?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_booking_types_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_bookings: {
+        Row: {
+          blocks_until: string
+          booking_type_id: string
+          buffer_minutes_after: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          computed_amount: number | null
+          coverage_checked_at: string | null
+          coverage_status: string
+          created_at: string
+          created_by: string | null
+          customer_id: string | null
+          ends_at: string
+          facility_id: string
+          id: string
+          notes: string | null
+          rate_snapshot_hourly: number | null
+          rate_snapshot_prime: boolean | null
+          rink_id: string
+          series_id: string | null
+          starts_at: string
+          status: string
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          blocks_until?: string
+          booking_type_id: string
+          buffer_minutes_after?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          computed_amount?: number | null
+          coverage_checked_at?: string | null
+          coverage_status?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          ends_at: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          rate_snapshot_hourly?: number | null
+          rate_snapshot_prime?: boolean | null
+          rink_id: string
+          series_id?: string | null
+          starts_at: string
+          status?: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          blocks_until?: string
+          booking_type_id?: string
+          buffer_minutes_after?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          computed_amount?: number | null
+          coverage_checked_at?: string | null
+          coverage_status?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          ends_at?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          rate_snapshot_hourly?: number | null
+          rate_snapshot_prime?: boolean | null
+          rink_id?: string
+          series_id?: string | null
+          starts_at?: string
+          status?: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_bookings_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_customer_fk"
+            columns: ["customer_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_customers"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_rink_fk"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_rinks"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_series_fk"
+            columns: ["series_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_booking_series"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_type_fk"
+            columns: ["booking_type_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_booking_types"
+            referencedColumns: ["id", "facility_id"]
+          },
+        ]
+      }
+      rink_coverage_reeval_queue: {
+        Row: {
+          facility_id: string
+          id: string
+          processed_at: string | null
+          reason: string
+          requested_at: string
+          status: string
+        }
+        Insert: {
+          facility_id: string
+          id?: string
+          processed_at?: string | null
+          reason: string
+          requested_at?: string
+          status?: string
+        }
+        Update: {
+          facility_id?: string
+          id?: string
+          processed_at?: string | null
+          reason?: string
+          requested_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_coverage_reeval_queue_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_customer_types: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_customer_types_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_customers: {
+        Row: {
+          billing_address_line1: string | null
+          billing_address_line2: string | null
+          billing_city: string | null
+          billing_state: string | null
+          billing_zip: string | null
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string
+          customer_type_id: string | null
+          default_rate_card_id: string | null
+          facility_id: string
+          id: string
+          internal_chargeback_code: string | null
+          is_active: boolean
+          name: string
+          notes: string | null
+          payment_terms_days: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          billing_address_line1?: string | null
+          billing_address_line2?: string | null
+          billing_city?: string | null
+          billing_state?: string | null
+          billing_zip?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          customer_type_id?: string | null
+          default_rate_card_id?: string | null
+          facility_id: string
+          id?: string
+          internal_chargeback_code?: string | null
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          payment_terms_days?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          billing_address_line1?: string | null
+          billing_address_line2?: string | null
+          billing_city?: string | null
+          billing_state?: string | null
+          billing_zip?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          customer_type_id?: string | null
+          default_rate_card_id?: string | null
+          facility_id?: string
+          id?: string
+          internal_chargeback_code?: string | null
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          payment_terms_days?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_customers_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_customers_rate_card_fk"
+            columns: ["default_rate_card_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_rate_cards"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_customers_type_fk"
+            columns: ["customer_type_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_customer_types"
+            referencedColumns: ["id", "facility_id"]
+          },
+        ]
+      }
+      rink_display_tokens: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          display_type: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          label: string
+          last_seen_at: string | null
+          revoked_at: string | null
+          settings: Json
+          token_hash: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          display_type?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          label: string
+          last_seen_at?: string | null
+          revoked_at?: string | null
+          settings?: Json
+          token_hash: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          display_type?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          last_seen_at?: string | null
+          revoked_at?: string | null
+          settings?: Json
+          token_hash?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_display_tokens_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_display_tokens_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_invoice_counters: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          next_seq: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          next_seq?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          next_seq?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_invoice_counters_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_invoice_line_items: {
+        Row: {
+          amount: number
+          booking_id: string | null
+          created_at: string
+          description: string
+          facility_id: string
+          id: string
+          invoice_id: string
+          quantity_hours: number
+          sort_order: number
+          unit_rate: number
+          updated_at: string | null
+          voided: boolean
+        }
+        Insert: {
+          amount: number
+          booking_id?: string | null
+          created_at?: string
+          description: string
+          facility_id: string
+          id?: string
+          invoice_id: string
+          quantity_hours: number
+          sort_order?: number
+          unit_rate: number
+          updated_at?: string | null
+          voided?: boolean
+        }
+        Update: {
+          amount?: number
+          booking_id?: string | null
+          created_at?: string
+          description?: string
+          facility_id?: string
+          id?: string
+          invoice_id?: string
+          quantity_hours?: number
+          sort_order?: number
+          unit_rate?: number
+          updated_at?: string | null
+          voided?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_invoice_line_items_booking_fk"
+            columns: ["booking_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_bookings"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_invoice_line_items_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_invoice_line_items_invoice_fk"
+            columns: ["invoice_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_invoices"
+            referencedColumns: ["id", "facility_id"]
+          },
+        ]
+      }
+      rink_invoices: {
+        Row: {
+          amount_paid: number
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          due_date: string
+          facility_id: string
+          id: string
+          invoice_number: string
+          issue_date: string
+          notes: string | null
+          sent_at: string | null
+          status: string
+          subtotal: number
+          tax_amount: number
+          tax_rate: number | null
+          total: number
+          updated_at: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount_paid?: number
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          due_date: string
+          facility_id: string
+          id?: string
+          invoice_number: string
+          issue_date: string
+          notes?: string | null
+          sent_at?: string | null
+          status?: string
+          subtotal?: number
+          tax_amount?: number
+          tax_rate?: number | null
+          total?: number
+          updated_at?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount_paid?: number
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          due_date?: string
+          facility_id?: string
+          id?: string
+          invoice_number?: string
+          issue_date?: string
+          notes?: string | null
+          sent_at?: string | null
+          status?: string
+          subtotal?: number
+          tax_amount?: number
+          tax_rate?: number | null
+          total?: number
+          updated_at?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_invoices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_invoices_customer_fk"
+            columns: ["customer_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_customers"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_invoices_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_invoices_voided_by_fkey"
+            columns: ["voided_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_locker_room_assignments: {
+        Row: {
+          booking_id: string
+          created_at: string
+          created_by: string | null
+          display_label_override: string | null
+          facility_id: string
+          id: string
+          locker_room_id: string
+          notes: string | null
+          occupies_from: string
+          occupies_until: string
+          updated_at: string | null
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string
+          created_by?: string | null
+          display_label_override?: string | null
+          facility_id: string
+          id?: string
+          locker_room_id: string
+          notes?: string | null
+          occupies_from: string
+          occupies_until: string
+          updated_at?: string | null
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string
+          created_by?: string | null
+          display_label_override?: string | null
+          facility_id?: string
+          id?: string
+          locker_room_id?: string
+          notes?: string | null
+          occupies_from?: string
+          occupies_until?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_locker_assignments_booking_fk"
+            columns: ["booking_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_bookings"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_locker_assignments_room_fk"
+            columns: ["locker_room_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_locker_rooms"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_locker_room_assignments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_locker_room_assignments_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_payment_methods: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_payment_methods_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          facility_id: string
+          id: string
+          invoice_id: string
+          notes: string | null
+          payment_date: string
+          payment_method_id: string | null
+          recorded_by: string | null
+          reference_number: string | null
+          reverses_payment_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          facility_id: string
+          id?: string
+          invoice_id: string
+          notes?: string | null
+          payment_date: string
+          payment_method_id?: string | null
+          recorded_by?: string | null
+          reference_number?: string | null
+          reverses_payment_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          facility_id?: string
+          id?: string
+          invoice_id?: string
+          notes?: string | null
+          payment_date?: string
+          payment_method_id?: string | null
+          recorded_by?: string | null
+          reference_number?: string | null
+          reverses_payment_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_payments_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_payments_invoice_fk"
+            columns: ["invoice_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_invoices"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_payments_method_fk"
+            columns: ["payment_method_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_payment_methods"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_payments_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_payments_reverses_payment_id_fkey"
+            columns: ["reverses_payment_id"]
+            isOneToOne: true
+            referencedRelation: "rink_payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_rate_card_type_overrides: {
+        Row: {
+          booking_type_id: string
+          created_at: string
+          facility_id: string
+          hourly_rate_nonprime: number
+          hourly_rate_prime: number
+          id: string
+          rate_card_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          booking_type_id: string
+          created_at?: string
+          facility_id: string
+          hourly_rate_nonprime?: number
+          hourly_rate_prime?: number
+          id?: string
+          rate_card_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          booking_type_id?: string
+          created_at?: string
+          facility_id?: string
+          hourly_rate_nonprime?: number
+          hourly_rate_prime?: number
+          id?: string
+          rate_card_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_rate_card_type_overrides_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_rate_type_overrides_card_fk"
+            columns: ["rate_card_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_rate_cards"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_rate_type_overrides_type_fk"
+            columns: ["booking_type_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_booking_types"
+            referencedColumns: ["id", "facility_id"]
+          },
+        ]
+      }
+      rink_rate_card_windows: {
+        Row: {
+          created_at: string
+          day_of_week: number
+          end_time: string
+          facility_id: string
+          id: string
+          rate_card_id: string
+          start_time: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          day_of_week: number
+          end_time: string
+          facility_id: string
+          id?: string
+          rate_card_id: string
+          start_time: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          day_of_week?: number
+          end_time?: string
+          facility_id?: string
+          id?: string
+          rate_card_id?: string
+          start_time?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_rate_card_windows_card_fk"
+            columns: ["rate_card_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_rate_cards"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_rate_card_windows_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_rate_cards: {
+        Row: {
+          created_at: string
+          currency: string
+          effective_end: string | null
+          effective_start: string
+          facility_id: string
+          hourly_rate_nonprime: number
+          hourly_rate_prime: number
+          id: string
+          is_default: boolean
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          effective_end?: string | null
+          effective_start: string
+          facility_id: string
+          hourly_rate_nonprime?: number
+          hourly_rate_prime?: number
+          id?: string
+          is_default?: boolean
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          effective_end?: string | null
+          effective_start?: string
+          facility_id?: string
+          hourly_rate_nonprime?: number
+          hourly_rate_prime?: number
+          id?: string
+          is_default?: boolean
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_rate_cards_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_scheduling_settings: {
+        Row: {
+          coverage_check_enabled: boolean
+          created_at: string
+          default_buffer_minutes: number
+          default_payment_terms_days: number
+          display_refresh_seconds: number
+          facility_id: string
+          id: string
+          invoice_prefix: string
+          locker_lead_minutes: number
+          locker_vacate_minutes: number
+          slot_increment_minutes: number
+          tax_rate: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          coverage_check_enabled?: boolean
+          created_at?: string
+          default_buffer_minutes?: number
+          default_payment_terms_days?: number
+          display_refresh_seconds?: number
+          facility_id: string
+          id?: string
+          invoice_prefix?: string
+          locker_lead_minutes?: number
+          locker_vacate_minutes?: number
+          slot_increment_minutes?: number
+          tax_rate?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          coverage_check_enabled?: boolean
+          created_at?: string
+          default_buffer_minutes?: number
+          default_payment_terms_days?: number
+          display_refresh_seconds?: number
+          facility_id?: string
+          id?: string
+          invoice_prefix?: string
+          locker_lead_minutes?: number
+          locker_vacate_minutes?: number
+          slot_increment_minutes?: number
+          tax_rate?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_scheduling_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       role_module_permission_defaults: {
         Row: {
           created_at: string
@@ -9330,6 +10632,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      purge_old_rink_scheduling_records: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       reactivate_role: {
         Args: { p_role_id: string }
         Returns: boolean
@@ -9351,6 +10657,10 @@ export type Database = {
       resync_daily_area_assignments: {
         Args: { p_date: string }
         Returns: number
+      }
+      rink_scheduling_guard_exempt: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
       }
       scheduling_admin_assign_open_shift: {
         Args: { p_employee_id: string; p_open_shift_id: string }
@@ -9503,6 +10813,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_refrigeration_sections: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_rink_scheduling_config: {
         Args: { p_facility_id: string }
         Returns: undefined
       }

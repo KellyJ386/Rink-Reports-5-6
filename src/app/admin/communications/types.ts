@@ -52,6 +52,7 @@ export const SOURCE_MODULES: ReadonlyArray<{ key: string; label: string }> = [
   { key: "daily_reports", label: "Daily Reports" },
   { key: "ice_depth", label: "Ice Depth" },
   { key: "dasher_boards", label: "Dasher Boards" },
+  { key: "rink_scheduling", label: "Rink Scheduling" },
 ] as const
 
 export type Tab =

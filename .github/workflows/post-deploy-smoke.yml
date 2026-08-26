@@ -48,7 +48,14 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             URL="${{ inputs.url }}"
           else
-            URL="${{ github.event.deployment_status.environment_url }}"
+            # Do NOT use deployment_status.environment_url here: that is the
+            # per-deployment *.vercel.app URL, which sits behind Vercel's
+            # deployment protection and answers every unauthenticated request
+            # with a 302 to SSO — the app never sees it, so the smoke run has
+            # failed on every production deploy it actually executed for.
+            # Test the public production domain instead (override with the
+            # SMOKE_URL repo variable if the domain ever changes).
+            URL="${{ vars.SMOKE_URL || 'https://www.rinkreports.com' }}"
           fi
           # Strip any trailing slash so path concatenation is predictable.
           URL="${URL%/}"
