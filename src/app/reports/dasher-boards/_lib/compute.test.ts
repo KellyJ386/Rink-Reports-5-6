@@ -4,6 +4,8 @@ import {
   combineAssetAndChildCheckStatus,
   combineDisplayCondition,
   computeDueItemIds,
+  isAssetType,
+  isPositionedAssetType,
   latestCheckStatus,
   nextLabel,
   thicknessToFraction,
@@ -11,10 +13,27 @@ import {
   type ChecklistItemLite,
 } from "./compute"
 
+describe("isAssetType", () => {
+  it("accepts all valid asset types including new corner_radius and post_gap", () => {
+    expect(isAssetType("board_panel")).toBe(true)
+    expect(isAssetType("glass_panel")).toBe(true)
+    expect(isAssetType("door")).toBe(true)
+    expect(isAssetType("corner_radius")).toBe(true)
+    expect(isAssetType("post_gap")).toBe(true)
+  })
+
+  it("rejects invalid asset types", () => {
+    expect(isAssetType("gate")).toBe(false)
+    expect(isAssetType("")).toBe(false)
+  })
+})
+
 describe("nextLabel", () => {
   it("starts at 1 on an empty rink", () => {
     expect(nextLabel("board_panel", [], [])).toBe("B1")
     expect(nextLabel("door", [], [])).toBe("D1")
+    expect(nextLabel("corner_radius", [], [])).toBe("C1")
+    expect(nextLabel("post_gap", [], [])).toBe("P1")
   })
 
   it("allocates past the live high-water mark", () => {
@@ -28,10 +47,25 @@ describe("nextLabel", () => {
     ).toBe("B41")
     // Retired label above the live max still bumps the counter.
     expect(nextLabel("door", ["D1"], ["D7"])).toBe("D8")
+    // Retired post_gap labels count toward the mark.
+    expect(nextLabel("post_gap", ["P3"], ["P7"])).toBe("P8")
   })
 
   it("ignores labels of other types and non-numeric suffixes", () => {
     expect(nextLabel("glass_panel", ["B9", "G2", "G3X", "D4"], [])).toBe("G3")
+  })
+})
+
+describe("isPositionedAssetType", () => {
+  it("returns true for positioned types", () => {
+    expect(isPositionedAssetType("board_panel")).toBe(true)
+    expect(isPositionedAssetType("door")).toBe(true)
+    expect(isPositionedAssetType("corner_radius")).toBe(true)
+    expect(isPositionedAssetType("post_gap")).toBe(true)
+  })
+
+  it("returns false for non-positioned types", () => {
+    expect(isPositionedAssetType("glass_panel")).toBe(false)
   })
 })
 
