@@ -3786,6 +3786,13 @@ export type Database = {
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "dasher_boards_checklist_items_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
+          },
         ]
       }
       dasher_boards_checklist_responses: {
@@ -3895,6 +3902,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_inspections_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
@@ -4059,6 +4073,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "dasher_boards_issues_supervisor_id_fkey"
