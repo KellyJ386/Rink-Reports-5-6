@@ -1410,6 +1410,57 @@ COMMENT ON FUNCTION public.daily_report_submissions_stamp_business_date() IS 'BE
 
 
 --
+-- Name: dasher_boards_apply_custom_labels(uuid, uuid[], text[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_apply_custom_labels(p_rink_id uuid, p_asset_ids uuid[], p_labels text[]) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_len     int;
+  v_touched int;
+begin
+  v_len := coalesce(array_length(p_asset_ids, 1), 0);
+  if p_rink_id is null or v_len = 0 then
+    raise exception 'dasher_boards: nothing to relabel';
+  end if;
+  if coalesce(array_length(p_labels, 1), 0) <> v_len then
+    raise exception 'dasher_boards: label list does not match the segment list';
+  end if;
+  if (select count(distinct t.id) from unnest(p_asset_ids) as t(id)) <> v_len then
+    raise exception 'dasher_boards: duplicate asset in relabel list';
+  end if;
+
+  begin
+    update public.dasher_boards_assets a
+       set custom_label = t.lbl
+      from unnest(p_asset_ids, p_labels) as t(id, lbl)
+     where a.id = t.id
+       and a.rink_id = p_rink_id;
+    get diagnostics v_touched = row_count;
+  exception
+    when unique_violation then
+      raise exception 'dasher_boards: a label in this batch is already used on this rink';
+    when check_violation then
+      raise exception 'dasher_boards: labels must be 1-40 characters with no leading/trailing spaces';
+  end;
+
+  if v_touched <> v_len then
+    raise exception 'dasher_boards: % segment(s) were not found or not authorized', v_len - v_touched;
+  end if;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_apply_custom_labels(p_rink_id uuid, p_asset_ids uuid[], p_labels text[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_apply_custom_labels(p_rink_id uuid, p_asset_ids uuid[], p_labels text[]) IS 'Transactionally sets custom_label per asset (null element clears the override) — the bulk-labeling commit. SECURITY INVOKER: rows pass the caller''s RLS and the assets column guard (custom_label is admin-only). The AFTER UPDATE trigger from migration 257 writes one relabeled audit event per changed asset; the case-insensitive per-rink unique index rejects collisions atomically for the whole batch.';
+
+
+--
 -- Name: dasher_boards_asset_checks_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1990,6 +2041,79 @@ begin
   return new;
 end;
 $$;
+
+
+--
+-- Name: dasher_boards_reorder_assets(uuid, uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dasher_boards_reorder_assets(p_rink_id uuid, p_asset_ids uuid[]) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_len      int;
+  v_expected int;
+  v_touched  int;
+begin
+  v_len := coalesce(array_length(p_asset_ids, 1), 0);
+  if p_rink_id is null or v_len = 0 then
+    raise exception 'dasher_boards: nothing to reorder';
+  end if;
+  if (select count(distinct t.id) from unnest(p_asset_ids) as t(id)) <> v_len then
+    raise exception 'dasher_boards: duplicate asset in reorder list';
+  end if;
+
+  -- The list must cover the rink's active positioned assets exactly, as the
+  -- caller sees them under RLS. Zero visible assets = wrong rink or no access.
+  select count(*) into v_expected
+    from public.dasher_boards_assets a
+   where a.rink_id = p_rink_id
+     and a.is_active
+     and a.sequence_position is not null;
+  if v_expected = 0 then
+    raise exception 'dasher_boards: rink not found or not authorized';
+  end if;
+  if v_expected <> v_len
+     or exists (
+       select 1 from unnest(p_asset_ids) as t(id)
+        where not exists (
+          select 1 from public.dasher_boards_assets a
+           where a.id = t.id
+             and a.rink_id = p_rink_id
+             and a.is_active
+             and a.sequence_position is not null
+        )
+     )
+  then
+    raise exception 'dasher_boards: reorder list does not match the rink''s current segments — reload and try again';
+  end if;
+
+  -- Two-phase swap: park every position in the negative range keyed by the
+  -- NEW order, then flip the sign. The unique index never collides.
+  update public.dasher_boards_assets a
+     set sequence_position = -(t.ord::int)
+    from unnest(p_asset_ids) with ordinality as t(id, ord)
+   where a.id = t.id
+     and a.rink_id = p_rink_id;
+  get diagnostics v_touched = row_count;
+  if v_touched <> v_len then
+    raise exception 'dasher_boards: reorder was blocked for % segment(s)', v_len - v_touched;
+  end if;
+
+  update public.dasher_boards_assets a
+     set sequence_position = -sequence_position
+   where a.rink_id = p_rink_id
+     and a.sequence_position < 0;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION dasher_boards_reorder_assets(p_rink_id uuid, p_asset_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dasher_boards_reorder_assets(p_rink_id uuid, p_asset_ids uuid[]) IS 'Transactionally reassigns sequence_position 1..N over the given asset ids (drag-to-reorder). SECURITY INVOKER: rows pass the caller''s RLS and the assets column guard, so only module admins can actually move anything. Requires the list to match the rink''s active positioned assets exactly. Labels are never touched — position is drawing order, label is identity.';
 
 
 --

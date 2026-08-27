@@ -10548,6 +10548,10 @@ export type Database = {
         Args: { p_facility_id: string; p_report_date: string }
         Returns: boolean
       }
+      dasher_boards_apply_custom_labels: {
+        Args: { p_asset_ids: string[]; p_labels: string[]; p_rink_id: string }
+        Returns: undefined
+      }
       dasher_boards_generate_perimeter: {
         Args: { p_count: number; p_rink_id: string }
         Returns: number
@@ -10555,6 +10559,10 @@ export type Database = {
       dasher_boards_guard_exempt: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      dasher_boards_reorder_assets: {
+        Args: { p_asset_ids: string[]; p_rink_id: string }
+        Returns: undefined
       }
       dasher_boards_shift_positions: {
         Args: { p_delta: number; p_from: number; p_rink_id: string }
