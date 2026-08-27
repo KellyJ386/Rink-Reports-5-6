@@ -1513,8 +1513,10 @@ begin
       raise exception 'dasher_boards: template segment % has invalid type "%"', i, v_type;
     end if;
 
+    -- Empty string = "none": the generated client types cannot express a
+    -- nullable text[] element, so callers send '' and both spellings work.
     v_subtype_id := null;
-    if p_door_subtypes[i] is not null then
+    if nullif(p_door_subtypes[i], '') is not null then
       if v_type <> 'door' then
         raise exception 'dasher_boards: template segment % is not a door but names a subtype', i;
       end if;
@@ -1530,7 +1532,7 @@ begin
     end if;
 
     v_zone_id := null;
-    if p_zone_names[i] is not null then
+    if nullif(p_zone_names[i], '') is not null then
       select z.id into v_zone_id
         from public.dasher_boards_zones z
        where z.rink_id = p_rink_id
