@@ -23,6 +23,10 @@ import {
   type BulkLabelPreviewEntry,
 } from "@/app/reports/dasher-boards/_lib/segment-labels"
 import {
+  STANDARD_RINK_TEMPLATE,
+  templateToRpcArrays,
+} from "@/app/reports/dasher-boards/_lib/perimeter-template"
+import {
   GLASS_DISPLAY_NUMBER_RE,
   GLASS_NUMBER_PREFIX_RE,
   GLASS_NUMBER_START_MAX,
@@ -2172,5 +2176,45 @@ export async function moveZone(
   } catch (e) {
     logServerError("admin/dasher-boards/moveZone", e)
     return { ok: false, error: "Failed to reorder zones." }
+  }
+}
+
+/**
+ * Seeds an EMPTY rink from the standard-rink starting template (~50 typed
+ * segments: side/end panels, corner radius groups, gates with subtypes, zone
+ * assignments) via the migration-259 RPC — one transaction, so a failure
+ * leaves the rink untouched. The admin edits the result; nothing is forced.
+ */
+export async function applyStandardTemplate(rinkId: string): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+
+    const { data: rink } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .select("id")
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!rink) return { ok: false, error: "Rink not found." }
+
+    const { types, doorSubtypes, zoneNames } = templateToRpcArrays(
+      STANDARD_RINK_TEMPLATE,
+    )
+    const { error } = await ctx.supabase.rpc("dasher_boards_apply_template", {
+      p_rink_id: rinkId,
+      p_types: types,
+      p_door_subtypes: doorSubtypes,
+      p_zone_names: zoneNames,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to apply the template.") }
+    }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/applyStandardTemplate", e)
+    return { ok: false, error: "Failed to apply the template." }
   }
 }
