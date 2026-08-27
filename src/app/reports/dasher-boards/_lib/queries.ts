@@ -208,7 +208,20 @@ export async function getRinkPerimeter(
 export type AssetDetail = {
   asset: AssetRow
   subtypeLabel: string | null
+  /**
+   * The asset's zone name (dasher_boards_zones.name), resolved server-side
+   * since `asset` only carries zone_id. Null = no zone assigned (or the zone
+   * was deleted — zone_id would already be null then too, via ON DELETE SET
+   * NULL).
+   */
+  zoneName: string | null
   openIssues: IssueRow[]
+  /**
+   * Resolved issues. Each row's `label_snapshot` (migration 257) is the
+   * asset's display label AT LOG TIME — server-derived, frozen on update —
+   * so a caller can show "logged as X" when a later rename means it no
+   * longer matches the asset's current display label.
+   */
   history: IssueRow[]
   events: AssetEventRow[]
 }
@@ -235,6 +248,16 @@ export async function getAssetDetail(
     subtypeLabel = subtype?.label ?? null
   }
 
+  let zoneName: string | null = null
+  if (asset.zone_id) {
+    const { data: zone } = await supabase
+      .from("dasher_boards_zones")
+      .select("name")
+      .eq("id", asset.zone_id)
+      .maybeSingle()
+    zoneName = zone?.name ?? null
+  }
+
   const { data: issues } = await supabase
     .from("dasher_boards_issues")
     .select("*")
@@ -251,6 +274,7 @@ export async function getAssetDetail(
   return {
     asset,
     subtypeLabel,
+    zoneName,
     openIssues: all.filter((i) => i.resolved_at === null),
     history: all.filter((i) => i.resolved_at !== null),
     events: events ?? [],

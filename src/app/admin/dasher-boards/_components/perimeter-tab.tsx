@@ -209,6 +209,7 @@ export function PerimeterTab({
         a.asset_type === "door") &&
       !hasSpec(a),
   ).length
+  const outOfServiceCount = positioned.filter((a) => a.out_of_service).length
 
   return (
     <div className="flex flex-col gap-6">
@@ -220,7 +221,10 @@ export function PerimeterTab({
               <CardDescription>
                 Tap a position on the diagram to edit it — mark doors, relabel,
                 insert or remove positions, toggle glass, and enter replacement
-                specs. Existing assets are never renumbered.
+                specs. Existing assets are never renumbered. Custom labels,
+                zones, and aliases are edited on the Labels & Zones tab; out of
+                service is set from that tab&apos;s segment list (dashed + × on the
+                diagram below).
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -230,6 +234,11 @@ export function PerimeterTab({
               <Badge variant="secondary">{doorCount} doors</Badge>
               {unspeccedGlass > 0 && (
                 <Badge variant="outline">{unspeccedGlass} without spec</Badge>
+              )}
+              {outOfServiceCount > 0 && (
+                <Badge variant="warning">
+                  {outOfServiceCount} out of service
+                </Badge>
               )}
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={showGlass} onCheckedChange={setShowGlass} />
@@ -274,6 +283,9 @@ export function PerimeterTab({
                   id: a.id,
                   label: a.label,
                   asset_type: a.asset_type as "board_panel" | "door",
+                  custom_label: a.custom_label,
+                  aliases: a.aliases,
+                  out_of_service: a.out_of_service,
                 }))}
                 direction={
                   rink.perimeter_direction as "clockwise" | "counterclockwise"

@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Footprints } from "lucide-react"
+import { Footprints, Search, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { LocalDateTime } from "@/components/app/local-datetime"
@@ -25,6 +25,7 @@ import {
   CardDescription,
   CardHeader,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { RinkPerimeter } from "@/components/rink/rink-perimeter"
 import type { PerimeterCondition } from "@/components/rink/rink-perimeter"
@@ -38,6 +39,7 @@ import {
   startWalkAction,
 } from "../../actions"
 import { combineDisplayCondition } from "../../_lib/compute"
+import { matchingSegmentIds } from "../../_lib/display-label"
 import { AssetSheet } from "./asset-sheet"
 import { DueCard } from "./due-card"
 import { ItemSheet } from "./item-sheet"
@@ -150,6 +152,31 @@ export function ConditionMap(props: ConditionMapProps) {
     }
     return map
   }, [assets])
+
+  // Search — matches labels + aliases across positions AND their glass
+  // children (matchingSegmentIds' documented contract), so an alias on a
+  // glass row ("the Zam gate glass") lights up the board position it rides,
+  // since glass has no segment of its own on the diagram.
+  const [query, setQuery] = useState("")
+  const glassParentOf = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const a of assets) {
+      if (a.asset_type === "glass_panel" && a.parent_board_id) {
+        map.set(a.id, a.parent_board_id)
+      }
+    }
+    return map
+  }, [assets])
+  const highlightedIds = useMemo(() => {
+    if (!query.trim()) return undefined
+    const rawMatches = matchingSegmentIds(assets, query, glassNumbers)
+    const ids = new Set<string>()
+    for (const id of rawMatches) {
+      ids.add(glassParentOf.get(id) ?? id)
+    }
+    return ids
+  }, [assets, query, glassNumbers, glassParentOf])
+  const matchCount = highlightedIds?.size ?? 0
 
   const [dialog, setDialog] = useState<DialogTarget | null>(null)
   const [showGlass, setShowGlass] = useState(false)
@@ -363,6 +390,9 @@ export function ConditionMap(props: ConditionMapProps) {
         id: a.id,
         label: a.label,
         asset_type: a.asset_type as "board_panel" | "door",
+        custom_label: a.custom_label,
+        aliases: a.aliases,
+        out_of_service: a.out_of_service,
       })),
     [positioned],
   )
@@ -434,16 +464,49 @@ export function ConditionMap(props: ConditionMapProps) {
 
       {/* Diagram — the whole tool. Tap an asset to log, walk or no walk. */}
       <Card className="gap-3 py-4">
-        <CardHeader>
+        <CardHeader className="gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardDescription>
               Red = open severity A · yellow = open B/C · coral = flagged fail
-              (no issue yet) · lime = door
+              (no issue yet) · lime = door · dashed + × = out of service
             </CardDescription>
             <label className="flex items-center gap-2 text-sm">
               <Switch checked={showGlass} onCheckedChange={setShowGlass} />
               Glass
             </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[180px] flex-1">
+              <Search
+                className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2"
+                aria-hidden
+              />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setQuery("")
+                }}
+                placeholder="Search segments or aliases…"
+                aria-label="Search segments or aliases"
+                className="h-9 pl-8 pr-8"
+              />
+              {query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+                  onClick={() => setQuery("")}
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+            {query.trim() !== "" && (
+              <span className="text-muted-foreground whitespace-nowrap text-xs">
+                {matchCount} of {positioned.length}
+              </span>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -457,6 +520,7 @@ export function ConditionMap(props: ConditionMapProps) {
             conditionByAssetId={conditionByAssetId}
             selectedAssetId={selectedAsset?.id ?? null}
             onSelectAsset={(id) => setDialog({ kind: "asset", assetId: id })}
+            highlightedIds={highlightedIds}
             showGlassLayer={showGlass}
             zoomable
           />
