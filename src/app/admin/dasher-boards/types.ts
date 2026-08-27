@@ -29,11 +29,20 @@ export function isPerimeterDirection(v: string): v is PerimeterDirection {
   return v === "clockwise" || v === "counterclockwise"
 }
 
-export type GlassMaterial = "tempered" | "acrylic" | "polycarbonate"
+// Since migration 257 the panel spec applies to every segment type (not just
+// glass), so the material domain includes board facing materials too.
+export type GlassMaterial =
+  | "tempered"
+  | "acrylic"
+  | "polycarbonate"
+  | "hdpe"
+  | "other"
 export const GLASS_MATERIALS: readonly GlassMaterial[] = [
   "tempered",
   "acrylic",
   "polycarbonate",
+  "hdpe",
+  "other",
 ] as const
 export function isGlassMaterial(v: string): v is GlassMaterial {
   return (GLASS_MATERIALS as readonly string[]).includes(v)
