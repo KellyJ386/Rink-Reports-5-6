@@ -10552,6 +10552,15 @@ export type Database = {
         Args: { p_asset_ids: string[]; p_labels: string[]; p_rink_id: string }
         Returns: undefined
       }
+      dasher_boards_apply_template: {
+        Args: {
+          p_door_subtypes: string[]
+          p_rink_id: string
+          p_types: string[]
+          p_zone_names: string[]
+        }
+        Returns: number
+      }
       dasher_boards_generate_perimeter: {
         Args: { p_count: number; p_rink_id: string }
         Returns: number
