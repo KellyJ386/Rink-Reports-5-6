@@ -9935,6 +9935,41 @@ select pg_temp.expect_count(
       and e.detail->>'source' = 'template'$$,
   4, 'DSL19l: every template-created asset (2 boards + 2 glass) got its created audit event');
 
+-- DSL20: rink pinning completion (migration 260) — issues, inspections, and
+-- checklist items can no longer smuggle a foreign rink_id past the
+-- facility-only RLS check. Rink 'dab0000b' belongs to facility B; every row
+-- below carries facility A (which passes RLS) and must die on the composite FK.
+-- Alice (facility-A submit tier): a checklist-flag issue targeting her own
+-- facility's item but facility B's rink.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, checklist_item_id, description, severity, reported_by)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'dabc000a-0000-4000-8000-000000000001',
+            'smuggled rink', 'c', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DSL20a: an issue cannot reference another facility''s rink (composite FK)');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections
+      (facility_id, rink_id, inspector_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DSL20b: an inspection cannot reference another facility''s rink (composite FK)');
+
+-- Mona (facility-A admin): a checklist item on facility B's rink.
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_checklist_items
+      (facility_id, rink_id, label, cadence)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'Smuggled item', 'weekly')$$,
+  'DSL20c: a checklist item cannot reference another facility''s rink (composite FK)');
+
 reset role;
 
 do $$
