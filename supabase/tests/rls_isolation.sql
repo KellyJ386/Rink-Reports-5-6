@@ -9861,6 +9861,80 @@ select pg_temp.expect_error(
       array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
   'DSL19e: a rink with assets cannot be re-templated');
 
+-- DSL19f-i: the negative cases every other module RPC carries, plus the
+-- retired-label high-water-mark rule. Two fresh empty rinks: E in facility B
+-- (the tenant-isolation target) and F in facility A (tier / validation /
+-- retired-label targets). Rink F also gets a surviving retired label — the
+-- relabel-then-hard-delete residue an "empty" rink can legitimately hold.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+insert into public.dasher_boards_rinks (id, facility_id, name, slug) values
+  ('dab0000e-0000-4000-8000-00000000000e',
+   '22222222-2222-2222-2222-222222222222', 'Rink E', 'rink-e'),
+  ('dab0000f-0000-4000-8000-00000000000f',
+   '11111111-1111-1111-1111-111111111111', 'Rink F', 'rink-f');
+insert into public.dasher_boards_retired_labels (facility_id, rink_id, label) values
+  ('11111111-1111-1111-1111-111111111111',
+   'dab0000f-0000-4000-8000-00000000000f', 'B1');
+
+-- Mona (facility-A module admin): facility B's empty rink is invisible under
+-- her RLS, so the template RPC reports it as not found.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000e-0000-4000-8000-00000000000e',
+      array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19f: a facility-A admin CANNOT template another facility''s rink (invisible under RLS)');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000f-0000-4000-8000-00000000000f',
+      array['board_panel', 'door']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19g: mismatched template array lengths are rejected');
+
+-- Alice (view + submit, same facility): the rink is visible, but the first
+-- asset insert fails her RLS WITH CHECK — loud failure, empty rink untouched.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000f-0000-4000-8000-00000000000f',
+      array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19h: staff (submit) CANNOT apply a template (RLS insert gate)');
+
+-- Mona again: the surviving retired B1 bumps the counter — labels are never
+-- reused, so the template allocates from the high-water mark (B2..), and
+-- every created row got its audit event.
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_apply_template(
+      'dab0000f-0000-4000-8000-00000000000f',
+      array['board_panel', 'board_panel']::text[],
+      array[null, null]::text[], array[null, null]::text[])$$,
+  'DSL19i: templating over a retired label succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where rink_id = 'dab0000f-0000-4000-8000-00000000000f'
+      and label = 'B1'$$,
+  0, 'DSL19j: the retired label was never reallocated (counter starts past the high-water mark)');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where rink_id = 'dab0000f-0000-4000-8000-00000000000f'
+      and label in ('B2', 'B3')$$,
+  2, 'DSL19k: allocation continued from the high-water mark (B2, B3)');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events e
+    join public.dasher_boards_assets a on a.id = e.asset_id
+    where a.rink_id = 'dab0000f-0000-4000-8000-00000000000f'
+      and e.event_type = 'created'
+      and e.detail->>'source' = 'template'$$,
+  4, 'DSL19l: every template-created asset (2 boards + 2 glass) got its created audit event');
+
 reset role;
 
 do $$

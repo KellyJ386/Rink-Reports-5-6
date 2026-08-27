@@ -41,6 +41,7 @@ declare
   v_subtype_id  uuid;
   v_zone_id     uuid;
   v_board_id    uuid;
+  v_glass_id    uuid;
   v_b int := 0;
   v_g int := 0;
   v_d int := 0;
@@ -71,6 +72,26 @@ begin
   if v_existing > 0 then
     raise exception 'dasher_boards: rink already has perimeter assets; use the granular editor instead';
   end if;
+
+  -- Seed the per-prefix counters from any retired labels still held by the
+  -- rink: relabel-then-hard-delete leaves retired (rink, label) rows behind
+  -- an otherwise "empty" rink, and labels are NEVER reused — so allocation
+  -- continues past the high-water mark exactly as the app's nextLabel() does.
+  select coalesce(max((regexp_match(label, '^B(\d+)$'))[1]::int), 0) into v_b
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^B\d+$';
+  select coalesce(max((regexp_match(label, '^G(\d+)$'))[1]::int), 0) into v_g
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^G\d+$';
+  select coalesce(max((regexp_match(label, '^D(\d+)$'))[1]::int), 0) into v_d
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^D\d+$';
+  select coalesce(max((regexp_match(label, '^C(\d+)$'))[1]::int), 0) into v_c
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^C\d+$';
+  select coalesce(max((regexp_match(label, '^P(\d+)$'))[1]::int), 0) into v_p
+    from public.dasher_boards_retired_labels
+   where rink_id = p_rink_id and label ~ '^P\d+$';
 
   for i in 1..v_len loop
     v_type := p_types[i];
@@ -124,13 +145,33 @@ begin
       (v_facility_id, p_rink_id, v_type, v_subtype_id, v_label, i, v_zone_id)
     returning id into v_board_id;
 
+    -- Every asset-creation path writes its `created` audit event; the
+    -- template is no exception. The caller holds the module admin grant
+    -- (they just passed the assets INSERT policy), so the events INSERT
+    -- policy admits these rows.
+    insert into public.dasher_boards_asset_events
+      (facility_id, asset_id, event_type, detail, employee_id)
+    values
+      (v_facility_id, v_board_id, 'created',
+       jsonb_build_object('label', v_label, 'position', i, 'source', 'template'),
+       public.current_employee_id());
+
     -- Boards carry the 1:1 glass row (doors/corners carry their own spec).
     if v_type = 'board_panel' then
       v_g := v_g + 1;
       insert into public.dasher_boards_assets
         (facility_id, rink_id, asset_type, label, parent_board_id, zone_id)
       values
-        (v_facility_id, p_rink_id, 'glass_panel', 'G' || v_g, v_board_id, v_zone_id);
+        (v_facility_id, p_rink_id, 'glass_panel', 'G' || v_g, v_board_id, v_zone_id)
+      returning id into v_glass_id;
+
+      insert into public.dasher_boards_asset_events
+        (facility_id, asset_id, event_type, detail, employee_id)
+      values
+        (v_facility_id, v_glass_id, 'created',
+         jsonb_build_object('label', 'G' || v_g, 'parent_board_id', v_board_id,
+                            'source', 'template'),
+         public.current_employee_id());
     end if;
   end loop;
 
