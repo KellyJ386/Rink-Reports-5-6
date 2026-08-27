@@ -2049,6 +2049,7 @@ export async function upsertZone(
         .from("dasher_boards_zones")
         .select("id", { count: "exact", head: true })
         .eq("rink_id", rinkId)
+        .eq("facility_id", ctx.facilityId)
       const { error } = await ctx.supabase.from("dasher_boards_zones").insert({
         facility_id: ctx.facilityId,
         rink_id: rinkId,
