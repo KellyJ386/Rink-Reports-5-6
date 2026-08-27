@@ -9814,6 +9814,53 @@ select pg_temp.expect_error(
             'dabb000a-0000-4000-8000-000000000001']::uuid[])$$,
   'DSL18g: staff (submit) reorder fails loudly — RLS blocks the writes inside the INVOKER RPC');
 
+-- DSL19: typed-template seeding (migration 259). A fresh rink (zones
+-- auto-seeded by the 257 trigger), then mona (module admin) applies a small
+-- typed template: labels allocate per prefix, boards get glass children,
+-- names resolve against the facility/rink, and a second apply is rejected.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+
+insert into public.dasher_boards_rinks (id, facility_id, name, slug) values
+  ('dab0000d-0000-4000-8000-00000000000d',
+   '11111111-1111-1111-1111-111111111111', 'Rink D', 'rink-d');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_apply_template(
+      'dab0000d-0000-4000-8000-00000000000d',
+      array['board_panel', 'door', 'corner_radius', 'post_gap']::text[],
+      array[null, 'Zamboni', null, null]::text[],
+      array['North End', 'North End', null, 'East Side']::text[])$$,
+  'DSL19a: admin CAN seed an empty rink from a typed template');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where rink_id = 'dab0000d-0000-4000-8000-00000000000d'$$,
+  5, 'DSL19b: 4 positioned segments + the board''s 1:1 glass row were created');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets a
+    join public.dasher_boards_zones z on z.id = a.zone_id
+    where a.rink_id = 'dab0000d-0000-4000-8000-00000000000d'
+      and a.label = 'B1' and z.name = 'North End'$$,
+  1, 'DSL19c: template zone names resolved to this rink''s zones');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets a
+    join public.dasher_boards_asset_subtypes s on s.id = a.subtype_id
+    where a.rink_id = 'dab0000d-0000-4000-8000-00000000000d'
+      and a.label = 'D1' and s.label = 'Zamboni'$$,
+  1, 'DSL19d: template door subtypes resolved by name');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000d-0000-4000-8000-00000000000d',
+      array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19e: a rink with assets cannot be re-templated');
+
 reset role;
 
 do $$
