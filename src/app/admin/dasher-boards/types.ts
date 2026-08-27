@@ -13,6 +13,7 @@ export type IssueRow = Tables<"dasher_boards_issues">
 export type InspectionRow = Tables<"dasher_boards_inspections">
 export type AssetEventRow = Tables<"dasher_boards_asset_events">
 export type AssetCheckRow = Tables<"dasher_boards_asset_checks">
+export type ZoneRow = Tables<"dasher_boards_zones">
 
 export type RinkTemplate = "nhl_200x85" | "olympic_200x100" | "custom"
 export const RINK_TEMPLATES: readonly RinkTemplate[] = [
@@ -69,9 +70,10 @@ export type GlassNumberingInput = {
   includeDoors: boolean
 }
 
-export type Tab = "perimeter" | "checklist" | "lists" | "walks"
+export type Tab = "perimeter" | "labels" | "checklist" | "lists" | "walks"
 export const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "perimeter", label: "Perimeter" },
+  { key: "labels", label: "Labels & Zones" },
   { key: "checklist", label: "Checklist" },
   { key: "lists", label: "Lists" },
   { key: "walks", label: "Walks" },
