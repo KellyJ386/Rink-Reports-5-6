@@ -9758,6 +9758,62 @@ select pg_temp.expect_ok(
             'dab0000a-0000-4000-8000-00000000000a', 'Mezzanine Side')$$,
   'DSL17c: the same admin CAN create a zone on their own facility''s rink');
 
+-- DSL18: the migration-258 transactional RPCs (reorder + bulk label), still
+-- as mona (module admin). SECURITY INVOKER: every row passes RLS + the assets
+-- column guard, so the admin path works and lower tiers fail loudly.
+-- Rink A's active positioned assets at this point: B1X (pos 1), C1 (pos 60),
+-- P1 (pos 61).
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_reorder_assets(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1',
+            'dabb000a-0000-4000-8000-0000000000e1',
+            'dabb000a-0000-4000-8000-000000000001']::uuid[])$$,
+  'DSL18a: admin CAN transactionally reorder the rink''s segments');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where id = 'dabb000a-0000-4000-8000-000000000001'
+      and sequence_position = 3$$,
+  1, 'DSL18b: reorder assigned positions 1..N in the given order');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_reorder_assets(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1']::uuid[])$$,
+  'DSL18c: a stale/partial reorder list is rejected, not silently applied');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_custom_labels(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1']::uuid[],
+      array['north 3']::text[])$$,
+  'DSL18d: a bulk label colliding (case-insensitively) with an existing custom label is rejected');
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_apply_custom_labels(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1',
+            'dabb000a-0000-4000-8000-0000000000e1']::uuid[],
+      array['NW Corner', 'Gap 1']::text[])$$,
+  'DSL18e: a clean bulk label batch applies atomically');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000c1'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'custom_label'
+      and detail->>'new' = 'NW Corner'$$,
+  1, 'DSL18f: the bulk relabel auto-wrote per-asset relabeled events');
+
+-- Alice (view+submit) can SEE the segments, so the RPC's existence check
+-- passes — but her UPDATE matches zero rows under the admin-or-edit policy,
+-- which the RPC surfaces as an error instead of a silent no-op.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.dasher_boards_reorder_assets(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1',
+            'dabb000a-0000-4000-8000-0000000000e1',
+            'dabb000a-0000-4000-8000-000000000001']::uuid[])$$,
+  'DSL18g: staff (submit) reorder fails loudly — RLS blocks the writes inside the INVOKER RPC');
+
 reset role;
 
 do $$
