@@ -10767,6 +10767,111 @@ delete from public.user_permissions
  where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
 reset role;
 
+-- ===========================================================================
+-- FDM266: the reporting data layer (migration 266).
+--
+-- facility_daily_metrics holds facility-wide compliance aggregates, so its read
+-- gate is BOTH tenancy AND the 'reports' module permission — facility scoping
+-- alone would expose the annual incident summary to every staff account in the
+-- building. It is also write-closed to authenticated: the nightly rollup writes
+-- it as the service role, and nothing else may.
+--
+-- report_period_bounds() is the single definition of what a reporting period
+-- IS. Both the live "today" path and the rolled-up path resolve their window
+-- through it, so a drift here silently changes what every report covers.
+-- ===========================================================================
+set local role service_role;
+
+-- Facility A keeps the default Sunday week; give it a July fiscal year so the
+-- fiscal branch is exercised rather than coinciding with the calendar year.
+insert into public.schedule_settings (facility_id, week_start_day)
+values ('11111111-1111-1111-1111-111111111111', 0)
+on conflict (facility_id) do update set week_start_day = 0;
+update public.facilities set fiscal_year_start_month = 7
+ where id = '11111111-1111-1111-1111-111111111111';
+
+insert into public.facility_daily_metrics (facility_id, business_date, module_key, metrics) values
+  ('11111111-1111-1111-1111-111111111111', date '2026-08-25', 'ice_operations', '{"ice_cuts": 4}'),
+  ('22222222-2222-2222-2222-222222222222', date '2026-08-25', 'ice_operations', '{"ice_cuts": 9}');
+reset role;
+
+-- Alice is STAFF in Facility A: no reports grant, therefore no aggregates.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_daily_metrics$$,
+  0, 'FDM266a: staff alice sees ZERO facility_daily_metrics rows (reports permission is required, not just tenancy)');
+
+select pg_temp.expect_error(
+  $$insert into public.facility_daily_metrics (facility_id, business_date, module_key, metrics)
+    values ('11111111-1111-1111-1111-111111111111', date '2026-08-27', 'ice_operations', '{"ice_cuts": 999}')$$,
+  'FDM266b: staff alice CANNOT insert into the rollup table (write-closed to authenticated)');
+
+select pg_temp.expect_error(
+  $$select * from public.report_period_bounds('22222222-2222-2222-2222-222222222222', 'week', date '2026-08-28')$$,
+  'FDM266c: alice CANNOT resolve period bounds for another facility');
+
+-- Metric definitions are global metadata: readable, but not writable by a
+-- non-super-admin.
+select pg_temp.expect_ok(
+  $$select count(*) from public.report_metric_definitions$$,
+  'FDM266d: alice CAN read report_metric_definitions (labels are not tenant data)');
+
+select pg_temp.expect_error(
+  $$insert into public.report_metric_definitions (module_key, metric_key, label, aggregation)
+    values ('ice_operations', 'rogue_metric', 'Rogue', 'sum')$$,
+  'FDM266e: alice CANNOT write report_metric_definitions (super admin only)');
+reset role;
+
+-- Grant alice the reports view action and the same reads must open up — proving
+-- FDM266a is a live permission gate, not an empty table.
+set local role service_role;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111', 'reports', 'view', true, 'manual_override');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_daily_metrics$$,
+  1, 'FDM266f: with a reports grant alice sees her facility''s 1 row — and still not facility B''s');
+
+-- The period definitions themselves, as a non-super-admin sees them.
+select pg_temp.expect_count(
+  $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','week', date '2026-08-28')
+     where start_date = date '2026-08-23' and end_date = date '2026-08-29'$$,
+  1, 'FDM266g: week honours schedule_settings.week_start_day = Sunday (NOT date_trunc ISO Monday)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','year', date '2026-08-28')
+     where start_date = date '2026-07-01' and end_date = date '2027-06-30'$$,
+  1, 'FDM266h: year honours facilities.fiscal_year_start_month = 7 (fiscal, not calendar)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','year', date '2026-03-01')
+     where start_date = date '2025-07-01' and end_date = date '2026-06-30'$$,
+  1, 'FDM266i: a date before the fiscal start belongs to the fiscal year that began the previous July');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','month', date '2026-08-28')
+     where start_date = date '2026-08-01' and end_date = date '2026-08-31'$$,
+  1, 'FDM266j: month bounds are whole-month inclusive');
+
+select pg_temp.expect_error(
+  $$select * from public.report_period_bounds('11111111-1111-1111-1111-111111111111','quarter', date '2026-08-28')$$,
+  'FDM266k: an unknown period raises rather than silently returning no window');
+reset role;
+
+set local role service_role;
+delete from public.user_permissions
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
+reset role;
+
 do $$
 declare
   v_failed int;

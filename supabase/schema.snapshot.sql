@@ -4446,6 +4446,86 @@ COMMENT ON FUNCTION public.report_area_assignments_block_past() IS 'Trigger: rej
 
 
 --
+-- Name: report_period_bounds(uuid, text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.report_period_bounds(p_facility_id uuid, p_period text, p_anchor date) RETURNS TABLE(start_date date, end_date date)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_week_start int;
+  v_fy_start   int;
+  v_offset     int;
+  v_year       int;
+  v_start      date;
+begin
+  if p_facility_id is null or p_period is null or p_anchor is null then
+    raise exception 'report_period_bounds: facility_id, period and anchor are required';
+  end if;
+
+  if not (
+    public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
+    or p_facility_id = public.current_facility_id()
+  ) then
+    raise exception 'report_period_bounds: not authorized for that facility';
+  end if;
+
+  case p_period
+    when 'day' then
+      return query select p_anchor, p_anchor;
+
+    when 'week' then
+      -- The reporting week MUST start on the same day as the scheduling
+      -- module's week, or the same product disagrees with itself about what
+      -- "last week" means. date_trunc('week') is ISO Monday and is wrong here.
+      select coalesce(s.week_start_day, 0) into v_week_start
+        from public.schedule_settings s
+       where s.facility_id = p_facility_id;
+      v_week_start := coalesce(v_week_start, 0);
+
+      -- Postgres dow and schedule_settings.week_start_day share the same
+      -- encoding (0 = Sunday .. 6 = Saturday), so this is a plain rotation.
+      v_offset := (extract(dow from p_anchor)::int - v_week_start + 7) % 7;
+      v_start  := p_anchor - v_offset;
+      return query select v_start, (v_start + 6);
+
+    when 'month' then
+      v_start := date_trunc('month', p_anchor)::date;
+      return query select v_start, (v_start + interval '1 month' - interval '1 day')::date;
+
+    when 'year' then
+      select coalesce(f.fiscal_year_start_month, 1) into v_fy_start
+        from public.facilities f
+       where f.id = p_facility_id;
+      v_fy_start := coalesce(v_fy_start, 1);
+
+      -- A fiscal year is named for the calendar year it STARTS in. With a July
+      -- start, 2026-08-28 falls in FY 2026-07-01..2027-06-30, while 2026-03-01
+      -- still belongs to the year that began 2025-07-01.
+      v_year := extract(year from p_anchor)::int;
+      if extract(month from p_anchor)::int < v_fy_start then
+        v_year := v_year - 1;
+      end if;
+      v_start := make_date(v_year, v_fy_start, 1);
+      return query select v_start, (v_start + interval '1 year' - interval '1 day')::date;
+
+    else
+      raise exception 'report_period_bounds: unknown period %, expected day | week | month | year', p_period;
+  end case;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION report_period_bounds(p_facility_id uuid, p_period text, p_anchor date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.report_period_bounds(p_facility_id uuid, p_period text, p_anchor date) IS 'Inclusive [start_date, end_date] of the reporting period containing p_anchor. week honours schedule_settings.week_start_day (NOT ISO Monday); year honours facilities.fiscal_year_start_month (a fiscal year is named for the calendar year it starts in). SECURITY DEFINER so a reports-only manager can resolve bounds without scheduling-module access; gated to the caller''s own facility unless super admin or service role.';
+
+
+--
 -- Name: resolve_daily_area_assignments(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -12214,7 +12294,9 @@ CREATE TABLE public.facilities (
     phone text,
     city text,
     state text,
-    email text
+    email text,
+    fiscal_year_start_month smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT facilities_fiscal_year_start_month_check CHECK (((fiscal_year_start_month >= 1) AND (fiscal_year_start_month <= 12)))
 );
 
 
@@ -12237,6 +12319,13 @@ COMMENT ON COLUMN public.facilities.slug IS 'URL-safe unique identifier for the 
 --
 
 COMMENT ON COLUMN public.facilities.settings IS 'Per-facility feature flags / configuration blob.';
+
+
+--
+-- Name: COLUMN facilities.fiscal_year_start_month; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facilities.fiscal_year_start_month IS 'Month (1-12) the facility''s FISCAL year begins; 1 = calendar year. Drives the ''year'' period in report_period_bounds(). Tennity = 7 (Syracuse University''s July-June fiscal year).';
 
 
 --
@@ -12270,6 +12359,40 @@ COMMENT ON TABLE public.facility_air_quality_config IS 'Per-facility Air Quality
 --
 
 COMMENT ON COLUMN public.facility_air_quality_config.threshold_overrides IS 'Per-metric/per-tier ceilings that TIGHTEN the profile (never loosen). Shape mirrors profile tiers: { <metric>: { corrective?: {max}, notification?: {max}, evacuation?: {max} } }. Stricter-only is enforced in the admin server action.';
+
+
+--
+-- Name: facility_daily_metrics; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_daily_metrics (
+    facility_id uuid NOT NULL,
+    business_date date NOT NULL,
+    module_key text NOT NULL,
+    metrics jsonb DEFAULT '{}'::jsonb NOT NULL,
+    computed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE facility_daily_metrics; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_daily_metrics IS 'Nightly per-facility, per-day, per-module metric rollup. All four report periods (day/week/month/year) aggregate THIS table; only "today" reads live fact tables. WRITE PATH: the SECURITY DEFINER rollup functions (migration 267) and the service role ONLY — there are deliberately no INSERT/UPDATE/DELETE policies for authenticated, and those privileges are revoked. Recomputation is idempotent via ON CONFLICT on the primary key.';
+
+
+--
+-- Name: COLUMN facility_daily_metrics.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_daily_metrics.business_date IS 'Facility-local business date (migration 264), NOT a UTC date. This is the grain.';
+
+
+--
+-- Name: COLUMN facility_daily_metrics.metrics; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_daily_metrics.metrics IS 'Metric name -> value for this facility/day/module. Keys are registered in public.report_metric_definitions, which also carries each key''s label, unit and aggregation mode (how daily values combine into a weekly/monthly/annual figure).';
 
 
 --
@@ -14149,6 +14272,37 @@ COMMENT ON COLUMN public.report_area_assignments.report_date IS 'Facility-local 
 --
 
 COMMENT ON COLUMN public.report_area_assignments.superseded_at IS 'NULL = active. Set (never deleted) when the assignment is replaced or removed, so the assignment history for the day remains auditable.';
+
+
+--
+-- Name: report_metric_definitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.report_metric_definitions (
+    module_key text NOT NULL,
+    metric_key text NOT NULL,
+    label text NOT NULL,
+    unit text,
+    aggregation text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT report_metric_definitions_aggregation_check CHECK ((aggregation = ANY (ARRAY['sum'::text, 'avg'::text, 'max'::text, 'min'::text, 'last'::text])))
+);
+
+
+--
+-- Name: TABLE report_metric_definitions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.report_metric_definitions IS 'Registry for the keys stored in facility_daily_metrics.metrics: display label, unit, sort order, and the aggregation mode used to combine DAILY values into a weekly/monthly/annual figure. Global metadata (no facility_id) — it describes what a metric means, not any facility''s data. Seeded per module in migration 267.';
+
+
+--
+-- Name: COLUMN report_metric_definitions.aggregation; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_metric_definitions.aggregation IS 'How daily values combine over a period: sum | avg | max | min | last. Counts are sum. A mean is avg. A point-in-time snapshot (open issues at end of day) is LAST and must never be summed — summing it across a year is how a report ends up claiming thousands of open issues.';
 
 
 --
@@ -16877,6 +17031,14 @@ ALTER TABLE ONLY public.facility_air_quality_config
 
 
 --
+-- Name: facility_daily_metrics facility_daily_metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_daily_metrics
+    ADD CONSTRAINT facility_daily_metrics_pkey PRIMARY KEY (facility_id, business_date, module_key);
+
+
+--
 -- Name: facility_documents facility_documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -17609,6 +17771,14 @@ ALTER TABLE ONLY public.refrigeration_thresholds
 
 ALTER TABLE ONLY public.report_area_assignments
     ADD CONSTRAINT report_area_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: report_metric_definitions report_metric_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_metric_definitions
+    ADD CONSTRAINT report_metric_definitions_pkey PRIMARY KEY (module_key, metric_key);
 
 
 --
@@ -19882,6 +20052,13 @@ CREATE INDEX idx_facility_air_quality_config_facility ON public.facility_air_qua
 --
 
 CREATE INDEX idx_facility_air_quality_config_profile ON public.facility_air_quality_config USING btree (compliance_profile_id);
+
+
+--
+-- Name: idx_facility_daily_metrics_facility_module_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_daily_metrics_facility_module_date ON public.facility_daily_metrics USING btree (facility_id, module_key, business_date DESC);
 
 
 --
@@ -23077,6 +23254,13 @@ CREATE TRIGGER trg_report_area_assignments_block_past BEFORE INSERT OR UPDATE ON
 
 
 --
+-- Name: report_metric_definitions trg_report_metric_definitions_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_report_metric_definitions_set_updated_at BEFORE UPDATE ON public.report_metric_definitions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: retention_module_floors trg_retention_module_floors_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -24885,6 +25069,14 @@ ALTER TABLE ONLY public.facility_air_quality_config
 
 ALTER TABLE ONLY public.facility_air_quality_config
     ADD CONSTRAINT facility_air_quality_config_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_daily_metrics facility_daily_metrics_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_daily_metrics
+    ADD CONSTRAINT facility_daily_metrics_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
 
 
 --
@@ -29070,6 +29262,19 @@ CREATE POLICY facility_air_quality_config_update ON public.facility_air_quality_
 
 
 --
+-- Name: facility_daily_metrics; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_daily_metrics ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_daily_metrics facility_daily_metrics_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_daily_metrics_select ON public.facility_daily_metrics FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('reports'::text))));
+
+
+--
 -- Name: facility_documents; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -30804,6 +31009,26 @@ CREATE POLICY report_area_assignments_select ON public.report_area_assignments F
 CREATE POLICY report_area_assignments_update ON public.report_area_assignments FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
    FROM public.employees e
   WHERE ((e.id = report_area_assignments.employee_id) AND (e.facility_id = report_area_assignments.facility_id)))))));
+
+
+--
+-- Name: report_metric_definitions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.report_metric_definitions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: report_metric_definitions report_metric_definitions_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_metric_definitions_select ON public.report_metric_definitions FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: report_metric_definitions report_metric_definitions_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_metric_definitions_write ON public.report_metric_definitions TO authenticated USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
 
 
 --

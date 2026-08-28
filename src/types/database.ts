@@ -4758,6 +4758,7 @@ export type Database = {
           city: string | null
           created_at: string
           email: string | null
+          fiscal_year_start_month: number
           id: string
           is_active: boolean
           name: string
@@ -4774,6 +4775,7 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          fiscal_year_start_month?: number
           id?: string
           is_active?: boolean
           name: string
@@ -4790,6 +4792,7 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          fiscal_year_start_month?: number
           id?: string
           is_active?: boolean
           name?: string
@@ -4855,6 +4858,38 @@ export type Database = {
             foreignKeyName: "facility_air_quality_config_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_daily_metrics: {
+        Row: {
+          business_date: string
+          computed_at: string
+          facility_id: string
+          metrics: Json
+          module_key: string
+        }
+        Insert: {
+          business_date: string
+          computed_at?: string
+          facility_id: string
+          metrics?: Json
+          module_key: string
+        }
+        Update: {
+          business_date?: string
+          computed_at?: string
+          facility_id?: string
+          metrics?: Json
+          module_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_daily_metrics_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
@@ -7880,6 +7915,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      report_metric_definitions: {
+        Row: {
+          aggregation: string
+          created_at: string
+          label: string
+          metric_key: string
+          module_key: string
+          sort_order: number
+          unit: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          aggregation: string
+          created_at?: string
+          label: string
+          metric_key: string
+          module_key: string
+          sort_order?: number
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          aggregation?: string
+          created_at?: string
+          label?: string
+          metric_key?: string
+          module_key?: string
+          sort_order?: number
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       retention_module_floors: {
         Row: {
@@ -11138,6 +11206,13 @@ export type Database = {
       reapply_role_defaults_for_role: {
         Args: { p_facility_id: string; p_role_id: string }
         Returns: number
+      }
+      report_period_bounds: {
+        Args: { p_anchor: string; p_facility_id: string; p_period: string }
+        Returns: {
+          end_date: string
+          start_date: string
+        }[]
       }
       resolve_daily_area_assignments: {
         Args: { p_date: string }
