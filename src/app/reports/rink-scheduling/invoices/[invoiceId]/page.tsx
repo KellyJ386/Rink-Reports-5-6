@@ -19,7 +19,7 @@ export default async function InvoiceDetailPage({
 }: {
   params: Promise<{ invoiceId: string }>
 }) {
-  await requireUser()
+  const current = await requireUser()
   const supabase = await createClient()
 
   if (!(await currentUserCan(supabase, "rink_scheduling", "edit"))) {
@@ -29,11 +29,16 @@ export default async function InvoiceDetailPage({
   const { invoiceId } = await params
 
   // RLS scopes this to the caller's facility, so a foreign id simply misses.
-  const { data: invoice } = await supabase
-    .from("rink_invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .maybeSingle()
+  // Two gates, not one: RLS already scopes invoices to the caller's facility,
+  // but every other read in this module ALSO filters explicitly so a single
+  // policy regression cannot leak a foreign invoice (with its billing
+  // address) through this route. A super admin keeps the RLS-wide view.
+  let invoiceQuery = supabase.from("rink_invoices").select("*").eq("id", invoiceId)
+  const callerFacilityId = current.profile?.facility_id ?? null
+  if (callerFacilityId && !current.profile?.is_super_admin) {
+    invoiceQuery = invoiceQuery.eq("facility_id", callerFacilityId)
+  }
+  const { data: invoice } = await invoiceQuery.maybeSingle()
   if (!invoice) notFound()
 
   const [{ data: lines }, { data: payments }, { data: customer }, { data: methods }] =

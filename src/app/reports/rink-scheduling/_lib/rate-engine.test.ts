@@ -278,3 +278,82 @@ describe("describeSegment", () => {
     expect(describeSegment(q.segments[0])).toBe("1.5 h × $300.00 = $450.00")
   })
 })
+
+// ---------------------------------------------------------------------------
+// DST regression cases. Both reproduce real mispricings from the fixed-24h
+// day walk that sliceByPrime used to do: stepping start+24h from late Saturday
+// jumped clean over the 23-hour spring-forward Sunday (so its prime windows
+// were never probed), and "local midnight = probe − minutesOfDay(probe)"
+// computed boundary instants an hour off on the transition day itself.
+// ---------------------------------------------------------------------------
+
+describe("quoteBooking across DST transitions", () => {
+  // US spring-forward: 2026-03-08 02:00 EST -> 03:00 EDT.
+  const DAILY_WINDOWS: PrimeWindow[] = Array.from({ length: 7 }, (_, d) => ({
+    day_of_week: d,
+    start_time: "17:00",
+    end_time: "22:00",
+  }))
+
+  it("prices a multi-day booking spanning spring-forward by real elapsed hours", () => {
+    // Sat 2026-03-07 23:30 EST (04:30Z Mar 8) -> Mon 2026-03-09 12:00 EDT
+    // (16:00Z Mar 9): 35.5 real hours. Prime is Sunday 17:00–22:00 only (5 h);
+    // the other 30.5 h are non-prime. 5×$300 + 30.5×$200 = $7,600. The old
+    // walk skipped Sunday entirely and classified the whole slot prime
+    // ($10,650 — a $3,050 overcharge).
+    const q = quoteBooking({
+      startsAtMs: Date.UTC(2026, 2, 8, 4, 30),
+      endsAtMs: Date.UTC(2026, 2, 9, 16, 0),
+      timeZone: TZ,
+      cards: [CARD],
+      windows: DAILY_WINDOWS,
+      overrides: [],
+      bookingTypeId: "type-rental",
+      isBillable: true,
+    })
+    expect(q.totalAmount).toBe(7600)
+    expect(q.segments).toHaveLength(3)
+    expect(q.segments.map((s) => s.isPrime)).toEqual([false, true, false])
+  })
+
+  it("finds a pre-2am prime window on the spring-forward day itself", () => {
+    // Prime Sunday 00:00–01:30, which exists in full (the clock jumps at
+    // 02:00). Booking Sat 23:00 EST (04:00Z) -> Sun 03:30 EDT (07:30Z):
+    // 3.5 real hours, 1.5 prime + 2.0 non-prime = $850. The old midnight
+    // derivation cut the 01:30 boundary an hour early and missed the window
+    // entirely ($700).
+    const windows: PrimeWindow[] = [
+      { day_of_week: 0, start_time: "00:00", end_time: "01:30" },
+    ]
+    const q = quoteBooking({
+      startsAtMs: Date.UTC(2026, 2, 8, 4, 0),
+      endsAtMs: Date.UTC(2026, 2, 8, 7, 30),
+      timeZone: TZ,
+      cards: [CARD],
+      windows,
+      overrides: [],
+      bookingTypeId: "type-rental",
+      isBillable: true,
+    })
+    expect(q.totalAmount).toBe(850)
+  })
+
+  it("prices the same shape a non-DST week later as the control", () => {
+    // Sat 2026-03-14 23:00 EDT (03:00Z Mar 15) -> Sun 03:30 EDT (07:30Z):
+    // a full 4.5 real hours this time. 1.5 prime + 3.0 non-prime = $1,050.
+    const windows: PrimeWindow[] = [
+      { day_of_week: 0, start_time: "00:00", end_time: "01:30" },
+    ]
+    const q = quoteBooking({
+      startsAtMs: Date.UTC(2026, 2, 15, 3, 0),
+      endsAtMs: Date.UTC(2026, 2, 15, 7, 30),
+      timeZone: TZ,
+      cards: [CARD],
+      windows,
+      overrides: [],
+      bookingTypeId: "type-rental",
+      isBillable: true,
+    })
+    expect(q.totalAmount).toBe(1050)
+  })
+})

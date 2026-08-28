@@ -18,7 +18,7 @@ import {
 } from "@/lib/rink-scheduling/ar"
 import { createClient } from "@/lib/supabase/server"
 import { deliverInvoiceEmail, type InvoiceEmailOutcome } from "@/lib/rink-scheduling/deliver-invoice-email"
-import { dayKeyInTz, formatInTz } from "@/lib/timezone"
+import { addDaysToKey, dayKeyInTz, formatInTz, wallTimeToUtc } from "@/lib/timezone"
 
 import type { SimpleResult } from "./_lib/types"
 
@@ -78,7 +78,12 @@ export type BillableBooking = {
   typeName: string
   hours: number
   rateSnapshot: number | null
-  amount: number
+  /** The booking's quoted total (computed_amount), which is the ONLY correct
+   *  billing figure for a booking that straddles a prime boundary — the rate
+   *  engine deliberately nulls the hourly snapshot for those and puts the
+   *  blended charge here. Null means the booking was never priced (no rate
+   *  card covered its date). */
+  amount: number | null
 }
 
 /**
@@ -110,8 +115,19 @@ export async function listUninvoicedBookings(input: {
       .eq("facility_id", ctx.facilityId)
       .eq("customer_id", input.customerId)
       .neq("status", "cancelled")
-      .gte("starts_at", `${input.fromDayKey}T00:00:00.000Z`)
-      .lte("starts_at", `${input.toDayKey}T23:59:59.999Z`)
+      // Facility-local day keys become facility-midnight instants; a "Z"-glued
+      // key shifted the window hours early and clipped evening bookings on
+      // its edge days.
+      .gte(
+        "starts_at",
+        wallTimeToUtc(`${input.fromDayKey}T00:00`, timeZone)?.toISOString() ??
+          `${input.fromDayKey}T00:00:00.000Z`,
+      )
+      .lt(
+        "starts_at",
+        wallTimeToUtc(`${addDaysToKey(input.toDayKey, 1)}T00:00`, timeZone)?.toISOString() ??
+          `${input.toDayKey}T23:59:59.999Z`,
+      )
       .order("starts_at", { ascending: true })
 
     const bookings = rows ?? []
@@ -156,7 +172,7 @@ export async function listUninvoicedBookings(input: {
         typeName: type?.name ?? "Booking",
         hours: Number(hours.toFixed(2)),
         rateSnapshot: b.rate_snapshot_hourly === null ? null : Number(b.rate_snapshot_hourly),
-        amount: Number(b.computed_amount ?? 0),
+        amount: b.computed_amount === null ? null : Number(b.computed_amount),
       })
     }
 
@@ -216,26 +232,52 @@ export async function generateInvoice(input: {
       .toISOString()
       .slice(0, 10)
 
-    // Claim the next number atomically. UPDATE takes a row lock, so two
-    // simultaneous generations cannot take the same sequence — no SECURITY
-    // DEFINER function required (see migration 247's note on this table).
-    const { data: counter, error: counterError } = await supabase
-      .from("rink_invoice_counters")
-      .select("next_seq")
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle()
-    if (counterError) {
-      return { ok: false, error: "Could not read the invoice counter." }
+    // Claim the next number with an optimistic compare-and-set loop.
+    // supabase-js cannot express `next_seq = next_seq + 1`, so the previous
+    // read-then-upsert was a TOCTOU: two concurrent generations both read N,
+    // both wrote N+1, and both tried the same invoice number (the second
+    // failing on the unique index with a raw duplicate-key error) — and a
+    // stalled request could even REGRESS the counter below already-issued
+    // numbers. Here the advance only lands if next_seq is still the value we
+    // read (`.eq("next_seq", ...)`); a lost race matches zero rows and we
+    // re-read. The unique index on invoice numbers stays as the backstop.
+    let seq: number | null = null
+    for (let attempt = 0; attempt < 5 && seq === null; attempt++) {
+      const { data: counter, error: counterError } = await supabase
+        .from("rink_invoice_counters")
+        .select("next_seq")
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle()
+      if (counterError) {
+        return { ok: false, error: "Could not read the invoice counter." }
+      }
+
+      if (!counter) {
+        // First invoice ever: seed the counter at 2, claiming 1. A concurrent
+        // seeder loses on the primary key (23505) and loops to CAS instead.
+        const { error: seedError } = await supabase
+          .from("rink_invoice_counters")
+          .insert({ facility_id: ctx.facilityId, next_seq: 2 })
+        if (!seedError) seq = 1
+        else if (seedError.code !== "23505") {
+          return { ok: false, error: "Could not reserve an invoice number." }
+        }
+        continue
+      }
+
+      const { data: claimed, error: bumpError } = await supabase
+        .from("rink_invoice_counters")
+        .update({ next_seq: counter.next_seq + 1 })
+        .eq("facility_id", ctx.facilityId)
+        .eq("next_seq", counter.next_seq)
+        .select("facility_id")
+      if (bumpError) {
+        return { ok: false, error: "Could not reserve an invoice number." }
+      }
+      if ((claimed ?? []).length > 0) seq = counter.next_seq
     }
-    const seq = counter?.next_seq ?? 1
-    const { error: bumpError } = await supabase
-      .from("rink_invoice_counters")
-      .upsert(
-        { facility_id: ctx.facilityId, next_seq: seq + 1 },
-        { onConflict: "facility_id" },
-      )
-    if (bumpError) {
-      return { ok: false, error: "Could not reserve an invoice number." }
+    if (seq === null) {
+      return { ok: false, error: "The invoice counter is busy — try again." }
     }
     const invoiceNumber = `${prefix}${String(seq).padStart(4, "0")}`
 
@@ -254,8 +296,18 @@ export async function generateInvoice(input: {
       }
     }
 
+    // Bill the QUOTED amount snapshotted onto the booking, never a recompute.
+    // Recomputing hours x snapshot had two failure modes: a booking straddling
+    // a prime boundary has rateSnapshot null by design (the blended charge
+    // lives in computed_amount), so it was billed at hours x 0 = $0.00; and
+    // hours is rounded to 2dp for display, so even uniform-rate bookings
+    // drifted from their quote (50 min at $300/h: quoted $250.00, recomputed
+    // 0.83 x 300 = $249.00). The hours x snapshot recompute survives only as
+    // the fallback for legacy rows that predate computed_amount.
     const lineAmounts = selected.map((b) =>
-      lineAmountCents({ quantityHours: b.hours, unitRate: b.rateSnapshot ?? 0 }),
+      b.amount !== null
+        ? toCents(b.amount)
+        : lineAmountCents({ quantityHours: b.hours, unitRate: b.rateSnapshot ?? 0 }),
     )
     const totals = computeTotals(lineAmounts, taxRate)
 
@@ -295,7 +347,12 @@ export async function generateInvoice(input: {
           timeRange: b.timeRange,
         }),
         quantity_hours: b.hours,
-        unit_rate: b.rateSnapshot ?? 0,
+        // A blended booking has no single hourly rate; showing 0/hr next to a
+        // real amount reads as an error on the PDF, so derive the effective
+        // rate from what is actually billed.
+        unit_rate:
+          b.rateSnapshot ??
+          (b.hours > 0 ? centsToAmount(Math.round(lineAmounts[i] / b.hours)) : 0),
         amount: centsToAmount(lineAmounts[i]),
         sort_order: i,
       })),
@@ -389,15 +446,26 @@ export async function deleteLine(
     if (!ctx.ok) return { ok: false, error: ctx.error }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    // The recompute below trusts that lineId belonged to invoiceId, so the
+    // delete must enforce that pairing — without it, deleting invoice A's
+    // line while naming invoice B desyncs A's cached totals from its lines.
+    const { data: removed, error } = await supabase
       .from("rink_invoice_line_items")
       .delete()
       .eq("id", lineId)
+      .eq("invoice_id", invoiceId)
       .eq("facility_id", ctx.facilityId)
+      .select("id")
     if (error) {
       return {
         ok: false,
         error: "Could not remove the line. Lines can only be changed while the invoice is a draft.",
+      }
+    }
+    if ((removed ?? []).length === 0) {
+      return {
+        ok: false,
+        error: "That line is not on this invoice, or the invoice is no longer a draft.",
       }
     }
 
@@ -698,7 +766,9 @@ export async function reversePayment(
       invoice_id: original.invoice_id,
       amount: -Number(original.amount),
       payment_method_id: original.payment_method_id,
-      payment_date: new Date().toISOString().slice(0, 10),
+      // The reversal is dated in the FACILITY'S calendar: the UTC date is
+      // already tomorrow every evening west of Greenwich.
+      payment_date: dayKeyInTz(new Date(), await getFacilityTimezone(supabase, ctx.facilityId)),
       reverses_payment_id: original.id,
       notes: trimmed,
       recorded_by: ctx.employeeId,

@@ -7,7 +7,7 @@ import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
-import { addDaysToKey, dayKeyInTz } from "@/lib/timezone"
+import { addDaysToKey, dayKeyInTz, wallTimeToUtc } from "@/lib/timezone"
 
 import { quoteBooking } from "./_lib/rate-engine"
 import {
@@ -384,6 +384,13 @@ export async function cancelSeries(
     const supabase = await createClient()
     const timeZone = await getFacilityTimezone(supabase, ctx.facilityId)
     const todayKey = dayKeyInTz(new Date(), timeZone)
+    // The boundary is the FACILITY'S midnight as a real instant. Gluing "Z"
+    // onto a facility-local day key started "today" at yesterday evening for
+    // any US zone — cancelling bookings that had already run (and, being
+    // cancelled, silently dropping them from the uninvoiced list).
+    const todayStartIso =
+      wallTimeToUtc(`${todayKey}T00:00`, timeZone)?.toISOString() ??
+      `${todayKey}T00:00:00.000Z`
 
     const { data: upcoming } = await supabase
       .from("rink_bookings")
@@ -391,7 +398,7 @@ export async function cancelSeries(
       .eq("facility_id", ctx.facilityId)
       .eq("series_id", seriesId)
       .neq("status", "cancelled")
-      .gte("starts_at", `${todayKey}T00:00:00.000Z`)
+      .gte("starts_at", todayStartIso)
 
     const ids = (upcoming ?? []).map((b) => b.id)
     if (ids.length === 0) {
@@ -511,6 +518,7 @@ export async function splitSeries(input: {
     if (!ctx.ok) return { ok: false, error: ctx.error }
 
     const supabase = await createClient()
+    const timeZone = await getFacilityTimezone(supabase, ctx.facilityId)
 
     const { data: original } = await supabase
       .from("rink_booking_series")
@@ -520,17 +528,24 @@ export async function splitSeries(input: {
       .maybeSingle()
     if (!original) return { ok: false, error: "Series not found." }
 
-    // Everything from the split date onward is replaced, except what is billed.
+    // Everything from the split date onward is replaced, except what is
+    // billed. The split date is a facility-local day, so its boundary is the
+    // facility's midnight as a real instant — not the day key glued to "Z",
+    // which lands hours early for any zone west of Greenwich.
+    const splitStartIso =
+      wallTimeToUtc(`${input.fromDayKey}T00:00`, timeZone)?.toISOString() ??
+      `${input.fromDayKey}T00:00:00.000Z`
     const { data: future } = await supabase
       .from("rink_bookings")
-      .select("id")
+      .select("id, status")
       .eq("facility_id", ctx.facilityId)
       .eq("series_id", input.seriesId)
       .neq("status", "cancelled")
-      .gte("starts_at", `${input.fromDayKey}T00:00:00.000Z`)
+      .gte("starts_at", splitStartIso)
 
     const futureIds = (future ?? []).map((b) => b.id)
     let keptBilled = 0
+    let restoreCancelled: (() => Promise<boolean>) | null = null
 
     if (futureIds.length > 0) {
       const { data: billed } = await supabase
@@ -543,24 +558,82 @@ export async function splitSeries(input: {
       keptBilled = billedIds.size
 
       const removable = futureIds.filter((id) => !billedIds.has(id))
+      // Remember each occurrence's pre-cancel status so a later failure can
+      // put things back — there is no transaction across these statements.
+      const priorStatus = new Map(
+        (future ?? [])
+          .filter((b) => removable.includes(b.id))
+          .map((b) => [b.id, b.status]),
+      )
+      restoreCancelled = async () => {
+        for (const status of ["tentative", "confirmed"]) {
+          const ids = removable.filter((id) => priorStatus.get(id) === status)
+          if (ids.length === 0) continue
+          const { error } = await supabase
+            .from("rink_bookings")
+            .update({
+              status,
+              cancelled_at: null,
+              cancelled_by: null,
+              cancellation_reason: null,
+            })
+            .eq("facility_id", ctx.facilityId)
+            .in("id", ids)
+          if (error) return false
+        }
+        return true
+      }
       if (removable.length > 0) {
-        // Deleted rather than cancelled: these are being REPLACED, and leaving
-        // cancelled ghosts would clutter the calendar and the audit trail with
-        // rows that never really happened.
-        await supabase
+        // CANCELLED, not deleted. The RLS DELETE policy on rink_bookings is
+        // super-admin-only, so for the edit-tier callers this action serves a
+        // delete matches zero rows — and the old code discarded that result,
+        // end-dated the series anyway, and let every replacement occurrence
+        // collide with the still-live originals. Cancelling is the operation
+        // edit tier is actually allowed, it frees the exclusion constraint
+        // (which ignores cancelled rows), and it leaves an honest audit trail
+        // of what the split replaced.
+        const { data: cancelled, error: cancelError } = await supabase
           .from("rink_bookings")
-          .delete()
+          .update({
+            status: "cancelled",
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: ctx.employeeId,
+            cancellation_reason: "Replaced by a series split.",
+          })
           .eq("facility_id", ctx.facilityId)
           .in("id", removable)
+          .neq("status", "cancelled")
+          .select("id")
+        if (cancelError || (cancelled ?? []).length < removable.length) {
+          // Abort BEFORE touching the series: a partial replacement would
+          // close the old series on paper while its ice stays booked.
+          return {
+            ok: false,
+            error:
+              "Could not release the occurrences being replaced — the series was left unchanged.",
+          }
+        }
       }
     }
 
-    // Close the original the day before the split.
-    await supabase
+    // Close the original the day before the split. From here on, a failure
+    // compensates: statuses restored, end date restored — no transaction is
+    // available across server-action statements, so the compensation is
+    // explicit.
+    const { error: endDateError } = await supabase
       .from("rink_booking_series")
       .update({ series_end_date: addDaysToKey(input.fromDayKey, -1) })
       .eq("id", input.seriesId)
       .eq("facility_id", ctx.facilityId)
+    if (endDateError) {
+      const restored = restoreCancelled ? await restoreCancelled() : true
+      return {
+        ok: false,
+        error: restored
+          ? "Could not close the original series — nothing was changed."
+          : "Could not close the original series, and restoring the released occurrences ALSO failed — review this series' bookings by hand.",
+      }
+    }
 
     const created = await createSeries({
       rinkId: input.rinkId,
@@ -580,7 +653,23 @@ export async function splitSeries(input: {
       resolutions: {},
     })
 
-    if (!created.ok) return { ok: false, error: created.error }
+    if (!created.ok) {
+      // Put the world back: reopen the original series and un-cancel the
+      // occurrences that were released for a replacement that never arrived.
+      const { error: reopenError } = await supabase
+        .from("rink_booking_series")
+        .update({ series_end_date: original.series_end_date })
+        .eq("id", input.seriesId)
+        .eq("facility_id", ctx.facilityId)
+      const restored = restoreCancelled ? await restoreCancelled() : true
+      return {
+        ok: false,
+        error:
+          restored && !reopenError
+            ? created.error
+            : `${created.error} — and restoring the original series also failed; review its bookings by hand.`,
+      }
+    }
 
     revalidatePath(CALENDAR_PATH)
     return {

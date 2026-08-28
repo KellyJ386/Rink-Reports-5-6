@@ -25,7 +25,7 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ invoiceId: string }> },
 ) {
-  await requireUser()
+  const current = await requireUser()
 
   const { invoiceId } = await params
   if (!invoiceId || !UUID_RE.test(invoiceId)) {
@@ -37,11 +37,16 @@ export async function GET(
     return new Response("Forbidden", { status: 403 })
   }
 
-  const { data: invoice } = await supabase
-    .from("rink_invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .maybeSingle()
+  // Two gates, not one: RLS already scopes invoices to the caller's facility,
+  // but every other read in this module ALSO filters explicitly so a single
+  // policy regression cannot leak a foreign invoice (with its billing
+  // address) through this route. A super admin keeps the RLS-wide view.
+  let invoiceQuery = supabase.from("rink_invoices").select("*").eq("id", invoiceId)
+  const callerFacilityId = current.profile?.facility_id ?? null
+  if (callerFacilityId && !current.profile?.is_super_admin) {
+    invoiceQuery = invoiceQuery.eq("facility_id", callerFacilityId)
+  }
+  const { data: invoice } = await invoiceQuery.maybeSingle()
   if (!invoice) return new Response("Not found", { status: 404 })
 
   // Assembly shared with email delivery (deliver-invoice-email.tsx): the PDF
