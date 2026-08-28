@@ -16,6 +16,7 @@ import {
   deleteLine,
   recordPayment,
   reversePayment,
+  emailInvoice,
   sendInvoice,
   voidInvoice,
 } from "../../invoice-actions"
@@ -83,8 +84,21 @@ export function InvoiceDetail({
         toast.error(r.error)
         return
       }
-      toast.success("Invoice sent. Its lines are now locked.")
+      // The message says whether the customer was actually emailed — a send
+      // that couldn't deliver is still a send, but the biller should know.
+      toast.success(r.message)
       router.refresh()
+    })
+  }
+
+  function onEmail() {
+    startTransition(async () => {
+      const r = await emailInvoice(invoice.id)
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      toast.success(r.message)
     })
   }
 
@@ -133,6 +147,16 @@ export function InvoiceDetail({
               {isDraft && (
                 <Button size="sm" onClick={onSend} disabled={pending}>
                   {pending ? "Sending…" : "Send invoice"}
+                </Button>
+              )}
+              {!isDraft && !isVoid && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onEmail}
+                  disabled={pending}
+                >
+                  {pending ? "Emailing…" : "Email invoice"}
                 </Button>
               )}
               {!isVoid && !voiding && (
