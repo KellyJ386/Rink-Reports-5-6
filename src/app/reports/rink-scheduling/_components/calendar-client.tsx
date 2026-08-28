@@ -179,8 +179,13 @@ export function CalendarClient(props: Props) {
               dayKey,
               // A month cell has no time axis to pick from, so a new booking
               // opens at the facility's opening minute for that day and the
-              // sheet's own time fields take it from there.
-              startMinute: resolveDayWindow(dayKey, hours, exceptions).openMinute,
+              // sheet's own time fields take it from there. A CLOSED day has
+              // no opening minute (resolveDayWindow says 0 = midnight), so it
+              // borrows gridExtent's closed-day convention of 6 AM instead —
+              // booking a closed day is allowed, it just flags for coverage.
+              startMinute: monthCreateStartMinute(
+                resolveDayWindow(dayKey, hours, exceptions),
+              ),
             })
           }
           onOpen={(booking) => setSheet({ mode: "edit", booking })}
@@ -250,7 +255,12 @@ function Toolbar({
     const sp = new URLSearchParams()
     sp.set("view", next.view ?? view)
     sp.set("date", next.date ?? focusKey)
-    const rink = next.rink ?? selectedRinkId
+    // Only an EXPLICIT rink choice survives navigation. selectedRinkId is
+    // the server-side first-rink fallback, and writing it into the URL turns
+    // "no choice" into a sticky choice — which is exactly what silently
+    // narrowed the month view's all-rinks default to rink 1 on any toolbar
+    // click. An explicit pick (from the URL or a rink button) still carries.
+    const rink = next.rink ?? explicitRinkId ?? ""
     if (rink) sp.set("rink", rink)
     if ((next.showCancelled ?? (showCancelled ? "1" : "")) === "1") {
       sp.set("showCancelled", "1")
@@ -576,6 +586,13 @@ function WeekGrid({
  *  six-row grid on one screen at laptop height. */
 const MONTH_CELL_CHIPS = 4
 
+/** Opening minute a month-cell create starts at. Mirrors gridExtent's
+ *  closed-day fallback (6 AM) so a closed-day booking doesn't open at
+ *  midnight. */
+function monthCreateStartMinute(window: DayWindow): number {
+  return window.isClosed ? 6 * 60 : window.openMinute
+}
+
 function MonthGrid({
   focusKey,
   todayKey,
@@ -689,7 +706,11 @@ function MonthCellView({
               aria-label="Coverage gap"
             />
           )}
-          {canCreate && !window.isClosed && (
+          {/* The '+' renders on closed days too: the day view's own banner
+              says "Bookings can still be made; they will be flagged for
+              coverage", and the month view must not be stricter than the
+              policy it summarizes. */}
+          {canCreate && (
             <button
               type="button"
               onClick={() => onCreate(cell.dayKey)}
