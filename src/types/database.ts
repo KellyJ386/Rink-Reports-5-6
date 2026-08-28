@@ -3850,9 +3850,12 @@ export type Database = {
       dasher_boards_inspections: {
         Row: {
           completed_at: string | null
+          contractor_company: string | null
+          contractor_name: string | null
           created_at: string
           facility_id: string
           id: string
+          inspection_kind: string
           inspector_id: string | null
           notes: string | null
           rink_id: string
@@ -3861,9 +3864,12 @@ export type Database = {
         }
         Insert: {
           completed_at?: string | null
+          contractor_company?: string | null
+          contractor_name?: string | null
           created_at?: string
           facility_id: string
           id?: string
+          inspection_kind?: string
           inspector_id?: string | null
           notes?: string | null
           rink_id: string
@@ -3872,9 +3878,12 @@ export type Database = {
         }
         Update: {
           completed_at?: string | null
+          contractor_company?: string | null
+          contractor_name?: string | null
           created_at?: string
           facility_id?: string
           id?: string
+          inspection_kind?: string
           inspector_id?: string | null
           notes?: string | null
           rink_id?: string

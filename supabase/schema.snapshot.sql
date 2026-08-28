@@ -7881,7 +7881,7 @@ begin
   ) as s(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: board panels (repair + cleaning).
+  -- Issue categories: board panels (repair + cleaning + maintenance).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'board_panel', c.label, c.sort_order
   from (values
@@ -7891,13 +7891,14 @@ begin
     ('Kickplate damage', 3),
     ('Caprail damage', 4),
     ('Resurfacer impact', 5),
+    ('Hardware tightening', 6),
     ('Needs cleaning', 7),
     ('Debris/buildup', 8),
     ('Other', 9)
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: glass panels (repair + cleaning).
+  -- Issue categories: glass panels (repair + cleaning + replacement).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'glass_panel', c.label, c.sort_order
   from (values
@@ -7906,6 +7907,7 @@ begin
     ('Not seated/rattle', 2),
     ('Crazing at clamp', 3),
     ('Gasket damaged/missing', 4),
+    ('Replacement', 5),
     ('Needs cleaning', 6),
     ('Film/residue', 7),
     ('Other', 8)
@@ -11461,7 +11463,12 @@ CREATE TABLE public.dasher_boards_inspections (
     completed_at timestamp with time zone,
     notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone
+    updated_at timestamp with time zone,
+    inspection_kind text DEFAULT 'routine'::text NOT NULL,
+    contractor_name text,
+    contractor_company text,
+    CONSTRAINT dasher_boards_inspections_contractor_iff_annual CHECK ((((inspection_kind = 'annual_contractor'::text) AND (contractor_name IS NOT NULL) AND (char_length(btrim(contractor_name)) > 0)) OR ((inspection_kind = 'routine'::text) AND (contractor_name IS NULL) AND (contractor_company IS NULL)))),
+    CONSTRAINT dasher_boards_inspections_kind_check CHECK ((inspection_kind = ANY (ARRAY['routine'::text, 'annual_contractor'::text])))
 );
 
 
@@ -11470,6 +11477,27 @@ CREATE TABLE public.dasher_boards_inspections (
 --
 
 COMMENT ON TABLE public.dasher_boards_inspections IS 'Dasher Boards: one row per perimeter walk. A completed inspection (completed_at set) with zero linked issues means "walked, all clear" — untapped assets are implicitly OK, attested by this record. Once completed_at is set the row is IMMUTABLE — enforced by RLS policy AND a guard trigger (migration 192), not just app code.';
+
+
+--
+-- Name: COLUMN dasher_boards_inspections.inspection_kind; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_inspections.inspection_kind IS 'What kind of walk this record attests: routine (the regular staff walk) or annual_contractor (the ORFA-required annual inspection by a qualified contractor). Same per-segment check record either way; frozen with the rest of the row once completed_at is set.';
+
+
+--
+-- Name: COLUMN dasher_boards_inspections.contractor_name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_inspections.contractor_name IS 'The qualified contractor who performed an annual_contractor walk (required for that kind, forbidden on routine walks — CHECK-enforced).';
+
+
+--
+-- Name: COLUMN dasher_boards_inspections.contractor_company; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_inspections.contractor_company IS 'The contractor''s company, when the facility records it. Only on annual_contractor walks.';
 
 
 --
@@ -19123,6 +19151,13 @@ CREATE UNIQUE INDEX idx_dasher_boards_inspections_one_open_per_inspector ON publ
 --
 
 CREATE INDEX idx_dasher_boards_inspections_rink_completed ON public.dasher_boards_inspections USING btree (rink_id, completed_at DESC);
+
+
+--
+-- Name: idx_dasher_boards_inspections_rink_kind_completed; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_inspections_rink_kind_completed ON public.dasher_boards_inspections USING btree (rink_id, inspection_kind, completed_at DESC);
 
 
 --
