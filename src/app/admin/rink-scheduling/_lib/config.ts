@@ -106,6 +106,7 @@ export type SettingsInput = {
   lockerLeadMinutes: number
   lockerVacateMinutes: number
   displayRefreshSeconds: number
+  reminderCadenceDays: number
 }
 
 /**
@@ -135,6 +136,9 @@ export function validateSettings(input: SettingsInput): Record<string, string> {
   }
   if (!Number.isInteger(input.displayRefreshSeconds) || input.displayRefreshSeconds < 15 || input.displayRefreshSeconds > 3600) {
     errors.displayRefreshSeconds = "Display refresh must be between 15 and 3600 seconds."
+  }
+  if (!Number.isInteger(input.reminderCadenceDays) || input.reminderCadenceDays < 1 || input.reminderCadenceDays > 90) {
+    errors.reminderCadenceDays = "Reminder cadence must be between 1 and 90 days."
   }
 
   const taxError = parseTaxRatePercent(input.taxRatePercent).error

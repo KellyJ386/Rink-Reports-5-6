@@ -1,12 +1,17 @@
 import "server-only"
 
+import type { SupabaseClient } from "@supabase/supabase-js"
+
 import { formatMoney } from "@/lib/rink-scheduling/ar"
 import type { InvoicePdfData } from "@/lib/rink-scheduling/invoice-pdf"
 import type { createClient } from "@/lib/supabase/server"
-import type { Tables } from "@/types/database"
+import type { Database, Tables } from "@/types/database"
 import { formatInTz } from "@/lib/timezone"
 
-type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+// Accepts the RLS-scoped server client (biller-facing paths) AND the
+// service-role client (the overdue-reminder cron). The service caller is why
+// every query filters explicitly rather than trusting a policy to scope it.
+type ServerSupabase = Awaited<ReturnType<typeof createClient>> | SupabaseClient<Database>
 
 /**
  * Assemble the full render model for an invoice document.

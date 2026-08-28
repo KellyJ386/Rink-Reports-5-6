@@ -1283,6 +1283,7 @@ export async function updateModuleSettings(
       lockerLeadMinutes: asInt(formData.get("locker_lead_minutes")) ?? 45,
       lockerVacateMinutes: asInt(formData.get("locker_vacate_minutes")) ?? 30,
       displayRefreshSeconds: asInt(formData.get("display_refresh_seconds")) ?? 60,
+      reminderCadenceDays: asInt(formData.get("reminder_cadence_days")) ?? 7,
     }
 
     // Validated against the same rules the CHECK constraints enforce, so the
@@ -1307,6 +1308,9 @@ export async function updateModuleSettings(
         locker_lead_minutes: input.lockerLeadMinutes,
         locker_vacate_minutes: input.lockerVacateMinutes,
         display_refresh_seconds: input.displayRefreshSeconds,
+        send_booking_confirmations: formData.get("send_booking_confirmations") === "on",
+        overdue_reminders_enabled: formData.get("overdue_reminders_enabled") === "on",
+        reminder_cadence_days: input.reminderCadenceDays,
       },
       { onConflict: "facility_id" },
     )

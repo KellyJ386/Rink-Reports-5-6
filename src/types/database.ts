@@ -8432,7 +8432,9 @@ export type Database = {
           id: string
           invoice_number: string
           issue_date: string
+          last_reminder_at: string | null
           notes: string | null
+          reminder_count: number
           sent_at: string | null
           status: string
           subtotal: number
@@ -8454,7 +8456,9 @@ export type Database = {
           id?: string
           invoice_number: string
           issue_date: string
+          last_reminder_at?: string | null
           notes?: string | null
+          reminder_count?: number
           sent_at?: string | null
           status?: string
           subtotal?: number
@@ -8476,7 +8480,9 @@ export type Database = {
           id?: string
           invoice_number?: string
           issue_date?: string
+          last_reminder_at?: string | null
           notes?: string | null
+          reminder_count?: number
           sent_at?: string | null
           status?: string
           subtotal?: number
@@ -8874,6 +8880,9 @@ export type Database = {
           invoice_prefix: string
           locker_lead_minutes: number
           locker_vacate_minutes: number
+          overdue_reminders_enabled: boolean
+          reminder_cadence_days: number
+          send_booking_confirmations: boolean
           slot_increment_minutes: number
           tax_rate: number | null
           updated_at: string | null
@@ -8889,6 +8898,9 @@ export type Database = {
           invoice_prefix?: string
           locker_lead_minutes?: number
           locker_vacate_minutes?: number
+          overdue_reminders_enabled?: boolean
+          reminder_cadence_days?: number
+          send_booking_confirmations?: boolean
           slot_increment_minutes?: number
           tax_rate?: number | null
           updated_at?: string | null
@@ -8904,6 +8916,9 @@ export type Database = {
           invoice_prefix?: string
           locker_lead_minutes?: number
           locker_vacate_minutes?: number
+          overdue_reminders_enabled?: boolean
+          reminder_cadence_days?: number
+          send_booking_confirmations?: boolean
           slot_increment_minutes?: number
           tax_rate?: number | null
           updated_at?: string | null

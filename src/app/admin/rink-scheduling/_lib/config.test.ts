@@ -27,6 +27,7 @@ const validSettings = {
   lockerLeadMinutes: 45,
   lockerVacateMinutes: 30,
   displayRefreshSeconds: 60,
+  reminderCadenceDays: 7,
 }
 
 describe("slugify", () => {
@@ -165,6 +166,7 @@ describe("validateSettings", () => {
       lockerLeadMinutes: -1,
       lockerVacateMinutes: 999,
       displayRefreshSeconds: 5,
+      reminderCadenceDays: 0,
       taxRatePercent: "250",
     })
     expect(Object.keys(errors).sort()).toEqual(
@@ -175,6 +177,7 @@ describe("validateSettings", () => {
         "invoicePrefix",
         "lockerLeadMinutes",
         "lockerVacateMinutes",
+        "reminderCadenceDays",
         "slotIncrementMinutes",
         "taxRatePercent",
       ].sort(),

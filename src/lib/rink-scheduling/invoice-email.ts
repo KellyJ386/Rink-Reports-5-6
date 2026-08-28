@@ -57,6 +57,62 @@ export function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;")
 }
 
+export type OverdueReminderInput = Omit<InvoiceEmailInput, "total"> & {
+  /** Whole days past the due date, facility-local. Always >= 1 when sent. */
+  daysOverdue: number
+}
+
+/**
+ * The overdue nudge. Firm about the facts (amount, how late), warm in tone —
+ * this lands in the inbox of a customer the facility wants back on its ice
+ * next season. The invoice PDF rides along so nobody has to go digging.
+ */
+export function buildOverdueReminderEmail(input: OverdueReminderInput): InvoiceEmail {
+  const due = longDate(input.dueDate)
+  const greetTo = (input.contactName ?? "").trim() || input.customerName
+  const lateBy =
+    input.daysOverdue === 1 ? "1 day" : `${input.daysOverdue} days`
+  const subject = `Reminder: invoice ${input.invoiceNumber} from ${input.facilityName} is past due`
+
+  const contactLine = [input.facilityPhone, input.facilityEmail]
+    .filter(Boolean)
+    .join(" · ")
+
+  const helpLine = contactLine
+    ? `Already sent payment, or have a question? Reach us at ${contactLine}.`
+    : "Already sent payment, or have a question? Reply to this email and we'll get back to you."
+
+  const bodyText = [
+    `Hi ${greetTo},`,
+    "",
+    `This is a friendly reminder that invoice ${input.invoiceNumber} from ${input.facilityName} is ${lateBy} past due. A copy is attached as a PDF.`,
+    "",
+    `Amount due: ${input.amountDue}`,
+    `Due date: ${due} (${input.paymentTerms})`,
+    "",
+    helpLine,
+    "",
+    `Thank you,`,
+    input.facilityName,
+  ].join("\n")
+
+  const e = escapeHtml
+  const bodyHtml = [
+    `<p>Hi ${e(greetTo)},</p>`,
+    `<p>This is a friendly reminder that invoice <strong>${e(input.invoiceNumber)}</strong> from ${e(input.facilityName)} is <strong>${e(lateBy)}</strong> past due. A copy is attached as a PDF.</p>`,
+    `<p><strong>Amount due:</strong> ${e(input.amountDue)}<br/>`,
+    `<strong>Due date:</strong> ${e(due)} (${e(input.paymentTerms)})</p>`,
+    `<p>${
+      contactLine
+        ? `Already sent payment, or have a question? Reach us at ${e(contactLine)}.`
+        : "Already sent payment, or have a question? Reply to this email and we&#39;ll get back to you."
+    }</p>`,
+    `<p>Thank you,<br/>${e(input.facilityName)}</p>`,
+  ].join("\n")
+
+  return { subject, bodyText, bodyHtml }
+}
+
 export function buildInvoiceEmail(input: InvoiceEmailInput): InvoiceEmail {
   const due = longDate(input.dueDate)
   const greetTo = (input.contactName ?? "").trim() || input.customerName

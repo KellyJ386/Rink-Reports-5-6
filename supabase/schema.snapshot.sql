@@ -4647,21 +4647,40 @@ CREATE FUNCTION public.rink_payments_guard() RETURNS trigger
     AS $$
 declare
   v_status text;
+  v_total numeric;
+  v_paid numeric;
 begin
   if public.rink_scheduling_guard_exempt() then
     return coalesce(new, old);
   end if;
 
   if tg_op = 'INSERT' then
+    -- FOR UPDATE serializes concurrent payments against the same invoice, so
+    -- two inserts cannot both read the sum before either lands.
+    select i.status, i.total into v_status, v_total
+      from public.rink_invoices i
+     where i.id = new.invoice_id
+       for update;
+
     -- A void invoice states that nothing is owed. Money recorded against it
     -- corrupts amount_paid, and every AR report reads that column.
-    select i.status into v_status
-      from public.rink_invoices i
-     where i.id = new.invoice_id;
-
     if v_status = 'void' then
       raise exception 'rink_scheduling: cannot record a payment against a void invoice'
         using errcode = '42501';
+    end if;
+
+    -- Overpayment backstop: a positive payment may settle the invoice exactly,
+    -- never exceed it. Reversals (negative) only shrink the sum and always
+    -- pass. Restated here because the app-side check is check-then-insert.
+    if new.amount > 0 then
+      select coalesce(sum(p.amount), 0) into v_paid
+        from public.rink_payments p
+       where p.invoice_id = new.invoice_id;
+
+      if v_paid + new.amount > coalesce(v_total, 0) then
+        raise exception 'rink_scheduling: payment exceeds the invoice balance'
+          using errcode = '23514';
+      end if;
     end if;
 
     return new;
@@ -4684,7 +4703,7 @@ $$;
 -- Name: FUNCTION rink_payments_guard(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.rink_payments_guard() IS 'Money guard for rink_payments: append-only (no edits, no deletes) and no payment against a void invoice. Re-states at the trigger layer what RLS and the server actions already enforce, so direct SQL from a non-exempt owner session cannot corrupt amount_paid.';
+COMMENT ON FUNCTION public.rink_payments_guard() IS 'Money guard for rink_payments: append-only (no edits, no deletes), no payment against a void invoice, and no positive payment past the invoice total (checked under a row lock on the invoice so concurrent inserts serialize). Re-states at the trigger layer what RLS and the server actions already enforce, so direct SQL from a non-exempt owner session cannot corrupt amount_paid.';
 
 
 --
@@ -13801,6 +13820,8 @@ CREATE TABLE public.rink_invoices (
     void_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    last_reminder_at timestamp with time zone,
+    reminder_count integer DEFAULT 0 NOT NULL,
     CONSTRAINT rink_invoices_date_order CHECK ((due_date >= issue_date)),
     CONSTRAINT rink_invoices_status_chk CHECK ((status = ANY (ARRAY['draft'::text, 'sent'::text, 'partially_paid'::text, 'paid'::text, 'void'::text]))),
     CONSTRAINT rink_invoices_subtotal_nonneg CHECK ((subtotal >= (0)::numeric)),
@@ -13829,6 +13850,20 @@ COMMENT ON COLUMN public.rink_invoices.amount_paid IS 'Recomputed server-side as
 --
 
 COMMENT ON COLUMN public.rink_invoices.tax_rate IS 'Tax rate snapshotted from module settings at generation, so a later settings change never restates an issued invoice.';
+
+
+--
+-- Name: COLUMN rink_invoices.last_reminder_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_invoices.last_reminder_at IS 'When the overdue-reminder cron last emailed the customer about this invoice. Null until the first reminder. Written by the service role only.';
+
+
+--
+-- Name: COLUMN rink_invoices.reminder_count; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_invoices.reminder_count IS 'How many overdue reminders have been sent for this invoice.';
 
 
 --
@@ -14024,10 +14059,14 @@ CREATE TABLE public.rink_scheduling_settings (
     display_refresh_seconds integer DEFAULT 60 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    send_booking_confirmations boolean DEFAULT false NOT NULL,
+    overdue_reminders_enabled boolean DEFAULT true NOT NULL,
+    reminder_cadence_days integer DEFAULT 7 NOT NULL,
     CONSTRAINT rink_scheduling_settings_buffer_chk CHECK (((default_buffer_minutes >= 0) AND (default_buffer_minutes <= 120))),
     CONSTRAINT rink_scheduling_settings_lead_chk CHECK (((locker_lead_minutes >= 0) AND (locker_lead_minutes <= 480))),
     CONSTRAINT rink_scheduling_settings_prefix_chk CHECK ((invoice_prefix ~ '^[A-Za-z0-9-]{0,12}$'::text)),
     CONSTRAINT rink_scheduling_settings_refresh_chk CHECK (((display_refresh_seconds >= 15) AND (display_refresh_seconds <= 3600))),
+    CONSTRAINT rink_scheduling_settings_reminder_cadence_chk CHECK (((reminder_cadence_days >= 1) AND (reminder_cadence_days <= 90))),
     CONSTRAINT rink_scheduling_settings_slot_chk CHECK ((slot_increment_minutes = ANY (ARRAY[5, 10, 15, 20, 30, 60]))),
     CONSTRAINT rink_scheduling_settings_tax_chk CHECK (((tax_rate IS NULL) OR ((tax_rate >= (0)::numeric) AND (tax_rate <= (1)::numeric)))),
     CONSTRAINT rink_scheduling_settings_terms_chk CHECK (((default_payment_terms_days >= 0) AND (default_payment_terms_days <= 365))),
@@ -14054,6 +14093,27 @@ COMMENT ON COLUMN public.rink_scheduling_settings.default_buffer_minutes IS 'Res
 --
 
 COMMENT ON COLUMN public.rink_scheduling_settings.tax_rate IS 'Tax as a FRACTION, not a percentage: 0.0875 = 8.75%. NULL means no tax line on invoices.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.send_booking_confirmations; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.send_booking_confirmations IS 'When true, creating a booking emails a confirmation to the customer''s billing contact. Off by default: customer-facing email is opt-in.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.overdue_reminders_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.overdue_reminders_enabled IS 'When true, the daily cron emails customers about invoices past their due date.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.reminder_cadence_days; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.reminder_cadence_days IS 'Minimum days between overdue reminders for the same invoice.';
 
 
 --
@@ -28706,7 +28766,7 @@ CREATE POLICY information_requests_delete ON public.information_requests FOR DEL
 -- Name: information_requests information_requests_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY information_requests_insert ON public.information_requests FOR INSERT TO authenticated, anon WITH CHECK ((status = 'new'::text));
+CREATE POLICY information_requests_insert ON public.information_requests FOR INSERT TO anon, authenticated WITH CHECK ((status = 'new'::text));
 
 
 --

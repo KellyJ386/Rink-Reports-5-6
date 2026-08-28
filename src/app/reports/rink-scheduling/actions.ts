@@ -6,6 +6,7 @@ import { getCurrentUser, requireUser } from "@/lib/auth"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
+import { deliverBookingConfirmation } from "@/lib/rink-scheduling/deliver-booking-email"
 import { createClient } from "@/lib/supabase/server"
 import type { TablesUpdate } from "@/types/database"
 
@@ -259,7 +260,11 @@ export async function createBooking(input: {
         // Snapshotted now. A later rate-card edit must never restate this.
         rate_snapshot_hourly: quote.ok ? quote.quote.snapshotHourlyRate : null,
         rate_snapshot_prime: quote.ok ? quote.quote.allPrime : null,
-        computed_amount: quote.ok ? quote.quote.totalAmount : null,
+        // A problem quote (no rate card covered the date) totals 0, but that 0
+        // is "unpriced", not "free" — persist NULL so the invoice picker shows
+        // "—" instead of a $0 line.
+        computed_amount:
+          quote.ok && quote.quote.problem === null ? quote.quote.totalAmount : null,
         notes: input.notes,
         created_by: employeeId,
         // blocks_until is trigger-maintained; never sent from here.
@@ -298,6 +303,19 @@ export async function createBooking(input: {
     if (!data) return { ok: false, error: "Failed to create the booking." }
 
     await enqueueCoverageCheck(facilityId, "booking_change")
+
+    // Confirmation email — best-effort and opt-in (the facility's
+    // send_booking_confirmations setting; the helper checks it). The booking
+    // exists because the scheduler saved it, never because an email sent, so
+    // a delivery failure is logged inside the helper and nothing more.
+    const emailOutcome = await deliverBookingConfirmation(supabase, facilityId, data.id)
+    if (emailOutcome.delivered === false && emailOutcome.reason === "failed") {
+      logServerError(
+        "reports/rink-scheduling/booking-confirmation",
+        new Error(emailOutcome.detail),
+      )
+    }
+
     revalidatePath(CALENDAR_PATH)
     return { ok: true, id: data.id }
   } catch (e) {
@@ -373,7 +391,9 @@ export async function updateBooking(input: {
       if (quote.ok) {
         updates.rate_snapshot_hourly = quote.quote.snapshotHourlyRate
         updates.rate_snapshot_prime = quote.quote.allPrime
-        updates.computed_amount = quote.quote.totalAmount
+        // Unpriced (problem) quotes persist NULL, not their placeholder 0.
+        updates.computed_amount =
+          quote.quote.problem === null ? quote.quote.totalAmount : null
       }
     }
 
