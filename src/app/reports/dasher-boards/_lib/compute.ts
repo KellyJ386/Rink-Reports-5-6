@@ -2,7 +2,7 @@
 // imports here — this module is unit-tested by vitest (compute.test.ts) in a
 // plain Node environment, mirroring reports/refrigeration/_lib/compute.ts.
 
-export type AssetType = "board_panel" | "glass_panel" | "door"
+export type AssetType = "board_panel" | "glass_panel" | "door" | "corner_radius" | "post_gap"
 export type IssueSeverity = "a" | "b" | "c"
 export type Cadence = "daily" | "weekly" | "monthly" | "yearly"
 export type AssetCheckStatus = "pass" | "fail"
@@ -11,9 +11,23 @@ export const ASSET_TYPES: readonly AssetType[] = [
   "board_panel",
   "glass_panel",
   "door",
+  "corner_radius",
+  "post_gap",
 ] as const
 export function isAssetType(v: string): v is AssetType {
   return (ASSET_TYPES as readonly string[]).includes(v)
+}
+
+// Positioned types carry sequence_position; glass rides its parent position
+// (mirrors the DB position_shape constraint, migration 257).
+export const POSITIONED_ASSET_TYPES: readonly AssetType[] = [
+  "board_panel",
+  "door",
+  "corner_radius",
+  "post_gap",
+] as const
+export function isPositionedAssetType(v: AssetType): boolean {
+  return (POSITIONED_ASSET_TYPES as readonly string[]).includes(v)
 }
 
 export const ISSUE_SEVERITIES: readonly IssueSeverity[] = ["a", "b", "c"] as const
@@ -49,6 +63,8 @@ export const LABEL_PREFIX: Record<AssetType, string> = {
   board_panel: "B",
   glass_panel: "G",
   door: "D",
+  corner_radius: "C",
+  post_gap: "P",
 }
 
 /**

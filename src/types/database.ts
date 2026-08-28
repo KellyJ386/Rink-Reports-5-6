@@ -3466,6 +3466,7 @@ export type Database = {
           facility_id: string
           id: string
           inspection_id: string
+          label_snapshot: string | null
           note: string | null
           status: string
           updated_at: string | null
@@ -3477,6 +3478,7 @@ export type Database = {
           facility_id: string
           id?: string
           inspection_id: string
+          label_snapshot?: string | null
           note?: string | null
           status: string
           updated_at?: string | null
@@ -3488,6 +3490,7 @@ export type Database = {
           facility_id?: string
           id?: string
           inspection_id?: string
+          label_snapshot?: string | null
           note?: string | null
           status?: string
           updated_at?: string | null
@@ -3618,8 +3621,10 @@ export type Database = {
       }
       dasher_boards_assets: {
         Row: {
+          aliases: string[]
           asset_type: string
           created_at: string
+          custom_label: string | null
           display_number: string | null
           facility_id: string
           glass_height_in: number | null
@@ -3629,16 +3634,20 @@ export type Database = {
           id: string
           is_active: boolean
           label: string
+          out_of_service: boolean
           parent_board_id: string | null
           rink_id: string
           sequence_position: number | null
           spec_notes: string | null
           subtype_id: string | null
           updated_at: string | null
+          zone_id: string | null
         }
         Insert: {
+          aliases?: string[]
           asset_type: string
           created_at?: string
+          custom_label?: string | null
           display_number?: string | null
           facility_id: string
           glass_height_in?: number | null
@@ -3648,16 +3657,20 @@ export type Database = {
           id?: string
           is_active?: boolean
           label: string
+          out_of_service?: boolean
           parent_board_id?: string | null
           rink_id: string
           sequence_position?: number | null
           spec_notes?: string | null
           subtype_id?: string | null
           updated_at?: string | null
+          zone_id?: string | null
         }
         Update: {
+          aliases?: string[]
           asset_type?: string
           created_at?: string
+          custom_label?: string | null
           display_number?: string | null
           facility_id?: string
           glass_height_in?: number | null
@@ -3667,12 +3680,14 @@ export type Database = {
           id?: string
           is_active?: boolean
           label?: string
+          out_of_service?: boolean
           parent_board_id?: string | null
           rink_id?: string
           sequence_position?: number | null
           spec_notes?: string | null
           subtype_id?: string | null
           updated_at?: string | null
+          zone_id?: string | null
         }
         Relationships: [
           {
@@ -3697,11 +3712,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "dasher_boards_assets_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
             foreignKeyName: "dasher_boards_assets_subtype_id_fkey"
             columns: ["subtype_id"]
             isOneToOne: false
             referencedRelation: "dasher_boards_asset_subtypes"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_assets_zone_same_rink"
+            columns: ["zone_id", "rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_zones"
+            referencedColumns: ["id", "rink_id"]
           },
         ]
       }
@@ -3756,6 +3785,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_checklist_items_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
@@ -3814,9 +3850,12 @@ export type Database = {
       dasher_boards_inspections: {
         Row: {
           completed_at: string | null
+          contractor_company: string | null
+          contractor_name: string | null
           created_at: string
           facility_id: string
           id: string
+          inspection_kind: string
           inspector_id: string | null
           notes: string | null
           rink_id: string
@@ -3825,9 +3864,12 @@ export type Database = {
         }
         Insert: {
           completed_at?: string | null
+          contractor_company?: string | null
+          contractor_name?: string | null
           created_at?: string
           facility_id: string
           id?: string
+          inspection_kind?: string
           inspector_id?: string | null
           notes?: string | null
           rink_id: string
@@ -3836,9 +3878,12 @@ export type Database = {
         }
         Update: {
           completed_at?: string | null
+          contractor_company?: string | null
+          contractor_name?: string | null
           created_at?: string
           facility_id?: string
           id?: string
+          inspection_kind?: string
           inspector_id?: string | null
           notes?: string | null
           rink_id?: string
@@ -3866,6 +3911,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_inspections_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
@@ -3921,6 +3973,7 @@ export type Database = {
           facility_id: string
           id: string
           inspection_id: string | null
+          label_snapshot: string | null
           reported_by: string | null
           resolved_at: string | null
           resolved_by: string | null
@@ -3941,6 +3994,7 @@ export type Database = {
           facility_id: string
           id?: string
           inspection_id?: string | null
+          label_snapshot?: string | null
           reported_by?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
@@ -3961,6 +4015,7 @@ export type Database = {
           facility_id?: string
           id?: string
           inspection_id?: string | null
+          label_snapshot?: string | null
           reported_by?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
@@ -4027,6 +4082,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dasher_boards_rinks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_issues_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "dasher_boards_issues_supervisor_id_fkey"
@@ -4166,6 +4228,61 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      dasher_boards_zones: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          rink_id: string
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          rink_id: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          rink_id?: string
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dasher_boards_zones_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_zones_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dasher_boards_zones_rink_same_facility_fkey"
+            columns: ["rink_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "dasher_boards_rinks"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
@@ -10651,6 +10768,19 @@ export type Database = {
         Args: { p_facility_id: string; p_report_date: string }
         Returns: boolean
       }
+      dasher_boards_apply_custom_labels: {
+        Args: { p_asset_ids: string[]; p_labels: string[]; p_rink_id: string }
+        Returns: undefined
+      }
+      dasher_boards_apply_template: {
+        Args: {
+          p_door_subtypes: string[]
+          p_rink_id: string
+          p_types: string[]
+          p_zone_names: string[]
+        }
+        Returns: number
+      }
       dasher_boards_generate_perimeter: {
         Args: { p_count: number; p_rink_id: string }
         Returns: number
@@ -10658,6 +10788,10 @@ export type Database = {
       dasher_boards_guard_exempt: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      dasher_boards_reorder_assets: {
+        Args: { p_asset_ids: string[]; p_rink_id: string }
+        Returns: undefined
       }
       dasher_boards_shift_positions: {
         Args: { p_delta: number; p_from: number; p_rink_id: string }
@@ -10964,6 +11098,10 @@ export type Database = {
       }
       seed_default_dasher_boards_config: {
         Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_dasher_boards_zones: {
+        Args: { p_rink_id: string }
         Returns: undefined
       }
       seed_default_door_types: {

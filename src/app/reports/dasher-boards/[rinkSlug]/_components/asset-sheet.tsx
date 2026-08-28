@@ -10,7 +10,7 @@
 // (/admin/dasher-boards) behind the dasher_boards admin/edit grants — this is
 // a staff-facing field surface.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { LocalDateTime } from "@/components/app/local-datetime"
@@ -27,10 +27,11 @@ import { Textarea } from "@/components/ui/textarea"
 
 import { getAssetDetailAction } from "../../actions"
 import { thicknessToFraction } from "../../_lib/compute"
-import type { IssueRow, PerimeterAsset } from "../../_lib/queries"
+import type { AssetDetail, IssueRow, PerimeterAsset } from "../../_lib/queries"
 import { OpenIssueRow, ReportIssueForm } from "./issue-form"
 import type { Tables } from "@/types/database"
 import { glassLabelOf } from "../../_lib/glass-numbering"
+import { resolveSegmentLabel } from "../../_lib/display-label"
 
 type SubtypeRow = Tables<"dasher_boards_asset_subtypes">
 type CategoryRow = Tables<"dasher_boards_issue_categories">
@@ -92,17 +93,57 @@ export function AssetSheet({
       )
     : []
 
+  // custom_label > glass number > the permanent `label` — the same
+  // resolution the diagram itself prints (resolveSegmentLabel), so the sheet
+  // and the diagram always agree on what a segment is called.
+  const labelInfo = asset ? resolveSegmentLabel(asset, glassNumbers) : null
+
+  // Zone name + full history (with label_snapshot) aren't on the `asset`
+  // prop — zone_id has no name attached, and only open issues are passed
+  // down from the condition map. Loaded once per asset open, online only
+  // (same offline limitation the old lazy history load had).
+  // Keyed by asset id so a stale fetch can never paint another segment's
+  // detail, and so loading/reset are DERIVED (no setState inside the effect
+  // body — only in the async continuation).
+  const [loaded, setLoaded] = useState<{
+    assetId: string
+    detail: AssetDetail | null
+  } | null>(null)
+  const assetId = asset?.id ?? null
+  useEffect(() => {
+    if (!assetId || !online) return
+    let cancelled = false
+    void getAssetDetailAction(assetId).then((r) => {
+      if (cancelled) return
+      setLoaded({ assetId, detail: r.ok ? r.detail : null })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [assetId, online])
+  const detail = loaded?.assetId === assetId ? loaded.detail : null
+  const detailLoading =
+    online && assetId !== null && loaded?.assetId !== assetId
+
   return (
     <Sheet open={asset !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="bottom"
         className="max-h-[85dvh] overflow-y-auto rounded-t-xl px-4 pb-8"
       >
-        {asset && (
+        {asset && labelInfo && (
           <>
             <SheetHeader className="px-0">
-              <SheetTitle className="flex items-center gap-2">
-                <span className="font-mono">{asset.label}</span>
+              <SheetTitle className="flex flex-wrap items-center gap-2">
+                {/* Resolved display label prominently; the permanent
+                    identity alongside in parens whenever they diverge, so a
+                    renamed segment stays traceable to its issue history. */}
+                <span className="font-mono">{labelInfo.display}</span>
+                {labelInfo.display !== labelInfo.identity && (
+                  <span className="text-muted-foreground font-mono text-sm">
+                    ({labelInfo.identity})
+                  </span>
+                )}
                 <Badge variant={asset.asset_type === "door" ? "special" : "secondary"}>
                   {asset.asset_type === "door"
                     ? (subtypeLabel ?? "Door")
@@ -110,13 +151,31 @@ export function AssetSheet({
                       ? "Glass"
                       : "Board panel"}
                 </Badge>
+                {asset.out_of_service && (
+                  <Badge variant="warning">Out of service</Badge>
+                )}
               </SheetTitle>
               <SheetDescription>
                 {asset.open_count > 0
                   ? `${asset.open_count} open issue(s) on this asset.`
                   : "No open issues."}
+                {detail?.zoneName ? ` · Zone: ${detail.zoneName}` : ""}
               </SheetDescription>
             </SheetHeader>
+
+            {/* Search aliases, as small chips. */}
+            {asset.aliases.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {asset.aliases.map((alias) => (
+                  <span
+                    key={alias}
+                    className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs"
+                  >
+                    {alias}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div className="flex flex-col gap-4">
               {/* Open issues first — resolve/acknowledge before piling on. */}
@@ -173,7 +232,12 @@ export function AssetSheet({
               {specTarget && <SpecInfo target={specTarget} />}
 
               {/* Collapsed full history (online only). */}
-              <HistoryBlock assetId={asset.id} online={online} />
+              <HistoryBlock
+                history={detail?.history ?? null}
+                loading={detailLoading}
+                online={online}
+                currentDisplayLabel={labelInfo.display}
+              />
             </div>
           </>
         )}
@@ -308,21 +372,27 @@ function SpecInfo({ target }: { target: PerimeterAsset }) {
   )
 }
 
-function HistoryBlock({ assetId, online }: { assetId: string; online: boolean }) {
-  const [history, setHistory] = useState<IssueRow[] | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  async function load() {
-    if (history !== null || loading) return
-    if (!online) return
-    setLoading(true)
-    const r = await getAssetDetailAction(assetId)
-    setLoading(false)
-    if (r.ok) setHistory(r.detail.history)
-  }
-
+/**
+ * Collapsed resolved-issue history. `history` is preloaded by the parent
+ * (one asset-detail fetch per sheet open, online only) rather than lazily on
+ * expand, since the same fetch already resolves the header's zone name.
+ * Each row's own `label_snapshot` — the display label AT LOG TIME — is
+ * called out whenever it no longer matches the segment's current display
+ * label, so a renamed segment's history still reads correctly.
+ */
+function HistoryBlock({
+  history,
+  loading,
+  online,
+  currentDisplayLabel,
+}: {
+  history: IssueRow[] | null
+  loading: boolean
+  online: boolean
+  currentDisplayLabel: string
+}) {
   return (
-    <details onToggle={(e) => e.currentTarget.open && void load()}>
+    <details>
       <summary className="text-muted-foreground cursor-pointer text-sm">
         Issue history
       </summary>
@@ -352,6 +422,11 @@ function HistoryBlock({ assetId, online }: { assetId: string; online: boolean })
               </span>
             </div>
             <p className="mt-1 text-sm">{issue.description}</p>
+            {issue.label_snapshot && issue.label_snapshot !== currentDisplayLabel && (
+              <p className="text-muted-foreground mt-1 text-xs italic">
+                logged as &ldquo;{issue.label_snapshot}&rdquo;
+              </p>
+            )}
           </div>
         ))}
       </div>

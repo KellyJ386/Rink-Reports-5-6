@@ -18,6 +18,26 @@
 // always loses to an open issue of any severity (see combineDisplayCondition
 // in reports/dasher-boards/_lib/compute.ts) — an open issue is the
 // actively-tracked problem.
+//
+// Segment labels (migration 257): each segment prints resolveSegmentLabel's
+// resolution (custom_label > glass number > the permanent `label`), never
+// the raw identity directly, so a facility's own naming shows everywhere.
+// Label declutter: a label ALWAYS renders when its segment is flagged/has an
+// open issue, is out of service, is selected, or is search-highlighted;
+// otherwise it only renders once the segment's on-screen span clears
+// LABEL_DECLUTTER_MIN_SPAN — the same "span too small to read reliably"
+// problem the interactive hit-band comment below already describes for taps,
+// reused here for text. Zooming (staff map) or a smaller position count
+// (admin, desktop-first, always at scale 1) both restore it.
+//
+// Out of service is a distinct hazard, layered over — never replacing — the
+// severity stroke color: reduced opacity + (for boards) an added dash
+// pattern, plus a small neutral "×" marker chip offset further outward than
+// the condition "!" chip so the two never collide. Uses theme CSS vars
+// (var(--muted-foreground) / var(--background)), the same
+// stroke="var(--ring)" convention the sibling Ice Depth diagram uses for
+// non-severity chrome, so it never hardcodes a color that would break dark
+// mode.
 
 import { useId, useMemo, useRef } from "react"
 
@@ -38,6 +58,7 @@ import {
   type PerimeterSegment,
   type PositionedAssetLite,
 } from "./perimeter-geometry"
+import { resolveSegmentLabel } from "@/app/reports/dasher-boards/_lib/display-label"
 
 export type PerimeterCondition = "warn" | "alert" | "flagged"
 
@@ -74,6 +95,15 @@ export type RinkPerimeterProps = {
   conditionByAssetId?: Record<string, PerimeterCondition>
   selectedAssetId?: string | null
   onSelectAsset?: (assetId: string) => void
+  /**
+   * Search-match asset ids (see matchingSegmentIds in
+   * reports/dasher-boards/_lib/display-label). `undefined` = no search UI is
+   * active, so nothing dims. Defined (including an empty set, i.e. zero
+   * matches) = a query is active: matching segments get a pulsing ring,
+   * everything else dims. Staff condition map only — the admin editor has no
+   * search box.
+   */
+  highlightedIds?: ReadonlySet<string>
   showGlassLayer?: boolean
   showLabels?: boolean
   /**
@@ -101,6 +131,27 @@ const WARN_COLOR = "#FFD600"
 const ALERT_COLOR = "#F42A2A"
 const FLAG_COLOR = "#FF7B4F"
 const GLASS_COLOR = "#5aa9d6"
+// Search-match ring — a theme CSS var (adapts light/dark automatically,
+// same convention as usa-rink.tsx's stroke="var(--ring)"), deliberately NOT
+// the lime SELECT_COLOR so a highlighted-but-unselected segment never reads
+// as selected.
+const SEARCH_HIGHLIGHT_COLOR = "var(--info)"
+// Out-of-service marker — neutral, theme-aware, distinct from every
+// severity/door/selection color above (out of service is an operator status,
+// not a condition severity).
+const OOS_MARKER_FILL = "var(--muted-foreground)"
+const OOS_MARKER_INK = "var(--background)"
+
+// A label declutters below this on-screen span (SVG viewBox units, ~= CSS
+// px at the diagram's native render width). At a full 60+ position perimeter
+// unzoomed this is comfortably under the threshold; zooming in (staff map)
+// or a shorter perimeter (admin, always effectively at scale 1) clears it.
+// See the header comment for the forced-visible exceptions.
+const LABEL_DECLUTTER_MIN_SPAN = 36
+// Radial spacing (SVG units) between stacked outward chips — the condition
+// "!" badge, the out-of-service "×" chip, and the text label — so up to all
+// three can render on one segment without overlapping.
+const CHIP_TIER_STEP = 11
 
 function segmentStroke(
   seg: PerimeterSegment,
@@ -133,6 +184,7 @@ export function RinkPerimeter({
   conditionByAssetId,
   selectedAssetId,
   onSelectAsset,
+  highlightedIds,
   showGlassLayer = false,
   showLabels = true,
   zoomable = false,
@@ -147,6 +199,19 @@ export function RinkPerimeter({
     () => buildPerimeterSegments(positioned, direction, anchorOffset),
     [positioned, direction, anchorOffset],
   )
+  // Keyed lookup back to the asset's display-layer columns — buildPerimeterSegments
+  // only carries geometry + the permanent label, so custom_label/aliases/
+  // out_of_service ride along via the original positioned list instead of
+  // widening PerimeterSegment.
+  const assetById = useMemo(
+    () => new Map(positioned.map((a) => [a.id, a])),
+    [positioned],
+  )
+  const searchActive = highlightedIds !== undefined
+  // Admin editors pass zoomable=false and stay at scale 1 always (desktop-
+  // first, no pinch/pan) — the SAME span-threshold math then declutters
+  // purely by position count, no special-casing needed.
+  const zoomScale = zoomable ? zoom.scale : 1
   const interactive = typeof onSelectAsset === "function"
   const pickingAnchor = typeof onPickAnchor === "function"
   const anchorPoint = perimeterPointAt(anchorOffset)
@@ -285,20 +350,73 @@ export function RinkPerimeter({
         {segments.map((seg) => {
           const condition = conditionByAssetId?.[seg.assetId]
           const selected = selectedAssetId === seg.assetId
+          const asset = assetById.get(seg.assetId)
+          const outOfService = asset?.out_of_service ?? false
+          const isHighlighted = highlightedIds?.has(seg.assetId) ?? false
+          const dimmed = searchActive && !isHighlighted
           const stroke = segmentStroke(seg, condition)
           const isDoor = seg.assetType === "door"
+
+          // custom_label > glass number > the permanent `label` — the same
+          // resolution everywhere a segment's name is printed (see
+          // reports/dasher-boards/_lib/display-label).
+          const labelInfo = resolveSegmentLabel(
+            {
+              id: seg.assetId,
+              label: seg.label,
+              asset_type: seg.assetType,
+              custom_label: asset?.custom_label ?? null,
+              aliases: asset?.aliases ? [...asset.aliases] : [],
+            },
+            glassNumberByAssetId,
+          )
+
+          // Declutter: forced visible on flagged/open-issue, out-of-service,
+          // selected, or search-highlighted segments; otherwise only once the
+          // segment's on-screen span clears the threshold.
+          const forceLabel = !!condition || outOfService || selected || isHighlighted
+          const spanUnits = seg.endS - seg.startS
+          const shouldShowLabel =
+            showLabels &&
+            (forceLabel || spanUnits * zoomScale >= LABEL_DECLUTTER_MIN_SPAN)
+
+          // The condition "!" badge, the out-of-service "×" chip, and the
+          // text label stack radially outward (in that priority order) along
+          // the SAME direction seg.labelAnchor already sits on, so at most
+          // one occupies each tier and none overlap. With neither badge nor
+          // chip present (the common case) the label stays at tier 0 —
+          // pixel-identical to the pre-declutter placement.
+          const dx = seg.labelAnchor.x - seg.mid.x
+          const dy = seg.labelAnchor.y - seg.mid.y
+          const dlen = Math.hypot(dx, dy) || 1
+          const ux = dx / dlen
+          const uy = dy / dlen
+          const tierAnchor = (tier: number) => ({
+            x: seg.mid.x + ux * (dlen + tier * CHIP_TIER_STEP),
+            y: seg.mid.y + uy * (dlen + tier * CHIP_TIER_STEP),
+          })
+          let nextTier = 0
+          const conditionAnchor = condition ? tierAnchor(nextTier++) : null
+          const oosAnchor = outOfService ? tierAnchor(nextTier++) : null
+          const textAnchor = nextTier === 0 ? seg.labelAnchor : tierAnchor(nextTier)
+
           return (
             <g
               key={seg.assetId}
+              opacity={dimmed ? 0.35 : undefined}
               {...(interactive
                 ? {
                     role: "button",
                     tabIndex: 0,
-                    "aria-label": `${isDoor ? "Door" : "Board panel"} ${seg.label}${
+                    "aria-label": `${isDoor ? "Door" : "Board panel"} ${labelInfo.display}${
+                      labelInfo.display !== labelInfo.identity
+                        ? ` (${labelInfo.identity})`
+                        : ""
+                    }${
                       glassNumberByAssetId?.[seg.assetId]
                         ? `, glass ${glassNumberByAssetId[seg.assetId]}`
                         : ""
-                    }${
+                    }${outOfService ? ", out of service" : ""}${
                       condition === "alert"
                         ? ", open severity A issue"
                         : condition === "warn"
@@ -362,12 +480,29 @@ export function RinkPerimeter({
                   opacity={0.35}
                 />
               )}
+              {/* Search-match halo: a pulsing ring, distinct from the
+                  selection color, so the two never read as the same state. */}
+              {isHighlighted && (
+                <path
+                  d={seg.pathD}
+                  fill="none"
+                  stroke={SEARCH_HIGHLIGHT_COLOR}
+                  strokeWidth={10}
+                  strokeLinecap="round"
+                  opacity={0.6}
+                  className="animate-pulse"
+                  pointerEvents="none"
+                />
+              )}
               {isDoor ? (
                 <>
                   {/* Door identity: a deliberate break in the board line —
                       two board-colored stubs (one at EACH end, via a
                       normalized pathLength so the dash pattern spans the
-                      whole segment exactly once) + a lime door leaf. */}
+                      whole segment exactly once) + a lime door leaf. Out of
+                      service dims both (layered, not replacing color) — the
+                      door's own dash pattern already carries meaning, so it
+                      isn't further dashed. */}
                   <path
                     d={seg.pathD}
                     fill="none"
@@ -376,6 +511,7 @@ export function RinkPerimeter({
                     strokeLinecap="round"
                     pathLength={100}
                     strokeDasharray="12 76"
+                    opacity={outOfService ? 0.55 : undefined}
                   />
                   <path
                     d={seg.pathD}
@@ -387,6 +523,7 @@ export function RinkPerimeter({
                     pathLength={100}
                     strokeDasharray="60 100"
                     strokeDashoffset={-20}
+                    opacity={outOfService ? 0.55 : undefined}
                   />
                   {/* Door glyph (non-color cue): hinge dot at the span mid. */}
                   <circle
@@ -396,6 +533,7 @@ export function RinkPerimeter({
                     fill={condition ? "#FFFFFF" : DOOR_INK}
                     stroke={condition ? stroke : DOOR_INK}
                     strokeWidth={1.5}
+                    opacity={outOfService ? 0.55 : undefined}
                     pointerEvents="none"
                   />
                 </>
@@ -406,22 +544,27 @@ export function RinkPerimeter({
                   stroke={stroke}
                   strokeWidth={7}
                   strokeLinecap="round"
+                  // Out-of-service hazard treatment: layered over the
+                  // severity/board color, never replacing it — an added dash
+                  // pattern + reduced opacity, plus the "×" chip below.
+                  strokeDasharray={outOfService ? "5 4" : undefined}
+                  opacity={outOfService ? 0.6 : undefined}
                 />
               )}
               {/* Condition marker (non-color cue): "!" chip outward of span. */}
-              {condition && (
+              {condition && conditionAnchor && (
                 <g pointerEvents="none">
                   <circle
-                    cx={seg.labelAnchor.x}
-                    cy={seg.labelAnchor.y}
+                    cx={conditionAnchor.x}
+                    cy={conditionAnchor.y}
                     r={9}
                     fill={conditionMarkerFill(condition)}
                     stroke="#FFFFFF"
                     strokeWidth={1.25}
                   />
                   <text
-                    x={seg.labelAnchor.x}
-                    y={seg.labelAnchor.y + 3.8}
+                    x={conditionAnchor.x}
+                    y={conditionAnchor.y + 3.8}
                     textAnchor="middle"
                     fontSize={11}
                     fontWeight={800}
@@ -431,18 +574,44 @@ export function RinkPerimeter({
                   </text>
                 </g>
               )}
-              {/* Label (Space Mono via the app's mono font stack). */}
-              {showLabels && !condition && (
+              {/* Out-of-service marker (non-color cue): neutral "×" chip,
+                  stacked outward past the condition badge when both apply. */}
+              {outOfService && oosAnchor && (
+                <g pointerEvents="none">
+                  <circle
+                    cx={oosAnchor.x}
+                    cy={oosAnchor.y}
+                    r={8}
+                    fill={OOS_MARKER_FILL}
+                    stroke={OOS_MARKER_INK}
+                    strokeWidth={1.25}
+                  />
+                  <text
+                    x={oosAnchor.x}
+                    y={oosAnchor.y + 3.4}
+                    textAnchor="middle"
+                    fontSize={10}
+                    fontWeight={800}
+                    fill={OOS_MARKER_INK}
+                  >
+                    ×
+                  </text>
+                </g>
+              )}
+              {/* Label (Space Mono via the app's mono font stack): the
+                  resolved display name (custom_label > glass number >
+                  identity), never the raw identity directly. */}
+              {shouldShowLabel && (
                 <text
-                  x={seg.labelAnchor.x}
-                  y={seg.labelAnchor.y + 3.6}
+                  x={textAnchor.x}
+                  y={textAnchor.y + 3.6}
                   textAnchor="middle"
                   fontSize={10.5}
                   fontWeight={600}
                   className="fill-muted-foreground font-mono"
                   pointerEvents="none"
                 >
-                  {seg.label}
+                  {labelInfo.display}
                 </text>
               )}
             </g>

@@ -60,11 +60,26 @@ export function WalkDetail({ detail, backHref, timezone }: Props) {
                 <Badge variant={failCount > 0 ? "error" : "success"}>
                   {failCount} fail{failCount === 1 ? "" : "s"}
                 </Badge>
+                {inspection.inspection_kind === "annual_contractor" && (
+                  <Badge variant="special">Annual contractor</Badge>
+                )}
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {inspection.inspection_kind === "annual_contractor" && (
+            <section className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3">
+              <h3 className="text-sm font-semibold">Annual contractor inspection</h3>
+              <p className="text-sm">
+                {inspection.contractor_name ?? "Unknown contractor"}
+                {inspection.contractor_company
+                  ? ` · ${inspection.contractor_company}`
+                  : ""}
+              </p>
+            </section>
+          )}
+
           {!completed && (
             <p className="text-muted-foreground text-xs">
               This walk is still open — its asset checks can still change

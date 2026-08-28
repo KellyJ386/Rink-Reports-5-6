@@ -2,7 +2,7 @@ import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
 import type { Tables } from "@/types/database"
-import { dayKeyInTz, weekdayOfKey } from "@/lib/timezone"
+import { dayKeyInTz, formatInTz, weekdayOfKey } from "@/lib/timezone"
 
 import {
   combineAssetAndChildCheckStatus,
@@ -20,6 +20,8 @@ import {
   schemeFromRink,
   type NumberedAssetRow,
 } from "./glass-numbering"
+import { resolveSegmentLabel } from "./display-label"
+import type { SegmentHistoryRow } from "./segment-history-csv"
 
 /**
  * A rink's glass numbers as a plain object, ready to hand to a client
@@ -208,7 +210,20 @@ export async function getRinkPerimeter(
 export type AssetDetail = {
   asset: AssetRow
   subtypeLabel: string | null
+  /**
+   * The asset's zone name (dasher_boards_zones.name), resolved server-side
+   * since `asset` only carries zone_id. Null = no zone assigned (or the zone
+   * was deleted — zone_id would already be null then too, via ON DELETE SET
+   * NULL).
+   */
+  zoneName: string | null
   openIssues: IssueRow[]
+  /**
+   * Resolved issues. Each row's `label_snapshot` (migration 257) is the
+   * asset's display label AT LOG TIME — server-derived, frozen on update —
+   * so a caller can show "logged as X" when a later rename means it no
+   * longer matches the asset's current display label.
+   */
   history: IssueRow[]
   events: AssetEventRow[]
 }
@@ -235,6 +250,16 @@ export async function getAssetDetail(
     subtypeLabel = subtype?.label ?? null
   }
 
+  let zoneName: string | null = null
+  if (asset.zone_id) {
+    const { data: zone } = await supabase
+      .from("dasher_boards_zones")
+      .select("name")
+      .eq("id", asset.zone_id)
+      .maybeSingle()
+    zoneName = zone?.name ?? null
+  }
+
   const { data: issues } = await supabase
     .from("dasher_boards_issues")
     .select("*")
@@ -251,6 +276,7 @@ export async function getAssetDetail(
   return {
     asset,
     subtypeLabel,
+    zoneName,
     openIssues: all.filter((i) => i.resolved_at === null),
     history: all.filter((i) => i.resolved_at !== null),
     events: events ?? [],
@@ -418,4 +444,170 @@ export async function getInspectionStatus(
     openCounts,
     walkedToday,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Per-segment inspection history (the exportable ORFA liability artifact)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every walk check and every issue ever recorded on the rink, one row per
+ * record, shaped for the CSV export (segment-history-csv.ts). Labels resolve
+ * to TODAY's display name; `loggedAsLabel` carries the label_snapshot when it
+ * differs, so a renamed segment's history still reads as it was written.
+ * Timestamps are formatted in the facility's zone (the server runs in UTC —
+ * never format without an explicit zone). All reads run under the caller's
+ * RLS; a foreign rink id resolves to null.
+ */
+export async function getSegmentHistory(
+  supabase: ServerSupabase,
+  rinkId: string,
+): Promise<SegmentHistoryRow[] | null> {
+  const perimeter = await getRinkPerimeter(supabase, rinkId)
+  if (!perimeter) return null
+  const { rink, assets, glassNumbers } = perimeter
+
+  const [facilityRes, zonesRes, inspectionsRes, categoriesRes] =
+    await Promise.all([
+      supabase
+        .from("facilities")
+        .select("timezone")
+        .eq("id", rink.facility_id)
+        .maybeSingle(),
+      supabase
+        .from("dasher_boards_zones")
+        .select("id, name")
+        .eq("rink_id", rinkId),
+      supabase
+        .from("dasher_boards_inspections")
+        .select("id, inspection_kind, contractor_name, inspector_id")
+        .eq("rink_id", rinkId),
+      supabase
+        .from("dasher_boards_issue_categories")
+        .select("id, label")
+        .eq("facility_id", rink.facility_id),
+    ])
+
+  const tz = facilityRes.data?.timezone ?? null
+  const zoneName = new Map(
+    (zonesRes.data ?? []).map((z) => [z.id, z.name] as const),
+  )
+  const inspectionById = new Map(
+    (inspectionsRes.data ?? []).map((i) => [i.id, i] as const),
+  )
+  const categoryLabel = new Map(
+    (categoriesRes.data ?? []).map((c) => [c.id, c.label] as const),
+  )
+  const assetById = new Map(assets.map((a) => [a.id, a] as const))
+
+  const inspectionIds = [...inspectionById.keys()]
+  const [checksRes, issuesRes] = await Promise.all([
+    inspectionIds.length > 0
+      ? supabase
+          .from("dasher_boards_asset_checks")
+          .select(
+            "asset_id, inspection_id, status, note, checked_by, created_at, label_snapshot",
+          )
+          .in("inspection_id", inspectionIds)
+      : Promise.resolve({ data: [] as never[] }),
+    supabase
+      .from("dasher_boards_issues")
+      .select(
+        "asset_id, severity, description, category_id, reported_by, created_at, resolved_at, label_snapshot",
+      )
+      .eq("rink_id", rinkId)
+      .not("asset_id", "is", null),
+  ])
+  const checks = checksRes.data ?? []
+  const issues = issuesRes.data ?? []
+
+  // One name lookup for everyone the records mention.
+  const personIds = new Set<string>()
+  for (const c of checks) if (c.checked_by) personIds.add(c.checked_by)
+  for (const i of issues) if (i.reported_by) personIds.add(i.reported_by)
+  for (const i of inspectionById.values()) {
+    if (i.inspector_id) personIds.add(i.inspector_id)
+  }
+  const personName = new Map<string, string>()
+  if (personIds.size > 0) {
+    const { data: people } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .in("id", [...personIds])
+    for (const p of people ?? []) {
+      personName.set(p.id, `${p.first_name} ${p.last_name}`.trim())
+    }
+  }
+
+  const unsorted: Array<{ at: string; row: SegmentHistoryRow }> = []
+
+  for (const check of checks) {
+    const asset = assetById.get(check.asset_id)
+    if (!asset) continue
+    const inspection = inspectionById.get(check.inspection_id)
+    const { display, identity } = resolveSegmentLabel(asset, glassNumbers)
+    unsorted.push({
+      at: check.created_at,
+      row: {
+        occurredAt: formatInTz(check.created_at, tz),
+        rinkName: rink.name,
+        segmentDisplayLabel: display,
+        segmentIdentityLabel: identity,
+        loggedAsLabel:
+          check.label_snapshot && check.label_snapshot !== display
+            ? check.label_snapshot
+            : null,
+        zoneName: asset.zone_id ? (zoneName.get(asset.zone_id) ?? null) : null,
+        recordType: "walk_check",
+        inspectionKind:
+          inspection?.inspection_kind === "annual_contractor"
+            ? "annual_contractor"
+            : "routine",
+        contractorName: inspection?.contractor_name ?? null,
+        outcome: check.status,
+        category: null,
+        detail: check.note,
+        recordedBy: check.checked_by
+          ? (personName.get(check.checked_by) ?? null)
+          : null,
+        resolvedAt: null,
+      },
+    })
+  }
+
+  for (const issue of issues) {
+    if (!issue.asset_id) continue
+    const asset = assetById.get(issue.asset_id)
+    if (!asset) continue
+    const { display, identity } = resolveSegmentLabel(asset, glassNumbers)
+    unsorted.push({
+      at: issue.created_at,
+      row: {
+        occurredAt: formatInTz(issue.created_at, tz),
+        rinkName: rink.name,
+        segmentDisplayLabel: display,
+        segmentIdentityLabel: identity,
+        loggedAsLabel:
+          issue.label_snapshot && issue.label_snapshot !== display
+            ? issue.label_snapshot
+            : null,
+        zoneName: asset.zone_id ? (zoneName.get(asset.zone_id) ?? null) : null,
+        recordType: "issue",
+        inspectionKind: null,
+        contractorName: null,
+        outcome: issue.severity,
+        category: issue.category_id
+          ? (categoryLabel.get(issue.category_id) ?? null)
+          : null,
+        detail: issue.description,
+        recordedBy: issue.reported_by
+          ? (personName.get(issue.reported_by) ?? null)
+          : null,
+        resolvedAt: issue.resolved_at ? formatInTz(issue.resolved_at, tz) : null,
+      },
+    })
+  }
+
+  unsorted.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+  return unsorted.map((e) => e.row)
 }

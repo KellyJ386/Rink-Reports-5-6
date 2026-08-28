@@ -10,6 +10,7 @@ import { isUuid } from "./_lib/compute"
 import {
   getAssetDetail,
   getDueChecklist,
+  getSegmentHistory,
   getInspectionStatus,
   getRinkPerimeter,
   type AssetDetail,
@@ -17,6 +18,7 @@ import {
   type InspectionStatus,
   type RinkPerimeter,
 } from "./_lib/queries"
+import type { SegmentHistoryRow } from "./_lib/segment-history-csv"
 import {
   acknowledgeIssue,
   completeInspection,
@@ -249,11 +251,24 @@ export async function resolveIssueAction(
 
 export async function startWalkAction(
   rinkId: string,
+  walkKind?: {
+    kind: "routine" | "annual_contractor"
+    contractorName?: string
+    contractorCompany?: string
+  },
 ): Promise<ActionResult<{ inspectionId: string; resumed: boolean }>> {
   try {
     const ctx = await resolveContext()
     if (!ctx.ok) return ctx
     if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    // Runtime check — the TS union doesn't survive a forged request.
+    if (
+      walkKind &&
+      walkKind.kind !== "routine" &&
+      walkKind.kind !== "annual_contractor"
+    ) {
+      return { ok: false, error: "Invalid walk kind." }
+    }
     if (!(await currentUserCan(ctx.supabase, "dasher_boards", "submit"))) {
       return { ok: false, error: NO_SUBMIT }
     }
@@ -261,6 +276,9 @@ export async function startWalkAction(
       employeeId: ctx.employeeId,
       facilityId: ctx.facilityId,
       rinkId,
+      kind: walkKind?.kind,
+      contractorName: walkKind?.contractorName ?? null,
+      contractorCompany: walkKind?.contractorCompany ?? null,
     })
   } catch (e) {
     logServerError("reports/dasher-boards/startWalk", e)
@@ -410,5 +428,24 @@ export async function sendDasherBoardsReport(
   } catch (e) {
     logServerError("reports/dasher-boards/sendReport", e)
     return { ok: false, error: "Failed to send the report." }
+  }
+}
+
+export async function getSegmentHistoryAction(
+  rinkId: string,
+): Promise<ActionResult<{ rows: SegmentHistoryRow[] }>> {
+  try {
+    const ctx = await resolveContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    if (!(await currentUserCan(ctx.supabase, "dasher_boards", "view"))) {
+      return { ok: false, error: NO_VIEW }
+    }
+    const rows = await getSegmentHistory(ctx.supabase, rinkId)
+    if (!rows) return { ok: false, error: "Rink not found." }
+    return { ok: true, rows }
+  } catch (e) {
+    logServerError("reports/dasher-boards/getSegmentHistory", e)
+    return { ok: false, error: "Failed to load the inspection history." }
   }
 }
