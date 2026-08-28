@@ -241,6 +241,12 @@ export default async function RinkSchedulePage({
               >
                 Insights →
               </Link>
+              <Link
+                href="/reports/rink-scheduling/requests"
+                className="text-muted-foreground text-sm no-underline hover:underline"
+              >
+                Requests →
+              </Link>
             </>
           ) : undefined
         }

@@ -130,7 +130,7 @@ export async function handleDasherBoardsReplay({
     if (!isUuid(rinkId)) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
     }
-    // Walk kind (migration 261): optional and backward compatible — a payload
+    // Walk kind (migration 263): optional and backward compatible — a payload
     // queued before the field existed replays as a routine walk. The identity
     // fields (facility/employee) stay server-derived; only the kind and the
     // contractor attribution ride the payload, re-validated in startInspection

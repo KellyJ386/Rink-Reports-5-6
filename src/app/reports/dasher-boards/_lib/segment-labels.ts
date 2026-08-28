@@ -1,5 +1,5 @@
 // Pure validation + pattern logic for the custom segment-label display layer
-// (migration 257); mirrors the DB constraints exactly; unit-tested in
+// (migration 259); mirrors the DB constraints exactly; unit-tested in
 // segment-labels.test.ts.
 
 import { z } from "zod"

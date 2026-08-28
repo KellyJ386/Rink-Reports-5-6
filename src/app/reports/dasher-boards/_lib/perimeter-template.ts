@@ -1,5 +1,5 @@
 // Standard NHL rink perimeter template for the Dasher Board Perimeter Builder.
-// Applied atomically by the dasher_boards_apply_template RPC (migration 259);
+// Applied atomically by the dasher_boards_apply_template RPC (migration 261);
 // the result is a typed sequence the admin edits afterward — never a forced
 // layout. Door subtypes and zones are resolved server-side against the
 // facility/rink (both seeded by migrations 194/204/257). NO server-only imports
@@ -91,7 +91,7 @@ export const STANDARD_RINK_TEMPLATE = [
  * Convert a template into the three parallel arrays the RPC expects:
  * types, doorSubtypes (as labels), and zoneNames. Empty string means "none"
  * — the generated client types cannot express a nullable text[] element, so
- * the RPC (migration 259) treats '' and SQL NULL identically.
+ * the RPC (migration 261) treats '' and SQL NULL identically.
  */
 export function templateToRpcArrays(template: readonly TemplateSegment[]): {
   types: string[]

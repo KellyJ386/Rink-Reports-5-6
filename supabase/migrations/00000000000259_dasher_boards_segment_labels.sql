@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000257_dasher_boards_segment_labels.sql
+-- 00000000000259_dasher_boards_segment_labels.sql
 --
 -- Dasher Boards: fully custom segment labeling, zones, aliases, new segment
 -- types, and label-snapshot history.
@@ -351,7 +351,7 @@ alter table public.dasher_boards_assets
     check (glass_material in ('tempered', 'acrylic', 'polycarbonate', 'hdpe', 'other'));
 
 comment on column public.dasher_boards_assets.glass_material is
-  'Segment material. Historically glass-only (tempered/acrylic/polycarbonate); since migration 257 any segment may carry its panel spec, adding hdpe (board facing) and other. Column names keep the glass_ prefix for compatibility.';
+  'Segment material. Historically glass-only (tempered/acrylic/polycarbonate); since migration 259 any segment may carry its panel spec, adding hdpe (board facing) and other. Column names keep the glass_ prefix for compatibility.';
 
 -- -----------------------------------------------------------------------------
 -- 5. Asset events: out-of-service transitions join the lifecycle audit domain.
@@ -764,7 +764,7 @@ begin
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: corner radius segments (migration 257).
+  -- Issue categories: corner radius segments (migration 259).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'corner_radius', c.label, c.sort_order
   from (values
@@ -776,7 +776,7 @@ begin
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: post gaps (migration 257).
+  -- Issue categories: post gaps (migration 259).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'post_gap', c.label, c.sort_order
   from (values

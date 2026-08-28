@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000258_dasher_boards_reorder_and_bulk_label_rpcs.sql
+-- 00000000000260_dasher_boards_reorder_and_bulk_label_rpcs.sql
 --
 -- Dasher Boards: two transactional RPCs backing the Phase-2 server actions.
 -- Both are multi-row writes that must be atomic — a crash or constraint
@@ -25,7 +25,7 @@
 --   * dasher_boards_apply_custom_labels(rink, ids[], labels[]) — bulk-label
 --     commit: sets custom_label per asset (null clears the override). The
 --     relabel audit events are written by the AFTER UPDATE trigger from
---     migration 257 (one per changed asset); the case-insensitive per-rink
+--     migration 259 (one per changed asset); the case-insensitive per-rink
 --     unique index and the label shape CHECK enforce validity, surfaced as
 --     clean single-batch errors.
 -- =============================================================================
@@ -144,7 +144,7 @@ end;
 $$;
 
 comment on function public.dasher_boards_apply_custom_labels(uuid, uuid[], text[]) is
-  'Transactionally sets custom_label per asset (null element clears the override) — the bulk-labeling commit. SECURITY INVOKER: rows pass the caller''s RLS and the assets column guard (custom_label is admin-only). The AFTER UPDATE trigger from migration 257 writes one relabeled audit event per changed asset; the case-insensitive per-rink unique index rejects collisions atomically for the whole batch.';
+  'Transactionally sets custom_label per asset (null element clears the override) — the bulk-labeling commit. SECURITY INVOKER: rows pass the caller''s RLS and the assets column guard (custom_label is admin-only). The AFTER UPDATE trigger from migration 259 writes one relabeled audit event per changed asset; the case-insensitive per-rink unique index rejects collisions atomically for the whole batch.';
 
 revoke execute on function public.dasher_boards_apply_custom_labels(uuid, uuid[], text[]) from public, anon;
 grant  execute on function public.dasher_boards_apply_custom_labels(uuid, uuid[], text[]) to authenticated, service_role;

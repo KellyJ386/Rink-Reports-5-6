@@ -286,7 +286,7 @@ export async function resolveIssue(
 export type WalkKindInput = {
   /** Defaults to routine; annual_contractor is the ORFA annual inspection. */
   kind?: "routine" | "annual_contractor"
-  /** Required when kind is annual_contractor (CHECK-enforced, migration 261). */
+  /** Required when kind is annual_contractor (CHECK-enforced, migration 263). */
   contractorName?: string | null
   contractorCompany?: string | null
 }

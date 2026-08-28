@@ -19,7 +19,13 @@ import {
   validateHoursRow,
   validateSettings,
 } from "./_lib/config"
-import type { ActionState, CreatedToken, SimpleResult } from "./types"
+import type {
+  ActionState,
+  CreatedToken,
+  DisplayTokenType,
+  SimpleResult,
+} from "./types"
+import { isBoardTokenType } from "./types"
 
 const ADMIN_PATH = "/admin/rink-scheduling"
 
@@ -1165,6 +1171,7 @@ export async function deleteRateCardOverride(id: string): Promise<SimpleResult> 
  * it can be typed into a TV browser.
  */
 export async function createDisplayToken(
+  displayType: DisplayTokenType,
   label: string,
   hoursAhead: number,
   refreshSeconds: number,
@@ -1173,15 +1180,31 @@ export async function createDisplayToken(
     const facility = await ensureFacilityManager()
     if (!facility.ok) return { ok: false, error: facility.error }
 
+    const allowedTypes: DisplayTokenType[] = [
+      "locker_rooms",
+      "ice_schedule",
+      "rink_ics",
+      "request_form",
+    ]
+    if (!allowedTypes.includes(displayType)) {
+      return { ok: false, error: "Pick a link type from the list." }
+    }
+
     const trimmed = label.trim()
     if (!trimmed) {
       return { ok: false, error: "Give the display a label, e.g. “Lobby TV”." }
     }
-    if (!Number.isInteger(hoursAhead) || hoursAhead < 1 || hoursAhead > 48) {
-      return { ok: false, error: "Hours ahead must be between 1 and 48." }
-    }
-    if (!Number.isInteger(refreshSeconds) || refreshSeconds < 15 || refreshSeconds > 3600) {
-      return { ok: false, error: "Refresh must be between 15 and 3600 seconds." }
+
+    // Board settings only make sense on the two board types; the calendar
+    // feed and request form take none.
+    const isBoard = isBoardTokenType(displayType)
+    if (isBoard) {
+      if (!Number.isInteger(hoursAhead) || hoursAhead < 1 || hoursAhead > 48) {
+        return { ok: false, error: "Hours ahead must be between 1 and 48." }
+      }
+      if (!Number.isInteger(refreshSeconds) || refreshSeconds < 15 || refreshSeconds > 3600) {
+        return { ok: false, error: "Refresh must be between 15 and 3600 seconds." }
+      }
     }
 
     const plaintext = randomBytes(32).toString("base64url")
@@ -1194,8 +1217,10 @@ export async function createDisplayToken(
         facility_id: facility.facilityId,
         token_hash: tokenHash,
         label: trimmed,
-        display_type: "locker_rooms",
-        settings: { hours_ahead: hoursAhead, refresh_seconds: refreshSeconds },
+        display_type: displayType,
+        settings: isBoard
+          ? { hours_ahead: hoursAhead, refresh_seconds: refreshSeconds }
+          : {},
         is_active: true,
       })
       .select("id")
@@ -1204,10 +1229,17 @@ export async function createDisplayToken(
       return { ok: false, error: dbError(error, "Failed to create the display token.") }
     }
 
+    const url =
+      displayType === "rink_ics"
+        ? `/api/rink-ics/${plaintext}`
+        : displayType === "request_form"
+          ? `/request-ice/${plaintext}`
+          : `/display/${plaintext}`
+
     revalidatePath(ADMIN_PATH)
     return {
       ok: true,
-      token: { id: data.id, label: trimmed, url: `/display/${plaintext}` },
+      token: { id: data.id, label: trimmed, url, displayType },
     }
   } catch (e) {
     // Not caughtSimple(): this action's success arm carries the plaintext

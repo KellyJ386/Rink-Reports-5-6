@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import type { ScheduleBoard, ScheduleRink, ScheduleSlot } from "@/lib/rink-scheduling/ice-schedule-display"
 import type { DisplayBoard, DisplayRoom, DisplaySlot } from "@/lib/rink-scheduling/locker-display"
 
 // ---------------------------------------------------------------------------
@@ -20,11 +21,17 @@ import type { DisplayBoard, DisplayRoom, DisplaySlot } from "@/lib/rink-scheduli
 //     holding a mouse.
 // ---------------------------------------------------------------------------
 
-type BoardPayload = DisplayBoard & {
+type PayloadCommon = {
   label: string
   refreshSeconds: number
   timeZone: string | null
 }
+
+// displayType is optional on the locker arm so a board keeps rendering
+// against a server one deploy older than this client.
+type BoardPayload =
+  | (DisplayBoard & PayloadCommon & { displayType?: "locker_rooms" })
+  | (ScheduleBoard & PayloadCommon & { displayType: "ice_schedule" })
 
 const NAVY = "#002244"
 const NAVY_CARD = "#00305e"
@@ -102,10 +109,14 @@ export function DisplayBoardClient({ token }: { token: string }) {
     return (
       <Shell>
         <p style={{ ...monoStyle, fontSize: "clamp(1rem, 2vw, 1.6rem)", opacity: 0.7 }}>
-          Loading locker rooms…
+          Loading…
         </p>
       </Shell>
     )
+  }
+
+  if (board.displayType === "ice_schedule") {
+    return <IceScheduleView board={board} stale={status === "stale"} />
   }
 
   return (
@@ -244,6 +255,146 @@ function SlotLine({ slot, emphasis = false }: { slot: DisplaySlot; emphasis?: bo
         {slot.state === "upcoming" && slot.startsInMinutes <= 60
           ? ` · in ${slot.startsInMinutes} min`
           : ""}
+      </span>
+    </div>
+  )
+}
+
+function IceScheduleView({
+  board,
+  stale,
+}: {
+  board: ScheduleBoard & PayloadCommon
+  stale: boolean
+}) {
+  return (
+    <Shell>
+      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "clamp(1rem, 2vh, 2rem)" }}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: "1rem",
+            flexWrap: "wrap",
+            borderBottom: `2px solid ${LIME}`,
+            paddingBottom: "clamp(0.5rem, 1.2vh, 1rem)",
+          }}
+        >
+          <h1 style={{ ...headlineStyle, fontSize: "clamp(1.75rem, 4vw, 3.5rem)" }}>
+            Ice Schedule
+          </h1>
+          <p style={{ ...monoStyle, fontSize: "clamp(0.8rem, 1.4vw, 1.25rem)", opacity: 0.75 }}>
+            {board.label}
+            {stale ? " · reconnecting…" : ""}
+          </p>
+        </header>
+
+        {board.rinks.length === 0 ? (
+          <p style={{ ...monoStyle, fontSize: "clamp(1rem, 2vw, 1.5rem)", opacity: 0.7 }}>
+            No rinks are set up yet.
+          </p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gap: "clamp(0.75rem, 1.5vw, 1.5rem)",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 20rem), 1fr))",
+            }}
+          >
+            {board.rinks.map((rink) => (
+              <RinkColumn key={rink.rinkId} rink={rink} timeZone={board.timeZone} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Shell>
+  )
+}
+
+function RinkColumn({ rink, timeZone }: { rink: ScheduleRink; timeZone: string | null }) {
+  const live = rink.slots.some((s) => s.current)
+  return (
+    <section
+      style={{
+        background: NAVY_CARD,
+        borderRadius: "1rem",
+        border: `2px solid ${live ? LIME : "rgba(255,255,255,0.18)"}`,
+        padding: "clamp(0.9rem, 1.6vw, 1.5rem)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.75rem",
+        minHeight: "clamp(9rem, 20vh, 14rem)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.5rem" }}>
+        <h2 style={{ ...headlineStyle, fontSize: "clamp(1.2rem, 2.2vw, 2rem)" }}>{rink.name}</h2>
+        {rink.color ? (
+          <span
+            aria-hidden
+            style={{
+              width: "0.9em",
+              height: "0.9em",
+              borderRadius: "9999px",
+              background: rink.color,
+              display: "inline-block",
+            }}
+          />
+        ) : null}
+      </div>
+
+      {rink.slots.length === 0 ? (
+        <p style={{ ...monoStyle, fontSize: "clamp(1rem, 1.8vw, 1.5rem)", color: "rgba(255,255,255,0.5)" }}>
+          Open ice
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+          {rink.slots.map((slot) => (
+            <ScheduleSlotLine key={`${slot.startsAt}-${slot.label}`} slot={slot} timeZone={timeZone} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** "5:00 PM" in the FACILITY's zone — the TV may physically hang anywhere. */
+function wallTime(iso: string, timeZone: string | null): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timeZone ?? undefined,
+    }).format(new Date(iso))
+  } catch {
+    return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(
+      new Date(iso),
+    )
+  }
+}
+
+function ScheduleSlotLine({ slot, timeZone }: { slot: ScheduleSlot; timeZone: string | null }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+      <span
+        style={{
+          ...headlineStyle,
+          fontSize: slot.current ? "clamp(1.3rem, 2.6vw, 2.4rem)" : "clamp(0.95rem, 1.4vw, 1.25rem)",
+          color: slot.current ? LIME : "#ffffff",
+          lineHeight: 1.15,
+        }}
+      >
+        {slot.label}
+      </span>
+      <span
+        style={{
+          ...monoStyle,
+          fontSize: slot.current ? "clamp(0.85rem, 1.3vw, 1.15rem)" : "clamp(0.7rem, 1vw, 0.95rem)",
+          opacity: slot.current ? 0.9 : 0.65,
+        }}
+      >
+        {wallTime(slot.startsAt, timeZone)} – {wallTime(slot.endsAt, timeZone)}
+        {slot.current ? " · on now" : ""}
       </span>
     </div>
   )

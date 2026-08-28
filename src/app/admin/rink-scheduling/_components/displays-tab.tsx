@@ -16,7 +16,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 import { createDisplayToken, deleteDisplayToken, revokeDisplayToken } from "../actions"
-import type { CreatedToken, DisplayTokenRow } from "../types"
+import type { CreatedToken, DisplayTokenRow, DisplayTokenType } from "../types"
+import {
+  DISPLAY_TOKEN_TYPES,
+  displayTokenTypeLabel,
+  isBoardTokenType,
+} from "../types"
 
 /** The page deliberately does not select token_hash, so the client never
  *  receives it — not even hashed. `lastSeenLabel` is computed on the SERVER:
@@ -48,18 +53,18 @@ export function DisplaysTab({ tokens, defaultRefreshSeconds }: Props) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Lobby displays ({tokens.length})</CardTitle>
+          <CardTitle>Public links &amp; displays ({tokens.length})</CardTitle>
           <CardDescription>
-            Each display gets its own web address showing the locker room
-            schedule. Point any browser at it — a smart TV, a streaming stick, or
-            a mini PC. There is no app to install and nobody signs in on the
-            device.
+            Each link gets its own web address — a lobby board for any browser
+            (a smart TV, a streaming stick, a mini PC), a read-only calendar
+            feed, or a booking request form. There is no app to install and
+            nobody signs in on the device.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {tokens.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              No displays yet.
+              No links yet.
             </p>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -108,8 +113,8 @@ function RevealCard({
         <CardTitle>Copy this address now</CardTitle>
         <CardDescription>
           This is the only time it will be shown. Only a hashed form is stored,
-          so it cannot be retrieved later. If you lose it, revoke this display
-          and create another.
+          so it cannot be retrieved later. If you lose it, revoke this link and
+          create another.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -123,9 +128,24 @@ function RevealCard({
           </Button>
         </div>
         <p className="text-muted-foreground text-xs">
-          Anyone with this address can see the locker room schedule for{" "}
-          {token.label}. It shows times, room names and whatever label you chose
-          — never contact details, rates or notes.
+          {isBoardTokenType(token.displayType) ? (
+            <>
+              Anyone with this address can see this board for {token.label}. It
+              shows times, names and whatever label you chose — never contact
+              details, rates or notes.
+            </>
+          ) : token.displayType === "rink_ics" ? (
+            <>
+              Anyone with this address gets a read-only calendar of the rink
+              schedule. Paste it into a calendar app as a subscription and it
+              stays up to date on its own.
+            </>
+          ) : (
+            <>
+              Anyone with this link can submit an ice-time request to this
+              facility. Share it only where you want requests to come from.
+            </>
+          )}
         </p>
       </CardContent>
     </Card>
@@ -137,6 +157,7 @@ function TokenRowItem({ token }: { token: DisplayTokenView }) {
   const [delPending, startDel] = useTransition()
 
   const revoked = !token.is_active || token.revoked_at !== null
+  const isBoard = isBoardTokenType(token.display_type)
   const hoursAhead = readSetting(token.settings, "hours_ahead", 12)
   const refresh = readSetting(token.settings, "refresh_seconds", 60)
 
@@ -165,6 +186,9 @@ function TokenRowItem({ token }: { token: DisplayTokenView }) {
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{token.label}</span>
+          <Badge variant="outline">
+            {displayTokenTypeLabel(token.display_type)}
+          </Badge>
           {revoked && (
             <Badge variant="secondary" className="uppercase">
               revoked
@@ -172,7 +196,9 @@ function TokenRowItem({ token }: { token: DisplayTokenView }) {
           )}
         </div>
         <span className="text-muted-foreground font-mono text-xs">
-          next {hoursAhead}h · refresh {refresh}s · {token.lastSeenLabel}
+          {isBoard
+            ? `next ${hoursAhead}h · refresh ${refresh}s · ${token.lastSeenLabel}`
+            : token.lastSeenLabel}
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -207,14 +233,18 @@ function CreateForm({
   onCreated: (t: CreatedToken) => void
 }) {
   const [pending, startTransition] = useTransition()
+  const [displayType, setDisplayType] = useState<DisplayTokenType>("locker_rooms")
   const [label, setLabel] = useState("")
   const [hoursAhead, setHoursAhead] = useState("12")
   const [refresh, setRefresh] = useState(String(defaultRefreshSeconds))
+
+  const isBoard = isBoardTokenType(displayType)
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     startTransition(async () => {
       const r = await createDisplayToken(
+        displayType,
         label,
         Number(hoursAhead),
         Number(refresh),
@@ -225,7 +255,7 @@ function CreateForm({
       }
       onCreated(r.token)
       setLabel("")
-      toast.success("Display created.")
+      toast.success("Link created.")
     })
   }
 
@@ -234,6 +264,21 @@ function CreateForm({
       onSubmit={onSubmit}
       className="flex flex-wrap items-end gap-3 rounded-md border p-3"
     >
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="tok-type">Type</Label>
+        <select
+          id="tok-type"
+          value={displayType}
+          onChange={(e) => setDisplayType(e.target.value as DisplayTokenType)}
+          className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+        >
+          {DISPLAY_TOKEN_TYPES.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="tok-label">Label</Label>
         <Input
@@ -244,32 +289,36 @@ function CreateForm({
           required
         />
       </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="tok-hours">Hours ahead</Label>
-        <Input
-          id="tok-hours"
-          type="number"
-          min={1}
-          max={48}
-          value={hoursAhead}
-          onChange={(e) => setHoursAhead(e.target.value)}
-          className="w-24"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="tok-refresh">Refresh (s)</Label>
-        <Input
-          id="tok-refresh"
-          type="number"
-          min={15}
-          max={3600}
-          value={refresh}
-          onChange={(e) => setRefresh(e.target.value)}
-          className="w-24"
-        />
-      </div>
+      {isBoard && (
+        <>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="tok-hours">Hours ahead</Label>
+            <Input
+              id="tok-hours"
+              type="number"
+              min={1}
+              max={48}
+              value={hoursAhead}
+              onChange={(e) => setHoursAhead(e.target.value)}
+              className="w-24"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="tok-refresh">Refresh (s)</Label>
+            <Input
+              id="tok-refresh"
+              type="number"
+              min={15}
+              max={3600}
+              value={refresh}
+              onChange={(e) => setRefresh(e.target.value)}
+              className="w-24"
+            />
+          </div>
+        </>
+      )}
       <Button type="submit" disabled={pending}>
-        {pending ? "Creating…" : "Add display"}
+        {pending ? "Creating…" : "Add link"}
       </Button>
     </form>
   )
