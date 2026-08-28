@@ -8943,6 +8943,56 @@ $$;
 
 
 --
+-- Name: stamp_business_date_from(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.stamp_business_date_from() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_source   text := tg_argv[0];
+  v_fallback text := case when array_length(tg_argv, 1) > 1 then tg_argv[1] end;
+  v_row      jsonb := to_jsonb(new);
+  v_ts       timestamptz;
+  v_tz       text;
+begin
+  -- Column read by name out of the row's jsonb projection. to_jsonb renders a
+  -- timestamptz as ISO-8601 WITH its offset, so the cast back is exact
+  -- regardless of the session TimeZone.
+  v_ts := nullif(v_row ->> v_source, '')::timestamptz;
+
+  if v_ts is null and v_fallback is not null then
+    v_ts := nullif(v_row ->> v_fallback, '')::timestamptz;
+  end if;
+
+  -- Last resort. Every source column here is NOT NULL or has a fallback that
+  -- is, so this is unreachable in practice; it exists so the trigger can never
+  -- be the reason an insert fails.
+  v_ts := coalesce(v_ts, now());
+
+  select f.timezone into v_tz
+    from public.facilities f
+   where f.id = new.facility_id;
+
+  -- coalesce for parity with migration 183. facilities.timezone is NOT NULL
+  -- DEFAULT 'America/New_York', so the fallback cannot fire today; it survives
+  -- as insurance against a future nullable-timezone change.
+  new.business_date := (v_ts at time zone coalesce(v_tz, 'UTC'))::date;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION stamp_business_date_from(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.stamp_business_date_from() IS 'BEFORE INSERT/UPDATE trigger: stamps NEW.business_date with the facility-local calendar date of the timestamptz column named in TG_ARGV[0] (falling back to TG_ARGV[1] when that column is NULL), resolved through facilities.timezone. Stamps unconditionally so business_date is always server-derived. Added in migration 264 for the seven module fact tables.';
+
+
+--
 -- Name: submit_incident_report(uuid, uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, text, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9664,6 +9714,8 @@ CREATE TABLE public.accident_reports (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     injured_person_age smallint,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT accident_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT accident_reports_injured_person_age_check CHECK (((injured_person_age IS NULL) OR ((injured_person_age >= 0) AND (injured_person_age <= 120))))
 );
 
@@ -9701,6 +9753,13 @@ COMMENT ON COLUMN public.accident_reports.edit_window_ends_at IS 'Convenience ti
 --
 
 COMMENT ON COLUMN public.accident_reports.injured_person_age IS 'Age (years) of the injured person at the time of submission. Nullable for historical rows; the submission form requires it on new reports.';
+
+
+--
+-- Name: COLUMN accident_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.accident_reports.business_date IS 'Facility-local calendar date of the accident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 264).';
 
 
 --
@@ -9982,6 +10041,8 @@ CREATE TABLE public.air_quality_reports (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     form_data jsonb,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT air_quality_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT air_quality_reports_max_severity_check CHECK ((max_severity = ANY (ARRAY['warn'::text, 'high'::text, 'critical'::text])))
 );
 
@@ -10019,6 +10080,13 @@ COMMENT ON COLUMN public.air_quality_reports.max_severity IS 'Denormalized: max 
 --
 
 COMMENT ON COLUMN public.air_quality_reports.form_data IS 'Optional extended monitoring-log payload (tester/equipment details, Section 1 general info, Section 2 routine/post-edging measurements, Section 4 recommendations). All fields optional; supplementary to air_quality_readings. Written by the staff submit action.';
+
+
+--
+-- Name: COLUMN air_quality_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.air_quality_reports.business_date IS 'Facility-local calendar date of the report, derived from submitted_at through facilities.timezone and stamped server-side (migration 264).';
 
 
 --
@@ -11562,6 +11630,8 @@ CREATE TABLE public.dasher_boards_inspections (
     inspection_kind text DEFAULT 'routine'::text NOT NULL,
     contractor_name text,
     contractor_company text,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT dasher_boards_inspections_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT dasher_boards_inspections_contractor_iff_annual CHECK ((((inspection_kind = 'annual_contractor'::text) AND (contractor_name IS NOT NULL) AND (char_length(btrim(contractor_name)) > 0)) OR ((inspection_kind = 'routine'::text) AND (contractor_name IS NULL) AND (contractor_company IS NULL)))),
     CONSTRAINT dasher_boards_inspections_kind_check CHECK ((inspection_kind = ANY (ARRAY['routine'::text, 'annual_contractor'::text])))
 );
@@ -11593,6 +11663,13 @@ COMMENT ON COLUMN public.dasher_boards_inspections.contractor_name IS 'The quali
 --
 
 COMMENT ON COLUMN public.dasher_boards_inspections.contractor_company IS 'The contractor''s company, when the facility records it. Only on annual_contractor walks.';
+
+
+--
+-- Name: COLUMN dasher_boards_inspections.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_inspections.business_date IS 'Facility-local calendar date of the walk, derived from completed_at through facilities.timezone and stamped server-side (migration 264). An OPEN walk is stamped from started_at instead and re-stamped when it is completed, so a walk begun 11 PM and signed off after midnight reports on the day it was COMPLETED. Phase 4 metrics that count walks started must account for that.';
 
 
 --
@@ -12769,6 +12846,8 @@ CREATE TABLE public.ice_depth_sessions (
     total_measurements integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT ice_depth_sessions_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT ice_depth_sessions_measurement_unit_snapshot_check CHECK ((measurement_unit_snapshot = ANY (ARRAY['inches'::text, 'mm'::text])))
 );
 
@@ -12806,6 +12885,13 @@ COMMENT ON COLUMN public.ice_depth_sessions.has_high_reading IS 'Denormalized: t
 --
 
 COMMENT ON COLUMN public.ice_depth_sessions.total_measurements IS 'Count of recorded child measurements. May be less than the layout''s active point count -- incomplete submissions are allowed.';
+
+
+--
+-- Name: COLUMN ice_depth_sessions.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_depth_sessions.business_date IS 'Facility-local calendar date of the session, derived from submitted_at through facilities.timezone and stamped server-side (migration 264). The reporting layer buckets on this, never on the raw timestamptz.';
 
 
 --
@@ -13145,6 +13231,8 @@ CREATE TABLE public.ice_operations_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT ice_operations_submissions_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT ice_operations_submissions_operation_type_check CHECK ((operation_type = ANY (ARRAY['ice_make'::text, 'circle_check'::text, 'edging'::text, 'blade_change'::text, 'propane_tank_change'::text])))
 );
 
@@ -13189,6 +13277,13 @@ COMMENT ON COLUMN public.ice_operations_submissions.has_failed_check IS 'Denorma
 --
 
 COMMENT ON COLUMN public.ice_operations_submissions.failed_count IS 'Denormalized count of failed circle-check items. Drives the alert body. Always 0 for non-circle_check operations.';
+
+
+--
+-- Name: COLUMN ice_operations_submissions.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_operations_submissions.business_date IS 'Facility-local calendar date of the operation, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 264).';
 
 
 --
@@ -13309,6 +13404,8 @@ CREATE TABLE public.incident_reports (
     ambulance_flag boolean DEFAULT false NOT NULL,
     persons_involved integer,
     follow_up_required boolean DEFAULT false NOT NULL,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT incident_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT incident_reports_persons_involved_nonneg CHECK (((persons_involved IS NULL) OR (persons_involved >= 0))),
     CONSTRAINT incident_reports_status_check CHECK ((status = ANY (ARRAY['submitted'::text, 'in_review'::text, 'resolved'::text, 'archived'::text])))
 );
@@ -13389,6 +13486,13 @@ COMMENT ON COLUMN public.incident_reports.persons_involved IS 'Count of people i
 --
 
 COMMENT ON COLUMN public.incident_reports.follow_up_required IS 'Whether the incident is flagged as needing follow-up.';
+
+
+--
+-- Name: COLUMN incident_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.incident_reports.business_date IS 'Facility-local calendar date of the incident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 264).';
 
 
 --
@@ -13862,7 +13966,9 @@ CREATE TABLE public.refrigeration_reports (
     updated_at timestamp with time zone,
     reading_at timestamp with time zone DEFAULT now() NOT NULL,
     shift text,
-    round_no smallint
+    round_no smallint,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT refrigeration_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date))
 );
 
 
@@ -13899,6 +14005,13 @@ COMMENT ON COLUMN public.refrigeration_reports.shift IS 'Optional shift label fo
 --
 
 COMMENT ON COLUMN public.refrigeration_reports.round_no IS 'Optional sequential round number within a shift/day for cadence reporting. Nullable.';
+
+
+--
+-- Name: COLUMN refrigeration_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.refrigeration_reports.business_date IS 'Facility-local calendar date of the reading, derived from reading_at through facilities.timezone and stamped server-side (migration 264).';
 
 
 --
@@ -18866,6 +18979,13 @@ CREATE INDEX idx_accident_reports_employee ON public.accident_reports USING btre
 
 
 --
+-- Name: idx_accident_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_accident_reports_facility_business_date ON public.accident_reports USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_accident_reports_facility_submitted; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -19010,6 +19130,13 @@ CREATE INDEX idx_air_quality_reports_employee ON public.air_quality_reports USIN
 --
 
 CREATE INDEX idx_air_quality_reports_exceedance ON public.air_quality_reports USING btree (facility_id, submitted_at DESC) WHERE (has_exceedance = true);
+
+
+--
+-- Name: idx_air_quality_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_air_quality_reports_facility_business_date ON public.air_quality_reports USING btree (facility_id, business_date DESC);
 
 
 --
@@ -19538,6 +19665,13 @@ CREATE INDEX idx_dasher_boards_inspections_facility ON public.dasher_boards_insp
 
 
 --
+-- Name: idx_dasher_boards_inspections_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_inspections_facility_business_date ON public.dasher_boards_inspections USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_dasher_boards_inspections_one_open_per_inspector; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -19944,6 +20078,13 @@ CREATE INDEX idx_ice_depth_sessions_employee ON public.ice_depth_sessions USING 
 
 
 --
+-- Name: idx_ice_depth_sessions_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ice_depth_sessions_facility_business_date ON public.ice_depth_sessions USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_ice_depth_sessions_facility_submitted; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -20070,6 +20211,13 @@ CREATE INDEX idx_ice_operations_submissions_equipment ON public.ice_operations_s
 
 
 --
+-- Name: idx_ice_operations_submissions_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ice_operations_submissions_facility_business_date ON public.ice_operations_submissions USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_ice_operations_submissions_facility_submitted; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -20165,6 +20313,13 @@ CREATE INDEX idx_incident_reports_activity ON public.incident_reports USING btre
 --
 
 CREATE INDEX idx_incident_reports_employee ON public.incident_reports USING btree (employee_id);
+
+
+--
+-- Name: idx_incident_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_incident_reports_facility_business_date ON public.incident_reports USING btree (facility_id, business_date DESC);
 
 
 --
@@ -20445,6 +20600,13 @@ CREATE INDEX idx_refrigeration_report_values_report ON public.refrigeration_repo
 --
 
 CREATE INDEX idx_refrigeration_reports_employee ON public.refrigeration_reports USING btree (employee_id);
+
+
+--
+-- Name: idx_refrigeration_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_refrigeration_reports_facility_business_date ON public.refrigeration_reports USING btree (facility_id, business_date DESC);
 
 
 --
@@ -21904,6 +22066,13 @@ CREATE TRIGGER trg_accident_dropdowns_updated_at BEFORE UPDATE ON public.acciden
 
 
 --
+-- Name: accident_reports trg_accident_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_accident_reports_stamp_business_date BEFORE INSERT ON public.accident_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('occurred_at');
+
+
+--
 -- Name: accident_reports trg_accident_reports_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21957,6 +22126,13 @@ CREATE TRIGGER trg_air_quality_equipment_updated_at BEFORE UPDATE ON public.air_
 --
 
 CREATE TRIGGER trg_air_quality_reading_types_updated_at BEFORE UPDATE ON public.air_quality_reading_types FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: air_quality_reports trg_air_quality_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_air_quality_reports_stamp_business_date BEFORE INSERT ON public.air_quality_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('submitted_at');
 
 
 --
@@ -22394,6 +22570,20 @@ CREATE TRIGGER trg_dasher_boards_inspections_guard BEFORE DELETE OR UPDATE ON pu
 
 
 --
+-- Name: dasher_boards_inspections trg_dasher_boards_inspections_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_inspections_stamp_business_date BEFORE INSERT ON public.dasher_boards_inspections FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('completed_at', 'started_at');
+
+
+--
+-- Name: dasher_boards_inspections trg_dasher_boards_inspections_stamp_business_date_on_complete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_inspections_stamp_business_date_on_complete BEFORE UPDATE ON public.dasher_boards_inspections FOR EACH ROW WHEN (((old.completed_at IS NULL) AND (new.completed_at IS NOT NULL))) EXECUTE FUNCTION public.stamp_business_date_from('completed_at', 'started_at');
+
+
+--
 -- Name: dasher_boards_inspections trg_dasher_boards_inspections_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22653,6 +22843,13 @@ CREATE TRIGGER trg_ice_depth_rinks_updated_at BEFORE UPDATE ON public.ice_depth_
 
 
 --
+-- Name: ice_depth_sessions trg_ice_depth_sessions_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ice_depth_sessions_stamp_business_date BEFORE INSERT ON public.ice_depth_sessions FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('submitted_at');
+
+
+--
 -- Name: ice_depth_sessions trg_ice_depth_sessions_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22716,6 +22913,13 @@ CREATE TRIGGER trg_ice_operations_settings_updated_at BEFORE UPDATE ON public.ic
 
 
 --
+-- Name: ice_operations_submissions trg_ice_operations_submissions_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ice_operations_submissions_stamp_business_date BEFORE INSERT ON public.ice_operations_submissions FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('occurred_at');
+
+
+--
 -- Name: ice_operations_submissions trg_ice_operations_submissions_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22727,6 +22931,13 @@ CREATE TRIGGER trg_ice_operations_submissions_updated_at BEFORE UPDATE ON public
 --
 
 CREATE TRIGGER trg_incident_activities_updated_at BEFORE UPDATE ON public.incident_activities FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: incident_reports trg_incident_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_incident_reports_stamp_business_date BEFORE INSERT ON public.incident_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('occurred_at');
 
 
 --
@@ -22804,6 +23015,13 @@ CREATE TRIGGER trg_refrigeration_equipment_updated_at BEFORE UPDATE ON public.re
 --
 
 CREATE TRIGGER trg_refrigeration_fields_updated_at BEFORE UPDATE ON public.refrigeration_fields FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: refrigeration_reports trg_refrigeration_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_refrigeration_reports_stamp_business_date BEFORE INSERT ON public.refrigeration_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('reading_at');
 
 
 --

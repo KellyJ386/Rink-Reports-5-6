@@ -225,6 +225,10 @@ grant insert, select on _rls_failures to authenticated;
 -- expect_count()/expect_error() lose the ability to log failures and silently
 -- mask everything as "ok".
 grant insert, select on _rls_failures to anon;
+-- Likewise for service_role: the BD264 block below asserts under it, and
+-- without this grant a genuine failure surfaces as "permission denied for table
+-- _rls_failures" rather than the assertion message that explains it.
+grant insert, select on _rls_failures to service_role;
 
 -- An offline_sync_queue row in each facility so cross-facility checks have
 -- non-empty targets (mig 31 + test for migration 59 follow-up isolation).
@@ -10570,6 +10574,112 @@ select pg_temp.expect_error(
            contractor_company = null
      where id = 'dabd000d-0000-4000-8000-000000000021'$$,
   'DSL21d: a completed annual walk is immutable — the attestation cannot be rewritten');
+
+reset role;
+
+-- ===========================================================================
+-- BD-264: business_date is the FACILITY-LOCAL calendar date of the event.
+--
+-- Migration 264 stamps business_date on all seven module fact tables from each
+-- one's EVENT timestamp, resolved through facilities.timezone. Every number the
+-- reporting layer produces buckets on this column, so a trigger that silently
+-- reverts to UTC math would misfile every late-evening event by a day — and
+-- would misfile the last day of every month, quarter and fiscal year. That is
+-- invisible in the UI and catastrophic in a compliance PDF, so it is asserted
+-- here rather than discovered in a report.
+--
+-- The instant below, 2026-09-01 03:30Z, is 2026-08-31 23:30 in
+-- America/New_York (facilities A and B) and 2026-08-31 22:30 in America/Chicago
+-- (the Seed Test Rink). Correct answer everywhere: 2026-08-31. UTC math: 09-01.
+-- ===========================================================================
+set local role service_role;
+
+insert into public.ice_depth_sessions
+  (id, facility_id, layout_id, measurement_unit_snapshot,
+   low_threshold_snapshot, high_threshold_snapshot, submitted_at)
+values ('bd264000-0000-4000-8000-000000000001',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072', 'inches', 1, 2,
+        '2026-09-01T03:30:00Z');
+
+insert into public.ice_operations_submissions (id, facility_id, operation_type, occurred_at)
+values ('bd264000-0000-4000-8000-000000000002',
+        '11111111-1111-1111-1111-111111111111', 'ice_make', '2026-09-01T03:30:00Z');
+
+insert into public.refrigeration_reports (id, facility_id, reading_at)
+values ('bd264000-0000-4000-8000-000000000003',
+        '11111111-1111-1111-1111-111111111111', '2026-09-01T03:30:00Z');
+
+insert into public.air_quality_reports (id, facility_id, location_id, submitted_at)
+values ('bd264000-0000-4000-8000-000000000004',
+        '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0a01-aaaa-aaaa-aaaa11110021', '2026-09-01T03:30:00Z');
+
+insert into public.incident_reports (id, facility_id, reporter_name, description, occurred_at)
+values ('bd264000-0000-4000-8000-000000000005',
+        '11111111-1111-1111-1111-111111111111', 'BD Reporter',
+        'bd264 boundary incident', '2026-09-01T03:30:00Z');
+
+insert into public.accident_reports
+  (id, facility_id, injured_person_name, injured_person_contact, description, occurred_at)
+values ('bd264000-0000-4000-8000-000000000006',
+        '11111111-1111-1111-1111-111111111111', 'BD Injured', '555-0100',
+        'bd264 boundary accident', '2026-09-01T03:30:00Z');
+
+-- Open walk: completed_at is NULL, so the insert falls back to started_at.
+insert into public.dasher_boards_inspections (id, facility_id, rink_id, started_at)
+values ('bd264000-0000-4000-8000-000000000007',
+        '11111111-1111-1111-1111-111111111111',
+        'dab0000a-0000-4000-8000-00000000000a', '2026-09-01T03:30:00Z');
+
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select business_date from public.ice_depth_sessions         where id = 'bd264000-0000-4000-8000-000000000001'
+      union all select business_date from public.ice_operations_submissions where id = 'bd264000-0000-4000-8000-000000000002'
+      union all select business_date from public.refrigeration_reports      where id = 'bd264000-0000-4000-8000-000000000003'
+      union all select business_date from public.air_quality_reports        where id = 'bd264000-0000-4000-8000-000000000004'
+      union all select business_date from public.incident_reports           where id = 'bd264000-0000-4000-8000-000000000005'
+      union all select business_date from public.accident_reports           where id = 'bd264000-0000-4000-8000-000000000006'
+      union all select business_date from public.dasher_boards_inspections  where id = 'bd264000-0000-4000-8000-000000000007'
+    ) q where business_date = date '2026-08-31'$$,
+  7, 'BD264a: all 7 fact tables stamp the facility-local date (2026-08-31), not the UTC date');
+
+-- Completing the walk after local midnight re-stamps it onto the completion day.
+update public.dasher_boards_inspections
+   set completed_at = '2026-09-01T04:30:00Z'
+ where id = 'bd264000-0000-4000-8000-000000000007';
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_inspections
+     where id = 'bd264000-0000-4000-8000-000000000007'
+       and business_date = date '2026-09-01'$$,
+  1, 'BD264b: completing an open walk re-stamps business_date onto the completion day');
+
+-- A client-supplied business_date must never survive: it is the one input that
+-- could book a submission into an already-closed reporting period.
+insert into public.incident_reports
+  (id, facility_id, reporter_name, description, occurred_at, business_date)
+values ('bd264000-0000-4000-8000-000000000008',
+        '11111111-1111-1111-1111-111111111111', 'BD Reporter',
+        'bd264 spoofed date', '2026-07-04T16:00:00Z', date '1999-01-01');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_reports
+     where id = 'bd264000-0000-4000-8000-000000000008'
+       and business_date = date '2026-07-04'$$,
+  1, 'BD264c: a client-supplied business_date is overridden by the server-derived one');
+
+-- Resolution is per-facility, not one global zone. The Seed Test Rink is
+-- America/Chicago (UTC-5 in September); 2026-09-01 04:30Z is already
+-- 2026-09-01 00:30 in New York but still 2026-08-31 23:30 in Chicago, so this
+-- row fails if the stamp ever resolves through a single hardcoded zone.
+insert into public.incident_reports (id, facility_id, reporter_name, description, occurred_at)
+values ('bd264000-0000-4000-8000-000000000009',
+        '33333333-3333-4333-8333-333333333333', 'BD Reporter',
+        'bd264 chicago', '2026-09-01T04:30:00Z');
+select pg_temp.expect_count(
+  $$select count(*) from public.incident_reports
+     where id = 'bd264000-0000-4000-8000-000000000009'
+       and business_date = date '2026-08-31'$$,
+  1, 'BD264d: business_date resolves through the row''s OWN facility timezone (Chicago), not a global one');
 
 reset role;
 
