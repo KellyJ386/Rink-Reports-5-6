@@ -9389,6 +9389,51 @@ select pg_temp.expect_error(
             'a9990001-0000-4000-8000-0000000000f1', 10, date '2027-05-13')$$,
   'AR12: trigger layer — no payment against a VOID invoice (migration 254)');
 
+-- Overpayment backstop (migration 257). Invoice f2 totals 600 with a net paid
+-- of 0 (AR6's 250 was reversed by AR8), so 601 must be refused, 600 exactly
+-- must land, and once settled even a cent more must be refused — while a
+-- reversal (negative) always passes because it only shrinks the sum.
+select pg_temp.expect_error(
+  $$insert into public.rink_payments (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', 601, date '2027-05-14')$$,
+  'AR15: trigger layer — a payment past the invoice total is REJECTED (migration 257)');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments (id, facility_id, invoice_id, amount, payment_date)
+    values ('a9990001-0000-4000-8000-00000000a0a2',
+            '11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', 600, date '2027-05-14')$$,
+  'AR16: a payment settling the invoice EXACTLY is accepted');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_payments (facility_id, invoice_id, amount, payment_date)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', 0.01, date '2027-05-15')$$,
+  'AR17: once settled, even one more cent is REJECTED');
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_payments
+      (facility_id, invoice_id, amount, payment_date, reverses_payment_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a9990001-0000-4000-8000-0000000000f2', -600, date '2027-05-15',
+            'a9990001-0000-4000-8000-00000000a0a2')$$,
+  'AR18: a reversal is never blocked by the overpayment guard');
+
+-- Reminder settings (migration 257): the cadence CHECK mirrors the app's
+-- validation, and the columns default to reminders-on / weekly.
+select pg_temp.expect_error(
+  $$update public.rink_scheduling_settings set reminder_cadence_days = 0
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'AR19: a reminder cadence outside 1-90 days is REJECTED by the CHECK');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_scheduling_settings
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and overdue_reminders_enabled and not send_booking_confirmations
+       and reminder_cadence_days between 1 and 90$$,
+  1, 'AR20: reminder defaults — nagging on, confirmations opt-in, sane cadence');
+
 -- Money is edit-tier: alice holds view+submit only and must see none of it.
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';

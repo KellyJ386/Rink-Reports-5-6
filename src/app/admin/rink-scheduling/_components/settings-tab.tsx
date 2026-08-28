@@ -41,6 +41,9 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
     locker_lead_minutes: settings?.locker_lead_minutes ?? 45,
     locker_vacate_minutes: settings?.locker_vacate_minutes ?? 30,
     display_refresh_seconds: settings?.display_refresh_seconds ?? 60,
+    send_booking_confirmations: settings?.send_booking_confirmations ?? false,
+    overdue_reminders_enabled: settings?.overdue_reminders_enabled ?? true,
+    reminder_cadence_days: settings?.reminder_cadence_days ?? 7,
   }
 
   return (
@@ -139,6 +142,55 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
                 <p className="text-muted-foreground text-xs">
                   Leave blank for no tax line at all. That is different from
                   entering 0.
+                </p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-sm font-medium">Billing emails</legend>
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="send_booking_confirmations"
+                  defaultChecked={s.send_booking_confirmations}
+                  className="border-input size-4 rounded border"
+                />
+                Send booking confirmation emails
+              </label>
+              <p className="text-muted-foreground text-xs">
+                Email the customer&rsquo;s billing contact when a booking is
+                created.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="overdue_reminders_enabled"
+                  defaultChecked={s.overdue_reminders_enabled}
+                  className="border-input size-4 rounded border"
+                />
+                Send overdue invoice reminders
+              </label>
+              <p className="text-muted-foreground text-xs">
+                A daily job emails customers about invoices past their due date.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="cadence">Reminder cadence (days)</Label>
+                <Input
+                  id="cadence"
+                  name="reminder_cadence_days"
+                  type="number"
+                  min={1}
+                  max={90}
+                  defaultValue={s.reminder_cadence_days}
+                />
+                <p className="text-muted-foreground text-xs">
+                  Minimum days between reminders for the same invoice.
                 </p>
               </div>
             </div>
