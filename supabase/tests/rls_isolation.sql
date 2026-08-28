@@ -9465,7 +9465,7 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- PS: migration 259 public surfaces — token types, booking requests, waitlist.
+-- PS: migration 258 public surfaces — token types, booking requests, waitlist.
 --
 -- The display_type CHECK was widened by DROP + ADD (Postgres has no "add a
 -- value"), so a restatement that lost one would silently NARROW the domain.
@@ -9953,7 +9953,7 @@ select pg_temp.expect_error(
             'dabb000a-0000-4000-8000-000000000001']::uuid[])$$,
   'DSL18g: staff (submit) reorder fails loudly — RLS blocks the writes inside the INVOKER RPC');
 
--- DSL19: typed-template seeding (migration 259). A fresh rink (zones
+-- DSL19: typed-template seeding (migration 258). A fresh rink (zones
 -- auto-seeded by the 257 trigger), then mona (module admin) applies a small
 -- typed template: labels allocate per prefix, boards get glass children,
 -- names resolve against the facility/rink, and a second apply is rejected.

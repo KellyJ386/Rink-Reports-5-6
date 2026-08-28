@@ -1,5 +1,5 @@
 // Pure, dependency-free display-label resolution and search matching for the
-// custom segment-label layer (migration 257). No server-only imports — unit
+// custom segment-label layer (migration 259). No server-only imports — unit
 // tested by vitest (display-label.test.ts) in a plain Node environment.
 //
 // Resolution order, everywhere a segment's name is printed:

@@ -19,7 +19,7 @@ export function isAssetType(v: string): v is AssetType {
 }
 
 // Positioned types carry sequence_position; glass rides its parent position
-// (mirrors the DB position_shape constraint, migration 257).
+// (mirrors the DB position_shape constraint, migration 259).
 export const POSITIONED_ASSET_TYPES: readonly AssetType[] = [
   "board_panel",
   "door",

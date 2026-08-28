@@ -1,9 +1,9 @@
 -- =============================================================================
--- 00000000000260_dasher_boards_rink_pinning_completion.sql
+-- 00000000000262_dasher_boards_rink_pinning_completion.sql
 --
 -- Dasher Boards: finish the (rink_id, facility_id) tenant pinning.
 --
--- Migration 257 pinned dasher_boards_zones and dasher_boards_assets to
+-- Migration 259 pinned dasher_boards_zones and dasher_boards_assets to
 -- dasher_boards_rinks(id, facility_id) after the Phase-1 security review
 -- showed RLS validates facility_id against the caller while rink_id is
 -- client-suppliable. The same review flagged (non-blocking) that the three
@@ -40,5 +40,5 @@ alter table public.dasher_boards_checklist_items
 
 -- dasher_boards_retired_labels also carries (rink_id, facility_id), but its
 -- rows are written by the label-permanence triggers from the parent asset row
--- (already pinned by migration 257) — pinned transitively; left unchanged to
+-- (already pinned by migration 259) — pinned transitively; left unchanged to
 -- keep the retire trigger's insert path untouched.

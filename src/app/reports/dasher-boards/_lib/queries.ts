@@ -219,7 +219,7 @@ export type AssetDetail = {
   zoneName: string | null
   openIssues: IssueRow[]
   /**
-   * Resolved issues. Each row's `label_snapshot` (migration 257) is the
+   * Resolved issues. Each row's `label_snapshot` (migration 259) is the
    * asset's display label AT LOG TIME — server-derived, frozen on update —
    * so a caller can show "logged as X" when a later rename means it no
    * longer matches the asset's current display label.

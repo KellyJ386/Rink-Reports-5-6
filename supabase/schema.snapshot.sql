@@ -1457,7 +1457,7 @@ $$;
 -- Name: FUNCTION dasher_boards_apply_custom_labels(p_rink_id uuid, p_asset_ids uuid[], p_labels text[]); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.dasher_boards_apply_custom_labels(p_rink_id uuid, p_asset_ids uuid[], p_labels text[]) IS 'Transactionally sets custom_label per asset (null element clears the override) — the bulk-labeling commit. SECURITY INVOKER: rows pass the caller''s RLS and the assets column guard (custom_label is admin-only). The AFTER UPDATE trigger from migration 257 writes one relabeled audit event per changed asset; the case-insensitive per-rink unique index rejects collisions atomically for the whole batch.';
+COMMENT ON FUNCTION public.dasher_boards_apply_custom_labels(p_rink_id uuid, p_asset_ids uuid[], p_labels text[]) IS 'Transactionally sets custom_label per asset (null element clears the override) — the bulk-labeling commit. SECURITY INVOKER: rows pass the caller''s RLS and the assets column guard (custom_label is admin-only). The AFTER UPDATE trigger from migration 259 writes one relabeled audit event per changed asset; the case-insensitive per-rink unique index rejects collisions atomically for the whole batch.';
 
 
 --
@@ -7976,7 +7976,7 @@ begin
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: corner radius segments (migration 257).
+  -- Issue categories: corner radius segments (migration 259).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'corner_radius', c.label, c.sort_order
   from (values
@@ -7988,7 +7988,7 @@ begin
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: post gaps (migration 257).
+  -- Issue categories: post gaps (migration 259).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'post_gap', c.label, c.sort_order
   from (values
@@ -11401,7 +11401,7 @@ COMMENT ON COLUMN public.dasher_boards_assets.glass_thickness_in IS 'Decimal inc
 -- Name: COLUMN dasher_boards_assets.glass_material; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.dasher_boards_assets.glass_material IS 'Segment material. Historically glass-only (tempered/acrylic/polycarbonate); since migration 257 any segment may carry its panel spec, adding hdpe (board facing) and other. Column names keep the glass_ prefix for compatibility.';
+COMMENT ON COLUMN public.dasher_boards_assets.glass_material IS 'Segment material. Historically glass-only (tempered/acrylic/polycarbonate); since migration 259 any segment may carry its panel spec, adding hdpe (board facing) and other. Column names keep the glass_ prefix for compatibility.';
 
 
 --

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000259_rink_public_surfaces.sql
+-- 00000000000258_rink_public_surfaces.sql
 
 --
 -- Three additions to Rink Scheduling & Billing's public edge, all reusing the
@@ -376,7 +376,7 @@ end;
 $$;
 
 comment on function public.purge_module_data(uuid, text) is
-  'Manual per-module purge for a facility. rink_scheduling (migrations 251, 259): '
+  'Manual per-module purge for a facility. rink_scheduling (migrations 251, 258): '
   'payments, then their invoices (line items cascade), then bookings not cited by '
   'any invoice line, then decided booking requests and closed waitlist entries '
   '(requester PII). Customers, rate cards and facility setup are configuration '
@@ -457,6 +457,6 @@ end;
 $$;
 
 comment on function public.purge_old_rink_scheduling_records() is
-  'Nightly retention worker for Rink Scheduling & Billing. Financial records, so the cutoff is clamped to the 7-year floor regardless of the configured keep_days. Migration 259 adds decided booking requests and closed waitlist entries (requester PII). Service-role only.';
+  'Nightly retention worker for Rink Scheduling & Billing. Financial records, so the cutoff is clamped to the 7-year floor regardless of the configured keep_days. Migration 258 adds decided booking requests and closed waitlist entries (requester PII). Service-role only.';
 
 commit;

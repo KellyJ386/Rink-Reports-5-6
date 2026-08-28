@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000261_dasher_boards_inspection_kinds.sql
+-- 00000000000263_dasher_boards_inspection_kinds.sql
 --
 -- Dasher Boards: annual contractor inspections + issue-category coverage.
 --
@@ -68,7 +68,7 @@ create index if not exists idx_dasher_boards_inspections_rink_kind_completed
 
 -- -----------------------------------------------------------------------------
 -- 2. Issue-category coverage: hardware tightening (boards), replacement
---    (glass). Restates the seed function (migration 257's body) with the two
+--    (glass). Restates the seed function (migration 259's body) with the two
 --    added rows; idempotent backfill for existing facilities.
 -- -----------------------------------------------------------------------------
 create or replace function public.seed_default_dasher_boards_config(p_facility_id uuid)
@@ -140,7 +140,7 @@ begin
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: corner radius segments (migration 257).
+  -- Issue categories: corner radius segments (migration 259).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'corner_radius', c.label, c.sort_order
   from (values
@@ -152,7 +152,7 @@ begin
   ) as c(label, sort_order)
   on conflict (facility_id, asset_type, label) do nothing;
 
-  -- Issue categories: post gaps (migration 257).
+  -- Issue categories: post gaps (migration 259).
   insert into public.dasher_boards_issue_categories (facility_id, asset_type, label, sort_order)
   select p_facility_id, 'post_gap', c.label, c.sort_order
   from (values
