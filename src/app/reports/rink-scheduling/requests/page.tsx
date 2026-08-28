@@ -177,12 +177,26 @@ export default async function RequestsPage({
         title="Requests & Waitlist"
         description="Ice-time requests from the public form, and who to call when a slot frees up."
         actions={
-          <Link
-            href="/reports/rink-scheduling"
-            className="text-muted-foreground text-sm no-underline hover:underline"
-          >
-            ← Calendar
-          </Link>
+          <>
+            <Link
+              href="/reports/rink-scheduling"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              ← Calendar
+            </Link>
+            <Link
+              href="/reports/rink-scheduling/invoices"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              Invoices →
+            </Link>
+            <Link
+              href="/reports/rink-scheduling/insights"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              Insights →
+            </Link>
+          </>
         }
       />
 
