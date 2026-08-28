@@ -9450,7 +9450,7 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- PS: migration 258 public surfaces — token types, booking requests, waitlist.
+-- PS: migration 259 public surfaces — token types, booking requests, waitlist.
 --
 -- The display_type CHECK was widened by DROP + ADD (Postgres has no "add a
 -- value"), so a restatement that lost one would silently NARROW the domain.

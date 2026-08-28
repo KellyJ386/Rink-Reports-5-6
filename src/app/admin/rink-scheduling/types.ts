@@ -57,7 +57,7 @@ export type RateCardWithDetail = RateCardRow & {
 
 // ---- Display tokens ----
 
-/** Mirrors the rink_display_tokens.display_type CHECK (migration 258). */
+/** Mirrors the rink_display_tokens.display_type CHECK (migration 259). */
 export type DisplayTokenType =
   | "locker_rooms"
   | "ice_schedule"
