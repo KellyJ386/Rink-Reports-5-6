@@ -8,6 +8,7 @@ import {
   displayRateLimitKey,
   type RateLimitStore,
 } from "@/lib/rink-scheduling/display-rate-limit"
+import { buildIceScheduleBoard } from "@/lib/rink-scheduling/ice-schedule-display"
 import {
   buildDisplayBoard,
   isPlausibleDisplayToken,
@@ -123,8 +124,9 @@ export async function GET(
       if (!unknown.allowed) return tooMany(unknown.retryAfterSeconds)
       return notFound()
     }
-    if (tokenRow.display_type !== "locker_rooms") {
-      // A display type this build does not know how to render.
+    if (tokenRow.display_type !== "locker_rooms" && tokenRow.display_type !== "ice_schedule") {
+      // A token type this endpoint does not serve (rink_ics and request_form
+      // have their own routes), or one this build does not know how to render.
       return notFound()
     }
 
@@ -149,6 +151,66 @@ export async function GET(
 
     const horizonIso = new Date(nowMs + hoursAhead * 60 * 60_000).toISOString()
     const nowIso = new Date(nowMs).toISOString()
+
+    // The ice-schedule board: today's public schedule per rink. Same payload
+    // discipline as the locker board — label, window, rink; nothing that
+    // identifies a customer.
+    if (tokenRow.display_type === "ice_schedule") {
+      const [{ data: rinkRows }, { data: typeRows }, { data: bookingRows }] =
+        await Promise.all([
+          admin
+            .from("facility_rinks")
+            .select("id, name, display_color, sort_order")
+            .eq("facility_id", facilityId)
+            .eq("is_active", true),
+          admin
+            .from("rink_booking_types")
+            .select("id, name")
+            .eq("facility_id", facilityId),
+          admin
+            .from("rink_bookings")
+            .select("id, rink_id, booking_type_id, title, starts_at, ends_at, status")
+            .eq("facility_id", facilityId)
+            .neq("status", "cancelled")
+            .gt("ends_at", nowIso)
+            .lt("starts_at", horizonIso)
+            .limit(500),
+        ])
+
+      const typeNameById = new Map((typeRows ?? []).map((t) => [t.id, t.name]))
+      const board = buildIceScheduleBoard(
+        (rinkRows ?? []).map((r) => ({
+          id: r.id,
+          name: r.name,
+          color: r.display_color ?? null,
+          sortOrder: r.sort_order ?? 0,
+        })),
+        (bookingRows ?? []).map((b) => ({
+          id: b.id,
+          rinkId: b.rink_id,
+          startsAt: b.starts_at,
+          endsAt: b.ends_at,
+          status: b.status,
+          title: b.title,
+          typeName: typeNameById.get(b.booking_type_id) ?? null,
+        })),
+        nowMs,
+        hoursAhead,
+      )
+
+      void touchLastSeen(admin, tokenRow.id, tokenRow.last_seen_at, nowMs)
+
+      return NextResponse.json(
+        {
+          displayType: "ice_schedule",
+          label: tokenRow.label,
+          refreshSeconds,
+          timeZone,
+          ...board,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      )
+    }
 
     const [{ data: roomRows }, { data: assignmentRows }] = await Promise.all([
       admin
@@ -208,6 +270,7 @@ export async function GET(
 
     return NextResponse.json(
       {
+        displayType: "locker_rooms",
         label: tokenRow.label,
         refreshSeconds,
         timeZone,

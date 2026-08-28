@@ -9450,6 +9450,99 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- PS: migration 258 public surfaces — token types, booking requests, waitlist.
+--
+-- The display_type CHECK was widened by DROP + ADD (Postgres has no "add a
+-- value"), so a restatement that lost one would silently NARROW the domain.
+-- Inserting a row of every permitted value is the CI tripwire, same pattern
+-- as schedule_notifications.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_display_tokens (facility_id, token_hash, label, display_type)
+    values
+      ('11111111-1111-1111-1111-111111111111', repeat('0', 60) || 'a258', 'PS locker', 'locker_rooms'),
+      ('11111111-1111-1111-1111-111111111111', repeat('0', 60) || 'b258', 'PS sched',  'ice_schedule'),
+      ('11111111-1111-1111-1111-111111111111', repeat('0', 60) || 'c258', 'PS ics',    'rink_ics'),
+      ('11111111-1111-1111-1111-111111111111', repeat('0', 60) || 'd258', 'PS form',   'request_form')$$,
+  'PS1: every permitted display_type value inserts (CHECK not narrowed)');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_display_tokens (facility_id, token_hash, label, display_type)
+    values ('11111111-1111-1111-1111-111111111111', repeat('0', 60) || 'e258', 'PS bad', 'jumbotron')$$,
+  'PS2: an unknown display_type is REJECTED');
+
+-- Seed one request per facility (as postgres — the app path is the service
+-- role behind the tokened Route Handler; authenticated must have NO insert).
+insert into public.rink_booking_requests
+  (id, facility_id, requester_name, requester_email, requested_date, start_minute, end_minute, purpose)
+values
+  ('a2580001-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'Jordan Vaughn', 'jordan@club.test', date '2027-06-01', 1020, 1110, 'League practice'),
+  ('a2580001-0000-4000-8000-000000000002', '22222222-2222-2222-2222-222222222222',
+   'Foreign Requester', 'other@club.test', date '2027-06-01', 600, 720, null)
+on conflict (id) do nothing;
+
+-- Carol (edit tier, Facility A) works the inbox; the other facility's
+-- requests do not exist for her.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_requests$$,
+  1, 'PS3: carol (edit) sees her facility''s requests and ONLY those');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_booking_requests
+      (facility_id, requester_name, requester_email, requested_date, start_minute, end_minute)
+    values ('11111111-1111-1111-1111-111111111111', 'Sneaky', 's@x.test',
+            date '2027-06-02', 600, 700)$$,
+  'PS4: authenticated CANNOT insert a request through PostgREST (service role only)');
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_booking_requests
+         set status = 'declined', decided_at = now(), decision_note = 'No ice available'
+       where id = 'a2580001-0000-4000-8000-000000000001'
+       returning 1)
+    select count(*) from u$$,
+  1, 'PS5: carol (edit) CAN decide a request');
+
+-- Waitlist: edit tier owns it end to end, facility-scoped.
+select pg_temp.expect_ok(
+  $$insert into public.rink_waitlist_entries
+      (facility_id, contact_name, contact_phone, desired_date, notes)
+    values ('11111111-1111-1111-1111-111111111111', 'Casey Mills', '315-555-0199',
+            date '2027-06-03', 'Wants Friday evening ice')$$,
+  'PS6: carol (edit) CAN add a waitlist entry');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_waitlist_entries (facility_id, contact_name, desired_date)
+    values ('22222222-2222-2222-2222-222222222222', 'Rogue Entry', date '2027-06-03')$$,
+  'PS7: carol CANNOT add a waitlist entry for another facility');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_waitlist_entries (facility_id, desired_date)
+    values ('11111111-1111-1111-1111-111111111111', date '2027-06-03')$$,
+  'PS8: a waitlist entry needs a customer or a contact name (CHECK)');
+
+-- Alice (view+submit, no edit) sees neither surface: requests carry requester
+-- PII and the waitlist is desk work.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_requests$$,
+  0, 'PS9: alice (submit-only) sees NO booking requests');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_waitlist_entries$$,
+  0, 'PS10: alice (submit-only) sees NO waitlist entries');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- GATE-246: cron RPC caller gates (migration 247).
 --
 -- The first production cron runs proved a `session_user = 'service_role'`

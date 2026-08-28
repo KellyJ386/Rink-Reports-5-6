@@ -55,6 +55,35 @@ export type RateCardWithDetail = RateCardRow & {
   overrides: RateCardTypeOverrideRow[]
 }
 
+// ---- Display tokens ----
+
+/** Mirrors the rink_display_tokens.display_type CHECK (migration 258). */
+export type DisplayTokenType =
+  | "locker_rooms"
+  | "ice_schedule"
+  | "rink_ics"
+  | "request_form"
+
+export const DISPLAY_TOKEN_TYPES: ReadonlyArray<{
+  key: DisplayTokenType
+  label: string
+}> = [
+  { key: "locker_rooms", label: "Locker room board" },
+  { key: "ice_schedule", label: "Ice schedule board" },
+  { key: "rink_ics", label: "Calendar feed (ICS)" },
+  { key: "request_form", label: "Booking request form" },
+]
+
+export function displayTokenTypeLabel(value: string): string {
+  return DISPLAY_TOKEN_TYPES.find((t) => t.key === value)?.label ?? value
+}
+
+/** The two types that render as a lobby board and carry board settings
+ *  (hours_ahead / refresh_seconds); the feed and form types store no settings. */
+export function isBoardTokenType(value: string): boolean {
+  return value === "locker_rooms" || value === "ice_schedule"
+}
+
 /** A token's plaintext exists for exactly one render, immediately after
  *  creation. It is never stored and never re-retrievable — only its sha256
  *  hash reaches the database. */
@@ -62,6 +91,7 @@ export type CreatedToken = {
   id: string
   label: string
   url: string
+  displayType: DisplayTokenType
 }
 
 // ---- Action plumbing ----
