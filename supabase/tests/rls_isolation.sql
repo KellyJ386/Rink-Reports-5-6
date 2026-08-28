@@ -5596,16 +5596,17 @@ select pg_temp.expect_count(
       and asset_type = 'door'$$,
   6, 'DB0a: facilities trigger seeded 6 door subtypes for a new facility');
 
--- 33 = the 20 repair categories from migration 194 plus the cleaning set added
+-- 35 = the 20 repair categories from migration 194 plus the cleaning set added
 -- when migration 204 redefined the seed function (3x "Needs cleaning",
 -- "Film/residue", "Debris/buildup"), plus the corner_radius (5) and post_gap
--- (3) sets added by migration 257. The 204 expectation was left at 20 when it
--- landed, which made the whole suite red on main from 2026-07-24 onward —
--- update this count in the SAME PR as any seed change.
+-- (3) sets added by migration 257, plus "Hardware tightening" (board) and
+-- "Replacement" (glass) from migration 261. The 204 expectation was left at
+-- 20 when it landed, which made the whole suite red on main from 2026-07-24
+-- onward — update this count in the SAME PR as any seed change.
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_issue_categories
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  33, 'DB0b: facilities trigger seeded 33 issue categories for a new facility');
+  35, 'DB0b: facilities trigger seeded 35 issue categories for a new facility');
 
 select pg_temp.expect_count(
   $$select count(*) from public.facility_modules
@@ -9969,6 +9970,46 @@ select pg_temp.expect_error(
             'dab0000b-0000-4000-8000-00000000000b',
             'Smuggled item', 'weekly')$$,
   'DSL20c: a checklist item cannot reference another facility''s rink (composite FK)');
+
+-- DSL21: annual contractor inspections (migration 261). The contractor
+-- attribution is CHECK-shaped both ways (annual requires a name, routine
+-- forbids one), and a completed annual walk is as frozen as any other.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections
+      (facility_id, rink_id, inspector_id, contractor_name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000d-0000-4000-8000-00000000000d',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Rink Systems Ltd.')$$,
+  'DSL21a: a routine walk cannot carry contractor attribution');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections
+      (facility_id, rink_id, inspector_id, inspection_kind)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000d-0000-4000-8000-00000000000d',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'annual_contractor')$$,
+  'DSL21b: an annual contractor walk requires the contractor''s name');
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_inspections
+      (id, facility_id, rink_id, inspector_id, inspection_kind,
+       contractor_name, contractor_company, started_at, completed_at)
+    values ('dabd000d-0000-4000-8000-000000000021',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000d-0000-4000-8000-00000000000d',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'annual_contractor',
+            'Pat Doe', 'Boards & Glass Co.',
+            now() - interval '2 hours', now() - interval '1 hour')$$,
+  'DSL21c: a completed annual contractor walk records who performed it');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_inspections
+       set inspection_kind = 'routine', contractor_name = null,
+           contractor_company = null
+     where id = 'dabd000d-0000-4000-8000-000000000021'$$,
+  'DSL21d: a completed annual walk is immutable — the attestation cannot be rewritten');
 
 reset role;
 
