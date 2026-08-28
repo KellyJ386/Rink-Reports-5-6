@@ -112,6 +112,18 @@ export type PositionedAssetLite = {
   id: string
   label: string
   asset_type: "board_panel" | "door"
+  /**
+   * Display-layer columns (migration 257). Optional so callers that only
+   * ever want the permanent label (e.g. the printed walk report) are
+   * unaffected — RinkPerimeter treats an absent value the same as
+   * null/empty. When present, the component resolves custom_label > glass
+   * number > `label` for what it prints (see resolveSegmentLabel in
+   * reports/dasher-boards/_lib/display-label) and renders the
+   * out-of-service hazard treatment.
+   */
+  custom_label?: string | null
+  aliases?: readonly string[]
+  out_of_service?: boolean
 }
 
 export type PerimeterSegment = {

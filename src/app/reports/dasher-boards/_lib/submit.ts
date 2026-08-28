@@ -283,11 +283,35 @@ export async function resolveIssue(
 // Inspections (walks)
 // ---------------------------------------------------------------------------
 
+export type WalkKindInput = {
+  /** Defaults to routine; annual_contractor is the ORFA annual inspection. */
+  kind?: "routine" | "annual_contractor"
+  /** Required when kind is annual_contractor (CHECK-enforced, migration 261). */
+  contractorName?: string | null
+  contractorCompany?: string | null
+}
+
 export async function startInspection(
   supabase: ServerSupabase,
-  args: { employeeId: string; facilityId: string; rinkId: string },
+  args: {
+    employeeId: string
+    facilityId: string
+    rinkId: string
+  } & WalkKindInput,
 ): Promise<PersistResult<{ inspectionId: string; resumed: boolean }>> {
   const { employeeId, facilityId, rinkId } = args
+  const kind = args.kind ?? "routine"
+  const contractorName = args.contractorName?.trim() || null
+  const contractorCompany = args.contractorCompany?.trim() || null
+  if (kind === "annual_contractor" && !contractorName) {
+    return {
+      ok: false,
+      error: "Annual contractor inspections record who performed them — enter the contractor's name.",
+    }
+  }
+  if (kind === "routine" && (contractorName || contractorCompany)) {
+    return { ok: false, error: "Routine walks don't carry contractor attribution." }
+  }
 
   const { data: rink } = await supabase
     .from("dasher_boards_rinks")
@@ -317,6 +341,9 @@ export async function startInspection(
       facility_id: facilityId,
       rink_id: rinkId,
       inspector_id: employeeId,
+      inspection_kind: kind,
+      contractor_name: contractorName,
+      contractor_company: contractorCompany,
     })
     .select("id")
     .single()

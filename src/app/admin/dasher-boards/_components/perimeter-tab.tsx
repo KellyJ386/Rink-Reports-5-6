@@ -29,6 +29,7 @@ import {
 } from "@/app/reports/dasher-boards/_lib/glass-numbering"
 
 import {
+  applyStandardTemplate,
   bulkSetGlassSpec,
   convertAssetToDoor,
   convertDoorToBoard,
@@ -208,6 +209,7 @@ export function PerimeterTab({
         a.asset_type === "door") &&
       !hasSpec(a),
   ).length
+  const outOfServiceCount = positioned.filter((a) => a.out_of_service).length
 
   return (
     <div className="flex flex-col gap-6">
@@ -219,7 +221,10 @@ export function PerimeterTab({
               <CardDescription>
                 Tap a position on the diagram to edit it — mark doors, relabel,
                 insert or remove positions, toggle glass, and enter replacement
-                specs. Existing assets are never renumbered.
+                specs. Existing assets are never renumbered. Custom labels,
+                zones, and aliases are edited on the Labels & Zones tab; out of
+                service is set from that tab&apos;s segment list (dashed + × on the
+                diagram below).
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -229,6 +234,11 @@ export function PerimeterTab({
               <Badge variant="secondary">{doorCount} doors</Badge>
               {unspeccedGlass > 0 && (
                 <Badge variant="outline">{unspeccedGlass} without spec</Badge>
+              )}
+              {outOfServiceCount > 0 && (
+                <Badge variant="warning">
+                  {outOfServiceCount} out of service
+                </Badge>
               )}
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={showGlass} onCheckedChange={setShowGlass} />
@@ -273,6 +283,9 @@ export function PerimeterTab({
                   id: a.id,
                   label: a.label,
                   asset_type: a.asset_type as "board_panel" | "door",
+                  custom_label: a.custom_label,
+                  aliases: a.aliases,
+                  out_of_service: a.out_of_service,
                 }))}
                 direction={
                   rink.perimeter_direction as "clockwise" | "counterclockwise"
@@ -427,6 +440,7 @@ function StartPointCard({ rink }: { rink: RinkRow }) {
 function SequenceBuilderCard({ rink }: { rink: RinkRow }) {
   const [count, setCount] = useState("64")
   const [pending, start] = useTransition()
+  const [templatePending, startTemplate] = useTransition()
 
   function onGenerate() {
     const n = Math.trunc(Number(count))
@@ -441,32 +455,79 @@ function SequenceBuilderCard({ rink }: { rink: RinkRow }) {
     })
   }
 
+  function onApplyTemplate() {
+    startTemplate(async () => {
+      const r = await applyStandardTemplate(rink.id)
+      if (!r.ok) toast.error(r.error)
+      else {
+        toast.success(
+          "Standard rink template applied — edit anything from here.",
+        )
+      }
+    })
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Sequence builder</CardTitle>
         <CardDescription>
-          Enter the number of board positions around the perimeter, counted
-          from {rink.perimeter_anchor_label || "your anchor point"} going{" "}
-          {rink.perimeter_direction}. Every position starts as a uniform board
-          panel with a 1:1 glass row; you&apos;ll mark the doors by tapping
-          them on the diagram right after.
+          Start from the standard rink template or generate a uniform
+          sequence — either way, you&apos;ll mark doors and other exceptions
+          right after by tapping the diagram. Existing assets are never
+          renumbered.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="db-position-count">Board positions</Label>
-          <Input
-            id="db-position-count"
-            inputMode="numeric"
-            value={count}
-            onChange={(e) => setCount(e.target.value)}
-            className="w-32"
-          />
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 rounded-md border border-dashed p-4">
+          <h3 className="text-sm font-semibold">Standard rink template</h3>
+          <p className="text-muted-foreground text-sm">
+            33 board panels with 1:1 glass, four 3-segment corner radius
+            groups, a Zamboni gate, two penalty gates, and two bench gates —
+            starting from {rink.perimeter_anchor_label || "your anchor point"}{" "}
+            going {rink.perimeter_direction}, with zones pre-assigned (North
+            End, East Side, Penalty Boxes, South End, West Side, Visitor
+            Bench, Home Bench). Nothing here is final: relabel, insert or
+            remove positions, reassign zones, or change door subtypes
+            afterward.
+          </p>
+          <Button
+            className="w-fit"
+            disabled={pending || templatePending}
+            onClick={onApplyTemplate}
+          >
+            {templatePending ? "Applying…" : "Use standard rink template"}
+          </Button>
         </div>
-        <Button onClick={onGenerate} disabled={pending}>
-          {pending ? "Generating…" : "Generate perimeter"}
-        </Button>
+
+        <div className="flex flex-col gap-2 rounded-md border border-dashed p-4">
+          <h3 className="text-sm font-semibold">Uniform sequence</h3>
+          <p className="text-muted-foreground text-sm">
+            Enter the number of board positions around the perimeter, counted
+            from {rink.perimeter_anchor_label || "your anchor point"} going{" "}
+            {rink.perimeter_direction}. Every position starts as a uniform
+            board panel with a 1:1 glass row; you&apos;ll mark the doors by
+            tapping them on the diagram right after.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="db-position-count">Board positions</Label>
+              <Input
+                id="db-position-count"
+                inputMode="numeric"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+                className="w-32"
+              />
+            </div>
+            <Button
+              onClick={onGenerate}
+              disabled={pending || templatePending}
+            >
+              {pending ? "Generating…" : "Generate perimeter"}
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )

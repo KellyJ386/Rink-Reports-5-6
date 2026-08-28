@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/server"
 import { resolveRinkGlassNumbers } from "@/app/reports/dasher-boards/_lib/queries"
 
 import { ChecklistTab } from "./_components/checklist-tab"
+import { LabelsTab } from "./_components/labels-tab"
 import { ListsTab } from "./_components/lists-tab"
 import { PerimeterTab } from "./_components/perimeter-tab"
 import { RinkSettingsCard } from "./_components/rink-settings-card"
@@ -34,6 +35,7 @@ import type {
   WalkAssetCheckItem,
   WalkDetailData,
   WalkListItem,
+  ZoneRow,
 } from "./types"
 import { TABS, asTab } from "./types"
 
@@ -123,35 +125,44 @@ export default async function DasherBoardsAdminPage({
     rinks.find((r) => r.is_default) ??
     rinks[0]
 
-  const [assetsRes, subtypesRes, categoriesRes, itemsRes] = await Promise.all([
-    supabase
-      .from("dasher_boards_assets")
-      .select("*")
-      .eq("rink_id", selectedRink.id)
-      .order("sequence_position", { ascending: true, nullsFirst: false })
-      .order("label", { ascending: true }),
-    supabase
-      .from("dasher_boards_asset_subtypes")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("dasher_boards_issue_categories")
-      .select("*")
-      .eq("facility_id", facilityId)
-      .order("asset_type", { ascending: true })
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("dasher_boards_checklist_items")
-      .select("*")
-      .eq("rink_id", selectedRink.id)
-      .order("sort_order", { ascending: true }),
-  ])
+  const [assetsRes, subtypesRes, categoriesRes, itemsRes, zonesRes] =
+    await Promise.all([
+      supabase
+        .from("dasher_boards_assets")
+        .select("*")
+        .eq("rink_id", selectedRink.id)
+        .order("sequence_position", { ascending: true, nullsFirst: false })
+        .order("label", { ascending: true }),
+      supabase
+        .from("dasher_boards_asset_subtypes")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("dasher_boards_issue_categories")
+        .select("*")
+        .eq("facility_id", facilityId)
+        .order("asset_type", { ascending: true })
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("dasher_boards_checklist_items")
+        .select("*")
+        .eq("rink_id", selectedRink.id)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("dasher_boards_zones")
+        .select("*")
+        .eq("rink_id", selectedRink.id)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }),
+    ])
 
   const assets = (assetsRes.data ?? []) as AssetRow[]
   const subtypes = (subtypesRes.data ?? []) as SubtypeRow[]
   const categories = (categoriesRes.data ?? []) as IssueCategoryRow[]
   const items = (itemsRes.data ?? []) as ChecklistItemRow[]
+  const zones = (zonesRes.data ?? []) as ZoneRow[]
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -187,6 +198,14 @@ export default async function DasherBoardsAdminPage({
           )}
         />
       )}
+      {tab === "labels" && (
+        <LabelsTab
+          key={selectedRink.id}
+          rink={selectedRink}
+          assets={assets}
+          zones={zones}
+        />
+      )}
       {tab === "checklist" && (
         <ChecklistTab key={selectedRink.id} rink={selectedRink} items={items} />
       )}
@@ -198,6 +217,7 @@ export default async function DasherBoardsAdminPage({
           key={selectedRink.id}
           facilityId={facilityId}
           rinkId={selectedRink.id}
+          rinkSlug={selectedRink.slug}
           walkId={params.walk}
           show={params.show}
         />
@@ -219,11 +239,13 @@ const SHOW_OPTS = { initial: 50, step: 50 }
 async function WalksTabLoader({
   facilityId,
   rinkId,
+  rinkSlug,
   walkId,
   show: showParam,
 }: {
   facilityId: string
   rinkId: string
+  rinkSlug: string
   walkId?: string
   show?: string
 }) {
@@ -406,6 +428,7 @@ async function WalksTabLoader({
       detail={detail}
       backHref={backHref}
       rinkId={rinkId}
+      rinkSlug={rinkSlug}
       timezone={timezone}
       moreHref={moreHref}
     />

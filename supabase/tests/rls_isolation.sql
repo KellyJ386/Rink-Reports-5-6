@@ -5588,20 +5588,25 @@ set local role postgres;
 
 -- The fixture facilities were inserted AFTER migration 194 applied, so the
 -- facilities AFTER INSERT trigger must have seeded the module's config.
+-- 6 = the 4 door subtypes from migration 194 plus Penalty + Emergency added
+-- when migration 257 completed the standard gate taxonomy.
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_asset_subtypes
     where facility_id = '11111111-1111-1111-1111-111111111111'
       and asset_type = 'door'$$,
-  4, 'DB0a: facilities trigger seeded 4 door subtypes for a new facility');
+  6, 'DB0a: facilities trigger seeded 6 door subtypes for a new facility');
 
--- 25 = the 20 repair categories from migration 194 plus the cleaning set added
+-- 35 = the 20 repair categories from migration 194 plus the cleaning set added
 -- when migration 204 redefined the seed function (3x "Needs cleaning",
--- "Film/residue", "Debris/buildup"). This expectation was left at 20 when 204
--- landed, which made the whole suite red on main from 2026-07-24 onward.
+-- "Film/residue", "Debris/buildup"), plus the corner_radius (5) and post_gap
+-- (3) sets added by migration 257, plus "Hardware tightening" (board) and
+-- "Replacement" (glass) from migration 261. The 204 expectation was left at
+-- 20 when it landed, which made the whole suite red on main from 2026-07-24
+-- onward — update this count in the SAME PR as any seed change.
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_issue_categories
     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
-  25, 'DB0b: facilities trigger seeded 25 issue categories for a new facility');
+  35, 'DB0b: facilities trigger seeded 35 issue categories for a new facility');
 
 select pg_temp.expect_count(
   $$select count(*) from public.facility_modules
@@ -5864,12 +5869,21 @@ select pg_temp.expect_error(
             'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'B1', 2)$$,
   'DB22c: a retired label can never be reused on the rink');
 
--- Glass-spec integrity: board panels reject spec writes at the constraint layer.
+-- Panel-spec generalization (migration 257): board panels now ACCEPT the
+-- panel spec (the former glass-only restriction was deliberately dropped so
+-- any segment can carry material/dimensions), and the material domain gained
+-- hdpe/other while keeping the original three values.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set glass_width_in = 48, glass_material = 'hdpe'
+     where id = 'dabb000b-0000-4000-8000-000000000001'$$,
+  'DB23a: board_panel rows accept panel spec writes (migration 257)');
+
 select pg_temp.expect_error(
   $$update public.dasher_boards_assets
-       set glass_width_in = 48
+       set glass_material = 'plywood'
      where id = 'dabb000b-0000-4000-8000-000000000001'$$,
-  'DB23: board_panel rows reject glass spec writes (check constraint)');
+  'DB23b: material domain still rejects values outside the widened list');
 
 -- End of the trusted-context asset corrections; restore normal guard
 -- enforcement for the edit-tier assertions below.
@@ -6105,12 +6119,13 @@ values
    'sharp edge', 'a', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
    'cccc3333-cccc-cccc-cccc-cccccccccccc', 'taped the edge');
 
--- Cleaning categories are seeded per asset type.
+-- Cleaning categories are seeded per asset type (board/glass/door from
+-- migration 204; corner_radius joined in migration 257).
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_issue_categories
     where facility_id = '11111111-1111-1111-1111-111111111111'
       and label = 'Needs cleaning'$$,
-  3, 'DB39: default cleaning categories seeded (board/glass/door)');
+  4, 'DB39: default cleaning categories seeded (board/glass/door/corner)');
 
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
@@ -9521,6 +9536,527 @@ select pg_temp.expect_count(
          or pg_get_functiondef(p.oid) like '%delete from _drain_claim;%')$$,
   0,
   'GATE-246: no cron RPC gate matches session_user/current_user against service_role (unreachable via PostgREST)');
+
+-- ---------------------------------------------------------------------------
+-- DSL1-16: Dasher Boards custom segment labels / zones / snapshots
+-- (migration 257).
+--
+-- The product invariant under test: custom_label is DISPLAY ONLY — renaming a
+-- segment never breaks or reattributes history (label_snapshot is written at
+-- log time, server-derived, and frozen), every rename and out-of-service flip
+-- writes an asset event (no silent status writes), and zones/labels are
+-- facility-isolated like every other dasher table.
+-- ---------------------------------------------------------------------------
+reset role;
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+
+-- Zone seeding: the rinks AFTER INSERT trigger seeded the standard seven for
+-- the fixture rinks (created after migration 257 applied).
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_zones
+    where rink_id = 'dab0000a-0000-4000-8000-00000000000a'$$,
+  7, 'DSL1: rink trigger seeded the 7 standard zones');
+
+-- Event-type domain canary (the migration 158/234 lost-value lesson): one
+-- event of EVERY permitted value must insert; a value lost in a future CHECK
+-- restatement fails here instead of in production.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_asset_events (facility_id, asset_id, event_type)
+    select '11111111-1111-1111-1111-111111111111',
+           'dabb000a-0000-4000-8000-000000000001', v.t
+    from (values
+      ('created'), ('converted_to_door'), ('converted_to_board'), ('relabeled'),
+      ('deactivated'), ('reactivated'), ('glass_toggled'), ('spec_updated'),
+      ('renumbered'), ('marked_out_of_service'), ('returned_to_service')
+    ) as v(t)$$,
+  'DSL2: every permitted asset event_type value inserts (domain canary)');
+
+-- New segment types are accepted as positioned assets.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_assets
+      (id, facility_id, rink_id, asset_type, label, sequence_position)
+    values ('dabb000a-0000-4000-8000-0000000000c1',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'corner_radius', 'C1', 60)$$,
+  'DSL3a: corner_radius assets insert as positioned segments');
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_assets
+      (id, facility_id, rink_id, asset_type, label, sequence_position)
+    values ('dabb000a-0000-4000-8000-0000000000e1',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'post_gap', 'P1', 61)$$,
+  'DSL3b: post_gap assets insert as positioned segments');
+
+-- Trusted-context asset mutations below (same reasoning as DB22): the guard's
+-- documented service bypass stands in for the admin/service tier.
+set local rr.dasher_boards_guard_bypass = 'on';
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set custom_label = 'Zam Gate Left'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL4a: setting a custom display label succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-000000000001'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'custom_label'
+      and detail->>'new' = 'Zam Gate Left'$$,
+  1, 'DSL4b: the custom relabel auto-wrote a relabeled asset event');
+
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set custom_label = 'zam gate left'
+     where id = 'dabb000a-0000-4000-8000-0000000000c1'$$,
+  'DSL5: custom labels are case-insensitively unique per rink');
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set out_of_service = true
+     where id = 'dabb000a-0000-4000-8000-0000000000c1'$$,
+  'DSL6a: marking a segment out of service succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000c1'
+      and event_type = 'marked_out_of_service'$$,
+  1, 'DSL6b: the out-of-service flip auto-wrote its asset event (no silent status write)');
+
+-- A zone reference is pinned to the asset's own rink (composite FK).
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set zone_id = (select id from public.dasher_boards_zones
+                       where rink_id = 'dab0000b-0000-4000-8000-00000000000b'
+                         and name = 'North End')
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL7a: an asset CANNOT reference a zone of another rink');
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set zone_id = (select id from public.dasher_boards_zones
+                       where rink_id = 'dab0000a-0000-4000-8000-00000000000a'
+                         and name = 'North End')
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL7b: an asset CAN reference a zone of its own rink');
+
+set local rr.dasher_boards_guard_bypass = 'off';
+
+-- A fresh open walk for alice (idempotent against any open walk left by the
+-- DB16+ fixtures — at most one open walk per inspector per rink).
+insert into public.dasher_boards_inspections (id, facility_id, rink_id, inspector_id)
+values ('dabd000a-0000-4000-8000-00000000000f',
+        '11111111-1111-1111-1111-111111111111',
+        'dab0000a-0000-4000-8000-00000000000a',
+        'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+on conflict (rink_id, inspector_id) where completed_at is null do nothing;
+
+-- Alice (staff tier: view + submit).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+-- Snapshots are server-derived: a forged client value is overwritten with the
+-- asset's display label at log time.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_issues
+      (id, facility_id, rink_id, asset_id, description, severity, reported_by,
+       label_snapshot)
+    values ('dabb000a-0000-4000-8000-00000000f001',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a',
+            'dabb000a-0000-4000-8000-000000000001',
+            'Scuffed at the zam gate', 'c',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'FORGED')$$,
+  'DSL8a: staff issue insert with a forged label_snapshot succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_issues
+    where id = 'dabb000a-0000-4000-8000-00000000f001'
+      and label_snapshot = 'Zam Gate Left'$$,
+  1, 'DSL8b: the snapshot is server-derived (custom label at log time, forgery overwritten)');
+
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_asset_checks
+      (facility_id, inspection_id, asset_id, status, checked_by, label_snapshot)
+    select '11111111-1111-1111-1111-111111111111', i.id,
+           'dabb000a-0000-4000-8000-0000000000c1', 'pass',
+           'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'FORGED'
+      from public.dasher_boards_inspections i
+     where i.rink_id = 'dab0000a-0000-4000-8000-00000000000a'
+       and i.inspector_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and i.completed_at is null
+     limit 1$$,
+  'DSL9a: walk asset check with a forged label_snapshot succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_checks
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000c1'
+      and label_snapshot = 'C1'$$,
+  1, 'DSL9b: the check snapshot falls back to the permanent label when no custom label is set');
+
+-- Zones: facility-isolated reads; writes stay admin-only.
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_zones
+    where rink_id = 'dab0000a-0000-4000-8000-00000000000a'$$,
+  7, 'DSL10a: alice CAN read her own rink''s zones');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_zones
+    where facility_id = '22222222-2222-2222-2222-222222222222'$$,
+  0, 'DSL10b: alice CANNOT read facility B''s zones');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_zones (facility_id, rink_id, name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'Staff Zone')$$,
+  'DSL11a: staff (submit) CANNOT create zones');
+select pg_temp.expect_count(
+  $$with d as (
+      update public.dasher_boards_zones set name = 'Hacked'
+      where rink_id = 'dab0000a-0000-4000-8000-00000000000a'
+        and name = 'North End' returning 1)
+    select count(*) from d$$,
+  0, 'DSL11b: staff (submit) zone UPDATE is a 0-row no-op under RLS');
+
+-- Mona (edit tier): may flip out_of_service (a status change — audited by
+-- trigger), may NOT touch the display layer (custom_label/aliases/zone_id).
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set out_of_service = true
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DSL12a: manager (edit) CAN mark a segment out of service');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-000000000002'
+      and event_type = 'marked_out_of_service'$$,
+  1, 'DSL12b: the edit-tier status change was auto-audited despite the admin-only events policy');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set custom_label = 'Managers Corner'
+     where id = 'dabb000a-0000-4000-8000-000000000002'$$,
+  'DSL13: manager (edit) CANNOT change custom_label (column guard)');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set zone_id = (select id from public.dasher_boards_zones
+                       where rink_id = 'dab0000a-0000-4000-8000-00000000000a'
+                         and name = 'South End')
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL14: manager (edit) CANNOT change zone_id (column guard)');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_issues
+       set label_snapshot = 'REWRITTEN'
+     where id = 'dabb000a-0000-4000-8000-00000000f001'$$,
+  'DSL15: label_snapshot is frozen on update (history cannot be rewritten)');
+
+-- THE invariant: renaming a segment never breaks or reattributes history.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+set local rr.dasher_boards_guard_bypass = 'on';
+
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set custom_label = 'North 3'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL16a: renaming the segment again succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_issues
+    where id = 'dabb000a-0000-4000-8000-00000000f001'
+      and asset_id = 'dabb000a-0000-4000-8000-000000000001'
+      and label_snapshot = 'Zam Gate Left'$$,
+  1, 'DSL16b: history still reads the label it was logged under — renames never reattribute events');
+
+set local rr.dasher_boards_guard_bypass = 'off';
+
+-- DSL17: tenant pinning of rink_id (the migration-257 composite FKs). RLS
+-- validates facility_id against the caller, but rink_id is client-supplied;
+-- the (rink_id, facility_id) FKs onto dasher_boards_rinks are what stop a
+-- facility-A module admin from placing rows onto facility B's rink and
+-- squatting B's per-rink uniqueness domains (zone names, labels, positions).
+-- Mona gains the admin grant here — nothing below this point relies on her
+-- being edit-only.
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '11111111-1111-1111-1111-111111111111',
+        'dasher_boards', 'admin', true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_zones (facility_id, rink_id, name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b', 'Rogue Zone')$$,
+  'DSL17a: a facility-A admin CANNOT create a zone on facility B''s rink (composite FK)');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_assets
+       set rink_id = 'dab0000b-0000-4000-8000-00000000000b'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL17b: a facility-A admin CANNOT retarget an asset onto facility B''s rink (composite FK)');
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_zones (facility_id, rink_id, name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'Mezzanine Side')$$,
+  'DSL17c: the same admin CAN create a zone on their own facility''s rink');
+
+-- DSL18: the migration-258 transactional RPCs (reorder + bulk label), still
+-- as mona (module admin). SECURITY INVOKER: every row passes RLS + the assets
+-- column guard, so the admin path works and lower tiers fail loudly.
+-- Rink A's active positioned assets at this point: B1X (pos 1), C1 (pos 60),
+-- P1 (pos 61).
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_reorder_assets(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1',
+            'dabb000a-0000-4000-8000-0000000000e1',
+            'dabb000a-0000-4000-8000-000000000001']::uuid[])$$,
+  'DSL18a: admin CAN transactionally reorder the rink''s segments');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where id = 'dabb000a-0000-4000-8000-000000000001'
+      and sequence_position = 3$$,
+  1, 'DSL18b: reorder assigned positions 1..N in the given order');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_reorder_assets(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1']::uuid[])$$,
+  'DSL18c: a stale/partial reorder list is rejected, not silently applied');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_custom_labels(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1']::uuid[],
+      array['north 3']::text[])$$,
+  'DSL18d: a bulk label colliding (case-insensitively) with an existing custom label is rejected');
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_apply_custom_labels(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1',
+            'dabb000a-0000-4000-8000-0000000000e1']::uuid[],
+      array['NW Corner', 'Gap 1']::text[])$$,
+  'DSL18e: a clean bulk label batch applies atomically');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000c1'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'custom_label'
+      and detail->>'new' = 'NW Corner'$$,
+  1, 'DSL18f: the bulk relabel auto-wrote per-asset relabeled events');
+
+-- Alice (view+submit) can SEE the segments, so the RPC's existence check
+-- passes — but her UPDATE matches zero rows under the admin-or-edit policy,
+-- which the RPC surfaces as an error instead of a silent no-op.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.dasher_boards_reorder_assets(
+      'dab0000a-0000-4000-8000-00000000000a',
+      array['dabb000a-0000-4000-8000-0000000000c1',
+            'dabb000a-0000-4000-8000-0000000000e1',
+            'dabb000a-0000-4000-8000-000000000001']::uuid[])$$,
+  'DSL18g: staff (submit) reorder fails loudly — RLS blocks the writes inside the INVOKER RPC');
+
+-- DSL19: typed-template seeding (migration 259). A fresh rink (zones
+-- auto-seeded by the 257 trigger), then mona (module admin) applies a small
+-- typed template: labels allocate per prefix, boards get glass children,
+-- names resolve against the facility/rink, and a second apply is rejected.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+
+insert into public.dasher_boards_rinks (id, facility_id, name, slug) values
+  ('dab0000d-0000-4000-8000-00000000000d',
+   '11111111-1111-1111-1111-111111111111', 'Rink D', 'rink-d');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_apply_template(
+      'dab0000d-0000-4000-8000-00000000000d',
+      array['board_panel', 'door', 'corner_radius', 'post_gap']::text[],
+      array[null, 'Zamboni', null, null]::text[],
+      array['North End', 'North End', null, 'East Side']::text[])$$,
+  'DSL19a: admin CAN seed an empty rink from a typed template');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where rink_id = 'dab0000d-0000-4000-8000-00000000000d'$$,
+  5, 'DSL19b: 4 positioned segments + the board''s 1:1 glass row were created');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets a
+    join public.dasher_boards_zones z on z.id = a.zone_id
+    where a.rink_id = 'dab0000d-0000-4000-8000-00000000000d'
+      and a.label = 'B1' and z.name = 'North End'$$,
+  1, 'DSL19c: template zone names resolved to this rink''s zones');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets a
+    join public.dasher_boards_asset_subtypes s on s.id = a.subtype_id
+    where a.rink_id = 'dab0000d-0000-4000-8000-00000000000d'
+      and a.label = 'D1' and s.label = 'Zamboni'$$,
+  1, 'DSL19d: template door subtypes resolved by name');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000d-0000-4000-8000-00000000000d',
+      array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19e: a rink with assets cannot be re-templated');
+
+-- DSL19f-i: the negative cases every other module RPC carries, plus the
+-- retired-label high-water-mark rule. Two fresh empty rinks: E in facility B
+-- (the tenant-isolation target) and F in facility A (tier / validation /
+-- retired-label targets). Rink F also gets a surviving retired label — the
+-- relabel-then-hard-delete residue an "empty" rink can legitimately hold.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+insert into public.dasher_boards_rinks (id, facility_id, name, slug) values
+  ('dab0000e-0000-4000-8000-00000000000e',
+   '22222222-2222-2222-2222-222222222222', 'Rink E', 'rink-e'),
+  ('dab0000f-0000-4000-8000-00000000000f',
+   '11111111-1111-1111-1111-111111111111', 'Rink F', 'rink-f');
+insert into public.dasher_boards_retired_labels (facility_id, rink_id, label) values
+  ('11111111-1111-1111-1111-111111111111',
+   'dab0000f-0000-4000-8000-00000000000f', 'B1');
+
+-- Mona (facility-A module admin): facility B's empty rink is invisible under
+-- her RLS, so the template RPC reports it as not found.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000e-0000-4000-8000-00000000000e',
+      array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19f: a facility-A admin CANNOT template another facility''s rink (invisible under RLS)');
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000f-0000-4000-8000-00000000000f',
+      array['board_panel', 'door']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19g: mismatched template array lengths are rejected');
+
+-- Alice (view + submit, same facility): the rink is visible, but the first
+-- asset insert fails her RLS WITH CHECK — loud failure, empty rink untouched.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.dasher_boards_apply_template(
+      'dab0000f-0000-4000-8000-00000000000f',
+      array['board_panel']::text[], array[null]::text[], array[null]::text[])$$,
+  'DSL19h: staff (submit) CANNOT apply a template (RLS insert gate)');
+
+-- Mona again: the surviving retired B1 bumps the counter — labels are never
+-- reused, so the template allocates from the high-water mark (B2..), and
+-- every created row got its audit event.
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_ok(
+  $$select public.dasher_boards_apply_template(
+      'dab0000f-0000-4000-8000-00000000000f',
+      array['board_panel', 'board_panel']::text[],
+      array[null, null]::text[], array[null, null]::text[])$$,
+  'DSL19i: templating over a retired label succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where rink_id = 'dab0000f-0000-4000-8000-00000000000f'
+      and label = 'B1'$$,
+  0, 'DSL19j: the retired label was never reallocated (counter starts past the high-water mark)');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_assets
+    where rink_id = 'dab0000f-0000-4000-8000-00000000000f'
+      and label in ('B2', 'B3')$$,
+  2, 'DSL19k: allocation continued from the high-water mark (B2, B3)');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events e
+    join public.dasher_boards_assets a on a.id = e.asset_id
+    where a.rink_id = 'dab0000f-0000-4000-8000-00000000000f'
+      and e.event_type = 'created'
+      and e.detail->>'source' = 'template'$$,
+  4, 'DSL19l: every template-created asset (2 boards + 2 glass) got its created audit event');
+
+-- DSL20: rink pinning completion (migration 260) — issues, inspections, and
+-- checklist items can no longer smuggle a foreign rink_id past the
+-- facility-only RLS check. Rink 'dab0000b' belongs to facility B; every row
+-- below carries facility A (which passes RLS) and must die on the composite FK.
+-- Alice (facility-A submit tier): a checklist-flag issue targeting her own
+-- facility's item but facility B's rink.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_issues
+      (facility_id, rink_id, checklist_item_id, description, severity, reported_by)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'dabc000a-0000-4000-8000-000000000001',
+            'smuggled rink', 'c', 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DSL20a: an issue cannot reference another facility''s rink (composite FK)');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections
+      (facility_id, rink_id, inspector_id)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa')$$,
+  'DSL20b: an inspection cannot reference another facility''s rink (composite FK)');
+
+-- Mona (facility-A admin): a checklist item on facility B's rink.
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_checklist_items
+      (facility_id, rink_id, label, cadence)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000b-0000-4000-8000-00000000000b',
+            'Smuggled item', 'weekly')$$,
+  'DSL20c: a checklist item cannot reference another facility''s rink (composite FK)');
+
+-- DSL21: annual contractor inspections (migration 261). The contractor
+-- attribution is CHECK-shaped both ways (annual requires a name, routine
+-- forbids one), and a completed annual walk is as frozen as any other.
+set local role postgres;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', '', true);
+
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections
+      (facility_id, rink_id, inspector_id, contractor_name)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000d-0000-4000-8000-00000000000d',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Rink Systems Ltd.')$$,
+  'DSL21a: a routine walk cannot carry contractor attribution');
+select pg_temp.expect_error(
+  $$insert into public.dasher_boards_inspections
+      (facility_id, rink_id, inspector_id, inspection_kind)
+    values ('11111111-1111-1111-1111-111111111111',
+            'dab0000d-0000-4000-8000-00000000000d',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'annual_contractor')$$,
+  'DSL21b: an annual contractor walk requires the contractor''s name');
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_inspections
+      (id, facility_id, rink_id, inspector_id, inspection_kind,
+       contractor_name, contractor_company, started_at, completed_at)
+    values ('dabd000d-0000-4000-8000-000000000021',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000d-0000-4000-8000-00000000000d',
+            'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'annual_contractor',
+            'Pat Doe', 'Boards & Glass Co.',
+            now() - interval '2 hours', now() - interval '1 hour')$$,
+  'DSL21c: a completed annual contractor walk records who performed it');
+select pg_temp.expect_error(
+  $$update public.dasher_boards_inspections
+       set inspection_kind = 'routine', contractor_name = null,
+           contractor_company = null
+     where id = 'dabd000d-0000-4000-8000-000000000021'$$,
+  'DSL21d: a completed annual walk is immutable — the attestation cannot be rewritten');
+
+reset role;
 
 do $$
 declare

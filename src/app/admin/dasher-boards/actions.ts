@@ -13,8 +13,19 @@ import {
   isUuid,
   nextLabel,
   isAssetType,
+  isPositionedAssetType,
   type AssetType,
 } from "@/app/reports/dasher-boards/_lib/compute"
+import {
+  aliasesSchema,
+  customLabelSchema,
+  zoneNameSchema,
+  type BulkLabelPreviewEntry,
+} from "@/app/reports/dasher-boards/_lib/segment-labels"
+import {
+  STANDARD_RINK_TEMPLATE,
+  templateToRpcArrays,
+} from "@/app/reports/dasher-boards/_lib/perimeter-template"
 import {
   GLASS_DISPLAY_NUMBER_RE,
   GLASS_NUMBER_PREFIX_RE,
@@ -882,7 +893,7 @@ export async function convertDoorToBoard(assetId: string): Promise<SimpleResult>
 export async function insertAsset(
   rinkId: string,
   afterPosition: number,
-  assetType: "board_panel" | "door",
+  assetType: "board_panel" | "door" | "corner_radius" | "post_gap",
   subtypeId?: string | null,
 ): Promise<SimpleResult> {
   try {
@@ -890,9 +901,10 @@ export async function insertAsset(
     if (!ctx.ok) return ctx
     if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
     // Runtime check — server actions are network-reachable and the TS type
-    // doesn't survive a forged request.
-    if (assetType !== "board_panel" && assetType !== "door") {
-      return { ok: false, error: "Insert a board panel or a door." }
+    // doesn't survive a forged request. Glass is never inserted directly
+    // (it rides a board position); every other positioned type is allowed.
+    if (!isAssetType(assetType) || !isPositionedAssetType(assetType)) {
+      return { ok: false, error: "Insert a board panel, door, corner segment, or post gap." }
     }
     const after = Math.trunc(afterPosition)
     if (after < 0) return { ok: false, error: "Invalid position." }
@@ -1703,6 +1715,8 @@ const DEFAULT_ISSUE_CATEGORIES: Record<AssetType, readonly string[]> = {
   board_panel: ["Cracked", "Loose / rattling", "Gouged", "Hardware missing"],
   glass_panel: ["Cracked", "Chipped", "Loose in frame", "Clouded / scratched"],
   door: ["Latch faulty", "Hinge damaged", "Gap at seal", "Does not close flush"],
+  corner_radius: ["Cracked", "Loose / rattling", "Radius joint misaligned"],
+  post_gap: ["Padding damaged", "Obstructed"],
 }
 
 /**
@@ -1780,5 +1794,427 @@ export async function seedDefaultDasherBoardsConfig(): Promise<ActionState> {
   } catch (e) {
     logServerError("admin/dasher-boards/seedDefaultDasherBoardsConfig", e)
     return { ok: false, error: "Failed to seed defaults." }
+  }
+}
+
+// ============================================================================
+// Segment display layer (migrations 257/258): custom labels, aliases, zones,
+// out-of-service status. custom_label is DISPLAY ONLY — `label` stays the
+// permanent identity that issue history follows; the DB trigger writes the
+// relabeled / out-of-service audit events, never this file.
+// ============================================================================
+
+export type SegmentDisplayInput = {
+  /** null clears the override — the permanent label shows again. */
+  customLabel: string | null
+  aliases: string[]
+  /** null clears the zone assignment. */
+  zoneId: string | null
+}
+
+/**
+ * Updates a segment's display layer: custom label, search aliases, and zone.
+ * Admin-only (the assets column guard freezes these columns for the edit
+ * tier). Relabel audit events are trigger-written; uniqueness is enforced by
+ * the case-insensitive per-rink index and surfaced as a clean message.
+ */
+export async function updateSegmentDisplay(
+  assetId: string,
+  input: SegmentDisplayInput,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(assetId)) return { ok: false, error: "Invalid asset." }
+
+    let customLabel: string | null = null
+    if (input.customLabel !== null) {
+      const parsed = customLabelSchema.safeParse(input.customLabel)
+      if (!parsed.success) {
+        return { ok: false, error: "Labels are 1–40 characters (no leading/trailing spaces)." }
+      }
+      customLabel = parsed.data
+    }
+    const aliases = aliasesSchema.safeParse(input.aliases)
+    if (!aliases.success) {
+      return { ok: false, error: "Aliases are 1–60 characters each, up to 12 per segment." }
+    }
+    if (input.zoneId !== null && !isUuid(input.zoneId)) {
+      return { ok: false, error: "Invalid zone." }
+    }
+
+    const { data: asset } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .select("id, rink_id")
+      .eq("id", assetId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!asset) return { ok: false, error: "Asset not found." }
+
+    // Friendly pre-check; the (zone_id, rink_id) composite FK backs it.
+    if (input.zoneId !== null) {
+      const { data: zone } = await ctx.supabase
+        .from("dasher_boards_zones")
+        .select("id, is_active")
+        .eq("id", input.zoneId)
+        .eq("rink_id", asset.rink_id)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle()
+      if (!zone) return { ok: false, error: "Zone not found on this rink." }
+      if (!zone.is_active) return { ok: false, error: "That zone is deactivated." }
+    }
+
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .update({
+        custom_label: customLabel,
+        aliases: aliases.data,
+        zone_id: input.zoneId,
+      })
+      .eq("id", assetId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) {
+      if (error.code === "23505") {
+        return { ok: false, error: "That label is already used on this rink." }
+      }
+      return { ok: false, error: dbError(error, "Failed to update the segment.") }
+    }
+    if (!data || data.length === 0) return { ok: false, error: "Asset not found." }
+
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/updateSegmentDisplay", e)
+    return { ok: false, error: "Failed to update the segment." }
+  }
+}
+
+const REORDER_MAX = 500
+
+/**
+ * Drag-to-reorder: transactionally reassigns sequence_position 1..N over the
+ * given ids via the migration-258 RPC. The RPC requires the list to match the
+ * rink's active positioned assets exactly, so a stale board fails loudly
+ * instead of silently dropping a segment.
+ */
+export async function reorderSegments(
+  rinkId: string,
+  orderedAssetIds: string[],
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    if (
+      orderedAssetIds.length === 0 ||
+      orderedAssetIds.length > REORDER_MAX ||
+      orderedAssetIds.some((id) => !isUuid(id))
+    ) {
+      return { ok: false, error: "Invalid segment list." }
+    }
+
+    const { error } = await ctx.supabase.rpc("dasher_boards_reorder_assets", {
+      p_rink_id: rinkId,
+      p_asset_ids: orderedAssetIds,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to reorder segments.") }
+    }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/reorderSegments", e)
+    return { ok: false, error: "Failed to reorder segments." }
+  }
+}
+
+/**
+ * Bulk-label commit. The PREVIEW is computed client-side with
+ * buildBulkLabelPreview/findDuplicateLabels (pure, segment-labels.ts) so what
+ * the admin saw is exactly what commits: this action takes the resolved
+ * per-segment entries, re-validates every label server-side, and applies them
+ * atomically via the migration-258 RPC (a collision rolls back the whole
+ * batch). Per-asset relabeled events are trigger-written.
+ */
+export async function applyBulkLabels(
+  rinkId: string,
+  entries: BulkLabelPreviewEntry[],
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    if (entries.length === 0 || entries.length > REORDER_MAX) {
+      return { ok: false, error: "Invalid label batch." }
+    }
+    const ids: string[] = []
+    const labels: string[] = []
+    for (const entry of entries) {
+      if (!isUuid(entry.assetId)) return { ok: false, error: "Invalid segment in batch." }
+      const parsed = customLabelSchema.safeParse(entry.customLabel)
+      if (!parsed.success) {
+        return { ok: false, error: "Labels are 1–40 characters (no leading/trailing spaces)." }
+      }
+      ids.push(entry.assetId)
+      labels.push(parsed.data)
+    }
+
+    const { error } = await ctx.supabase.rpc("dasher_boards_apply_custom_labels", {
+      p_rink_id: rinkId,
+      p_asset_ids: ids,
+      p_labels: labels,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to apply the labels.") }
+    }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/applyBulkLabels", e)
+    return { ok: false, error: "Failed to apply the labels." }
+  }
+}
+
+/**
+ * Marks a segment out of service / back in service. Edit tier OR admin (a
+ * status change is the supervisor concern; the assets guard admits
+ * out_of_service for the edit tier). NEVER a silent write: the migration-257
+ * AFTER UPDATE trigger records the marked_out_of_service /
+ * returned_to_service audit event for every flip.
+ */
+export async function setSegmentOutOfService(
+  assetId: string,
+  outOfService: boolean,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveEditorContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(assetId)) return { ok: false, error: "Invalid asset." }
+
+    const { data: asset } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .select("id, out_of_service")
+      .eq("id", assetId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!asset) return { ok: false, error: "Asset not found." }
+    if (asset.out_of_service === outOfService) return { ok: true }
+
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_assets")
+      .update({ out_of_service: outOfService })
+      .eq("id", assetId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to update the status.") }
+    }
+    if (!data || data.length === 0) return { ok: false, error: "Asset not found." }
+
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setSegmentOutOfService", e)
+    return { ok: false, error: "Failed to update the status." }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Zones (admin-managed per-rink grouping list, migration 257)
+// ---------------------------------------------------------------------------
+
+/** Creates a zone (zoneId null) or renames an existing one. */
+export async function upsertZone(
+  rinkId: string,
+  zoneId: string | null,
+  name: string,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+    if (zoneId !== null && !isUuid(zoneId)) return { ok: false, error: "Invalid zone." }
+    const parsed = zoneNameSchema.safeParse(name)
+    if (!parsed.success) {
+      return { ok: false, error: "Zone names are 1–60 characters." }
+    }
+
+    const { data: rink } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .select("id")
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!rink) return { ok: false, error: "Rink not found." }
+
+    if (zoneId === null) {
+      const { count } = await ctx.supabase
+        .from("dasher_boards_zones")
+        .select("id", { count: "exact", head: true })
+        .eq("rink_id", rinkId)
+        .eq("facility_id", ctx.facilityId)
+      const { error } = await ctx.supabase.from("dasher_boards_zones").insert({
+        facility_id: ctx.facilityId,
+        rink_id: rinkId,
+        name: parsed.data,
+        sort_order: ((count ?? 0) + 1) * 10,
+      })
+      if (error) {
+        if (error.code === "23505") {
+          return { ok: false, error: "A zone with that name already exists on this rink." }
+        }
+        return { ok: false, error: dbError(error, "Failed to create the zone.") }
+      }
+    } else {
+      const { data, error } = await ctx.supabase
+        .from("dasher_boards_zones")
+        .update({ name: parsed.data })
+        .eq("id", zoneId)
+        .eq("rink_id", rinkId)
+        .eq("facility_id", ctx.facilityId)
+        .select("id")
+      if (error) {
+        if (error.code === "23505") {
+          return { ok: false, error: "A zone with that name already exists on this rink." }
+        }
+        return { ok: false, error: dbError(error, "Failed to rename the zone.") }
+      }
+      if (!data || data.length === 0) return { ok: false, error: "Zone not found." }
+    }
+
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/upsertZone", e)
+    return { ok: false, error: "Failed to save the zone." }
+  }
+}
+
+/**
+ * Deactivates / reactivates a zone. Assets keep their zone_id when a zone is
+ * deactivated (history stays intact); deleting a zone row is deliberately not
+ * offered — deactivation covers the "retire this grouping" need.
+ */
+export async function setZoneActive(
+  zoneId: string,
+  active: boolean,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(zoneId)) return { ok: false, error: "Invalid zone." }
+    const { data, error } = await ctx.supabase
+      .from("dasher_boards_zones")
+      .update({ is_active: active })
+      .eq("id", zoneId)
+      .eq("facility_id", ctx.facilityId)
+      .select("id")
+    if (error) return { ok: false, error: dbError(error, "Failed to update the zone.") }
+    if (!data || data.length === 0) return { ok: false, error: "Zone not found." }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/setZoneActive", e)
+    return { ok: false, error: "Failed to update the zone." }
+  }
+}
+
+/**
+ * Moves a zone up/down within its rink's list — the renumber-then-swap
+ * pattern from moveManagedRow (zones live outside the managed-list union
+ * because they key on `name`/`rink_id` rather than `label`/facility scope).
+ */
+export async function moveZone(
+  zoneId: string,
+  direction: -1 | 1,
+): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(zoneId)) return { ok: false, error: "Invalid zone." }
+
+    const { data: zone } = await ctx.supabase
+      .from("dasher_boards_zones")
+      .select("id, rink_id")
+      .eq("id", zoneId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!zone) return { ok: false, error: "Zone not found." }
+
+    const { data: rows, error: listErr } = await ctx.supabase
+      .from("dasher_boards_zones")
+      .select("id, sort_order, created_at")
+      .eq("rink_id", zone.rink_id)
+      .eq("facility_id", ctx.facilityId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+    if (listErr || !rows) {
+      return { ok: false, error: dbError(listErr, "Failed to reorder zones.") }
+    }
+    const idx = rows.findIndex((r) => r.id === zoneId)
+    if (idx === -1) return { ok: false, error: "Zone not found." }
+    const swapWith = idx + direction
+    if (swapWith < 0 || swapWith >= rows.length) return { ok: true } // edge
+
+    const order = [...rows]
+    ;[order[idx], order[swapWith]] = [order[swapWith], order[idx]]
+    for (let i = 0; i < order.length; i++) {
+      const target = (i + 1) * 10
+      if (order[i].sort_order === target) continue
+      const { error: updErr } = await ctx.supabase
+        .from("dasher_boards_zones")
+        .update({ sort_order: target })
+        .eq("id", order[i].id)
+      if (updErr) {
+        return { ok: false, error: dbError(updErr, "Failed to reorder zones.") }
+      }
+    }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/moveZone", e)
+    return { ok: false, error: "Failed to reorder zones." }
+  }
+}
+
+/**
+ * Seeds an EMPTY rink from the standard-rink starting template (~50 typed
+ * segments: side/end panels, corner radius groups, gates with subtypes, zone
+ * assignments) via the migration-259 RPC — one transaction, so a failure
+ * leaves the rink untouched. The admin edits the result; nothing is forced.
+ */
+export async function applyStandardTemplate(rinkId: string): Promise<SimpleResult> {
+  try {
+    const ctx = await resolveAdminContext()
+    if (!ctx.ok) return ctx
+    if (!isUuid(rinkId)) return { ok: false, error: "Invalid rink." }
+
+    const { data: rink } = await ctx.supabase
+      .from("dasher_boards_rinks")
+      .select("id")
+      .eq("id", rinkId)
+      .eq("facility_id", ctx.facilityId)
+      .maybeSingle()
+    if (!rink) return { ok: false, error: "Rink not found." }
+
+    const { types, doorSubtypes, zoneNames } = templateToRpcArrays(
+      STANDARD_RINK_TEMPLATE,
+    )
+    const { error } = await ctx.supabase.rpc("dasher_boards_apply_template", {
+      p_rink_id: rinkId,
+      p_types: types,
+      p_door_subtypes: doorSubtypes,
+      p_zone_names: zoneNames,
+    })
+    if (error) {
+      return { ok: false, error: dbError(error, "Failed to apply the template.") }
+    }
+    revalidateModule()
+    return { ok: true }
+  } catch (e) {
+    logServerError("admin/dasher-boards/applyStandardTemplate", e)
+    return { ok: false, error: "Failed to apply the template." }
   }
 }

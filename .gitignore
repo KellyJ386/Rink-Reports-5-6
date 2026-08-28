@@ -56,8 +56,9 @@ secrets/
 # vercel
 .vercel
 
-# claude code local state (agent worktrees, local settings)
-.claude/
+# claude code local state (agent worktrees, local settings) — but track shared agent definitions
+.claude/*
+!.claude/agents/
 
 # typescript
 *.tsbuildinfo

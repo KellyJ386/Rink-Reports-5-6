@@ -139,7 +139,13 @@ export async function DasherBoardsRinkScreen({
 
   // The caller's open walk on this rink (+ its responses and linked checklist
   // issues) so an in-progress walk resumes across page loads.
-  let walk: { id: string; startedAt: string } | null = null
+  let walk: {
+    id: string
+    startedAt: string
+    kind: "routine" | "annual_contractor"
+    contractorName: string | null
+    contractorCompany: string | null
+  } | null = null
   let walkResponses: Record<string, "pass" | "flag"> = {}
   let walkIssueItemIds: string[] = []
   let walkAssetChecks: Record<
@@ -149,13 +155,24 @@ export async function DasherBoardsRinkScreen({
   if (employee) {
     const { data: openWalk } = await supabase
       .from("dasher_boards_inspections")
-      .select("id, started_at")
+      .select(
+        "id, started_at, inspection_kind, contractor_name, contractor_company",
+      )
       .eq("rink_id", rink.id)
       .eq("inspector_id", employee.id)
       .is("completed_at", null)
       .maybeSingle()
     if (openWalk) {
-      walk = { id: openWalk.id, startedAt: openWalk.started_at }
+      walk = {
+        id: openWalk.id,
+        startedAt: openWalk.started_at,
+        kind:
+          openWalk.inspection_kind === "annual_contractor"
+            ? "annual_contractor"
+            : "routine",
+        contractorName: openWalk.contractor_name,
+        contractorCompany: openWalk.contractor_company,
+      }
       const [{ data: responses }, { data: walkIssues }, { data: assetChecks }] =
         await Promise.all([
           supabase
