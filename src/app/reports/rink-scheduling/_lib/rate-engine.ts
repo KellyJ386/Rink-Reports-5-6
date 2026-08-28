@@ -15,7 +15,13 @@
 // snapshotted onto the booking row at save time, so a later edit to a rate
 // card can never restate a booking that already exists.
 
-import { minutesOfDayInTz, dayKeyInTz, weekdayOfKey } from "@/lib/timezone"
+import {
+  addDaysToKey,
+  dayKeyInTz,
+  minutesOfDayInTz,
+  wallTimeToUtc,
+  weekdayOfKey,
+} from "@/lib/timezone"
 
 export type PrimeWindow = {
   day_of_week: number
@@ -162,6 +168,22 @@ export function primeRangesForDay(
  * day's own windows, which is why the boundaries are computed per local day
  * rather than once for the whole slot.
  */
+/** UTC instant of `minutes` past local midnight on `dayKey`. Minute 1440 and
+ *  beyond roll into the next day, defensively — window times are TIME columns
+ *  and never reach it. */
+function boundaryInstantMs(
+  dayKey: string,
+  minutes: number,
+  timeZone: string | null,
+): number | null {
+  const day = minutes >= 1440 ? addDaysToKey(dayKey, 1) : dayKey
+  const m = minutes >= 1440 ? minutes - 1440 : minutes
+  const hh = String(Math.floor(m / 60)).padStart(2, "0")
+  const mm = String(m % 60).padStart(2, "0")
+  const d = wallTimeToUtc(`${day}T${hh}:${mm}`, timeZone)
+  return d ? d.getTime() : null
+}
+
 function sliceByPrime(
   startMs: number,
   endMs: number,
@@ -170,23 +192,25 @@ function sliceByPrime(
 ): Array<{ startMs: number; endMs: number; isPrime: boolean }> {
   const cuts = new Set<number>([startMs, endMs])
 
-  // Step through every local day the booking touches and add that day's prime
-  // boundaries as cut points.
-  const DAY_MS = 24 * 60 * 60 * 1000
-  for (let t = startMs; t < endMs + DAY_MS; t += DAY_MS) {
-    const probe = Math.min(t, endMs)
-    const dayKey = dayKeyInTz(new Date(probe), timeZone)
+  // Walk every LOCAL CALENDAR DAY the booking touches — by day key, not by
+  // 24-hour millisecond steps. Fixed-size steps have two DST failure modes:
+  // on spring-forward a 24h hop can jump clean over a 23-hour day (so that
+  // day's prime boundaries are never probed and a multi-day booking collapses
+  // into one mispriced segment), and deriving "local midnight" as
+  // `probe - minutesOfDay(probe)` assumes the UTC offset is constant between
+  // midnight and the probe, which is exactly what a transition day breaks.
+  // wallTimeToUtc's two-pass offset convergence answers "when is 17:00 on
+  // this date" correctly on those days.
+  const startKey = dayKeyInTz(new Date(startMs), timeZone)
+  const endKey = dayKeyInTz(new Date(endMs), timeZone)
+  for (let dayKey = startKey; dayKey <= endKey; dayKey = addDaysToKey(dayKey, 1)) {
     const dow = weekdayOfKey(dayKey)
-    const minsAtProbe = minutesOfDayInTz(new Date(probe), timeZone)
-    const localMidnightMs = probe - minsAtProbe * 60_000
-
     for (const r of primeRangesForDay(windows, dow)) {
       for (const boundary of [r.start, r.end]) {
-        const ms = localMidnightMs + boundary * 60_000
-        if (ms > startMs && ms < endMs) cuts.add(ms)
+        const ms = boundaryInstantMs(dayKey, boundary, timeZone)
+        if (ms !== null && ms > startMs && ms < endMs) cuts.add(ms)
       }
     }
-    if (probe === endMs) break
   }
 
   const ordered = Array.from(cuts).sort((a, b) => a - b)
