@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { PageHeader } from "@/components/ui/page-header"
 import { requireUser } from "@/lib/auth"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
@@ -222,6 +224,26 @@ export default async function RinkSchedulePage({
       <PageHeader
         title="Rink Schedule"
         description="Ice bookings across every surface. Times are the rink's own local clock."
+        actions={
+          // Invoicing and insights are edit-tier (they show the money), so the
+          // links only render for accounts that can actually open them.
+          canEdit ? (
+            <>
+              <Link
+                href="/reports/rink-scheduling/invoices"
+                className="text-muted-foreground text-sm no-underline hover:underline"
+              >
+                Invoices →
+              </Link>
+              <Link
+                href="/reports/rink-scheduling/insights"
+                className="text-muted-foreground text-sm no-underline hover:underline"
+              >
+                Insights →
+              </Link>
+            </>
+          ) : undefined
+        }
       />
       <CalendarClient
         view={view}
