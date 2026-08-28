@@ -10683,6 +10683,90 @@ select pg_temp.expect_count(
 
 reset role;
 
+-- ===========================================================================
+-- RP265: the 'reports' module is gated, and STAFF DO NOT HAVE IT.
+--
+-- The reporting layer aggregates every other module into facility-wide
+-- compliance numbers. Registering it (migration 265) before the data layer and
+-- UI exist is deliberate: the alternative ships a window in which any
+-- authenticated account can read those aggregates. The assertions below are the
+-- standing proof that the gate is real — a future migration that re-seeds
+-- role defaults, or a preset change that widens the canonical matrix, fails
+-- here rather than silently handing a front desk employee the facility's
+-- annual incident summary.
+-- ===========================================================================
+set local role service_role;
+
+select pg_temp.expect_count(
+  $$select count(*) from public.canonical_role_permission_grants()
+     where module_name = 'reports' and role_key in ('staff','driver')$$,
+  0, 'RP265a: staff and driver hold ZERO canonical grants on the reports module');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.canonical_role_permission_grants()
+     where module_name = 'reports' and role_key = 'manager'$$,
+  4, 'RP265b: manager holds all 4 cumulative actions on reports (admin ceiling)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.role_permission_defaults rpd
+      join public.roles r on r.id = rpd.role_id
+     where rpd.module_name = 'reports' and r.key in ('staff','driver')$$,
+  0, 'RP265c: no staff/driver role_permission_defaults row seeds the reports module');
+
+-- The module_name CHECK must admit 'reports' — without it no permission row for
+-- the module can be written at all, and the whole registration is inert.
+select pg_temp.expect_ok(
+  $$insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
+    values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            '11111111-1111-1111-1111-111111111111', 'reports', 'view', false, 'manual_override')$$,
+  'RP265d: user_permissions accepts module_name = reports (CHECK was widened)');
+delete from public.user_permissions
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facilities f
+     where not exists (select 1 from public.facility_modules m
+                        where m.facility_id = f.id and m.module_key = 'reports' and m.enabled)$$,
+  0, 'RP265e: every facility has an enabled reports module row (nav toggle registered)');
+
+reset role;
+
+-- Now the live gate, as Alice sees it. Alice is STAFF in Facility A.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from (select public.has_module_access('reports') as ok) q where q.ok$$,
+  0, 'RP265f: staff alice is DENIED module access to reports');
+
+select pg_temp.expect_count(
+  $$select count(*) from (select public.has_module_admin_access('reports') as ok) q where q.ok$$,
+  0, 'RP265g: staff alice is DENIED module ADMIN access to reports');
+
+reset role;
+
+-- Prove the helper is not simply always-false: granting Alice the view action
+-- flips it, so RP265f above is a real gate rather than a broken lookup.
+set local role service_role;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111', 'reports', 'view', true, 'manual_override');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$select count(*) from (select public.has_module_access('reports') as ok) q where q.ok$$,
+  1, 'RP265h: an explicit reports view grant DOES flip has_module_access (the gate is live)');
+reset role;
+
+set local role service_role;
+delete from public.user_permissions
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
+reset role;
+
 do $$
 declare
   v_failed int;

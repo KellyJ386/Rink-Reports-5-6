@@ -710,7 +710,23 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('admin','rink_scheduling','admin'::public.user_action),
       ('manager','rink_scheduling','edit'::public.user_action),
       ('staff','rink_scheduling','view'::public.user_action),
-      ('driver','rink_scheduling','view'::public.user_action)
+      ('driver','rink_scheduling','view'::public.user_action),
+      -- reports (added migration 265). The reporting layer aggregates every
+      -- other module's data into facility-wide compliance numbers, so the
+      -- ceiling is deliberately NOT the house default.
+      --
+      -- staff and driver get NO ROWS AT ALL — that is how 'none' is expressed
+      -- in this model, and it is the point of the module: a front desk
+      -- employee must not be able to pull the facility's annual incident
+      -- summary. Do not "fix" their absence by adding a view row.
+      --
+      -- manager sits at admin (approved 2026-08-28): facility managers are the
+      -- people who actually run and export the monthly report. Under the
+      -- Phase 6 export gate ('edit' or higher) this is what lets them produce
+      -- the PDF, and admin additionally lets them configure report settings.
+      ('super_admin','reports','admin'::public.user_action),
+      ('admin','reports','admin'::public.user_action),
+      ('manager','reports','admin'::public.user_action)
   ),
   action_levels(action, lvl) as (
     values
@@ -730,7 +746,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 249.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. reports added in migration 265.';
 
 
 --
@@ -8235,7 +8251,8 @@ begin
     ('communications'),
     ('facility_paperwork'),
     ('dasher_boards'),
-    ('rink_scheduling')
+    ('rink_scheduling'),
+    ('reports')
   ) as m(k)
   on conflict (facility_id, module_key) do nothing;
 end;
@@ -8246,7 +8263,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 249). Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. reports as of migration 265). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --
@@ -15821,7 +15838,7 @@ CREATE TABLE public.user_permissions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     source text DEFAULT 'role_default'::text NOT NULL,
-    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'rink_scheduling'::text, 'admin'::text]))),
+    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'rink_scheduling'::text, 'reports'::text, 'admin'::text]))),
     CONSTRAINT user_permissions_source_check CHECK ((source = ANY (ARRAY['role_default'::text, 'manual_override'::text])))
 );
 
