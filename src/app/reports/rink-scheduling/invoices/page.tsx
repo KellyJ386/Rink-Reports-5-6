@@ -136,12 +136,20 @@ export default async function InvoicesPage({
         title="Invoices"
         description="Bill ice time, record payments, and see what is outstanding."
         actions={
-          <Link
-            href="/reports/rink-scheduling"
-            className="text-muted-foreground text-sm no-underline hover:underline"
-          >
-            ← Calendar
-          </Link>
+          <>
+            <Link
+              href="/reports/rink-scheduling"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              ← Calendar
+            </Link>
+            <Link
+              href="/reports/rink-scheduling/insights"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              Insights →
+            </Link>
+          </>
         }
       />
 
