@@ -3278,6 +3278,20 @@ begin
       get diagnostics v_deleted = row_count;
       v_total := v_total + v_deleted;
 
+      delete from public.rink_booking_requests
+       where facility_id = p_facility_id
+         and created_at < v_cutoff
+         and status <> 'new';
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
+      delete from public.rink_waitlist_entries
+       where facility_id = p_facility_id
+         and created_at < v_cutoff
+         and status <> 'open';
+      get diagnostics v_deleted = row_count;
+      v_total := v_total + v_deleted;
+
     else
       raise exception 'Unknown module key: %', p_module_key;
   end case;
@@ -3291,7 +3305,7 @@ $$;
 -- Name: FUNCTION purge_module_data(p_facility_id uuid, p_module_key text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. Adds rink_scheduling (migration 251): payments, then their invoices (line items cascade), then bookings not cited by any invoice line. Customers, rate cards and facility setup are configuration and are never purged by age.';
+COMMENT ON FUNCTION public.purge_module_data(p_facility_id uuid, p_module_key text) IS 'Manual per-module purge for a facility. rink_scheduling (migrations 251, 258): payments, then their invoices (line items cascade), then bookings not cited by any invoice line, then decided booking requests and closed waitlist entries (requester PII). Customers, rate cards and facility setup are configuration and are never purged by age.';
 
 
 --
@@ -3849,6 +3863,20 @@ begin
     get diagnostics v_deleted = row_count;
     v_total := v_total + v_deleted;
 
+    delete from public.rink_booking_requests
+     where facility_id = r.facility_id
+       and created_at < v_cutoff
+       and status <> 'new';
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
+    delete from public.rink_waitlist_entries
+     where facility_id = r.facility_id
+       and created_at < v_cutoff
+       and status <> 'open';
+    get diagnostics v_deleted = row_count;
+    v_total := v_total + v_deleted;
+
     update public.retention_settings
        set last_purged_at  = now(),
            last_purge_count = v_total
@@ -3865,7 +3893,7 @@ $$;
 -- Name: FUNCTION purge_old_rink_scheduling_records(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.purge_old_rink_scheduling_records() IS 'Nightly retention worker for Rink Scheduling & Billing. Financial records, so the cutoff is clamped to the 7-year floor regardless of the configured keep_days. Service-role only.';
+COMMENT ON FUNCTION public.purge_old_rink_scheduling_records() IS 'Nightly retention worker for Rink Scheduling & Billing. Financial records, so the cutoff is clamped to the 7-year floor regardless of the configured keep_days. Migration 258 adds decided booking requests and closed waitlist entries (requester PII). Service-role only.';
 
 
 --
@@ -13438,6 +13466,47 @@ COMMENT ON COLUMN public.retention_settings.last_purge_count IS 'Number of recor
 
 
 --
+-- Name: rink_booking_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_booking_requests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    requester_name text NOT NULL,
+    requester_email text NOT NULL,
+    requester_phone text,
+    organization text,
+    rink_id uuid,
+    requested_date date NOT NULL,
+    start_minute integer NOT NULL,
+    end_minute integer NOT NULL,
+    purpose text,
+    status text DEFAULT 'new'::text NOT NULL,
+    decided_by uuid,
+    decided_at timestamp with time zone,
+    decision_note text,
+    created_booking_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_booking_requests_email_len CHECK (((char_length(requester_email) >= 3) AND (char_length(requester_email) <= 254))),
+    CONSTRAINT rink_booking_requests_email_shape CHECK ((requester_email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'::text)),
+    CONSTRAINT rink_booking_requests_name_len CHECK (((char_length(btrim(requester_name)) >= 1) AND (char_length(btrim(requester_name)) <= 120))),
+    CONSTRAINT rink_booking_requests_org_len CHECK (((organization IS NULL) OR (char_length(organization) <= 160))),
+    CONSTRAINT rink_booking_requests_phone_len CHECK (((requester_phone IS NULL) OR (char_length(requester_phone) <= 40))),
+    CONSTRAINT rink_booking_requests_purpose_len CHECK (((purpose IS NULL) OR (char_length(purpose) <= 2000))),
+    CONSTRAINT rink_booking_requests_status_chk CHECK ((status = ANY (ARRAY['new'::text, 'approved'::text, 'declined'::text, 'archived'::text]))),
+    CONSTRAINT rink_booking_requests_window_chk CHECK (((start_minute >= 0) AND (start_minute < 1440) AND (end_minute > start_minute) AND (end_minute <= 1680)))
+);
+
+
+--
+-- Name: TABLE rink_booking_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_booking_requests IS 'Rink Scheduling: public ice-time requests. Inserted ONLY by the service role from /api/rink-booking-requests after validating a request_form display token — anon and authenticated hold no INSERT on this table. end_minute may run to 1680 (next-day 04:00) for past-midnight requests.';
+
+
+--
 -- Name: rink_booking_series; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -13704,7 +13773,7 @@ CREATE TABLE public.rink_display_tokens (
     CONSTRAINT rink_display_tokens_hash_chk CHECK ((token_hash ~ '^[a-f0-9]{64}$'::text)),
     CONSTRAINT rink_display_tokens_label_len CHECK (((char_length(btrim(label)) >= 1) AND (char_length(btrim(label)) <= 60))),
     CONSTRAINT rink_display_tokens_settings_object CHECK ((jsonb_typeof(settings) = 'object'::text)),
-    CONSTRAINT rink_display_tokens_type_chk CHECK ((display_type = 'locker_rooms'::text))
+    CONSTRAINT rink_display_tokens_type_chk CHECK ((display_type = ANY (ARRAY['locker_rooms'::text, 'ice_schedule'::text, 'rink_ics'::text, 'request_form'::text])))
 );
 
 
@@ -13719,7 +13788,7 @@ COMMENT ON TABLE public.rink_display_tokens IS 'Rink Scheduling: facility-scoped
 -- Name: COLUMN rink_display_tokens.display_type; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.rink_display_tokens.display_type IS 'Seeded with locker_rooms. The CHECK is widened (drop + add, whole list restated) when a new display type such as ice_schedule ships.';
+COMMENT ON COLUMN public.rink_display_tokens.display_type IS 'locker_rooms and ice_schedule are TV boards behind /display/<token>; rink_ics is an iCalendar feed behind /api/rink-ics/<token>; request_form is the public booking-request form behind /request-ice/<token>. The CHECK is widened (drop + add, whole list restated) when a new type ships.';
 
 
 --
@@ -14114,6 +14183,42 @@ COMMENT ON COLUMN public.rink_scheduling_settings.overdue_reminders_enabled IS '
 --
 
 COMMENT ON COLUMN public.rink_scheduling_settings.reminder_cadence_days IS 'Minimum days between overdue reminders for the same invoice.';
+
+
+--
+-- Name: rink_waitlist_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_waitlist_entries (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    customer_id uuid,
+    contact_name text,
+    contact_phone text,
+    rink_id uuid,
+    desired_date date NOT NULL,
+    start_minute integer,
+    end_minute integer,
+    notes text,
+    status text DEFAULT 'open'::text NOT NULL,
+    created_by uuid,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_waitlist_name_len CHECK (((contact_name IS NULL) OR ((char_length(btrim(contact_name)) >= 1) AND (char_length(btrim(contact_name)) <= 120)))),
+    CONSTRAINT rink_waitlist_notes_len CHECK (((notes IS NULL) OR (char_length(notes) <= 2000))),
+    CONSTRAINT rink_waitlist_phone_len CHECK (((contact_phone IS NULL) OR (char_length(contact_phone) <= 40))),
+    CONSTRAINT rink_waitlist_someone CHECK (((customer_id IS NOT NULL) OR (contact_name IS NOT NULL))),
+    CONSTRAINT rink_waitlist_status_chk CHECK ((status = ANY (ARRAY['open'::text, 'fulfilled'::text, 'cancelled'::text]))),
+    CONSTRAINT rink_waitlist_window_chk CHECK ((((start_minute IS NULL) AND (end_minute IS NULL)) OR ((start_minute >= 0) AND (start_minute < 1440) AND (end_minute > start_minute) AND (end_minute <= 1680))))
+);
+
+
+--
+-- Name: TABLE rink_waitlist_entries; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_waitlist_entries IS 'Rink Scheduling: staff-managed waitlist for ice time. Either an existing customer or a free-text contact. Surfaced when a booking is cancelled so the desk can offer the freed slot.';
 
 
 --
@@ -16602,6 +16707,14 @@ ALTER TABLE ONLY public.retention_settings
 
 
 --
+-- Name: rink_booking_requests rink_booking_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_requests
+    ADD CONSTRAINT rink_booking_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: rink_booking_series rink_booking_series_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -16909,6 +17022,14 @@ ALTER TABLE ONLY public.rink_scheduling_settings
 
 ALTER TABLE ONLY public.rink_scheduling_settings
     ADD CONSTRAINT rink_scheduling_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_waitlist_entries
+    ADD CONSTRAINT rink_waitlist_entries_pkey PRIMARY KEY (id);
 
 
 --
@@ -19540,6 +19661,13 @@ CREATE INDEX idx_retention_settings_facility_id ON public.retention_settings USI
 
 
 --
+-- Name: idx_rink_booking_requests_facility_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_booking_requests_facility_status ON public.rink_booking_requests USING btree (facility_id, status, requested_date);
+
+
+--
 -- Name: idx_rink_booking_series_facility; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -19670,6 +19798,13 @@ CREATE INDEX idx_rink_rate_card_windows_card ON public.rink_rate_card_windows US
 --
 
 CREATE INDEX idx_rink_rate_cards_facility_dates ON public.rink_rate_cards USING btree (facility_id, effective_start, effective_end);
+
+
+--
+-- Name: idx_rink_waitlist_facility_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_waitlist_facility_status ON public.rink_waitlist_entries USING btree (facility_id, status, desired_date);
 
 
 --
@@ -21829,6 +21964,13 @@ CREATE TRIGGER trg_retention_settings_updated_at BEFORE UPDATE ON public.retenti
 
 
 --
+-- Name: rink_booking_requests trg_rink_booking_requests_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_booking_requests_updated_at BEFORE UPDATE ON public.rink_booking_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: rink_booking_series trg_rink_booking_series_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21980,6 +22122,13 @@ CREATE TRIGGER trg_rink_scheduling_settings_updated_at BEFORE UPDATE ON public.r
 --
 
 CREATE TRIGGER trg_rink_scheduling_shift_coverage AFTER INSERT OR DELETE OR UPDATE ON public.schedule_shifts FOR EACH ROW EXECUTE FUNCTION public.rink_scheduling_enqueue_on_shift_change();
+
+
+--
+-- Name: rink_waitlist_entries trg_rink_waitlist_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_waitlist_updated_at BEFORE UPDATE ON public.rink_waitlist_entries FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -24487,6 +24636,38 @@ ALTER TABLE ONLY public.retention_settings
 
 
 --
+-- Name: rink_booking_requests rink_booking_requests_created_booking_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_requests
+    ADD CONSTRAINT rink_booking_requests_created_booking_id_fkey FOREIGN KEY (created_booking_id) REFERENCES public.rink_bookings(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_booking_requests rink_booking_requests_decided_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_requests
+    ADD CONSTRAINT rink_booking_requests_decided_by_fkey FOREIGN KEY (decided_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_booking_requests rink_booking_requests_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_requests
+    ADD CONSTRAINT rink_booking_requests_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_booking_requests rink_booking_requests_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_requests
+    ADD CONSTRAINT rink_booking_requests_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.facility_rinks(id) ON DELETE SET NULL;
+
+
+--
 -- Name: rink_booking_series rink_booking_series_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -24852,6 +25033,38 @@ ALTER TABLE ONLY public.rink_rate_card_type_overrides
 
 ALTER TABLE ONLY public.rink_scheduling_settings
     ADD CONSTRAINT rink_scheduling_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_entries_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_waitlist_entries
+    ADD CONSTRAINT rink_waitlist_entries_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_entries_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_waitlist_entries
+    ADD CONSTRAINT rink_waitlist_entries_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.rink_customers(id) ON DELETE CASCADE;
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_entries_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_waitlist_entries
+    ADD CONSTRAINT rink_waitlist_entries_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_entries_rink_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_waitlist_entries
+    ADD CONSTRAINT rink_waitlist_entries_rink_id_fkey FOREIGN KEY (rink_id) REFERENCES public.facility_rinks(id) ON DELETE SET NULL;
 
 
 --
@@ -29338,6 +29551,26 @@ CREATE POLICY retention_settings_update ON public.retention_settings FOR UPDATE 
 
 
 --
+-- Name: rink_booking_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_booking_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_booking_requests rink_booking_requests_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_requests_select ON public.rink_booking_requests FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_booking_requests rink_booking_requests_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_booking_requests_update ON public.rink_booking_requests FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
 -- Name: rink_booking_series; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -29888,6 +30121,33 @@ CREATE POLICY rink_scheduling_settings_select ON public.rink_scheduling_settings
 --
 
 CREATE POLICY rink_scheduling_settings_update ON public.rink_scheduling_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_waitlist_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_waitlist_entries ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_waitlist_insert ON public.rink_waitlist_entries FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_waitlist_select ON public.rink_waitlist_entries FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_waitlist_entries rink_waitlist_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_waitlist_update ON public.rink_waitlist_entries FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
 
 
 --

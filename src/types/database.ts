@@ -7808,6 +7808,98 @@ export type Database = {
           },
         ]
       }
+      rink_booking_requests: {
+        Row: {
+          created_at: string
+          created_booking_id: string | null
+          decided_at: string | null
+          decided_by: string | null
+          decision_note: string | null
+          end_minute: number
+          facility_id: string
+          id: string
+          organization: string | null
+          purpose: string | null
+          requested_date: string
+          requester_email: string
+          requester_name: string
+          requester_phone: string | null
+          rink_id: string | null
+          start_minute: number
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_booking_id?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          end_minute: number
+          facility_id: string
+          id?: string
+          organization?: string | null
+          purpose?: string | null
+          requested_date: string
+          requester_email: string
+          requester_name: string
+          requester_phone?: string | null
+          rink_id?: string | null
+          start_minute: number
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_booking_id?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          end_minute?: number
+          facility_id?: string
+          id?: string
+          organization?: string | null
+          purpose?: string | null
+          requested_date?: string
+          requester_email?: string
+          requester_name?: string
+          requester_phone?: string | null
+          rink_id?: string | null
+          start_minute?: number
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_booking_requests_created_booking_id_fkey"
+            columns: ["created_booking_id"]
+            isOneToOne: false
+            referencedRelation: "rink_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_booking_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_booking_requests_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_booking_requests_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "facility_rinks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rink_booking_series: {
         Row: {
           booking_type_id: string
@@ -8929,6 +9021,89 @@ export type Database = {
             columns: ["facility_id"]
             isOneToOne: true
             referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_waitlist_entries: {
+        Row: {
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string | null
+          desired_date: string
+          end_minute: number | null
+          facility_id: string
+          id: string
+          notes: string | null
+          resolved_at: string | null
+          rink_id: string | null
+          start_minute: number | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          desired_date: string
+          end_minute?: number | null
+          facility_id: string
+          id?: string
+          notes?: string | null
+          resolved_at?: string | null
+          rink_id?: string | null
+          start_minute?: number | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          desired_date?: string
+          end_minute?: number | null
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          resolved_at?: string | null
+          rink_id?: string | null
+          start_minute?: number | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_waitlist_entries_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_waitlist_entries_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "rink_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_waitlist_entries_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_waitlist_entries_rink_id_fkey"
+            columns: ["rink_id"]
+            isOneToOne: false
+            referencedRelation: "facility_rinks"
             referencedColumns: ["id"]
           },
         ]
