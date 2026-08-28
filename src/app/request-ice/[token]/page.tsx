@@ -27,6 +27,12 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic"
 
+/** Clock read outside the component body — React's purity rule flags a direct
+ *  call during render (same idiom as the staff pages). */
+function nowDate(): Date {
+  return new Date()
+}
+
 function NotActive() {
   return (
     <main className="bg-background text-foreground flex min-h-svh flex-col">
@@ -79,11 +85,12 @@ export default async function RequestIcePage({
   ])
   if (!facility) return <NotActive />
 
-  await touchTokenLastSeen(admin, resolved, Date.now())
+  const now = nowDate()
+  await touchTokenLastSeen(admin, resolved, now.getTime())
 
   // "Today" for the date input's floor is the FACILITY's today, not the
   // server's — the API refuses past dates by the same facility-local calendar.
-  const todayKey = dayKeyInTz(new Date(), facility.timezone)
+  const todayKey = dayKeyInTz(now, facility.timezone)
 
   return (
     <main className="bg-background text-foreground flex min-h-svh flex-col">
