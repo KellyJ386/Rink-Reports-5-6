@@ -3,8 +3,10 @@
 // The single-screen Dasher Boards field tool: a tappable perimeter diagram
 // where open issues persist on assets until resolved. Tap any asset → bottom
 // sheet → report the failure. No walk required — the inspection walk is an
-// opt-in overlay (see walk-bar.tsx): start it from the toolbar, keep tapping
-// the same map, then sign off to attest "everything I didn't tap is OK"
+// opt-in overlay (see walk-bar.tsx): start it (routine, one tap, or an annual
+// contractor inspection with a name/company) from the walk bar, keep tapping
+// the same map — or step through it with the guided walkthrough
+// (guided-walk.tsx) — then sign off to attest "everything I didn't tap is OK"
 // (the exception-based model the schema documents).
 //
 // The due checklist is its own lightweight view (due-card.tsx), independent
@@ -14,11 +16,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Footprints, Search, X } from "lucide-react"
+import { Search, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { LocalDateTime } from "@/components/app/local-datetime"
-import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -42,6 +43,7 @@ import { combineDisplayCondition } from "../../_lib/compute"
 import { matchingSegmentIds } from "../../_lib/display-label"
 import { AssetSheet } from "./asset-sheet"
 import { DueCard } from "./due-card"
+import { GuidedWalk } from "./guided-walk"
 import { ItemSheet } from "./item-sheet"
 import { WalkBar } from "./walk-bar"
 import type {
@@ -73,7 +75,13 @@ export type ConditionMapProps = {
   supervisors: Array<{ id: string; name: string }>
   due: DueChecklist | null
   status: InspectionStatus | null
-  walk: { id: string; startedAt: string } | null
+  walk: {
+    id: string
+    startedAt: string
+    kind: "routine" | "annual_contractor"
+    contractorName: string | null
+    contractorCompany: string | null
+  } | null
   walkResponses: Record<string, "pass" | "flag">
   walkIssueItemIds: string[]
   walkAssetChecks: Record<string, { status: "pass" | "fail"; note: string | null }>
@@ -180,9 +188,26 @@ export function ConditionMap(props: ConditionMapProps) {
 
   const [dialog, setDialog] = useState<DialogTarget | null>(null)
   const [showGlass, setShowGlass] = useState(false)
-  // Walk state: the server walk, or a locally-started offline walk awaiting sync.
-  const [offlineWalk, setOfflineWalk] = useState(false)
-  const activeWalk = walk ?? (offlineWalk ? { id: null, startedAt: null } : null)
+  // Walk state: the server walk, or a locally-started offline walk awaiting
+  // sync. The offline variant carries the chosen kind/contractor info locally
+  // (mirroring the queued payload) so the "Annual contractor inspection —
+  // <name>" indicator can render before the walk has synced.
+  const [offlineWalk, setOfflineWalk] = useState<{
+    kind: "routine" | "annual_contractor"
+    contractorName: string | null
+    contractorCompany: string | null
+  } | null>(null)
+  const activeWalk =
+    walk ??
+    (offlineWalk
+      ? {
+          id: null,
+          startedAt: null,
+          kind: offlineWalk.kind,
+          contractorName: offlineWalk.contractorName,
+          contractorCompany: offlineWalk.contractorCompany,
+        }
+      : null)
   // Local response state so taps feel instant.
   const [responses, setResponses] = useState(walkResponses)
   // Per-asset Pass/Fail checks, local so taps feel instant.
@@ -195,6 +220,11 @@ export function ConditionMap(props: ConditionMapProps) {
   // outside an explicit walk (until router.refresh delivers it as `walk`).
   const [autoWalkId, setAutoWalkId] = useState<string | null>(null)
   const startInFlight = useRef<Promise<string | null> | null>(null)
+  // Guided walkthrough overlay (guided-walk.tsx) + the walk bar's sign-off
+  // panel, controlled here so finishing the guided walk can hand off straight
+  // into sign-off.
+  const [guidedWalkOpen, setGuidedWalkOpen] = useState(false)
+  const [walkBarExpanded, setWalkBarExpanded] = useState(false)
 
   // Walk-scoped state must not leak into the NEXT walk (complete one, start
   // another in the same session): re-seed when the server walk id changes.
@@ -204,8 +234,10 @@ export function ConditionMap(props: ConditionMapProps) {
     setResponses(walkResponses)
     setAssetChecks(walkAssetChecks)
     setLocallyLinkedItems([])
-    setOfflineWalk(false)
+    setOfflineWalk(null)
     setAutoWalkId(null)
+    setGuidedWalkOpen(false)
+    setWalkBarExpanded(false)
   }
 
   function saveAssetCheck(
@@ -256,24 +288,40 @@ export function ConditionMap(props: ConditionMapProps) {
   const dueItems = (due?.items ?? []).filter((i) => i.due)
   const linkedItems = new Set([...walkIssueItemIds, ...locallyLinkedItems])
 
-  function startWalk() {
+  function startWalk(kindInput?: {
+    kind: "annual_contractor"
+    contractorName: string
+    contractorCompany: string | null
+  }) {
+    const kind = kindInput?.kind ?? "routine"
+    const contractorName = kindInput?.contractorName ?? null
+    const contractorCompany = kindInput?.contractorCompany ?? null
     startWalkTransition(async () => {
       if (!online) {
         const ok = enqueueSubmission({
           localId: genLocalId(),
           moduleKey: "dasher_boards",
           action: "start_walk",
-          payload: { rinkId: rink.id },
+          payload: { rinkId: rink.id, kind, contractorName, contractorCompany },
         })
         if (ok) {
-          setOfflineWalk(true)
+          setOfflineWalk({ kind, contractorName, contractorCompany })
           toast.success("Walk started offline — it will sync when you reconnect.")
         } else {
           toast.error("Offline queue unavailable. Reload once online.")
         }
         return
       }
-      const r = await startWalkAction(rink.id)
+      const r = await startWalkAction(
+        rink.id,
+        kindInput
+          ? {
+              kind: kindInput.kind,
+              contractorName: kindInput.contractorName,
+              contractorCompany: kindInput.contractorCompany ?? undefined,
+            }
+          : undefined,
+      )
       if (!r.ok) toast.error(r.error)
       else {
         toast.success(r.resumed ? "Resuming your open walk." : "Walk started.")
@@ -295,7 +343,7 @@ export function ConditionMap(props: ConditionMapProps) {
           payload: { rinkId: rink.id, notes },
         })
         if (ok) {
-          setOfflineWalk(false)
+          setOfflineWalk(null)
           toast.success(
             "Sign-off queued. It is validated when it syncs — unacknowledged severity-A issues or unanswered due items will reject it.",
           )
@@ -353,7 +401,7 @@ export function ConditionMap(props: ConditionMapProps) {
             toast.error("Offline queue unavailable — answer not saved.")
             return
           }
-          setOfflineWalk(true)
+          setOfflineWalk({ kind: "routine", contractorName: null, contractorCompany: null })
         }
         const ok = enqueueSubmission({
           localId: genLocalId(),
@@ -411,6 +459,23 @@ export function ConditionMap(props: ConditionMapProps) {
       (responses[i.id] === "flag" && !linkedItems.has(i.id)),
   ).length
 
+  // Guided walkthrough callbacks — reuse the exact same persistence path
+  // (saveAssetCheck) and the exact same tap-to-log sheet (setDialog) as the
+  // free-tap flow, so a guided step behaves identically to tapping the
+  // segment directly.
+  function handleGuidedOk(assetId: string) {
+    saveAssetCheck(assetId, "pass", null)
+  }
+  function handleGuidedFlag(asset: PerimeterAsset) {
+    saveAssetCheck(asset.id, "fail", null)
+    setDialog({ kind: "asset", assetId: asset.id })
+  }
+  function handleGuidedFinish() {
+    setGuidedWalkOpen(false)
+    setWalkBarExpanded(true)
+    toast.success("All segments checked — review and sign off below.")
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {(!online || pendingCount > 0) && (
@@ -435,7 +500,8 @@ export function ConditionMap(props: ConditionMapProps) {
         </div>
       )}
 
-      {/* Toolbar: walk status line + the opt-in walk as a secondary action. */}
+      {/* Toolbar: walk status line — the opt-in walk itself (start / in
+          progress / sign off) now lives entirely in the walk bar below. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
           {status?.lastCompletedAt ? (
@@ -449,17 +515,6 @@ export function ConditionMap(props: ConditionMapProps) {
           )}
           {status && !status.walkedToday && " Due today."}
         </p>
-        {!activeWalk && can.submit && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={startWalk}
-            disabled={walkPending}
-          >
-            <Footprints aria-hidden />
-            Start inspection walk
-          </Button>
-        )}
       </div>
 
       {/* Diagram — the whole tool. Tap an asset to log, walk or no walk. */}
@@ -537,16 +592,46 @@ export function ConditionMap(props: ConditionMapProps) {
         />
       )}
 
-      {/* Persistent walk companion — only while a walk is open. */}
-      {activeWalk && (
-        <WalkBar
-          startedAt={walk?.startedAt ?? null}
-          synced={!!walk}
-          dueItems={dueItems}
-          responses={responses}
-          missingCount={missingCount}
+      {/* Walk companion — start controls when no walk is open, then progress
+          + guided walkthrough + sign off while one is. */}
+      <WalkBar
+        active={!!activeWalk}
+        canStart={can.submit}
+        startedAt={walk?.startedAt ?? null}
+        synced={!!walk}
+        walkKind={activeWalk?.kind ?? null}
+        contractorName={activeWalk?.contractorName ?? null}
+        contractorCompany={activeWalk?.contractorCompany ?? null}
+        dueItems={dueItems}
+        responses={responses}
+        missingCount={missingCount}
+        pending={walkPending}
+        expanded={walkBarExpanded}
+        onExpandedChange={setWalkBarExpanded}
+        onStartRoutine={() => startWalk()}
+        onStartAnnual={(input) =>
+          startWalk({
+            kind: "annual_contractor",
+            contractorName: input.contractorName,
+            contractorCompany: input.contractorCompany,
+          })
+        }
+        onComplete={completeWalk}
+        onLaunchGuidedWalk={() => setGuidedWalkOpen(true)}
+      />
+
+      {guidedWalkOpen && activeWalk && (
+        <GuidedWalk
+          positioned={positioned}
+          glassNumbers={glassNumbers}
+          doorSubtypes={doorSubtypes}
+          assetChecks={assetChecks}
           pending={walkPending}
-          onComplete={completeWalk}
+          online={online}
+          onOk={handleGuidedOk}
+          onFlag={handleGuidedFlag}
+          onClose={() => setGuidedWalkOpen(false)}
+          onFinish={handleGuidedFinish}
         />
       )}
 

@@ -1,7 +1,13 @@
+"use client"
+
 import Link from "next/link"
+import { useState } from "react"
+import { Download, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 
 import { LoadMoreLink } from "@/components/admin/load-more-link"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardDescription,
@@ -9,7 +15,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
-import { formatInTz } from "@/lib/timezone"
+import { formatInTz, localDayKey } from "@/lib/timezone"
+import { getSegmentHistoryAction } from "@/app/reports/dasher-boards/actions"
+import {
+  buildSegmentHistoryCsv,
+  segmentHistoryFilename,
+} from "@/app/reports/dasher-boards/_lib/segment-history-csv"
 
 import type { WalkDetailData, WalkListItem } from "../types"
 
@@ -20,6 +31,8 @@ type Props = {
   detail: WalkDetailData | null
   backHref: string
   rinkId: string
+  /** The selected rink's slug, for the CSV export filename. */
+  rinkSlug: string
   /** Facility IANA timezone; timestamps render as facility wall-clock. */
   timezone: string | null
   /** Set when more walks exist beyond the current window. */
@@ -39,6 +52,7 @@ export function WalksTab({
   detail,
   backHref,
   rinkId,
+  rinkSlug,
   timezone,
   moreHref,
 }: Props) {
@@ -50,6 +64,9 @@ export function WalksTab({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <ExportHistoryButton rinkId={rinkId} rinkSlug={rinkSlug} />
+      </div>
       {list.length === 0 ? (
         <Card>
           <CardHeader>
@@ -69,6 +86,54 @@ export function WalksTab({
         </>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Export history (CSV) — one facility-scoped, RLS-filtered read
+// (getSegmentHistoryAction) shaped into a CSV client-side, same Blob +
+// a.download pattern as the invoices table export.
+// ---------------------------------------------------------------------------
+
+function ExportHistoryButton({
+  rinkId,
+  rinkSlug,
+}: {
+  rinkId: string
+  rinkSlug: string
+}) {
+  const [busy, setBusy] = useState(false)
+
+  async function onExport() {
+    setBusy(true)
+    try {
+      const r = await getSegmentHistoryAction(rinkId)
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      const csv = buildSegmentHistoryCsv(r.rows)
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = segmentHistoryFilename(rinkSlug, localDayKey())
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error("Could not build the export. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Button variant="outline" size="sm" onClick={onExport} disabled={busy}>
+      {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
+      {busy ? "Exporting…" : "Export history (CSV)"}
+    </Button>
   )
 }
 
@@ -98,6 +163,7 @@ function WalksList({
             <th className="border-b px-3 py-2 text-left font-medium">
               Status
             </th>
+            <th className="border-b px-3 py-2 text-left font-medium">Kind</th>
             <th className="border-b px-3 py-2 text-left font-medium">
               Fails
             </th>
@@ -125,6 +191,13 @@ function WalksList({
                   <Badge variant="secondary">Completed</Badge>
                 ) : (
                   <Badge variant="warning">In progress</Badge>
+                )}
+              </td>
+              <td className="border-b px-3 py-2 align-middle">
+                {w.inspection_kind === "annual_contractor" ? (
+                  <Badge variant="special">Annual contractor</Badge>
+                ) : (
+                  "—"
                 )}
               </td>
               <td className="border-b px-3 py-2 align-middle">

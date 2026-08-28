@@ -217,6 +217,7 @@ export default async function DasherBoardsAdminPage({
           key={selectedRink.id}
           facilityId={facilityId}
           rinkId={selectedRink.id}
+          rinkSlug={selectedRink.slug}
           walkId={params.walk}
           show={params.show}
         />
@@ -238,11 +239,13 @@ const SHOW_OPTS = { initial: 50, step: 50 }
 async function WalksTabLoader({
   facilityId,
   rinkId,
+  rinkSlug,
   walkId,
   show: showParam,
 }: {
   facilityId: string
   rinkId: string
+  rinkSlug: string
   walkId?: string
   show?: string
 }) {
@@ -425,6 +428,7 @@ async function WalksTabLoader({
       detail={detail}
       backHref={backHref}
       rinkId={rinkId}
+      rinkSlug={rinkSlug}
       timezone={timezone}
       moreHref={moreHref}
     />
