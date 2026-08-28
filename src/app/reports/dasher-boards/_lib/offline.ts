@@ -130,10 +130,29 @@ export async function handleDasherBoardsReplay({
     if (!isUuid(rinkId)) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
     }
+    // Walk kind (migration 261): optional and backward compatible — a payload
+    // queued before the field existed replays as a routine walk. The identity
+    // fields (facility/employee) stay server-derived; only the kind and the
+    // contractor attribution ride the payload, re-validated in startInspection
+    // and CHECK-enforced at the DB.
+    const rawKind = asString(payload.kind)
+    if (rawKind && rawKind !== "routine" && rawKind !== "annual_contractor") {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
+    }
+    const kind = rawKind === "annual_contractor" ? "annual_contractor" : "routine"
+    const contractorName = asString(payload.contractorName) || null
+    const contractorCompany = asString(payload.contractorCompany) || null
     doWrite = async () => {
       // startInspection resumes an existing open walk, so a duplicate replay
       // (or an online walk started meanwhile) is naturally idempotent.
-      const r = await startInspection(supabase, { employeeId, facilityId, rinkId })
+      const r = await startInspection(supabase, {
+        employeeId,
+        facilityId,
+        rinkId,
+        kind,
+        contractorName,
+        contractorCompany,
+      })
       return r.ok ? { ok: true } : r
     }
   } else if (action === "save_responses") {
