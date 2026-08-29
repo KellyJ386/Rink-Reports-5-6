@@ -20,7 +20,7 @@
 
 import "server-only"
 
-import { getCurrentUser, requireUser } from "@/lib/auth"
+import { getCurrentUser } from "@/lib/auth"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { currentUserCan } from "@/lib/permissions/check"
 import { createClient } from "@/lib/supabase/server"
@@ -53,7 +53,14 @@ export async function getTodayIceSchedule(): Promise<
   { ok: true; data: TodayIceSchedule } | { ok: false }
 > {
   try {
-    await requireUser()
+    // getCurrentUser() (unlike requireUser()) returns null rather than
+    // calling next/navigation's redirect() on a missing session — inside
+    // this try/catch a redirect() throw would be swallowed and silently
+    // turned into "render nothing" instead of propagating. The caller
+    // (dashboard/page.tsx) already calls requireUser() itself before
+    // anything on the page renders, so re-deriving that guarantee here
+    // would be redundant anyway; a null profile below degrades the widget
+    // to null exactly like every other missing-data case in this function.
     const current = await getCurrentUser()
     const facilityId = current?.profile?.facility_id
     if (!facilityId) return { ok: false }
