@@ -8808,6 +8808,21 @@ select pg_temp.expect_count(
     select count(*) from u$$,
   0, 'RS15: alice (no edit grant) CANNOT confirm/edit a booking (0 rows match)');
 
+-- Reschedule (moving the booking, not just its status) is the same edit-tier
+-- gate as updateBooking()/setResurfaceStatus() in
+-- src/app/reports/rink-scheduling/{actions,resurface-actions}.ts enforce in
+-- application code — checked here at the layer those actions cannot bypass.
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_bookings
+         set rink_id = 'a5000001-0000-4000-8000-000000000001',
+             starts_at = '2026-10-03 09:00:00-04',
+             ends_at = '2026-10-03 10:00:00-04'
+       where id = 'a5000001-0000-4000-8000-0000000000b1'
+       returning 1)
+    select count(*) from u$$,
+  0, 'RS15b: alice (submit tier, no edit) CANNOT reschedule a booking (0 rows match)');
+
 -- Cross-tenant write attempt: naming facility B explicitly must still fail.
 select pg_temp.expect_error(
   $$insert into public.facility_rinks (facility_id, name, slug, short_code)
@@ -8866,6 +8881,23 @@ select pg_temp.expect_ok(
   $$update public.rink_bookings set status = 'confirmed'
      where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
   'RS22: carol (edit) CAN confirm a booking');
+
+-- The "payload carries a different facility_id" attack: none of
+-- createBooking/updateBooking/setResurfaceStatus (actions.ts,
+-- resurface-actions.ts) accept a facility_id field at all — every one derives
+-- it from the session and filters both the read and the write by it — so
+-- this can only be exercised at the layer beneath the app entirely: a
+-- statement that tries to retarget an existing row's facility_id column
+-- directly. rink_bookings_update's WITH CHECK (facility_id =
+-- current_facility_id()) must still refuse it even though carol otherwise has
+-- full edit rights on the row (an UPDATE's USING clause permits touching the
+-- row; WITH CHECK is what then rejects the new values, raising rather than
+-- silently matching zero rows — unlike a USING-only denial).
+select pg_temp.expect_error(
+  $$update public.rink_bookings
+       set facility_id = '22222222-2222-2222-2222-222222222222'
+     where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
+  'RS22b: carol (edit, facility A) CANNOT retarget a booking to facility B''s facility_id');
 
 -- Rate cards and module settings are the ADMIN tier — carol must be refused.
 select pg_temp.expect_error(
