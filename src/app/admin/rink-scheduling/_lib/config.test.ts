@@ -20,6 +20,7 @@ import {
 
 const validSettings = {
   defaultBufferMinutes: 15,
+  defaultResurfaceMinutes: 15,
   slotIncrementMinutes: 30,
   defaultPaymentTermsDays: 30,
   invoicePrefix: "INV-",
@@ -160,6 +161,7 @@ describe("validateSettings", () => {
     const errors = validateSettings({
       ...validSettings,
       defaultBufferMinutes: 121,
+      defaultResurfaceMinutes: 0,
       slotIncrementMinutes: 7,
       defaultPaymentTermsDays: 400,
       invoicePrefix: "IN VOICE!",
@@ -172,6 +174,7 @@ describe("validateSettings", () => {
     expect(Object.keys(errors).sort()).toEqual(
       [
         "defaultBufferMinutes",
+        "defaultResurfaceMinutes",
         "defaultPaymentTermsDays",
         "displayRefreshSeconds",
         "invoicePrefix",

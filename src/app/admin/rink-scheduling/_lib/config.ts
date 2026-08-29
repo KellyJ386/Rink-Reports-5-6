@@ -99,6 +99,7 @@ export function wrapsMidnight(openMinutes: number, closeMinutes: number): boolea
 
 export type SettingsInput = {
   defaultBufferMinutes: number
+  defaultResurfaceMinutes: number
   slotIncrementMinutes: number
   defaultPaymentTermsDays: number
   invoicePrefix: string
@@ -118,6 +119,9 @@ export function validateSettings(input: SettingsInput): Record<string, string> {
 
   if (!Number.isInteger(input.defaultBufferMinutes) || input.defaultBufferMinutes < 0 || input.defaultBufferMinutes > 120) {
     errors.defaultBufferMinutes = "Resurfacing buffer must be between 0 and 120 minutes."
+  }
+  if (!Number.isInteger(input.defaultResurfaceMinutes) || input.defaultResurfaceMinutes < 1 || input.defaultResurfaceMinutes > 120) {
+    errors.defaultResurfaceMinutes = "Resurface duration must be between 1 and 120 minutes."
   }
   if (!SLOT_INCREMENT_CHOICES.includes(input.slotIncrementMinutes as SlotIncrement)) {
     errors.slotIncrementMinutes = `Calendar slot must be one of ${SLOT_INCREMENT_CHOICES.join(", ")} minutes.`

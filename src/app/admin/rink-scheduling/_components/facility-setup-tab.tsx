@@ -219,6 +219,20 @@ function RinkRowItem({ rink, atCap }: { rink: RinkRow; atCap: boolean }) {
               className="w-20"
             />
           </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor={`rink-resurface-${rink.id}`}>Resurface (min)</Label>
+            <Input
+              id={`rink-resurface-${rink.id}`}
+              name="resurface_minutes_override"
+              type="number"
+              min={1}
+              max={120}
+              defaultValue={rink.resurface_minutes_override ?? ""}
+              placeholder="default"
+              className="w-28"
+              title="Cut duration for this sheet. Blank uses the facility default from the Settings tab."
+            />
+          </div>
           <Button type="submit" size="sm" disabled={pending}>
             {pending ? "Saving…" : "Save"}
           </Button>
@@ -280,6 +294,19 @@ function RinkCreateForm({
           type="color"
           defaultValue="#4DFF00"
           className="h-9 w-16 p-1"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="new-rink-resurface">Resurface (min)</Label>
+        <Input
+          id="new-rink-resurface"
+          name="resurface_minutes_override"
+          type="number"
+          min={1}
+          max={120}
+          placeholder="default"
+          className="w-28"
+          title="Cut duration for this sheet. Blank uses the facility default from the Settings tab."
         />
       </div>
       <Button type="submit" disabled={pending}>

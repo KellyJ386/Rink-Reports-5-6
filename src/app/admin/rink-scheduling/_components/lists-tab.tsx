@@ -139,6 +139,11 @@ function BookingTypeRowItem({ row }: { row: BookingTypeRow }) {
               non-billable
             </Badge>
           )}
+          {row.is_resurface && (
+            <Badge variant="outline" className="uppercase">
+              resurface
+            </Badge>
+          )}
           {row.is_system && (
             <Badge variant="outline" className="uppercase">
               built-in
@@ -208,6 +213,15 @@ function BookingTypeRowItem({ row }: { row: BookingTypeRow }) {
             />
             Billable
           </label>
+          <label className="flex h-9 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="is_resurface"
+              defaultChecked={row.is_resurface}
+              className="border-input size-4 rounded border"
+            />
+            Ice resurface
+          </label>
           <div className="flex flex-col gap-1">
             <Label htmlFor={`bt-sort-${row.id}`}>Order</Label>
             <Input
@@ -270,6 +284,14 @@ function BookingTypeCreateForm() {
           className="border-input size-4 rounded border"
         />
         Billable
+      </label>
+      <label className="flex h-9 items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="is_resurface"
+          className="border-input size-4 rounded border"
+        />
+        Ice resurface
       </label>
       <Button type="submit" disabled={pending}>
         {pending ? "Adding…" : "Add booking type"}

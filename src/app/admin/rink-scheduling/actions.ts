@@ -226,6 +226,13 @@ export async function createRink(
     const color = nonEmpty(formData.get("display_color")) ?? "#4DFF00"
     if (!isHexColor(color)) return fail("Colour must look like #4DFF00.")
 
+    const resurfaceOverride = asInt(formData.get("resurface_minutes_override"))
+    if (resurfaceOverride !== null && (resurfaceOverride < 1 || resurfaceOverride > 120)) {
+      return fail(
+        "Resurface override must be between 1 and 120 minutes, or left blank to use the facility default.",
+      )
+    }
+
     const active = await activeRinkCount(facility.facilityId)
     if (active >= MAX_ACTIVE_RINKS) {
       return fail(
@@ -240,6 +247,7 @@ export async function createRink(
       slug: slugify(name),
       short_code: shortCode,
       display_color: color,
+      resurface_minutes_override: resurfaceOverride,
       sort_order: asInt(formData.get("sort_order")) ?? active,
       is_active: true,
     })
@@ -272,6 +280,14 @@ export async function updateRink(
     const color = nonEmpty(formData.get("display_color")) ?? "#4DFF00"
     if (!isHexColor(color)) return fail("Colour must look like #4DFF00.")
 
+    // Blank clears the override, falling back to the facility default.
+    const resurfaceOverride = asInt(formData.get("resurface_minutes_override"))
+    if (resurfaceOverride !== null && (resurfaceOverride < 1 || resurfaceOverride > 120)) {
+      return fail(
+        "Resurface override must be between 1 and 120 minutes, or left blank to use the facility default.",
+      )
+    }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from("facility_rinks")
@@ -280,6 +296,7 @@ export async function updateRink(
         slug: slugify(name),
         short_code: shortCode,
         display_color: color,
+        resurface_minutes_override: resurfaceOverride,
         ...(asInt(formData.get("sort_order")) !== null
           ? { sort_order: asInt(formData.get("sort_order")) as number }
           : {}),
@@ -694,6 +711,7 @@ export async function createLookup(
         slug: slugify(name),
         color,
         is_billable: formData.get("is_billable") === "on",
+        is_resurface: formData.get("is_resurface") === "on",
         sort_order: asInt(formData.get("sort_order")) ?? 0,
         is_active: true,
       })
@@ -768,6 +786,9 @@ export async function updateLookup(
           slug: slugify(name),
           color,
           is_billable: isBillable,
+          // Deliberately unrestricted (even for system types): flipping the
+          // flag never rewrites existing bookings — see migration 265.
+          is_resurface: formData.get("is_resurface") === "on",
           ...(asInt(formData.get("sort_order")) !== null
             ? { sort_order: asInt(formData.get("sort_order")) as number }
             : {}),
@@ -1308,6 +1329,7 @@ export async function updateModuleSettings(
 
     const input = {
       defaultBufferMinutes: asInt(formData.get("default_buffer_minutes")) ?? 15,
+      defaultResurfaceMinutes: asInt(formData.get("default_resurface_minutes")) ?? 15,
       slotIncrementMinutes: asInt(formData.get("slot_increment_minutes")) ?? 30,
       defaultPaymentTermsDays: asInt(formData.get("default_payment_terms_days")) ?? 30,
       invoicePrefix: String(formData.get("invoice_prefix") ?? "").trim(),
@@ -1332,6 +1354,7 @@ export async function updateModuleSettings(
       {
         facility_id: facility.facilityId,
         default_buffer_minutes: input.defaultBufferMinutes,
+        default_resurface_minutes: input.defaultResurfaceMinutes,
         slot_increment_minutes: input.slotIncrementMinutes,
         default_payment_terms_days: input.defaultPaymentTermsDays,
         invoice_prefix: input.invoicePrefix,
