@@ -14096,6 +14096,7 @@ CREATE TABLE public.rink_booking_series (
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    contract_id uuid,
     CONSTRAINT rink_booking_series_date_order CHECK ((series_end_date >= series_start_date)),
     CONSTRAINT rink_booking_series_dow_chk CHECK ((((array_length(days_of_week, 1) >= 1) AND (array_length(days_of_week, 1) <= 7)) AND (days_of_week <@ ARRAY[0, 1, 2, 3, 4, 5, 6]))),
     CONSTRAINT rink_booking_series_frequency_chk CHECK ((frequency = 'weekly'::text)),
@@ -14117,6 +14118,13 @@ COMMENT ON TABLE public.rink_booking_series IS 'Rink Scheduling: recurring booki
 --
 
 COMMENT ON COLUMN public.rink_booking_series.days_of_week IS '0=Sunday..6=Saturday, matching facility_operating_hours.day_of_week.';
+
+
+--
+-- Name: COLUMN rink_booking_series.contract_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_booking_series.contract_id IS 'Season contract this series is bound to, if any. Composite FK with facility_id so cross-facility binding is impossible.';
 
 
 --
@@ -14457,6 +14465,7 @@ CREATE TABLE public.rink_invoices (
     updated_at timestamp with time zone,
     last_reminder_at timestamp with time zone,
     reminder_count integer DEFAULT 0 NOT NULL,
+    contract_id uuid,
     CONSTRAINT rink_invoices_date_order CHECK ((due_date >= issue_date)),
     CONSTRAINT rink_invoices_status_chk CHECK ((status = ANY (ARRAY['draft'::text, 'sent'::text, 'partially_paid'::text, 'paid'::text, 'void'::text]))),
     CONSTRAINT rink_invoices_subtotal_nonneg CHECK ((subtotal >= (0)::numeric)),
@@ -14499,6 +14508,13 @@ COMMENT ON COLUMN public.rink_invoices.last_reminder_at IS 'When the overdue-rem
 --
 
 COMMENT ON COLUMN public.rink_invoices.reminder_count IS 'How many overdue reminders have been sent for this invoice.';
+
+
+--
+-- Name: COLUMN rink_invoices.contract_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_invoices.contract_id IS 'Season contract this invoice was generated under, if any. Provenance for contract billing history and renewal pricing.';
 
 
 --
@@ -14749,6 +14765,68 @@ COMMENT ON COLUMN public.rink_scheduling_settings.overdue_reminders_enabled IS '
 --
 
 COMMENT ON COLUMN public.rink_scheduling_settings.reminder_cadence_days IS 'Minimum days between overdue reminders for the same invoice.';
+
+
+--
+-- Name: rink_season_contracts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rink_season_contracts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    customer_id uuid NOT NULL,
+    name text NOT NULL,
+    season_start date NOT NULL,
+    season_end date NOT NULL,
+    contract_rate numeric(10,2),
+    status text DEFAULT 'draft'::text NOT NULL,
+    auto_invoice boolean DEFAULT true NOT NULL,
+    auto_send boolean DEFAULT false NOT NULL,
+    invoice_day_of_month integer DEFAULT 1 NOT NULL,
+    last_invoiced_period text,
+    renewal_of uuid,
+    notes text,
+    cancelled_at timestamp with time zone,
+    cancel_reason text,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT rink_season_contracts_dates_chk CHECK ((season_end > season_start)),
+    CONSTRAINT rink_season_contracts_invoice_day_chk CHECK (((invoice_day_of_month >= 1) AND (invoice_day_of_month <= 28))),
+    CONSTRAINT rink_season_contracts_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 160))),
+    CONSTRAINT rink_season_contracts_notes_len CHECK (((notes IS NULL) OR (char_length(notes) <= 4000))),
+    CONSTRAINT rink_season_contracts_period_chk CHECK (((last_invoiced_period IS NULL) OR (last_invoiced_period ~ '^\d{4}-(0[1-9]|1[0-2])$'::text))),
+    CONSTRAINT rink_season_contracts_rate_chk CHECK (((contract_rate IS NULL) OR (contract_rate >= (0)::numeric))),
+    CONSTRAINT rink_season_contracts_status_chk CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'completed'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: TABLE rink_season_contracts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rink_season_contracts IS 'Rink Scheduling: season agreements. Binds a customer''s booking series to a season window, optionally at a negotiated hourly rate; a daily cron invoices each elapsed calendar month of bound ice (last_invoiced_period is the idempotency cursor). renewal_of chains seasons. Financial history — never purged by age.';
+
+
+--
+-- Name: COLUMN rink_season_contracts.contract_rate; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_season_contracts.contract_rate IS 'Negotiated flat hourly rate. When set, future bookings of bound series are repriced to hours x this rate; null defers to the rate cards.';
+
+
+--
+-- Name: COLUMN rink_season_contracts.auto_send; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_season_contracts.auto_send IS 'false: monthly invoices are generated as drafts for a biller to review. true: they are issued and emailed on generation.';
+
+
+--
+-- Name: COLUMN rink_season_contracts.invoice_day_of_month; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_season_contracts.invoice_day_of_month IS 'Facility-local day of month the cron invoices the previous month on (1-28 so it exists in every month).';
 
 
 --
@@ -17623,6 +17701,22 @@ ALTER TABLE ONLY public.rink_scheduling_settings
 
 
 --
+-- Name: rink_season_contracts rink_season_contracts_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_season_contracts
+    ADD CONSTRAINT rink_season_contracts_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_season_contracts
+    ADD CONSTRAINT rink_season_contracts_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: rink_waitlist_entries rink_waitlist_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -20294,6 +20388,13 @@ CREATE INDEX idx_rink_booking_requests_facility_status ON public.rink_booking_re
 
 
 --
+-- Name: idx_rink_booking_series_contract; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_booking_series_contract ON public.rink_booking_series USING btree (contract_id) WHERE (contract_id IS NOT NULL);
+
+
+--
 -- Name: idx_rink_booking_series_facility; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -20371,6 +20472,13 @@ CREATE INDEX idx_rink_invoice_line_items_invoice ON public.rink_invoice_line_ite
 
 
 --
+-- Name: idx_rink_invoices_contract; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_invoices_contract ON public.rink_invoices USING btree (contract_id) WHERE (contract_id IS NOT NULL);
+
+
+--
 -- Name: idx_rink_invoices_customer; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -20424,6 +20532,13 @@ CREATE INDEX idx_rink_rate_card_windows_card ON public.rink_rate_card_windows US
 --
 
 CREATE INDEX idx_rink_rate_cards_facility_dates ON public.rink_rate_cards USING btree (facility_id, effective_start, effective_end);
+
+
+--
+-- Name: idx_rink_season_contracts_facility_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rink_season_contracts_facility_status ON public.rink_season_contracts USING btree (facility_id, status, season_end);
 
 
 --
@@ -22783,6 +22898,13 @@ CREATE TRIGGER trg_rink_scheduling_settings_updated_at BEFORE UPDATE ON public.r
 --
 
 CREATE TRIGGER trg_rink_scheduling_shift_coverage AFTER INSERT OR DELETE OR UPDATE ON public.schedule_shifts FOR EACH ROW EXECUTE FUNCTION public.rink_scheduling_enqueue_on_shift_change();
+
+
+--
+-- Name: rink_season_contracts trg_rink_season_contracts_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_season_contracts_updated_at BEFORE UPDATE ON public.rink_season_contracts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -25393,6 +25515,14 @@ ALTER TABLE ONLY public.rink_booking_requests
 
 
 --
+-- Name: rink_booking_series rink_booking_series_contract_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_booking_series
+    ADD CONSTRAINT rink_booking_series_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+
+
+--
 -- Name: rink_booking_series rink_booking_series_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -25593,6 +25723,14 @@ ALTER TABLE ONLY public.rink_invoice_line_items
 
 
 --
+-- Name: rink_invoices rink_invoices_contract_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_invoices
+    ADD CONSTRAINT rink_invoices_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+
+
+--
 -- Name: rink_invoices rink_invoices_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -25758,6 +25896,38 @@ ALTER TABLE ONLY public.rink_rate_card_type_overrides
 
 ALTER TABLE ONLY public.rink_scheduling_settings
     ADD CONSTRAINT rink_scheduling_settings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_season_contracts
+    ADD CONSTRAINT rink_season_contracts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_customer_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_season_contracts
+    ADD CONSTRAINT rink_season_contracts_customer_fk FOREIGN KEY (customer_id, facility_id) REFERENCES public.rink_customers(id, facility_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_season_contracts
+    ADD CONSTRAINT rink_season_contracts_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_renewal_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_season_contracts
+    ADD CONSTRAINT rink_season_contracts_renewal_fk FOREIGN KEY (renewal_of, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
 
 
 --
@@ -30880,6 +31050,33 @@ CREATE POLICY rink_scheduling_settings_select ON public.rink_scheduling_settings
 --
 
 CREATE POLICY rink_scheduling_settings_update ON public.rink_scheduling_settings FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_admin_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR (facility_id = public.current_facility_id())));
+
+
+--
+-- Name: rink_season_contracts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.rink_season_contracts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rink_season_contracts rink_season_contracts_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_season_contracts_insert ON public.rink_season_contracts FOR INSERT TO authenticated WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_season_contracts_select ON public.rink_season_contracts FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
+
+--
+-- Name: rink_season_contracts rink_season_contracts_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY rink_season_contracts_update ON public.rink_season_contracts FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
 
 
 --

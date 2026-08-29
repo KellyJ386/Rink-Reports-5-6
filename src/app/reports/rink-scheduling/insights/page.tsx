@@ -195,6 +195,12 @@ export default async function InsightsPage({
             >
               Requests →
             </Link>
+            <Link
+              href="/reports/rink-scheduling/contracts"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              Contracts →
+            </Link>
           </>
         }
       />

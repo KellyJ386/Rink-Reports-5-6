@@ -9558,6 +9558,100 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- SC: migration 264 season contracts — tier, tenancy, and the composite FKs
+-- that make cross-facility binding impossible.
+-- ---------------------------------------------------------------------------
+
+-- Fixtures as postgres: a facility-B contract to attack with, and a
+-- facility-A series to (fail to) bind it to.
+insert into public.rink_customers (id, facility_id, name)
+values ('b2640001-0000-4000-8000-0000000000cb', '22222222-2222-2222-2222-222222222222', 'Fac-B League')
+on conflict (id) do nothing;
+
+insert into public.rink_season_contracts
+  (id, facility_id, customer_id, name, season_start, season_end)
+values ('b2640001-0000-4000-8000-000000000001', '22222222-2222-2222-2222-222222222222',
+        'b2640001-0000-4000-8000-0000000000cb', 'Fac-B Season', date '2026-09-01', date '2027-03-31')
+on conflict (id) do nothing;
+
+insert into public.rink_booking_series
+  (id, facility_id, rink_id, customer_id, booking_type_id, days_of_week,
+   start_time, end_time, frequency, interval_weeks, series_start_date, series_end_date, status)
+select 'a2640001-0000-4000-8000-00000000005e', '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001', 'a5000001-0000-4000-8000-0000000000c1',
+       bt.id, '{2}', '18:00', '19:00', 'weekly', 1, date '2026-09-01', date '2027-03-31', 'active'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_season_contracts
+      (id, facility_id, customer_id, name, season_start, season_end, contract_rate)
+    values ('a2640001-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000c1', '2026-27 Youth League', date '2026-09-01',
+            date '2027-03-31', 275.00)$$,
+  'SC1: carol (edit) CAN create a season contract for her facility');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_season_contracts
+      (facility_id, customer_id, name, season_start, season_end)
+    values ('22222222-2222-2222-2222-222222222222',
+            'b2640001-0000-4000-8000-0000000000cb', 'Rogue Season', date '2026-09-01', date '2027-03-31')$$,
+  'SC2: carol CANNOT create a contract in facility B');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_season_contracts
+      (facility_id, customer_id, name, season_start, season_end)
+    values ('11111111-1111-1111-1111-111111111111',
+            'b2640001-0000-4000-8000-0000000000cb', 'Stolen Customer', date '2026-09-01', date '2027-03-31')$$,
+  'SC3: a contract CANNOT name another facility''s customer (composite FK)');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_season_contracts
+      (facility_id, customer_id, name, season_start, season_end, invoice_day_of_month)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000c1', 'Bad Day', date '2026-09-01', date '2027-03-31', 31)$$,
+  'SC4: invoice day outside 1-28 is REJECTED (every month must have the day)');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_season_contracts
+      (facility_id, customer_id, name, season_start, season_end)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-0000000000c1', 'Backwards', date '2027-03-31', date '2026-09-01')$$,
+  'SC5: a season ending before it starts is REJECTED');
+
+select pg_temp.expect_ok(
+  $$update public.rink_booking_series
+       set contract_id = 'a2640001-0000-4000-8000-000000000001'
+     where id = 'a2640001-0000-4000-8000-00000000005e'$$,
+  'SC6: carol CAN bind her facility''s series to her facility''s contract');
+
+select pg_temp.expect_error(
+  $$update public.rink_booking_series
+       set contract_id = 'b2640001-0000-4000-8000-000000000001'
+     where id = 'a2640001-0000-4000-8000-00000000005e'$$,
+  'SC7: binding a series to ANOTHER facility''s contract is IMPOSSIBLE (composite FK)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_season_contracts
+     where id = 'b2640001-0000-4000-8000-000000000001'$$,
+  0, 'SC8: carol cannot even SEE facility B''s contract');
+
+-- Contracts are money: submit-only staff see none of it.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_season_contracts$$,
+  0, 'SC9: alice (submit-only) sees NO season contracts');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
 -- GATE-246: cron RPC caller gates (migration 247).
 --
 -- The first production cron runs proved a `session_user = 'service_role'`

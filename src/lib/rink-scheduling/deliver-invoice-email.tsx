@@ -7,10 +7,15 @@ import { sendEmail, isEmailConfigured } from "@/lib/notifications/transport/emai
 import { buildInvoiceEmail } from "@/lib/rink-scheduling/invoice-email"
 import { InvoicePdf } from "@/lib/rink-scheduling/invoice-pdf"
 import { loadInvoicePdfData } from "@/lib/rink-scheduling/invoice-pdf-data"
-import type { createClient } from "@/lib/supabase/server"
-import type { Tables } from "@/types/database"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
-type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+import type { createClient } from "@/lib/supabase/server"
+import type { Database, Tables } from "@/types/database"
+
+// Accepts the RLS-scoped server client (biller-facing actions) and the
+// service-role client (season-contract auto-send). Service callers pass an
+// invoice row they already fetched facility-scoped.
+type ServerSupabase = Awaited<ReturnType<typeof createClient>> | SupabaseClient<Database>
 
 /**
  * Every way delivery can end, as data rather than a thrown error: the caller
