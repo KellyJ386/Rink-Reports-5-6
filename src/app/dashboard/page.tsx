@@ -17,6 +17,7 @@ import { getEnabledModuleKeys } from "@/lib/modules/facility-modules"
 import { createClient } from "@/lib/supabase/server"
 
 import { hideDashboardModule, showDashboardModule } from "./actions"
+import { IceScheduleWidget } from "./_components/ice-schedule-widget"
 import { MyAreasWidget } from "./_components/my-areas-widget"
 import { getDashboardModuleStatus, type ModuleStatus } from "./_lib/status"
 
@@ -341,6 +342,8 @@ export default async function DashboardPage() {
         {!preview.active && isFacilityEnabled("daily_reports") ? (
           <MyAreasWidget />
         ) : null}
+
+        {isFacilityEnabled("rink_scheduling") ? <IceScheduleWidget /> : null}
 
         {visibleModules.length === 0 ? (
           <EmptyState
