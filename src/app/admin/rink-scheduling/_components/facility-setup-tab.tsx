@@ -233,6 +233,20 @@ function RinkRowItem({ rink, atCap }: { rink: RinkRow; atCap: boolean }) {
               title="Cut duration for this sheet. Blank uses the facility default from the Settings tab."
             />
           </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor={`rink-buffer-${rink.id}`}>Ice-make (min)</Label>
+            <Input
+              id={`rink-buffer-${rink.id}`}
+              name="buffer_minutes_override"
+              type="number"
+              min={0}
+              max={120}
+              defaultValue={rink.buffer_minutes_override ?? ""}
+              placeholder="default"
+              className="w-28"
+              title="Ice-make time for this sheet. Blank uses the facility default from the Settings tab."
+            />
+          </div>
           <Button type="submit" size="sm" disabled={pending}>
             {pending ? "Saving…" : "Save"}
           </Button>
@@ -307,6 +321,19 @@ function RinkCreateForm({
           placeholder="default"
           className="w-28"
           title="Cut duration for this sheet. Blank uses the facility default from the Settings tab."
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="new-rink-buffer">Ice-make (min)</Label>
+        <Input
+          id="new-rink-buffer"
+          name="buffer_minutes_override"
+          type="number"
+          min={0}
+          max={120}
+          placeholder="default"
+          className="w-28"
+          title="Ice-make time for this sheet. Blank uses the facility default from the Settings tab."
         />
       </div>
       <Button type="submit" disabled={pending}>

@@ -5348,6 +5348,7 @@ export type Database = {
       }
       facility_rinks: {
         Row: {
+          buffer_minutes_override: number | null
           created_at: string
           display_color: string
           facility_id: string
@@ -5361,6 +5362,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          buffer_minutes_override?: number | null
           created_at?: string
           display_color?: string
           facility_id: string
@@ -5374,6 +5376,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          buffer_minutes_override?: number | null
           created_at?: string
           display_color?: string
           facility_id?: string
@@ -9131,6 +9134,7 @@ export type Database = {
       }
       rink_scheduling_settings: {
         Row: {
+          buffer_included_in_rental: boolean
           coverage_check_enabled: boolean
           created_at: string
           default_buffer_minutes: number
@@ -9150,6 +9154,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          buffer_included_in_rental?: boolean
           coverage_check_enabled?: boolean
           created_at?: string
           default_buffer_minutes?: number
@@ -9169,6 +9174,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          buffer_included_in_rental?: boolean
           coverage_check_enabled?: boolean
           created_at?: string
           default_buffer_minutes?: number

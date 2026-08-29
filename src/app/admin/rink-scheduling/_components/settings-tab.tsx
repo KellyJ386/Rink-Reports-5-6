@@ -33,6 +33,7 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
   // value the admin never touched.
   const s = {
     default_buffer_minutes: settings?.default_buffer_minutes ?? 15,
+    buffer_included_in_rental: settings?.buffer_included_in_rental ?? false,
     default_resurface_minutes: settings?.default_resurface_minutes ?? 15,
     slot_increment_minutes: settings?.slot_increment_minutes ?? 30,
     default_payment_terms_days: settings?.default_payment_terms_days ?? 30,
@@ -63,7 +64,7 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
             <legend className="text-sm font-medium">Calendar</legend>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1">
-                <Label htmlFor="buffer">Resurfacing buffer (minutes)</Label>
+                <Label htmlFor="buffer">Ice-make time (minutes)</Label>
                 <Input
                   id="buffer"
                   name="default_buffer_minutes"
@@ -73,8 +74,8 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
                   defaultValue={s.default_buffer_minutes}
                 />
                 <p className="text-muted-foreground text-xs">
-                  Copied onto each new booking and reserved after it, so the next
-                  slot cannot start until the flood is done.
+                  Most rinks use 10 or 15 minutes. A rink can override this on
+                  the Facility setup tab.
                 </p>
               </div>
               <div className="flex flex-col gap-1">
@@ -110,6 +111,27 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
                   The grid&rsquo;s snap size when dragging out a booking.
                 </p>
               </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="buffer_included_in_rental"
+                  defaultChecked={s.buffer_included_in_rental}
+                  className="border-input size-4 rounded border"
+                />
+                Ice-make time is included in the rental hour
+              </label>
+              <p className="text-muted-foreground text-xs">
+                On: a booking is billed for its full length and nothing is
+                reserved after it — the flood happens inside the hour the
+                customer already paid for (e.g. a 60-minute rental is ~50
+                minutes of ice plus a 10-minute make at the end). Off (most
+                rinks): the ice-make minutes above are reserved AFTER each
+                booking, so the next slot can&rsquo;t start until the flood is
+                done. Either way, invoicing always bills the booked hours —
+                this only changes whether time is blocked after the booking.
+              </p>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input
