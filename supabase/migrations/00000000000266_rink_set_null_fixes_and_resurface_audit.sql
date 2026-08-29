@@ -7,11 +7,16 @@
 --    — including facility_id, which is NOT NULL — so deleting the parent
 --    errors instead of clearing the link. Migration 190 discovered and fixed
 --    this for schedule_shifts; 265 nearly reintroduced it and was caught in
---    review; this migration sweeps the three PRE-EXISTING instances from
---    migration 247, all with live parent DELETE paths:
+--    review; this migration sweeps ALL SIX pre-existing instances:
+--      from migration 247 (live parent DELETE paths today):
 --      * rink_bookings.series_id        (super-admin series delete)
 --      * rink_customers.default_rate_card_id  (admin rate-card delete)
 --      * rink_booking_series.rate_card_id     (admin rate-card delete)
+--      from migration 264 (no DELETE policy on contracts today, so only
+--      reachable by direct SQL — a landmine, not a live fault):
+--      * rink_season_contracts.renewal_of     (self-referential)
+--      * rink_booking_series.contract_id
+--      * rink_invoices.contract_id
 --    Each becomes ON DELETE SET NULL (<link column>). Metadata-only: the
 --    constraints are dropped and re-added over the same, already-valid rows.
 --
@@ -33,7 +38,7 @@
 begin;
 
 -- ---------------------------------------------------------------------------
--- 1. Column-list SET NULL on the three pre-existing composite FKs.
+-- 1. Column-list SET NULL on all six pre-existing composite FKs.
 -- ---------------------------------------------------------------------------
 
 alter table public.rink_bookings
@@ -60,6 +65,30 @@ alter table public.rink_booking_series
     references public.rink_rate_cards (id, facility_id)
     on delete set null (rate_card_id);
 
+alter table public.rink_season_contracts
+  drop constraint rink_season_contracts_renewal_fk;
+alter table public.rink_season_contracts
+  add constraint rink_season_contracts_renewal_fk
+    foreign key (renewal_of, facility_id)
+    references public.rink_season_contracts (id, facility_id)
+    on delete set null (renewal_of);
+
+alter table public.rink_booking_series
+  drop constraint rink_booking_series_contract_fk;
+alter table public.rink_booking_series
+  add constraint rink_booking_series_contract_fk
+    foreign key (contract_id, facility_id)
+    references public.rink_season_contracts (id, facility_id)
+    on delete set null (contract_id);
+
+alter table public.rink_invoices
+  drop constraint rink_invoices_contract_fk;
+alter table public.rink_invoices
+  add constraint rink_invoices_contract_fk
+    foreign key (contract_id, facility_id)
+    references public.rink_season_contracts (id, facility_id)
+    on delete set null (contract_id);
+
 -- ---------------------------------------------------------------------------
 -- 2. Resurface audit columns + coherence.
 -- ---------------------------------------------------------------------------
@@ -68,6 +97,16 @@ alter table public.rink_bookings
   add column if not exists resurface_resolved_at timestamptz,
   add column if not exists resurface_resolved_by uuid
     references public.employees(id) on delete set null;
+
+-- Backfill BEFORE validating the CHECK: any resurface completed or skipped
+-- in the window between 265 and 266 predates the column and would otherwise
+-- fail the immediate constraint scan on a database with real rows (CI's
+-- harness inserts its fixtures after migrations, so only production-shaped
+-- data ever exercises this).
+update public.rink_bookings
+   set resurface_resolved_at = coalesce(updated_at, created_at, now())
+ where resurface_status in ('completed', 'skipped')
+   and resurface_resolved_at is null;
 
 alter table public.rink_bookings
   add constraint rink_bookings_resurface_resolved_chk check (

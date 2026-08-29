@@ -9828,10 +9828,25 @@ select pg_temp.expect_count(
        and facility_id = '11111111-1111-1111-1111-111111111111'$$,
   1, 'RF14: its booking survives with only series_id cleared');
 
+-- A SECOND series still holds the card when it is deleted, so
+-- rink_booking_series_rate_card_fk's cascade is genuinely exercised (the
+-- first series was already gone by RF13).
+insert into public.rink_booking_series
+  (id, facility_id, rink_id, customer_id, booking_type_id, days_of_week,
+   start_time, end_time, frequency, interval_weeks, series_start_date, series_end_date,
+   status, rate_card_id)
+select 'a2660001-0000-4000-8000-00000000006e', '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001', 'a5000001-0000-4000-8000-0000000000c1',
+       bt.id, '{4}', '06:00', '07:00', 'weekly', 1, date '2027-09-02', date '2027-10-02',
+       'active', 'a2660001-0000-4000-8000-00000000009c'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
 select pg_temp.expect_ok(
   $$delete from public.rink_rate_cards
      where id = 'a2660001-0000-4000-8000-00000000009c'$$,
-  'RF15: deleting a rate card succeeds even while a customer defaults to it');
+  'RF15: deleting a rate card succeeds while a customer AND a live series hold it');
 
 select pg_temp.expect_count(
   $$select count(*) from public.rink_customers
@@ -9839,6 +9854,60 @@ select pg_temp.expect_count(
        and default_rate_card_id is null
        and facility_id = '11111111-1111-1111-1111-111111111111'$$,
   1, 'RF16: the customer survives with only the default card cleared');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_series
+     where id = 'a2660001-0000-4000-8000-00000000006e'
+       and rate_card_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF16b: the live series survives with only its rate card cleared');
+
+-- Contract FKs (the migration-264 instances): deleting a contract clears
+-- renewal_of on its renewal, contract_id on bound series and invoices —
+-- rows survive with facilities intact. (No DELETE policy exists, so this is
+-- the direct-SQL landmine path the sweep defuses.)
+insert into public.rink_season_contracts
+  (id, facility_id, customer_id, name, season_start, season_end)
+values
+  ('a2660001-0000-4000-8000-0000000000d1', '11111111-1111-1111-1111-111111111111',
+   'a5000001-0000-4000-8000-0000000000c1', 'RF sweep season', date '2027-09-01', date '2028-03-31'),
+  ('a2660001-0000-4000-8000-0000000000d2', '11111111-1111-1111-1111-111111111111',
+   'a5000001-0000-4000-8000-0000000000c1', 'RF sweep renewal', date '2028-09-01', date '2029-03-31')
+on conflict (id) do nothing;
+update public.rink_season_contracts
+   set renewal_of = 'a2660001-0000-4000-8000-0000000000d1'
+ where id = 'a2660001-0000-4000-8000-0000000000d2';
+update public.rink_booking_series
+   set contract_id = 'a2660001-0000-4000-8000-0000000000d1'
+ where id = 'a2660001-0000-4000-8000-00000000006e';
+insert into public.rink_invoices
+  (id, facility_id, customer_id, invoice_number, status, issue_date, due_date,
+   subtotal, tax_amount, total, contract_id)
+values ('a2660001-0000-4000-8000-0000000000f1', '11111111-1111-1111-1111-111111111111',
+        'a5000001-0000-4000-8000-0000000000c1', 'RF-0001', 'draft',
+        date '2027-10-01', date '2027-10-31', 100, 0, 100,
+        'a2660001-0000-4000-8000-0000000000d1')
+on conflict (id) do nothing;
+
+select pg_temp.expect_ok(
+  $$delete from public.rink_season_contracts
+     where id = 'a2660001-0000-4000-8000-0000000000d1'$$,
+  'RF21: deleting a contract succeeds while a renewal, a series, and an invoice reference it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_season_contracts
+     where id = 'a2660001-0000-4000-8000-0000000000d2'
+       and renewal_of is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF22: the renewal survives with only renewal_of cleared');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_series s, public.rink_invoices i
+     where s.id = 'a2660001-0000-4000-8000-00000000006e' and s.contract_id is null
+       and i.id = 'a2660001-0000-4000-8000-0000000000f1' and i.contract_id is null
+       and s.facility_id = '11111111-1111-1111-1111-111111111111'
+       and i.facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF23: the bound series and invoice survive with only contract_id cleared');
 
 -- Audit stamps: RF7 completed a resurface; migration 266's trigger stamped it.
 select pg_temp.expect_count(

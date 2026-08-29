@@ -25649,7 +25649,7 @@ ALTER TABLE ONLY public.rink_booking_requests
 --
 
 ALTER TABLE ONLY public.rink_booking_series
-    ADD CONSTRAINT rink_booking_series_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_booking_series_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL (contract_id);
 
 
 --
@@ -25873,7 +25873,7 @@ ALTER TABLE ONLY public.rink_invoice_line_items
 --
 
 ALTER TABLE ONLY public.rink_invoices
-    ADD CONSTRAINT rink_invoices_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_invoices_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL (contract_id);
 
 
 --
@@ -26073,7 +26073,7 @@ ALTER TABLE ONLY public.rink_season_contracts
 --
 
 ALTER TABLE ONLY public.rink_season_contracts
-    ADD CONSTRAINT rink_season_contracts_renewal_fk FOREIGN KEY (renewal_of, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_season_contracts_renewal_fk FOREIGN KEY (renewal_of, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL (renewal_of);
 
 
 --
