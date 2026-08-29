@@ -9776,6 +9776,210 @@ select pg_temp.expect_error(
   'RF10: a per-sheet override outside 1-120 minutes is REJECTED');
 
 -- ---------------------------------------------------------------------------
+-- RF13-17: migration 266 — the pre-existing composite SET NULL sweep and the
+-- resurface audit stamps. All as postgres: the deletes below exercise FK
+-- actions, not policies.
+-- ---------------------------------------------------------------------------
+
+-- A throwaway series + booking, and a throwaway rate card wired as both a
+-- customer default and a series rate card.
+insert into public.rink_booking_series
+  (id, facility_id, rink_id, customer_id, booking_type_id, days_of_week,
+   start_time, end_time, frequency, interval_weeks, series_start_date, series_end_date, status)
+select 'a2660001-0000-4000-8000-00000000005e', '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001', 'a5000001-0000-4000-8000-0000000000c1',
+       bt.id, '{3}', '07:00', '08:00', 'weekly', 1, date '2027-09-01', date '2027-10-01', 'active'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, series_id, booking_type_id, starts_at, ends_at, status)
+select 'a2660001-0000-4000-8000-0000000000b1', '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001', 'a5000001-0000-4000-8000-0000000000c1',
+       'a2660001-0000-4000-8000-00000000005e', bt.id,
+       '2027-09-01 07:00:00-04', '2027-09-01 08:00:00-04', 'confirmed'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+insert into public.rink_rate_cards
+  (id, facility_id, name, effective_start, hourly_rate_prime, hourly_rate_nonprime)
+values ('a2660001-0000-4000-8000-00000000009c', '11111111-1111-1111-1111-111111111111',
+        'RF throwaway card', date '2027-09-01', 300, 200)
+on conflict (id) do nothing;
+
+update public.rink_customers
+   set default_rate_card_id = 'a2660001-0000-4000-8000-00000000009c'
+ where id = 'a5000001-0000-4000-8000-0000000000c1';
+update public.rink_booking_series
+   set rate_card_id = 'a2660001-0000-4000-8000-00000000009c'
+ where id = 'a2660001-0000-4000-8000-00000000005e';
+
+select pg_temp.expect_ok(
+  $$delete from public.rink_booking_series
+     where id = 'a2660001-0000-4000-8000-00000000005e'$$,
+  'RF13: deleting a series succeeds (column-list SET NULL, migration 266)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where id = 'a2660001-0000-4000-8000-0000000000b1'
+       and series_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF14: its booking survives with only series_id cleared');
+
+-- A SECOND series still holds the card when it is deleted, so
+-- rink_booking_series_rate_card_fk's cascade is genuinely exercised (the
+-- first series was already gone by RF13).
+insert into public.rink_booking_series
+  (id, facility_id, rink_id, customer_id, booking_type_id, days_of_week,
+   start_time, end_time, frequency, interval_weeks, series_start_date, series_end_date,
+   status, rate_card_id)
+select 'a2660001-0000-4000-8000-00000000006e', '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001', 'a5000001-0000-4000-8000-0000000000c1',
+       bt.id, '{4}', '06:00', '07:00', 'weekly', 1, date '2027-09-02', date '2027-10-02',
+       'active', 'a2660001-0000-4000-8000-00000000009c'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111' and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+select pg_temp.expect_ok(
+  $$delete from public.rink_rate_cards
+     where id = 'a2660001-0000-4000-8000-00000000009c'$$,
+  'RF15: deleting a rate card succeeds while a customer AND a live series hold it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_customers
+     where id = 'a5000001-0000-4000-8000-0000000000c1'
+       and default_rate_card_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF16: the customer survives with only the default card cleared');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_series
+     where id = 'a2660001-0000-4000-8000-00000000006e'
+       and rate_card_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF16b: the live series survives with only its rate card cleared');
+
+-- Contract FKs (the migration-264 instances): deleting a contract clears
+-- renewal_of on its renewal, contract_id on bound series and invoices —
+-- rows survive with facilities intact. (No DELETE policy exists, so this is
+-- the direct-SQL landmine path the sweep defuses.)
+insert into public.rink_season_contracts
+  (id, facility_id, customer_id, name, season_start, season_end)
+values
+  ('a2660001-0000-4000-8000-0000000000d1', '11111111-1111-1111-1111-111111111111',
+   'a5000001-0000-4000-8000-0000000000c1', 'RF sweep season', date '2027-09-01', date '2028-03-31'),
+  ('a2660001-0000-4000-8000-0000000000d2', '11111111-1111-1111-1111-111111111111',
+   'a5000001-0000-4000-8000-0000000000c1', 'RF sweep renewal', date '2028-09-01', date '2029-03-31')
+on conflict (id) do nothing;
+update public.rink_season_contracts
+   set renewal_of = 'a2660001-0000-4000-8000-0000000000d1'
+ where id = 'a2660001-0000-4000-8000-0000000000d2';
+update public.rink_booking_series
+   set contract_id = 'a2660001-0000-4000-8000-0000000000d1'
+ where id = 'a2660001-0000-4000-8000-00000000006e';
+insert into public.rink_invoices
+  (id, facility_id, customer_id, invoice_number, status, issue_date, due_date,
+   subtotal, tax_amount, total, contract_id)
+values ('a2660001-0000-4000-8000-0000000000f1', '11111111-1111-1111-1111-111111111111',
+        'a5000001-0000-4000-8000-0000000000c1', 'RF-0001', 'draft',
+        date '2027-10-01', date '2027-10-31', 100, 0, 100,
+        'a2660001-0000-4000-8000-0000000000d1')
+on conflict (id) do nothing;
+
+select pg_temp.expect_ok(
+  $$delete from public.rink_season_contracts
+     where id = 'a2660001-0000-4000-8000-0000000000d1'$$,
+  'RF21: deleting a contract succeeds while a renewal, a series, and an invoice reference it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_season_contracts
+     where id = 'a2660001-0000-4000-8000-0000000000d2'
+       and renewal_of is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF22: the renewal survives with only renewal_of cleared');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_booking_series s, public.rink_invoices i
+     where s.id = 'a2660001-0000-4000-8000-00000000006e' and s.contract_id is null
+       and i.id = 'a2660001-0000-4000-8000-0000000000f1' and i.contract_id is null
+       and s.facility_id = '11111111-1111-1111-1111-111111111111'
+       and i.facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF23: the bound series and invoice survive with only contract_id cleared');
+
+-- The two live-path instances (edit-tier delete policies exist for both
+-- parents): a throwaway rink held as a locker room's default, a throwaway
+-- customer type held by a customer.
+insert into public.facility_rinks (id, facility_id, name, slug, short_code)
+values ('a2660001-0000-4000-8000-00000000004a', '11111111-1111-1111-1111-111111111111',
+        'RF throwaway rink', 'rf-throwaway', 'RFT')
+on conflict (id) do nothing;
+update public.facility_locker_rooms
+   set default_rink_id = 'a2660001-0000-4000-8000-00000000004a'
+ where id = 'a5000001-0000-4000-8000-000000001dd1';
+
+insert into public.rink_customer_types (id, facility_id, name, slug)
+values ('a2660001-0000-4000-8000-00000000003c', '11111111-1111-1111-1111-111111111111',
+        'RF throwaway type', 'rf-throwaway-type')
+on conflict (id) do nothing;
+update public.rink_customers
+   set customer_type_id = 'a2660001-0000-4000-8000-00000000003c'
+ where id = 'a5000001-0000-4000-8000-0000000000c1';
+
+select pg_temp.expect_ok(
+  $$delete from public.facility_rinks
+     where id = 'a2660001-0000-4000-8000-00000000004a'$$,
+  'RF24: deleting a rink succeeds while a locker room defaults to it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_locker_rooms
+     where id = 'a5000001-0000-4000-8000-000000001dd1'
+       and default_rink_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF25: the locker room survives with only its default rink cleared');
+
+select pg_temp.expect_ok(
+  $$delete from public.rink_customer_types
+     where slug = 'rf-throwaway-type'
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'RF26: deleting a customer type succeeds while a customer holds it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_customers
+     where id = 'a5000001-0000-4000-8000-0000000000c1'
+       and customer_type_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF27: the customer survives with only its type cleared');
+
+-- Audit stamps: RF7 completed a resurface; migration 266's trigger stamped it.
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where id = 'a2650001-0000-4000-8000-0000000000b1'
+       and resurface_status = 'completed'
+       and resurface_resolved_at is not null$$,
+  1, 'RF17: a completed resurface carries its resolved_at stamp');
+
+select pg_temp.expect_ok(
+  $$update public.rink_bookings set resurface_status = 'scheduled'
+     where id = 'a2650001-0000-4000-8000-0000000000b1'$$,
+  'RF18: a cut can go back on the board');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where id = 'a2650001-0000-4000-8000-0000000000b1'
+       and resurface_status = 'scheduled'
+       and resurface_resolved_at is null
+       and resurface_resolved_by is null$$,
+  1, 'RF19: rescheduling CLEARS the resolution stamps');
+
+select pg_temp.expect_error(
+  $$update public.rink_bookings set resurface_resolved_at = now()
+     where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
+  'RF20: a non-resurface booking CANNOT carry resolution stamps');
+
+-- ---------------------------------------------------------------------------
 -- GATE-246: cron RPC caller gates (migration 247).
 --
 -- The first production cron runs proved a `session_user = 'service_role'`

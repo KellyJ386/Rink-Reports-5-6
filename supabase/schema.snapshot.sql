@@ -4941,12 +4941,22 @@ begin
   where bt.id = new.booking_type_id;
 
   if coalesce(v_is_resurface, false) then
-    -- A resurface always has a lifecycle; new ones start scheduled.
     new.resurface_status := coalesce(new.resurface_status, 'scheduled');
+    if new.resurface_status = 'scheduled' then
+      -- Back on the board: the previous resolution is no longer true.
+      new.resurface_resolved_at := null;
+      new.resurface_resolved_by := null;
+    else
+      -- Terminal: the timestamp is never optional; the actor is app-supplied.
+      new.resurface_resolved_at := coalesce(new.resurface_resolved_at, now());
+    end if;
   else
-    if new.resurface_status is not null or new.ice_cut_submission_id is not null then
+    if new.resurface_status is not null
+       or new.ice_cut_submission_id is not null
+       or new.resurface_resolved_at is not null
+       or new.resurface_resolved_by is not null then
       raise exception
-        'rink_scheduling: resurface_status and ice_cut_submission_id belong only to resurface-typed bookings'
+        'rink_scheduling: resurface columns belong only to resurface-typed bookings'
         using errcode = 'check_violation';
     end if;
   end if;
@@ -4960,7 +4970,7 @@ $$;
 -- Name: FUNCTION rink_bookings_resurface_coherence(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.rink_bookings_resurface_coherence() IS 'Resurface-typed bookings (rink_booking_types.is_resurface) always carry a resurface_status (defaulted to scheduled); every other booking carries neither the status nor the ice-cut link. Cross-row rule (the flag lives on the type), so a trigger rather than a CHECK.';
+COMMENT ON FUNCTION public.rink_bookings_resurface_coherence() IS 'Resurface-typed bookings (rink_booking_types.is_resurface) always carry a resurface_status (defaulted to scheduled) and, in a terminal status, a resolved_at stamp (cleared on return to scheduled); every other booking carries none of the resurface columns. SECURITY DEFINER so the type lookup ignores the caller''s SELECT visibility; trigger-only, EXECUTE revoked.';
 
 
 --
@@ -14248,11 +14258,14 @@ CREATE TABLE public.rink_bookings (
     updated_at timestamp with time zone,
     resurface_status text,
     ice_cut_submission_id uuid,
+    resurface_resolved_at timestamp with time zone,
+    resurface_resolved_by uuid,
     CONSTRAINT rink_bookings_amount_nonneg CHECK (((computed_amount IS NULL) OR (computed_amount >= (0)::numeric))),
     CONSTRAINT rink_bookings_blocks_until_chk CHECK ((blocks_until >= ends_at)),
     CONSTRAINT rink_bookings_buffer_chk CHECK (((buffer_minutes_after >= 0) AND (buffer_minutes_after <= 120))),
     CONSTRAINT rink_bookings_cancel_coherent CHECK ((((status = 'cancelled'::text) AND (cancelled_at IS NOT NULL)) OR ((status <> 'cancelled'::text) AND (cancelled_at IS NULL)))),
     CONSTRAINT rink_bookings_coverage_chk CHECK ((coverage_status = ANY (ARRAY['covered'::text, 'gap_hours'::text, 'gap_staffing'::text, 'gap_both'::text]))),
+    CONSTRAINT rink_bookings_resurface_resolved_chk CHECK ((((COALESCE(resurface_status, 'scheduled'::text) = 'scheduled'::text) AND (resurface_resolved_at IS NULL) AND (resurface_resolved_by IS NULL)) OR ((resurface_status = ANY (ARRAY['completed'::text, 'skipped'::text])) AND (resurface_resolved_at IS NOT NULL)))),
     CONSTRAINT rink_bookings_resurface_status_chk CHECK (((resurface_status IS NULL) OR (resurface_status = ANY (ARRAY['scheduled'::text, 'completed'::text, 'skipped'::text])))),
     CONSTRAINT rink_bookings_status_chk CHECK ((status = ANY (ARRAY['tentative'::text, 'confirmed'::text, 'cancelled'::text]))),
     CONSTRAINT rink_bookings_time_order CHECK ((ends_at > starts_at))
@@ -14306,6 +14319,20 @@ COMMENT ON COLUMN public.rink_bookings.resurface_status IS 'Lifecycle of a resur
 --
 
 COMMENT ON COLUMN public.rink_bookings.ice_cut_submission_id IS 'Future join to the Ice Operations ice-cut record (ice_operations_submissions, operation_type ''ice_make''). Facility-fenced composite FK. Left unpopulated by migration 265; the completing flow will set it.';
+
+
+--
+-- Name: COLUMN rink_bookings.resurface_resolved_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.resurface_resolved_at IS 'When the resurface reached a terminal status (completed or skipped). Stamped by the coherence trigger if the app does not; cleared on return to scheduled. Null on bookings and on scheduled cuts.';
+
+
+--
+-- Name: COLUMN rink_bookings.resurface_resolved_by; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.resurface_resolved_by IS 'Employee who completed or skipped the cut. App-supplied and nullable — an automated skip has no actor.';
 
 
 --
@@ -22874,7 +22901,7 @@ CREATE TRIGGER trg_rink_bookings_require_customer BEFORE INSERT OR UPDATE OF cus
 -- Name: rink_bookings trg_rink_bookings_resurface_coherence; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_rink_bookings_resurface_coherence BEFORE INSERT OR UPDATE OF booking_type_id, resurface_status, ice_cut_submission_id ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.rink_bookings_resurface_coherence();
+CREATE TRIGGER trg_rink_bookings_resurface_coherence BEFORE INSERT OR UPDATE OF booking_type_id, resurface_status, ice_cut_submission_id, resurface_resolved_at, resurface_resolved_by ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.rink_bookings_resurface_coherence();
 
 
 --
@@ -24718,7 +24745,7 @@ ALTER TABLE ONLY public.facility_locker_rooms
 --
 
 ALTER TABLE ONLY public.facility_locker_rooms
-    ADD CONSTRAINT facility_locker_rooms_rink_fk FOREIGN KEY (default_rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT facility_locker_rooms_rink_fk FOREIGN KEY (default_rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE SET NULL (default_rink_id);
 
 
 --
@@ -25622,7 +25649,7 @@ ALTER TABLE ONLY public.rink_booking_requests
 --
 
 ALTER TABLE ONLY public.rink_booking_series
-    ADD CONSTRAINT rink_booking_series_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_booking_series_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL (contract_id);
 
 
 --
@@ -25654,7 +25681,7 @@ ALTER TABLE ONLY public.rink_booking_series
 --
 
 ALTER TABLE ONLY public.rink_booking_series
-    ADD CONSTRAINT rink_booking_series_rate_card_fk FOREIGN KEY (rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_booking_series_rate_card_fk FOREIGN KEY (rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE SET NULL (rate_card_id);
 
 
 --
@@ -25722,6 +25749,14 @@ ALTER TABLE ONLY public.rink_bookings
 
 
 --
+-- Name: rink_bookings rink_bookings_resurface_resolved_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_resurface_resolved_by_fkey FOREIGN KEY (resurface_resolved_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+--
 -- Name: rink_bookings rink_bookings_rink_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -25734,7 +25769,7 @@ ALTER TABLE ONLY public.rink_bookings
 --
 
 ALTER TABLE ONLY public.rink_bookings
-    ADD CONSTRAINT rink_bookings_series_fk FOREIGN KEY (series_id, facility_id) REFERENCES public.rink_booking_series(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_bookings_series_fk FOREIGN KEY (series_id, facility_id) REFERENCES public.rink_booking_series(id, facility_id) ON DELETE SET NULL (series_id);
 
 
 --
@@ -25774,7 +25809,7 @@ ALTER TABLE ONLY public.rink_customers
 --
 
 ALTER TABLE ONLY public.rink_customers
-    ADD CONSTRAINT rink_customers_rate_card_fk FOREIGN KEY (default_rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_customers_rate_card_fk FOREIGN KEY (default_rate_card_id, facility_id) REFERENCES public.rink_rate_cards(id, facility_id) ON DELETE SET NULL (default_rate_card_id);
 
 
 --
@@ -25782,7 +25817,7 @@ ALTER TABLE ONLY public.rink_customers
 --
 
 ALTER TABLE ONLY public.rink_customers
-    ADD CONSTRAINT rink_customers_type_fk FOREIGN KEY (customer_type_id, facility_id) REFERENCES public.rink_customer_types(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_customers_type_fk FOREIGN KEY (customer_type_id, facility_id) REFERENCES public.rink_customer_types(id, facility_id) ON DELETE SET NULL (customer_type_id);
 
 
 --
@@ -25838,7 +25873,7 @@ ALTER TABLE ONLY public.rink_invoice_line_items
 --
 
 ALTER TABLE ONLY public.rink_invoices
-    ADD CONSTRAINT rink_invoices_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_invoices_contract_fk FOREIGN KEY (contract_id, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL (contract_id);
 
 
 --
@@ -26038,7 +26073,7 @@ ALTER TABLE ONLY public.rink_season_contracts
 --
 
 ALTER TABLE ONLY public.rink_season_contracts
-    ADD CONSTRAINT rink_season_contracts_renewal_fk FOREIGN KEY (renewal_of, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_season_contracts_renewal_fk FOREIGN KEY (renewal_of, facility_id) REFERENCES public.rink_season_contracts(id, facility_id) ON DELETE SET NULL (renewal_of);
 
 
 --
