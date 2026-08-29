@@ -40,6 +40,14 @@
     {
       "path": "/api/cron/rink-contract-invoices",
       "schedule": "43 13 * * *"
+    },
+    {
+      "path": "/api/cron/daily-metrics-rollup",
+      "schedule": "23 8 * * *"
+    },
+    {
+      "path": "/api/cron/daily-metrics-backfill",
+      "schedule": "11 5 * * 0"
     }
   ]
 }

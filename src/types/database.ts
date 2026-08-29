@@ -10859,6 +10859,10 @@ export type Database = {
         Args: { p_input: string }
         Returns: string
       }
+      backfill_facility_daily_metrics: {
+        Args: { p_facility_id: string; p_from: string; p_to: string }
+        Returns: Json
+      }
       can_edit_user_profile: {
         Args: { p_target_user_id: string }
         Returns: boolean
@@ -10907,6 +10911,46 @@ export type Database = {
       citextsend: {
         Args: { "": string }
         Returns: string
+      }
+      compute_daily_metrics_accident_reports: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_air_quality: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_daily_reports: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_dasher_boards: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_ice_depth: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_ice_operations: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_incident_reports: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_refrigeration: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_scheduling: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_facility_daily_metrics: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: number
       }
       copy_role_permission_defaults: {
         Args: { p_source_role_id: string; p_target_role_id: string }
@@ -11231,6 +11275,10 @@ export type Database = {
       rink_scheduling_guard_exempt: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      run_daily_metrics_rollup_for_yesterday: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
       scheduling_admin_assign_open_shift: {
         Args: { p_employee_id: string; p_open_shift_id: string }
