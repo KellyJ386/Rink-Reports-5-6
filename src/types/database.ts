@@ -8020,6 +8020,7 @@ export type Database = {
       rink_booking_series: {
         Row: {
           booking_type_id: string
+          contract_id: string | null
           created_at: string
           created_by: string | null
           customer_id: string | null
@@ -8041,6 +8042,7 @@ export type Database = {
         }
         Insert: {
           booking_type_id: string
+          contract_id?: string | null
           created_at?: string
           created_by?: string | null
           customer_id?: string | null
@@ -8062,6 +8064,7 @@ export type Database = {
         }
         Update: {
           booking_type_id?: string
+          contract_id?: string | null
           created_at?: string
           created_by?: string | null
           customer_id?: string | null
@@ -8082,6 +8085,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "rink_booking_series_contract_fk"
+            columns: ["contract_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_season_contracts"
+            referencedColumns: ["id", "facility_id"]
+          },
           {
             foreignKeyName: "rink_booking_series_created_by_fkey"
             columns: ["created_by"]
@@ -8633,6 +8643,7 @@ export type Database = {
       rink_invoices: {
         Row: {
           amount_paid: number
+          contract_id: string | null
           created_at: string
           created_by: string | null
           customer_id: string
@@ -8657,6 +8668,7 @@ export type Database = {
         }
         Insert: {
           amount_paid?: number
+          contract_id?: string | null
           created_at?: string
           created_by?: string | null
           customer_id: string
@@ -8681,6 +8693,7 @@ export type Database = {
         }
         Update: {
           amount_paid?: number
+          contract_id?: string | null
           created_at?: string
           created_by?: string | null
           customer_id?: string
@@ -8704,6 +8717,13 @@ export type Database = {
           voided_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "rink_invoices_contract_fk"
+            columns: ["contract_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_season_contracts"
+            referencedColumns: ["id", "facility_id"]
+          },
           {
             foreignKeyName: "rink_invoices_created_by_fkey"
             columns: ["created_by"]
@@ -9139,6 +9159,101 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "facilities"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      rink_season_contracts: {
+        Row: {
+          auto_invoice: boolean
+          auto_send: boolean
+          cancel_reason: string | null
+          cancelled_at: string | null
+          contract_rate: number | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          facility_id: string
+          id: string
+          invoice_day_of_month: number
+          last_invoiced_period: string | null
+          name: string
+          notes: string | null
+          renewal_of: string | null
+          season_end: string
+          season_start: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          auto_invoice?: boolean
+          auto_send?: boolean
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          contract_rate?: number | null
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          facility_id: string
+          id?: string
+          invoice_day_of_month?: number
+          last_invoiced_period?: string | null
+          name: string
+          notes?: string | null
+          renewal_of?: string | null
+          season_end: string
+          season_start: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          auto_invoice?: boolean
+          auto_send?: boolean
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          contract_rate?: number | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          facility_id?: string
+          id?: string
+          invoice_day_of_month?: number
+          last_invoiced_period?: string | null
+          name?: string
+          notes?: string | null
+          renewal_of?: string | null
+          season_end?: string
+          season_start?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rink_season_contracts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_season_contracts_customer_fk"
+            columns: ["customer_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_customers"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_season_contracts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_season_contracts_renewal_fk"
+            columns: ["renewal_of", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "rink_season_contracts"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
