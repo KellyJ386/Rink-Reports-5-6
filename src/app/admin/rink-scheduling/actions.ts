@@ -233,6 +233,13 @@ export async function createRink(
       )
     }
 
+    const bufferOverride = asInt(formData.get("buffer_minutes_override"))
+    if (bufferOverride !== null && (bufferOverride < 0 || bufferOverride > 120)) {
+      return fail(
+        "Buffer override must be between 0 and 120 minutes, or left blank to use the facility default.",
+      )
+    }
+
     const active = await activeRinkCount(facility.facilityId)
     if (active >= MAX_ACTIVE_RINKS) {
       return fail(
@@ -248,6 +255,7 @@ export async function createRink(
       short_code: shortCode,
       display_color: color,
       resurface_minutes_override: resurfaceOverride,
+      buffer_minutes_override: bufferOverride,
       sort_order: asInt(formData.get("sort_order")) ?? active,
       is_active: true,
     })
@@ -288,6 +296,13 @@ export async function updateRink(
       )
     }
 
+    const bufferOverride = asInt(formData.get("buffer_minutes_override"))
+    if (bufferOverride !== null && (bufferOverride < 0 || bufferOverride > 120)) {
+      return fail(
+        "Buffer override must be between 0 and 120 minutes, or left blank to use the facility default.",
+      )
+    }
+
     const supabase = await createClient()
     const { error } = await supabase
       .from("facility_rinks")
@@ -297,6 +312,7 @@ export async function updateRink(
         short_code: shortCode,
         display_color: color,
         resurface_minutes_override: resurfaceOverride,
+        buffer_minutes_override: bufferOverride,
         ...(asInt(formData.get("sort_order")) !== null
           ? { sort_order: asInt(formData.get("sort_order")) as number }
           : {}),
@@ -1354,6 +1370,7 @@ export async function updateModuleSettings(
       {
         facility_id: facility.facilityId,
         default_buffer_minutes: input.defaultBufferMinutes,
+        buffer_included_in_rental: formData.get("buffer_included_in_rental") === "on",
         default_resurface_minutes: input.defaultResurfaceMinutes,
         slot_increment_minutes: input.slotIncrementMinutes,
         default_payment_terms_days: input.defaultPaymentTermsDays,

@@ -12474,6 +12474,8 @@ CREATE TABLE public.facility_rinks (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     resurface_minutes_override integer,
+    buffer_minutes_override integer,
+    CONSTRAINT facility_rinks_buffer_override_chk CHECK (((buffer_minutes_override IS NULL) OR ((buffer_minutes_override >= 0) AND (buffer_minutes_override <= 120)))),
     CONSTRAINT facility_rinks_color_hex CHECK ((display_color ~ '^#[0-9A-Fa-f]{6}$'::text)),
     CONSTRAINT facility_rinks_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 80))),
     CONSTRAINT facility_rinks_resurface_override_chk CHECK (((resurface_minutes_override IS NULL) OR ((resurface_minutes_override >= 1) AND (resurface_minutes_override <= 120)))),
@@ -12507,6 +12509,13 @@ COMMENT ON COLUMN public.facility_rinks.display_color IS 'Hex color for calendar
 --
 
 COMMENT ON COLUMN public.facility_rinks.resurface_minutes_override IS 'Per-sheet resurface duration, overriding the facility default when set (an Olympic sheet cuts slower than a studio rink). Null = use rink_scheduling_settings.default_resurface_minutes.';
+
+
+--
+-- Name: COLUMN facility_rinks.buffer_minutes_override; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_rinks.buffer_minutes_override IS 'Per-sheet resurfacing buffer, overriding the facility default (rink_scheduling_settings.default_buffer_minutes) when set. Null = use the facility default. Ignored (buffer is 0) when buffer_included_in_rental is true.';
 
 
 --
@@ -14813,6 +14822,7 @@ CREATE TABLE public.rink_scheduling_settings (
     overdue_reminders_enabled boolean DEFAULT true NOT NULL,
     reminder_cadence_days integer DEFAULT 7 NOT NULL,
     default_resurface_minutes integer DEFAULT 15 NOT NULL,
+    buffer_included_in_rental boolean DEFAULT false NOT NULL,
     CONSTRAINT rink_scheduling_settings_buffer_chk CHECK (((default_buffer_minutes >= 0) AND (default_buffer_minutes <= 120))),
     CONSTRAINT rink_scheduling_settings_lead_chk CHECK (((locker_lead_minutes >= 0) AND (locker_lead_minutes <= 480))),
     CONSTRAINT rink_scheduling_settings_prefix_chk CHECK ((invoice_prefix ~ '^[A-Za-z0-9-]{0,12}$'::text)),
@@ -14873,6 +14883,13 @@ COMMENT ON COLUMN public.rink_scheduling_settings.reminder_cadence_days IS 'Mini
 --
 
 COMMENT ON COLUMN public.rink_scheduling_settings.default_resurface_minutes IS 'Default duration for a scheduled resurface, facility-wide. Admin-editable; the app must always read this (or the per-sheet override) — never a hardcoded number of minutes.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.buffer_included_in_rental; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.buffer_included_in_rental IS 'When true, the resurfacing/make time is sold as part of the booked hour rather than reserved after it: new bookings snapshot buffer_minutes_after = 0 regardless of default_buffer_minutes or a rink override. Billing is unaffected either way (it has always priced off starts_at/ends_at only). Default false — most facilities append the buffer.';
 
 
 --

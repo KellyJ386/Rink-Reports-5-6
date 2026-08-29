@@ -6,6 +6,7 @@ import { getCurrentUser, requireUser } from "@/lib/auth"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
+import { resolveBufferMinutes } from "@/lib/rink-scheduling/buffer"
 import { deliverBookingConfirmation } from "@/lib/rink-scheduling/deliver-booking-email"
 import { createClient } from "@/lib/supabase/server"
 import type { TablesUpdate } from "@/types/database"
@@ -231,12 +232,24 @@ export async function createBooking(input: {
 
     const supabase = await createClient()
 
-    const { data: settings } = await supabase
-      .from("rink_scheduling_settings")
-      .select("default_buffer_minutes")
-      .eq("facility_id", facilityId)
-      .maybeSingle()
-    const buffer = settings?.default_buffer_minutes ?? 15
+    const [{ data: settings }, { data: rink }] = await Promise.all([
+      supabase
+        .from("rink_scheduling_settings")
+        .select("default_buffer_minutes, buffer_included_in_rental")
+        .eq("facility_id", facilityId)
+        .maybeSingle(),
+      supabase
+        .from("facility_rinks")
+        .select("buffer_minutes_override")
+        .eq("id", input.rinkId)
+        .eq("facility_id", facilityId)
+        .maybeSingle(),
+    ])
+    const buffer = resolveBufferMinutes({
+      facilityDefaultMinutes: settings?.default_buffer_minutes,
+      rinkOverrideMinutes: rink?.buffer_minutes_override,
+      includedInRental: settings?.buffer_included_in_rental,
+    })
 
     const quote = await previewRate({
       startsAt: input.startsAt,

@@ -6,6 +6,7 @@ import { getCurrentUser, requireUser } from "@/lib/auth"
 import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
+import { resolveBufferMinutes } from "@/lib/rink-scheduling/buffer"
 import { createClient } from "@/lib/supabase/server"
 import { addDaysToKey, dayKeyInTz, wallTimeToUtc } from "@/lib/timezone"
 
@@ -101,12 +102,24 @@ export async function previewSeries(input: {
     const generated = generateOccurrences(input.recurrence, timeZone)
     if (!generated.ok) return { ok: false, error: generated.error }
 
-    const { data: settings } = await supabase
-      .from("rink_scheduling_settings")
-      .select("default_buffer_minutes")
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle()
-    const buffer = settings?.default_buffer_minutes ?? 15
+    const [{ data: settings }, { data: rink }] = await Promise.all([
+      supabase
+        .from("rink_scheduling_settings")
+        .select("default_buffer_minutes, buffer_included_in_rental")
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle(),
+      supabase
+        .from("facility_rinks")
+        .select("buffer_minutes_override")
+        .eq("id", input.rinkId)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle(),
+    ])
+    const buffer = resolveBufferMinutes({
+      facilityDefaultMinutes: settings?.default_buffer_minutes,
+      rinkOverrideMinutes: rink?.buffer_minutes_override,
+      includedInRental: settings?.buffer_included_in_rental,
+    })
 
     const first = generated.occurrences[0]
     const last = generated.occurrences[generated.occurrences.length - 1]
@@ -230,12 +243,24 @@ export async function createSeries(input: {
     const generated = generateOccurrences(input.recurrence, timeZone)
     if (!generated.ok) return { ok: false, error: generated.error }
 
-    const { data: settings } = await supabase
-      .from("rink_scheduling_settings")
-      .select("default_buffer_minutes")
-      .eq("facility_id", ctx.facilityId)
-      .maybeSingle()
-    const buffer = settings?.default_buffer_minutes ?? 15
+    const [{ data: settings }, { data: rink }] = await Promise.all([
+      supabase
+        .from("rink_scheduling_settings")
+        .select("default_buffer_minutes, buffer_included_in_rental")
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle(),
+      supabase
+        .from("facility_rinks")
+        .select("buffer_minutes_override")
+        .eq("id", input.rinkId)
+        .eq("facility_id", ctx.facilityId)
+        .maybeSingle(),
+    ])
+    const buffer = resolveBufferMinutes({
+      facilityDefaultMinutes: settings?.default_buffer_minutes,
+      rinkOverrideMinutes: rink?.buffer_minutes_override,
+      includedInRental: settings?.buffer_included_in_rental,
+    })
 
     const { data: series, error: seriesError } = await supabase
       .from("rink_booking_series")

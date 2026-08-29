@@ -9807,6 +9807,55 @@ select pg_temp.expect_error(
                     where facility_id = '11111111-1111-1111-1111-111111111111' limit 1)$$,
   'RF10: a per-sheet override outside 1-120 minutes is REJECTED');
 
+-- Migration 267: the per-sheet buffer override mirrors resurface's shape
+-- exactly, except its CHECK floor is 0 (a buffer of zero is a real, valid
+-- choice — see buffer_included_in_rental below), not 1.
+select pg_temp.expect_error(
+  $$update public.facility_rinks set buffer_minutes_override = -1
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and slug = (select slug from public.facility_rinks
+                    where facility_id = '11111111-1111-1111-1111-111111111111' limit 1)$$,
+  'RF10b: a per-sheet buffer override below 0 minutes is REJECTED');
+
+select pg_temp.expect_error(
+  $$update public.facility_rinks set buffer_minutes_override = 121
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and slug = (select slug from public.facility_rinks
+                    where facility_id = '11111111-1111-1111-1111-111111111111' limit 1)$$,
+  'RF10c: a per-sheet buffer override above 120 minutes is REJECTED');
+
+select pg_temp.expect_ok(
+  $$update public.facility_rinks set buffer_minutes_override = 0
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and slug = (select slug from public.facility_rinks
+                    where facility_id = '11111111-1111-1111-1111-111111111111' limit 1)$$,
+  'RF10d: a per-sheet buffer override of exactly 0 minutes is ACCEPTED');
+
+select pg_temp.expect_ok(
+  $$update public.facility_rinks set buffer_minutes_override = 120
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and slug = (select slug from public.facility_rinks
+                    where facility_id = '11111111-1111-1111-1111-111111111111' limit 1)$$,
+  'RF10e: a per-sheet buffer override of exactly 120 minutes is ACCEPTED');
+
+-- buffer_included_in_rental rides the SAME admin-tier UPDATE policy as every
+-- other rink_scheduling_settings column (RS24 already proves that policy
+-- exists at all; this proves the new column didn't slip in under it). Carol
+-- is edit-tier only — no admin grant — so this must match zero rows.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_count(
+  $$with u as (
+      update public.rink_scheduling_settings set buffer_included_in_rental = true
+       where facility_id = '11111111-1111-1111-1111-111111111111'
+       returning 1)
+    select count(*) from u$$,
+  0, 'RF10f: carol (edit, no admin) CANNOT flip buffer_included_in_rental (0 rows match)');
+
+set local role postgres;
+
 -- ---------------------------------------------------------------------------
 -- RF13-17: migration 266 — the pre-existing composite SET NULL sweep and the
 -- resurface audit stamps. All as postgres: the deletes below exercise FK
