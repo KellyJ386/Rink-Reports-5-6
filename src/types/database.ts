@@ -10952,6 +10952,10 @@ export type Database = {
         Args: { p_business_date: string; p_facility_id: string }
         Returns: number
       }
+      compute_live_daily_metrics: {
+        Args: { p_business_date: string; p_module_key: string }
+        Returns: Json
+      }
       copy_role_permission_defaults: {
         Args: { p_source_role_id: string; p_target_role_id: string }
         Returns: number

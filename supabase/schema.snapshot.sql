@@ -1498,6 +1498,65 @@ COMMENT ON FUNCTION public.compute_facility_daily_metrics(p_facility_id uuid, p_
 
 
 --
+-- Name: compute_live_daily_metrics(text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_live_daily_metrics(p_module_key text, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid;
+  v_result      jsonb;
+begin
+  if p_module_key is null or p_business_date is null then
+    raise exception 'compute_live_daily_metrics: module_key and business_date are required';
+  end if;
+
+  v_facility_id := public.current_facility_id();
+  if v_facility_id is null then
+    raise exception 'compute_live_daily_metrics: caller has no facility';
+  end if;
+
+  if not public.has_module_access('reports') then
+    raise exception 'compute_live_daily_metrics: not authorized';
+  end if;
+
+  if p_module_key = 'daily_reports' then
+    v_result := public.compute_daily_metrics_daily_reports(v_facility_id, p_business_date);
+  elsif p_module_key = 'ice_operations' then
+    v_result := public.compute_daily_metrics_ice_operations(v_facility_id, p_business_date);
+  elsif p_module_key = 'ice_depth' then
+    v_result := public.compute_daily_metrics_ice_depth(v_facility_id, p_business_date);
+  elsif p_module_key = 'refrigeration' then
+    v_result := public.compute_daily_metrics_refrigeration(v_facility_id, p_business_date);
+  elsif p_module_key = 'air_quality' then
+    v_result := public.compute_daily_metrics_air_quality(v_facility_id, p_business_date);
+  elsif p_module_key = 'incident_reports' then
+    v_result := public.compute_daily_metrics_incident_reports(v_facility_id, p_business_date);
+  elsif p_module_key = 'accident_reports' then
+    v_result := public.compute_daily_metrics_accident_reports(v_facility_id, p_business_date);
+  elsif p_module_key = 'dasher_boards' then
+    v_result := public.compute_daily_metrics_dasher_boards(v_facility_id, p_business_date);
+  elsif p_module_key = 'scheduling' then
+    v_result := public.compute_daily_metrics_scheduling(v_facility_id, p_business_date);
+  else
+    raise exception 'compute_live_daily_metrics: unknown module_key %, expected one of the nine reporting modules', p_module_key;
+  end if;
+
+  return v_result;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_live_daily_metrics(p_module_key text, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_live_daily_metrics(p_module_key text, p_business_date date) IS 'Read-only dispatcher for the reporting layer''s live "today" path. Resolves facility_id from the CALLER''S OWN session (current_facility_id()), never a parameter, then dispatches to the matching compute_daily_metrics_* function (migration 267) after checking has_module_access(''reports''). Exists so an authenticated browser session can reuse the exact same computation the nightly rollup uses, without widening those nine functions'' grant beyond service_role (which would let any caller pass an arbitrary facility_id and read cross-tenant data — see the file header).';
+
+
+--
 -- Name: copy_role_permission_defaults(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 

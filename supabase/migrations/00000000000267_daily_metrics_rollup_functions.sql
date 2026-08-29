@@ -36,12 +36,25 @@
 -- closed by end of day D only if its resolution/archive timestamp's
 -- facility-local date is <= D. That is what makes recomputing an old day safe.
 --
--- JSONB BREAKDOWN METRICS (by_type, by_severity, ...). Their per-metric
--- aggregation mode is 'sum', which for a jsonb OBJECT value means: union the
--- keys, sum the values per key. That convention lives here as the contract the
--- Phase 5 period-aggregator must implement — it is not enforceable by a CHECK
--- constraint on report_metric_definitions.aggregation, so it is written down
--- instead.
+-- JSONB-VALUED METRICS (by_type, by_severity, exceedance_max_by_metric,
+-- out_of_range_fields, open_issues_at_eod, ...). Their declared aggregation
+-- mode still governs how they combine across a period, generalized per shape:
+--   - object value (a breakdown, e.g. by_type: {"slip":2}) -> union the keys,
+--     combine the values PER KEY using the metric's own mode. by_type/
+--     by_severity are 'sum' (total per category over the period);
+--     exceedance_max_by_metric is 'max' (peak reading per metric, not a sum
+--     of peaks). Only 'last' skips this — see below.
+--   - array value (a label list, e.g. out_of_range_fields) -> union of
+--     distinct items across the period, regardless of declared mode ("sum" of
+--     a set of labels has no numeric meaning; union is the only
+--     value-preserving combinator for "which fields were ever flagged").
+--   - 'last', any shape -> the most recent day's value verbatim, never merged
+--     — open_issues_at_eod is a snapshot to REPLACE with the latest one, not
+--     a breakdown to accumulate across days.
+-- That convention lives here as the contract the Phase 5 period-aggregator
+-- (src/app/insights/_lib/combine.ts) implements — it is not enforceable by a
+-- CHECK constraint on report_metric_definitions.aggregation, so it is written
+-- down instead.
 --
 -- ACKNOWLEDGED APPROXIMATIONS. median_hours_to_resolve (incident_reports) and
 -- mean_days_open (dasher_boards) have no exact daily-grain combinator: a

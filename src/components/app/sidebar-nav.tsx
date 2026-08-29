@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import {
   AlertCircle,
   AlertTriangle,
+  BarChart3,
   Calendar,
   CalendarClock,
   ClipboardList,
@@ -34,6 +35,12 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard",        href: "/dashboard",              icon: LayoutDashboard, exact: true },
+  // Cross-module compliance reporting — a facility-wide read, not a
+  // submission form, so it lives outside /reports/* (that namespace is
+  // staff submission flows) and gates on its own 'reports' permission
+  // (migration 265) rather than requireAdmin, so a facility manager who
+  // lacks Admin Center access can still run the monthly report.
+  { label: "Insights",         href: "/insights",               icon: BarChart3, moduleKey: "reports" },
   { label: "Daily Reports",    href: "/reports/daily",          icon: ClipboardList, moduleKey: "daily_reports" },
   { label: "Ice Depth",        href: "/reports/ice-depth",      icon: Ruler, moduleKey: "ice_depth" },
   { label: "Ice Operations",   href: "/reports/ice-operations", icon: Snowflake, moduleKey: "ice_operations" },

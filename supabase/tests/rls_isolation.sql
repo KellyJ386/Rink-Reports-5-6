@@ -10872,6 +10872,57 @@ delete from public.user_permissions
  where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
 reset role;
 
+-- ===========================================================================
+-- CLDM268: compute_live_daily_metrics (migration 268) is the sole authenticated
+-- caller of the compute_daily_metrics_* functions. Its whole job is closing a
+-- tenancy gap those functions don't check themselves (they trust their only
+-- other caller, the service-role cron) -- p_facility_id is NOT a parameter,
+-- resolved instead from the CALLER'S OWN session. These assertions are the
+-- standing proof that a Facility A caller can never name Facility B.
+-- ===========================================================================
+set local role service_role;
+insert into public.incident_reports (facility_id, reporter_name, description, occurred_at)
+values ('22222222-2222-2222-2222-222222222222', 'R', 'facility B secret', '2026-08-20T14:00:00Z');
+reset role;
+
+-- Alice is staff in Facility A: no 'reports' grant -> denied outright.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.compute_live_daily_metrics('incident_reports', date '2026-08-20')$$,
+  'CLDM268a: staff alice (no reports grant) cannot call compute_live_daily_metrics');
+reset role;
+
+-- Grant alice reports view, then confirm she gets ONLY Facility A's data --
+-- the incident seeded above belongs to Facility B and must never appear,
+-- despite the call taking no facility_id argument to have gotten wrong.
+set local role service_role;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111', 'reports', 'view', true, 'manual_override');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$select count(*) from (
+      select (public.compute_live_daily_metrics('incident_reports', date '2026-08-20')->>'reported')::int as n
+    ) q where n = 0$$,
+  1, 'CLDM268b: alice (now granted) sees 0 incidents for 2026-08-20 -- Facility B''s row never leaks in, though the call carries no facility_id at all');
+
+select pg_temp.expect_error(
+  $$select public.compute_live_daily_metrics('not_a_real_module', date '2026-08-20')$$,
+  'CLDM268c: an unrecognized module_key is rejected rather than silently returning null');
+reset role;
+
+set local role service_role;
+delete from public.user_permissions
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
+delete from public.incident_reports where description = 'facility B secret';
+reset role;
+
 do $$
 declare
   v_failed int;
