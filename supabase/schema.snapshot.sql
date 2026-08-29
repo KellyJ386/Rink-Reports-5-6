@@ -24745,7 +24745,7 @@ ALTER TABLE ONLY public.facility_locker_rooms
 --
 
 ALTER TABLE ONLY public.facility_locker_rooms
-    ADD CONSTRAINT facility_locker_rooms_rink_fk FOREIGN KEY (default_rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT facility_locker_rooms_rink_fk FOREIGN KEY (default_rink_id, facility_id) REFERENCES public.facility_rinks(id, facility_id) ON DELETE SET NULL (default_rink_id);
 
 
 --
@@ -25817,7 +25817,7 @@ ALTER TABLE ONLY public.rink_customers
 --
 
 ALTER TABLE ONLY public.rink_customers
-    ADD CONSTRAINT rink_customers_type_fk FOREIGN KEY (customer_type_id, facility_id) REFERENCES public.rink_customer_types(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_customers_type_fk FOREIGN KEY (customer_type_id, facility_id) REFERENCES public.rink_customer_types(id, facility_id) ON DELETE SET NULL (customer_type_id);
 
 
 --

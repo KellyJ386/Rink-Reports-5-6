@@ -9909,6 +9909,50 @@ select pg_temp.expect_count(
        and i.facility_id = '11111111-1111-1111-1111-111111111111'$$,
   1, 'RF23: the bound series and invoice survive with only contract_id cleared');
 
+-- The two live-path instances (edit-tier delete policies exist for both
+-- parents): a throwaway rink held as a locker room's default, a throwaway
+-- customer type held by a customer.
+insert into public.facility_rinks (id, facility_id, name, slug, short_code)
+values ('a2660001-0000-4000-8000-00000000004a', '11111111-1111-1111-1111-111111111111',
+        'RF throwaway rink', 'rf-throwaway', 'RFT')
+on conflict (id) do nothing;
+update public.facility_locker_rooms
+   set default_rink_id = 'a2660001-0000-4000-8000-00000000004a'
+ where id = 'a5000001-0000-4000-8000-000000001dd1';
+
+insert into public.rink_customer_types (id, facility_id, name, slug)
+values ('a2660001-0000-4000-8000-00000000003c', '11111111-1111-1111-1111-111111111111',
+        'RF throwaway type', 'rf-throwaway-type')
+on conflict (id) do nothing;
+update public.rink_customers
+   set customer_type_id = 'a2660001-0000-4000-8000-00000000003c'
+ where id = 'a5000001-0000-4000-8000-0000000000c1';
+
+select pg_temp.expect_ok(
+  $$delete from public.facility_rinks
+     where id = 'a2660001-0000-4000-8000-00000000004a'$$,
+  'RF24: deleting a rink succeeds while a locker room defaults to it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_locker_rooms
+     where id = 'a5000001-0000-4000-8000-000000001dd1'
+       and default_rink_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF25: the locker room survives with only its default rink cleared');
+
+select pg_temp.expect_ok(
+  $$delete from public.rink_customer_types
+     where slug = 'rf-throwaway-type'
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'RF26: deleting a customer type succeeds while a customer holds it');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_customers
+     where id = 'a5000001-0000-4000-8000-0000000000c1'
+       and customer_type_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'RF27: the customer survives with only its type cleared');
+
 -- Audit stamps: RF7 completed a resurface; migration 266's trigger stamped it.
 select pg_temp.expect_count(
   $$select count(*) from public.rink_bookings

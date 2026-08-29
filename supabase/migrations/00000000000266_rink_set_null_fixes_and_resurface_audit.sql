@@ -7,11 +7,13 @@
 --    — including facility_id, which is NOT NULL — so deleting the parent
 --    errors instead of clearing the link. Migration 190 discovered and fixed
 --    this for schedule_shifts; 265 nearly reintroduced it and was caught in
---    review; this migration sweeps ALL SIX pre-existing instances:
+--    review; this migration sweeps ALL EIGHT pre-existing instances:
 --      from migration 247 (live parent DELETE paths today):
 --      * rink_bookings.series_id        (super-admin series delete)
 --      * rink_customers.default_rate_card_id  (admin rate-card delete)
 --      * rink_booking_series.rate_card_id     (admin rate-card delete)
+--      * facility_locker_rooms.default_rink_id (edit-tier rink delete)
+--      * rink_customers.customer_type_id      (edit-tier type delete)
 --      from migration 264 (no DELETE policy on contracts today, so only
 --      reachable by direct SQL — a landmine, not a live fault):
 --      * rink_season_contracts.renewal_of     (self-referential)
@@ -38,7 +40,7 @@
 begin;
 
 -- ---------------------------------------------------------------------------
--- 1. Column-list SET NULL on all six pre-existing composite FKs.
+-- 1. Column-list SET NULL on all eight pre-existing composite FKs.
 -- ---------------------------------------------------------------------------
 
 alter table public.rink_bookings
@@ -64,6 +66,22 @@ alter table public.rink_booking_series
     foreign key (rate_card_id, facility_id)
     references public.rink_rate_cards (id, facility_id)
     on delete set null (rate_card_id);
+
+alter table public.facility_locker_rooms
+  drop constraint facility_locker_rooms_rink_fk;
+alter table public.facility_locker_rooms
+  add constraint facility_locker_rooms_rink_fk
+    foreign key (default_rink_id, facility_id)
+    references public.facility_rinks (id, facility_id)
+    on delete set null (default_rink_id);
+
+alter table public.rink_customers
+  drop constraint rink_customers_type_fk;
+alter table public.rink_customers
+  add constraint rink_customers_type_fk
+    foreign key (customer_type_id, facility_id)
+    references public.rink_customer_types (id, facility_id)
+    on delete set null (customer_type_id);
 
 alter table public.rink_season_contracts
   drop constraint rink_season_contracts_renewal_fk;
