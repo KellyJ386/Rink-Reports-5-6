@@ -61,6 +61,10 @@ type Props = {
   lockerAssignments: LockerAssignmentView[]
   slotMinutes: number
   bufferMinutes: number
+  /** rink_scheduling_settings.default_resurface_minutes, raw. Null when the
+   *  facility has no settings row; resolveResurfaceMinutes() owns the
+   *  fallback. */
+  resurfaceDefaultMinutes: number | null
   selectedRinkId: string | null
   /** The `rink` query param as given, WITHOUT the day/week fallback to the
    *  first rink. The month view shows every rink unless one was explicitly
@@ -225,6 +229,7 @@ export function CalendarClient(props: Props) {
           lockerRooms={props.lockerRooms}
           lockerAssignments={props.lockerAssignments}
           slotMinutes={props.slotMinutes}
+          resurfaceDefaultMinutes={props.resurfaceDefaultMinutes}
           canCreate={canCreate}
           canEdit={props.canEdit}
           onClose={() => setSheet({ mode: "closed" })}
@@ -1066,6 +1071,18 @@ function BookingBlock({
             ⚠
           </span>
         )}
+        {/* Resurface bookings (and only those) carry a lifecycle status; a
+            resolved one gets a glyph so the block answers "did the cut
+            happen" without opening the sheet. */}
+        {booking.resurface_status && booking.resurface_status !== "scheduled" && !cancelled && (
+          <span
+            className="text-muted-foreground absolute right-1 bottom-1 text-xs"
+            title={resurfaceTitle(booking.resurface_status)}
+            aria-label={resurfaceTitle(booking.resurface_status)}
+          >
+            {booking.resurface_status === "completed" ? "✓" : "∅"}
+          </span>
+        )}
       </button>
 
       {/* The resurfacing buffer, so the true bookable gap is visible. */}
@@ -1100,9 +1117,29 @@ function coverageTitle(status: string): string {
   }
 }
 
+function resurfaceTitle(status: string): string {
+  switch (status) {
+    case "completed":
+      return "Resurface completed"
+    case "skipped":
+      return "Resurface skipped"
+    default:
+      return "Resurface scheduled"
+  }
+}
+
 function StatusChips({ booking }: { booking: BookingView }) {
   return (
     <span className="flex shrink-0 items-center gap-1">
+      {booking.resurface_status && (
+        <Badge variant="outline" className="uppercase" title={resurfaceTitle(booking.resurface_status)}>
+          {booking.resurface_status === "scheduled"
+            ? "resurface"
+            : booking.resurface_status === "completed"
+              ? "resurfaced"
+              : "skipped"}
+        </Badge>
+      )}
       {booking.status === "tentative" && (
         <Badge variant="outline" className="uppercase">
           tentative

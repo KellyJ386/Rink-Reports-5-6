@@ -33,6 +33,7 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
   // value the admin never touched.
   const s = {
     default_buffer_minutes: settings?.default_buffer_minutes ?? 15,
+    default_resurface_minutes: settings?.default_resurface_minutes ?? 15,
     slot_increment_minutes: settings?.slot_increment_minutes ?? 30,
     default_payment_terms_days: settings?.default_payment_terms_days ?? 30,
     invoice_prefix: settings?.invoice_prefix ?? "INV-",
@@ -74,6 +75,21 @@ export function SettingsTab({ settings }: { settings: SettingsRow | null }) {
                 <p className="text-muted-foreground text-xs">
                   Copied onto each new booking and reserved after it, so the next
                   slot cannot start until the flood is done.
+                </p>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="resurface">Resurface duration (minutes)</Label>
+                <Input
+                  id="resurface"
+                  name="default_resurface_minutes"
+                  type="number"
+                  min={1}
+                  max={120}
+                  defaultValue={s.default_resurface_minutes}
+                />
+                <p className="text-muted-foreground text-xs">
+                  How long an ice cut booked on the calendar lasts. A rink can
+                  override this on the Facility setup tab.
                 </p>
               </div>
               <div className="flex flex-col gap-1">

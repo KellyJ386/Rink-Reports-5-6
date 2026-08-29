@@ -139,7 +139,7 @@ export default async function RinkSchedulePage({
       .lte("exception_date", toKey),
     supabase
       .from("rink_scheduling_settings")
-      .select("slot_increment_minutes, default_buffer_minutes")
+      .select("slot_increment_minutes, default_buffer_minutes, default_resurface_minutes")
       .eq("facility_id", facilityId)
       .maybeSingle(),
     supabase
@@ -272,6 +272,9 @@ export default async function RinkSchedulePage({
         lockerAssignments={lockerAssignments}
         slotMinutes={settingsRes.data?.slot_increment_minutes ?? 30}
         bufferMinutes={settingsRes.data?.default_buffer_minutes ?? 15}
+        // Passed through raw; resolveResurfaceMinutes() owns the fallback so
+        // no component here has to know a default number of minutes.
+        resurfaceDefaultMinutes={settingsRes.data?.default_resurface_minutes ?? null}
         selectedRinkId={explicitRinkId ?? rinks[0]?.id ?? null}
         explicitRinkId={explicitRinkId}
         showCancelled={params.showCancelled === "1"}

@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { wallTimeToUtc, utcToWallTime } from "@/lib/timezone"
+import {
+  resolveResurfaceMinutes,
+  type ResurfaceLifecycleStatus,
+} from "@/lib/rink-scheduling/resurface"
+import { formatInTz, wallTimeToUtc, utcToWallTime } from "@/lib/timezone"
 
 import {
   cancelBooking,
@@ -17,6 +21,11 @@ import {
   quickCreateCustomer,
   updateBooking,
 } from "../actions"
+import {
+  listRecentIceCuts,
+  setResurfaceStatus,
+  type RecentIceCut,
+} from "../resurface-actions"
 import { cancelSeries, detachOccurrence, splitSeries } from "../series-actions"
 import type { RateQuote } from "../_lib/rate-engine"
 import type {
@@ -43,6 +52,9 @@ type Props = {
   lockerRooms: LockerRoomRow[]
   lockerAssignments: LockerAssignmentView[]
   slotMinutes: number
+  /** rink_scheduling_settings.default_resurface_minutes, raw (null = no
+   *  settings row). resolveResurfaceMinutes() owns the fallback. */
+  resurfaceDefaultMinutes: number | null
   canCreate: boolean
   canEdit: boolean
   onClose: () => void
@@ -52,6 +64,14 @@ type Props = {
 function hm(minute: number): string {
   const m = ((minute % 1440) + 1440) % 1440
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
+}
+
+/** "HH:MM" plus a duration. Garbage in ("", partial typing) comes back
+ *  unchanged rather than as NaN:NaN. */
+function addMinutesToHm(time: string, minutes: number): string {
+  const match = /^(\d{2}):(\d{2})$/.exec(time)
+  if (!match) return time
+  return hm(Number(match[1]) * 60 + Number(match[2]) + minutes)
 }
 
 export function BookingSheet(props: Props) {
@@ -100,6 +120,33 @@ export function BookingSheet(props: Props) {
 
   const selectedType = bookingTypes.find((t) => t.id === typeId)
   const requiresCustomer = selectedType?.is_billable ?? true
+
+  /** Cut length for a sheet: per-rink override, else the facility default. */
+  function resurfaceMinutesFor(forRinkId: string): number {
+    const rink = rinks.find((r) => r.id === forRinkId)
+    return resolveResurfaceMinutes({
+      facilityDefaultMinutes: props.resurfaceDefaultMinutes,
+      rinkOverrideMinutes: rink?.resurface_minutes_override ?? null,
+    })
+  }
+
+  // Picking a resurface type sizes the slot to the configured cut length for
+  // the chosen sheet — a convenience, not a lock: the times stay editable.
+  function onTypeChange(nextTypeId: string) {
+    setTypeId(nextTypeId)
+    const next = bookingTypes.find((t) => t.id === nextTypeId)
+    if (next?.is_resurface) {
+      setEndTime(addMinutesToHm(startTime, resurfaceMinutesFor(rinkId)))
+    }
+  }
+
+  function onRinkChange(nextRinkId: string) {
+    setRinkId(nextRinkId)
+    // The override is per sheet, so moving a resurface re-sizes it.
+    if (selectedType?.is_resurface) {
+      setEndTime(addMinutesToHm(startTime, resurfaceMinutesFor(nextRinkId)))
+    }
+  }
 
   function toIso(day: string, time: string): string | null {
     const d = wallTimeToUtc(`${day}T${time}`, timeZone)
@@ -242,7 +289,7 @@ export function BookingSheet(props: Props) {
               <select
                 id="bk-rink"
                 value={rinkId}
-                onChange={(e) => setRinkId(e.target.value)}
+                onChange={(e) => onRinkChange(e.target.value)}
                 className="border-input bg-background h-10 rounded-md border px-2 text-sm"
               >
                 {rinks.map((r) => (
@@ -258,7 +305,7 @@ export function BookingSheet(props: Props) {
               <select
                 id="bk-type"
                 value={typeId}
-                onChange={(e) => setTypeId(e.target.value)}
+                onChange={(e) => onTypeChange(e.target.value)}
                 className="border-input bg-background h-10 rounded-md border px-2 text-sm"
               >
                 {bookingTypes.map((t) => (
@@ -408,6 +455,16 @@ export function BookingSheet(props: Props) {
             />
           )}
 
+          {isEdit && booking!.resurface_status && booking!.status !== "cancelled" && (
+            <ResurfacePanel
+              bookingId={booking!.id}
+              status={booking!.resurface_status as ResurfaceLifecycleStatus}
+              timeZone={timeZone}
+              canEdit={canEdit}
+              onDone={onClose}
+            />
+          )}
+
           {isEdit && (
             <LockerRoomPanel
               bookingId={booking!.id}
@@ -464,6 +521,179 @@ export function BookingSheet(props: Props) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+const RESURFACE_STATUS_LABEL: Record<ResurfaceLifecycleStatus, string> = {
+  scheduled: "Scheduled",
+  completed: "Completed",
+  skipped: "Skipped",
+}
+
+/**
+ * The resurface lifecycle. A scheduled cut resolves to completed (optionally
+ * linked to the Ice Operations record of the actual cut) or skipped; either
+ * can be sent back to scheduled, which clears the resolution — the coherence
+ * trigger (migration 266) owns those stamps. The server re-checks the current
+ * status on write, so a stale sheet loses politely instead of overwriting.
+ */
+function ResurfacePanel({
+  bookingId,
+  status,
+  timeZone,
+  canEdit,
+  onDone,
+}: {
+  bookingId: string
+  status: ResurfaceLifecycleStatus
+  timeZone: string | null
+  canEdit: boolean
+  onDone: () => void
+}) {
+  const [pending, startTransition] = useTransition()
+  const [completing, setCompleting] = useState(false)
+  const [cuts, setCuts] = useState<RecentIceCut[] | null>(null)
+  const [cutId, setCutId] = useState("")
+
+  function move(to: ResurfaceLifecycleStatus, iceCutSubmissionId: string | null) {
+    startTransition(async () => {
+      const r = await setResurfaceStatus({
+        bookingId,
+        from: status,
+        to,
+        iceCutSubmissionId,
+      })
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      toast.success(
+        to === "completed"
+          ? "Resurface marked completed."
+          : to === "skipped"
+            ? "Resurface marked skipped."
+            : "Resurface back on the schedule.",
+      )
+      onDone()
+    })
+  }
+
+  // Completing opens a picker of the facility's recent ice cuts from Ice
+  // Operations. The two modules keep separate rink registries, so the link is
+  // a human choice by time proximity — and always optional.
+  function onStartComplete() {
+    setCompleting(true)
+    startTransition(async () => {
+      const r = await listRecentIceCuts()
+      if (!r.ok) {
+        toast.error(r.error)
+        setCuts([])
+        return
+      }
+      setCuts(r.cuts)
+    })
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border p-3">
+        <span className="text-sm font-medium">Ice resurface</span>
+        <Badge variant="outline" className="uppercase">
+          {RESURFACE_STATUS_LABEL[status]}
+        </Badge>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">Ice resurface</span>
+        <Badge variant="outline" className="uppercase">
+          {RESURFACE_STATUS_LABEL[status]}
+        </Badge>
+      </div>
+
+      {status === "scheduled" && !completing && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={onStartComplete} disabled={pending}>
+            Mark completed…
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => move("skipped", null)}
+            disabled={pending}
+          >
+            Skip this cut
+          </Button>
+        </div>
+      )}
+
+      {status === "scheduled" && completing && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="rs-cut">Ice Operations record (optional)</Label>
+          {cuts === null ? (
+            <p className="text-muted-foreground text-sm">Loading recent cuts…</p>
+          ) : (
+            <select
+              id="rs-cut"
+              value={cutId}
+              onChange={(e) => setCutId(e.target.value)}
+              className="border-input bg-background h-10 rounded-md border px-2 text-sm"
+            >
+              <option value="">No ice-cut record</option>
+              {cuts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {formatInTz(c.occurredAt, timeZone, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                  {c.rinkLabel ? ` · ${c.rinkLabel}` : ""}
+                  {c.equipmentLabel ? ` · ${c.equipmentLabel}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="text-muted-foreground text-xs">
+            Cuts logged in Ice Operations in the last 12 hours. Linking one is
+            optional.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => move("completed", cutId || null)}
+              disabled={pending || cuts === null}
+            >
+              {pending ? "Saving…" : "Mark completed"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCompleting(false)}
+              disabled={pending}
+            >
+              Back
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {status !== "scheduled" && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => move("scheduled", null)}
+            disabled={pending}
+          >
+            Back to scheduled
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
