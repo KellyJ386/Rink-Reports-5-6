@@ -4926,6 +4926,44 @@ COMMENT ON FUNCTION public.rink_bookings_require_customer() IS 'Enforces "custom
 
 
 --
+-- Name: rink_bookings_resurface_coherence(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rink_bookings_resurface_coherence() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_is_resurface boolean;
+begin
+  select bt.is_resurface into v_is_resurface
+  from public.rink_booking_types bt
+  where bt.id = new.booking_type_id;
+
+  if coalesce(v_is_resurface, false) then
+    -- A resurface always has a lifecycle; new ones start scheduled.
+    new.resurface_status := coalesce(new.resurface_status, 'scheduled');
+  else
+    if new.resurface_status is not null or new.ice_cut_submission_id is not null then
+      raise exception
+        'rink_scheduling: resurface_status and ice_cut_submission_id belong only to resurface-typed bookings'
+        using errcode = 'check_violation';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION rink_bookings_resurface_coherence(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rink_bookings_resurface_coherence() IS 'Resurface-typed bookings (rink_booking_types.is_resurface) always carry a resurface_status (defaulted to scheduled); every other booking carries neither the status nor the ice-cut link. Cross-row rule (the flag lives on the type), so a trigger rather than a CHECK.';
+
+
+--
 -- Name: rink_bookings_sync_blocks_until(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -12425,8 +12463,10 @@ CREATE TABLE public.facility_rinks (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    resurface_minutes_override integer,
     CONSTRAINT facility_rinks_color_hex CHECK ((display_color ~ '^#[0-9A-Fa-f]{6}$'::text)),
     CONSTRAINT facility_rinks_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 80))),
+    CONSTRAINT facility_rinks_resurface_override_chk CHECK (((resurface_minutes_override IS NULL) OR ((resurface_minutes_override >= 1) AND (resurface_minutes_override <= 120)))),
     CONSTRAINT facility_rinks_short_code_len CHECK (((char_length(btrim(short_code)) >= 1) AND (char_length(btrim(short_code)) <= 8)))
 );
 
@@ -12450,6 +12490,13 @@ COMMENT ON COLUMN public.facility_rinks.short_code IS 'Compact label for the TV 
 --
 
 COMMENT ON COLUMN public.facility_rinks.display_color IS 'Hex color for calendar blocks. Stored as a literal because it is admin-chosen per rink; app chrome still uses semantic tokens.';
+
+
+--
+-- Name: COLUMN facility_rinks.resurface_minutes_override; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_rinks.resurface_minutes_override IS 'Per-sheet resurface duration, overriding the facility default when set (an Olympic sheet cuts slower than a studio rink). Null = use rink_scheduling_settings.default_resurface_minutes.';
 
 
 --
@@ -14143,6 +14190,7 @@ CREATE TABLE public.rink_booking_types (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    is_resurface boolean DEFAULT false NOT NULL,
     CONSTRAINT rink_booking_types_color_hex CHECK ((color ~ '^#[0-9A-Fa-f]{6}$'::text)),
     CONSTRAINT rink_booking_types_name_len CHECK (((char_length(btrim(name)) >= 1) AND (char_length(btrim(name)) <= 60)))
 );
@@ -14160,6 +14208,13 @@ COMMENT ON TABLE public.rink_booking_types IS 'Rink Scheduling: admin-configurab
 --
 
 COMMENT ON COLUMN public.rink_booking_types.is_system IS 'True for the seeded Maintenance Block type. System types may be renamed and recolored but not made billable and not deleted, because the "customer optional" rule keys off a non-billable type.';
+
+
+--
+-- Name: COLUMN rink_booking_types.is_resurface; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_booking_types.is_resurface IS 'Marks this type''s bookings as ice resurfaces: they carry a resurface_status lifecycle and may later link an Ice Operations ice-cut record. App behavior keys on this flag, never on the type''s name. Flipping the flag on a type with existing rows does not rewrite those rows; the trigger enforces coherence only on row writes.';
 
 
 --
@@ -14191,11 +14246,14 @@ CREATE TABLE public.rink_bookings (
     cancellation_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    resurface_status text,
+    ice_cut_submission_id uuid,
     CONSTRAINT rink_bookings_amount_nonneg CHECK (((computed_amount IS NULL) OR (computed_amount >= (0)::numeric))),
     CONSTRAINT rink_bookings_blocks_until_chk CHECK ((blocks_until >= ends_at)),
     CONSTRAINT rink_bookings_buffer_chk CHECK (((buffer_minutes_after >= 0) AND (buffer_minutes_after <= 120))),
     CONSTRAINT rink_bookings_cancel_coherent CHECK ((((status = 'cancelled'::text) AND (cancelled_at IS NOT NULL)) OR ((status <> 'cancelled'::text) AND (cancelled_at IS NULL)))),
     CONSTRAINT rink_bookings_coverage_chk CHECK ((coverage_status = ANY (ARRAY['covered'::text, 'gap_hours'::text, 'gap_staffing'::text, 'gap_both'::text]))),
+    CONSTRAINT rink_bookings_resurface_status_chk CHECK (((resurface_status IS NULL) OR (resurface_status = ANY (ARRAY['scheduled'::text, 'completed'::text, 'skipped'::text])))),
     CONSTRAINT rink_bookings_status_chk CHECK ((status = ANY (ARRAY['tentative'::text, 'confirmed'::text, 'cancelled'::text]))),
     CONSTRAINT rink_bookings_time_order CHECK ((ends_at > starts_at))
 );
@@ -14234,6 +14292,20 @@ COMMENT ON COLUMN public.rink_bookings.rate_snapshot_prime IS 'True when the who
 --
 
 COMMENT ON COLUMN public.rink_bookings.coverage_status IS 'Maintained by the coverage engine, never set by hand. gap_hours = outside facility operating hours; gap_staffing = no published shift spans the window; gap_both = both.';
+
+
+--
+-- Name: COLUMN rink_bookings.resurface_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.resurface_status IS 'Lifecycle of a resurface booking (its type has is_resurface): scheduled -> completed | skipped. Null on every other booking — the coherence trigger enforces both directions.';
+
+
+--
+-- Name: COLUMN rink_bookings.ice_cut_submission_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_bookings.ice_cut_submission_id IS 'Future join to the Ice Operations ice-cut record (ice_operations_submissions, operation_type ''ice_make''). Facility-fenced composite FK. Left unpopulated by migration 265; the completing flow will set it.';
 
 
 --
@@ -14713,11 +14785,13 @@ CREATE TABLE public.rink_scheduling_settings (
     send_booking_confirmations boolean DEFAULT false NOT NULL,
     overdue_reminders_enabled boolean DEFAULT true NOT NULL,
     reminder_cadence_days integer DEFAULT 7 NOT NULL,
+    default_resurface_minutes integer DEFAULT 15 NOT NULL,
     CONSTRAINT rink_scheduling_settings_buffer_chk CHECK (((default_buffer_minutes >= 0) AND (default_buffer_minutes <= 120))),
     CONSTRAINT rink_scheduling_settings_lead_chk CHECK (((locker_lead_minutes >= 0) AND (locker_lead_minutes <= 480))),
     CONSTRAINT rink_scheduling_settings_prefix_chk CHECK ((invoice_prefix ~ '^[A-Za-z0-9-]{0,12}$'::text)),
     CONSTRAINT rink_scheduling_settings_refresh_chk CHECK (((display_refresh_seconds >= 15) AND (display_refresh_seconds <= 3600))),
     CONSTRAINT rink_scheduling_settings_reminder_cadence_chk CHECK (((reminder_cadence_days >= 1) AND (reminder_cadence_days <= 90))),
+    CONSTRAINT rink_scheduling_settings_resurface_chk CHECK (((default_resurface_minutes >= 1) AND (default_resurface_minutes <= 120))),
     CONSTRAINT rink_scheduling_settings_slot_chk CHECK ((slot_increment_minutes = ANY (ARRAY[5, 10, 15, 20, 30, 60]))),
     CONSTRAINT rink_scheduling_settings_tax_chk CHECK (((tax_rate IS NULL) OR ((tax_rate >= (0)::numeric) AND (tax_rate <= (1)::numeric)))),
     CONSTRAINT rink_scheduling_settings_terms_chk CHECK (((default_payment_terms_days >= 0) AND (default_payment_terms_days <= 365))),
@@ -14765,6 +14839,13 @@ COMMENT ON COLUMN public.rink_scheduling_settings.overdue_reminders_enabled IS '
 --
 
 COMMENT ON COLUMN public.rink_scheduling_settings.reminder_cadence_days IS 'Minimum days between overdue reminders for the same invoice.';
+
+
+--
+-- Name: COLUMN rink_scheduling_settings.default_resurface_minutes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.rink_scheduling_settings.default_resurface_minutes IS 'Default duration for a scheduled resurface, facility-wide. Admin-editable; the app must always read this (or the per-sheet override) — never a hardcoded number of minutes.';
 
 
 --
@@ -17060,6 +17141,21 @@ ALTER TABLE ONLY public.ice_operations_settings
 
 ALTER TABLE ONLY public.ice_operations_settings
     ADD CONSTRAINT ice_operations_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ice_operations_submissions ice_operations_submissions_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ice_operations_submissions
+    ADD CONSTRAINT ice_operations_submissions_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: CONSTRAINT ice_operations_submissions_id_facility_uniq ON ice_operations_submissions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT ice_operations_submissions_id_facility_uniq ON public.ice_operations_submissions IS 'Target for facility-fenced composite FKs from other modules (first consumer: rink_bookings.ice_cut_submission_id, migration 265).';
 
 
 --
@@ -22775,6 +22871,13 @@ CREATE TRIGGER trg_rink_bookings_require_customer BEFORE INSERT OR UPDATE OF cus
 
 
 --
+-- Name: rink_bookings trg_rink_bookings_resurface_coherence; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_rink_bookings_resurface_coherence BEFORE INSERT OR UPDATE OF booking_type_id, resurface_status, ice_cut_submission_id ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.rink_bookings_resurface_coherence();
+
+
+--
 -- Name: rink_bookings trg_rink_bookings_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -25608,6 +25711,14 @@ ALTER TABLE ONLY public.rink_bookings
 
 ALTER TABLE ONLY public.rink_bookings
     ADD CONSTRAINT rink_bookings_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rink_bookings rink_bookings_ice_cut_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rink_bookings
+    ADD CONSTRAINT rink_bookings_ice_cut_fk FOREIGN KEY (ice_cut_submission_id, facility_id) REFERENCES public.ice_operations_submissions(id, facility_id) ON DELETE SET NULL (ice_cut_submission_id);
 
 
 --
