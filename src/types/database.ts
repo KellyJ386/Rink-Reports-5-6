@@ -8213,6 +8213,8 @@ export type Database = {
           notes: string | null
           rate_snapshot_hourly: number | null
           rate_snapshot_prime: boolean | null
+          resurface_resolved_at: string | null
+          resurface_resolved_by: string | null
           resurface_status: string | null
           rink_id: string
           series_id: string | null
@@ -8241,6 +8243,8 @@ export type Database = {
           notes?: string | null
           rate_snapshot_hourly?: number | null
           rate_snapshot_prime?: boolean | null
+          resurface_resolved_at?: string | null
+          resurface_resolved_by?: string | null
           resurface_status?: string | null
           rink_id: string
           series_id?: string | null
@@ -8269,6 +8273,8 @@ export type Database = {
           notes?: string | null
           rate_snapshot_hourly?: number | null
           rate_snapshot_prime?: boolean | null
+          resurface_resolved_at?: string | null
+          resurface_resolved_by?: string | null
           resurface_status?: string | null
           rink_id?: string
           series_id?: string | null
@@ -8312,6 +8318,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "ice_operations_submissions"
             referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_resurface_resolved_by_fkey"
+            columns: ["resurface_resolved_by"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "rink_bookings_rink_fk"
