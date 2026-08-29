@@ -14,32 +14,12 @@ import {
   type DateRange,
 } from "./module-config"
 import { renderTablePdf } from "./pdf"
-import type { ExportFile, ExportFormat } from "./types"
+import { defaultExportSettings, type ExportFile, type ExportFormat } from "./types"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Sb = SupabaseClient<any, "public", any>
-
-/** Default export settings when a facility hasn't saved any yet. */
-function defaultSettings(facilityId: string): ExportSettingsRow {
-  return {
-    id: "",
-    facility_id: facilityId,
-    logo_url: null,
-    header_text: null,
-    footer_text: null,
-    paper_size: "letter",
-    date_format: "MM/DD/YYYY",
-    csv_delimiter: "comma",
-    include_facility_name: true,
-    include_date: true,
-    include_submitted_by: true,
-    module_column_visibility: {},
-    created_at: "",
-    updated_at: null,
-  }
-}
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -125,7 +105,7 @@ export async function buildExport(
     .select("*")
     .eq("facility_id", facilityId)
     .maybeSingle()
-  const settings = (settingsRow as ExportSettingsRow | null) ?? defaultSettings(facilityId)
+  const settings = (settingsRow as ExportSettingsRow | null) ?? defaultExportSettings(facilityId)
 
   const table = await buildModuleTable({
     sb,

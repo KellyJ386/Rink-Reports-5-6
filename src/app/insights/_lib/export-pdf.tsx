@@ -1,0 +1,220 @@
+import "server-only"
+
+import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer"
+import React from "react"
+
+import type { ExportSettingsRow } from "@/app/admin/exports/types"
+import { MODULE_LABELS } from "@/lib/modules/module-keys"
+
+import { formatMetricValue } from "./format-metric-value"
+import type { ReportMetricLabel } from "./get-report"
+import type { ReportModuleKey } from "./modules"
+
+// The generated-by / generated-at stamps are what make this a defensible
+// compliance document rather than a screenshot — CLAUDE.md's phrasing for
+// this exact feature. Both are required inputs to renderInsightsReportPdf,
+// never optional, so there is no code path that produces a PDF without them.
+
+export type InsightsPdfModule = {
+  moduleKey: ReportModuleKey
+  metrics: Record<string, unknown> | null
+  labels: ReportMetricLabel[]
+}
+
+export type InsightsPdfInput = {
+  facilityName: string
+  /** Pre-fetched as a data URI (see fetchLogoDataUri) — never a bare remote
+   *  URL, so a slow or unreachable logo host can never stall or crash the
+   *  render. Null when unset or unreachable. */
+  logoDataUri: string | null
+  periodLabel: string
+  /** Formatted in the facility's OWN timezone (formatPdfGeneratedAt) — never
+   *  the server's, or the document could name the wrong day entirely. */
+  generatedAtLabel: string
+  generatedByName: string
+  isLive: boolean
+  daysInPeriod: number
+  daysWithData: number
+  daysMissing: number
+  modules: InsightsPdfModule[]
+  settings: Pick<ExportSettingsRow, "header_text" | "footer_text" | "paper_size">
+}
+
+const styles = StyleSheet.create({
+  page: {
+    paddingTop: 36,
+    paddingBottom: 48,
+    paddingHorizontal: 32,
+    fontSize: 9,
+    color: "#0f172a",
+    fontFamily: "Helvetica",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    borderBottomWidth: 2,
+    borderBottomColor: "#002244",
+    paddingBottom: 10,
+    marginBottom: 14,
+  },
+  headerText: { flexGrow: 1 },
+  brand: { fontSize: 9, color: "#475569", marginBottom: 2 },
+  facilityName: { fontSize: 18, fontWeight: 700, color: "#002244" },
+  title: { fontSize: 12, color: "#334155", marginTop: 2 },
+  logo: { width: 72, height: 72, objectFit: "contain", marginLeft: 12 },
+  meta: { fontSize: 8, color: "#64748b", marginTop: 8 },
+  liveBadge: {
+    fontSize: 8,
+    color: "#166534",
+    backgroundColor: "#dcfce7",
+    borderRadius: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    alignSelf: "flex-start",
+    marginTop: 6,
+  },
+  coverage: {
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+    backgroundColor: "#fffbeb",
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 14,
+    fontSize: 8,
+    color: "#92400e",
+  },
+  moduleSection: { marginBottom: 14, breakInside: "avoid" },
+  moduleTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#002244",
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    paddingBottom: 3,
+  },
+  moduleEmpty: { fontSize: 8, color: "#94a3b8", fontStyle: "italic" },
+  metricGrid: { flexDirection: "row", flexWrap: "wrap" },
+  metricCell: { width: "50%", marginBottom: 6, paddingRight: 8 },
+  metricLabel: { fontSize: 7.5, color: "#64748b" },
+  metricValue: { fontSize: 11, fontWeight: 700, fontFamily: "Courier", marginTop: 1 },
+  breakdownRow: { flexDirection: "row", justifyContent: "space-between", fontSize: 8 },
+  footer: {
+    position: "absolute",
+    left: 32,
+    right: 32,
+    bottom: 20,
+    fontSize: 7,
+    color: "#94a3b8",
+    textAlign: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    paddingTop: 5,
+  },
+})
+
+function pageSize(paper: ExportSettingsRow["paper_size"]): "LETTER" | "A4" {
+  return paper === "a4" ? "A4" : "LETTER"
+}
+
+function MetricCell({ label, unit, value }: { label: string; unit: string | null; value: unknown }) {
+  const formatted = formatMetricValue(value, unit)
+  return (
+    <View style={styles.metricCell}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      {formatted.kind === "empty" && <Text style={styles.metricValue}>—</Text>}
+      {formatted.kind === "scalar" && <Text style={styles.metricValue}>{formatted.text}</Text>}
+      {formatted.kind === "list" && (
+        <Text style={{ fontSize: 8, marginTop: 1 }}>{formatted.items.join(", ")}</Text>
+      )}
+      {formatted.kind === "breakdown" && (
+        <View style={{ marginTop: 1 }}>
+          {formatted.entries.map((entry) => (
+            <View key={entry.key} style={styles.breakdownRow}>
+              <Text style={{ color: "#64748b" }}>{entry.key}</Text>
+              <Text style={{ fontFamily: "Courier" }}>{entry.text}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  )
+}
+
+function InsightsReportDocument({ input }: { input: InsightsPdfInput }) {
+  const footerText = input.settings.footer_text?.trim() || "Generated by RinkReports"
+
+  return (
+    <Document>
+      <Page size={pageSize(input.settings.paper_size)} style={styles.page} wrap>
+        <View style={styles.header} fixed>
+          <View style={styles.headerText}>
+            {input.settings.header_text?.trim() ? (
+              <Text style={styles.brand}>{input.settings.header_text.trim()}</Text>
+            ) : null}
+            <Text style={styles.facilityName}>{input.facilityName}</Text>
+            <Text style={styles.title}>Facility Insights Report — {input.periodLabel}</Text>
+            <Text style={styles.meta}>
+              Generated {input.generatedAtLabel} by {input.generatedByName}
+            </Text>
+            {input.isLive && <Text style={styles.liveBadge}>LIVE — today, before the nightly rollup</Text>}
+          </View>
+          {input.logoDataUri && (
+            // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf Image, not HTML img
+            <Image src={input.logoDataUri} style={styles.logo} />
+          )}
+        </View>
+
+        {input.daysMissing > 0 && (
+          <View style={styles.coverage}>
+            <Text>
+              This report covers {input.daysWithData} of {input.daysInPeriod} day
+              {input.daysInPeriod === 1 ? "" : "s"} in the period — {input.daysMissing} day
+              {input.daysMissing === 1 ? "" : "s"} did not have a completed rollup and{" "}
+              {input.daysMissing === 1 ? "is" : "are"} excluded from the totals below.
+            </Text>
+          </View>
+        )}
+
+        {input.modules.map((m) => (
+          <View key={m.moduleKey} style={styles.moduleSection} wrap={false}>
+            <Text style={styles.moduleTitle}>{MODULE_LABELS[m.moduleKey]}</Text>
+            {m.metrics === null ? (
+              <Text style={styles.moduleEmpty}>No activity recorded for this period.</Text>
+            ) : (
+              <View style={styles.metricGrid}>
+                {m.labels.map((def) => (
+                  <MetricCell
+                    key={def.metricKey}
+                    label={def.label}
+                    unit={def.unit}
+                    value={m.metrics?.[def.metricKey]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        ))}
+
+        <Text
+          style={styles.footer}
+          fixed
+          render={({ pageNumber, totalPages }) =>
+            `${footerText} · ${input.generatedAtLabel} · Page ${pageNumber} of ${totalPages}`
+          }
+        />
+      </Page>
+    </Document>
+  )
+}
+
+/**
+ * Renders a facility insights report to a PDF buffer. facilityName,
+ * generatedAtLabel, and generatedByName are required (not optional) — those
+ * three fields are what make this a defensible document rather than a
+ * screenshot (CLAUDE.md).
+ */
+export async function renderInsightsReportPdf(input: InsightsPdfInput): Promise<Buffer> {
+  return await renderToBuffer(<InsightsReportDocument input={input} />)
+}

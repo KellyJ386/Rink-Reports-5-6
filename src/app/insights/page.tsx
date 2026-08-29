@@ -7,6 +7,7 @@ import { dayKeyInTz } from "@/lib/timezone"
 
 import { CoverageBanner } from "./_components/coverage-banner"
 import { DateNav } from "./_components/date-nav"
+import { ExportButton } from "./_components/export-button"
 import { ModulePicker } from "./_components/module-picker"
 import { NotAvailable } from "./_components/not-available"
 import { PeriodSelector } from "./_components/period-selector"
@@ -45,6 +46,9 @@ export default async function InsightsPage({ searchParams }: { searchParams: Sea
   if (!(await currentUserCan(supabase, "reports", "view"))) {
     return <NotAvailable />
   }
+  // Exporting is a higher-trust action than reading on screen — a document
+  // that leaves the building — so it needs 'edit', not just 'view'.
+  const canExport = await currentUserCan(supabase, "reports", "edit")
 
   const { data: facilityRow } = await supabase
     .from("facilities")
@@ -91,6 +95,9 @@ export default async function InsightsPage({ searchParams }: { searchParams: Sea
             todayAnchor={todayAnchor}
             modules={selectedModules}
           />
+        )}
+        {result?.ok && canExport && (
+          <ExportButton moduleKeys={selectedModules} period={period} anchorDate={anchor} />
         )}
       </div>
 

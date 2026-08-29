@@ -11406,6 +11406,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: undefined
       }
+      seed_default_export_settings: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
       seed_default_facility_air_quality_config: {
         Args: { p_facility_id: string }
         Returns: undefined

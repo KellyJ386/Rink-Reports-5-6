@@ -4,31 +4,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 import type { ReportPeriod } from "../_lib/get-report"
+import { periodLabel } from "../_lib/period-label"
 import { shiftAnchor } from "../_lib/shift-anchor"
 import { buildInsightsUrl } from "../_lib/url"
-
-/** Noon-UTC probe so a plain "YYYY-MM-DD" date key formats as itself,
- *  regardless of the viewer's browser timezone (same idiom used by the
- *  rink-scheduling insights page's month label). */
-function formatDateKey(key: string, options: Intl.DateTimeFormatOptions): string {
-  const [y, m, d] = key.split("-").map(Number)
-  return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(
-    new Date(Date.UTC(y, m - 1, d, 12)),
-  )
-}
-
-function periodLabel(period: ReportPeriod, startDate: string, endDate: string): string {
-  switch (period) {
-    case "day":
-      return formatDateKey(startDate, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
-    case "week":
-      return `${formatDateKey(startDate, { month: "short", day: "numeric" })} – ${formatDateKey(endDate, { month: "short", day: "numeric", year: "numeric" })}`
-    case "month":
-      return formatDateKey(startDate, { month: "long", year: "numeric" })
-    case "year":
-      return `${formatDateKey(startDate, { month: "short", year: "numeric" })} – ${formatDateKey(endDate, { month: "short", year: "numeric" })}`
-  }
-}
 
 export function DateNav({
   period,

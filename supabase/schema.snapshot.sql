@@ -8992,6 +8992,29 @@ COMMENT ON FUNCTION public.seed_default_door_types(p_facility_id uuid) IS 'Seeds
 
 
 --
+-- Name: seed_default_export_settings(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.seed_default_export_settings(p_facility_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  insert into public.export_settings (facility_id)
+  values (p_facility_id)
+  on conflict (facility_id) do nothing;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION seed_default_export_settings(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.seed_default_export_settings(p_facility_id uuid) IS 'Seeds one export_settings row (all defaults) for a facility if it does not already have one. Idempotent via on conflict on the facility_id unique constraint (migration 19). Called from the facilities insert trigger for new facilities, and once here as a backfill for existing ones.';
+
+
+--
 -- Name: seed_default_facility_air_quality_config(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -10073,6 +10096,21 @@ CREATE FUNCTION public.tg_seed_door_types() RETURNS trigger
     AS $$
 begin
   perform public.seed_default_door_types(new.id);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: tg_seed_export_settings(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.tg_seed_export_settings() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.seed_default_export_settings(new.id);
   return new;
 end;
 $$;
@@ -22983,6 +23021,13 @@ CREATE TRIGGER facilities_seed_dasher_boards AFTER INSERT ON public.facilities F
 --
 
 CREATE TRIGGER facilities_seed_door_types AFTER INSERT ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.tg_seed_door_types();
+
+
+--
+-- Name: facilities facilities_seed_export_settings; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER facilities_seed_export_settings AFTER INSERT ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.tg_seed_export_settings();
 
 
 --
