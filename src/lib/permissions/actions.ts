@@ -34,6 +34,7 @@ export const MODULE_NAMES = [
   "dasher_boards",
   "facility_paperwork",
   "rink_scheduling",
+  "reports",
   "admin",
 ] as const
 
@@ -55,6 +56,11 @@ export const MODULE_LABELS: Record<ModuleName, string> = {
   // scheduling (module 7). These two are adjacent in the permissions grid and
   // an ambiguous label there grants the wrong thing.
   rink_scheduling: "Rink Scheduling",
+  // The reporting layer (daily / weekly / monthly / annual compliance reports
+  // aggregated across every other module) — NOT the staff report-submission
+  // forms under /reports, which are gated per submitting module above. Staff
+  // deliberately hold nothing here.
+  reports: "Reports & Analytics",
   admin: "Admin",
 }
 

@@ -229,6 +229,7 @@ export type Database = {
       accident_reports: {
         Row: {
           activity_dropdown_id: string | null
+          business_date: string
           created_at: string
           description: string
           edit_window_ends_at: string
@@ -250,6 +251,7 @@ export type Database = {
         }
         Insert: {
           activity_dropdown_id?: string | null
+          business_date?: string
           created_at?: string
           description: string
           edit_window_ends_at?: string
@@ -271,6 +273,7 @@ export type Database = {
         }
         Update: {
           activity_dropdown_id?: string | null
+          business_date?: string
           created_at?: string
           description?: string
           edit_window_ends_at?: string
@@ -809,6 +812,7 @@ export type Database = {
       }
       air_quality_reports: {
         Row: {
+          business_date: string
           created_at: string
           employee_id: string | null
           equipment_id: string | null
@@ -823,6 +827,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           equipment_id?: string | null
@@ -837,6 +842,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           equipment_id?: string | null
@@ -3849,6 +3855,7 @@ export type Database = {
       }
       dasher_boards_inspections: {
         Row: {
+          business_date: string
           completed_at: string | null
           contractor_company: string | null
           contractor_name: string | null
@@ -3863,6 +3870,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_date?: string
           completed_at?: string | null
           contractor_company?: string | null
           contractor_name?: string | null
@@ -3877,6 +3885,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_date?: string
           completed_at?: string | null
           contractor_company?: string | null
           contractor_name?: string | null
@@ -4749,6 +4758,7 @@ export type Database = {
           city: string | null
           created_at: string
           email: string | null
+          fiscal_year_start_month: number
           id: string
           is_active: boolean
           name: string
@@ -4765,6 +4775,7 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          fiscal_year_start_month?: number
           id?: string
           is_active?: boolean
           name: string
@@ -4781,6 +4792,7 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          fiscal_year_start_month?: number
           id?: string
           is_active?: boolean
           name?: string
@@ -4846,6 +4858,38 @@ export type Database = {
             foreignKeyName: "facility_air_quality_config_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: true
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_daily_metrics: {
+        Row: {
+          business_date: string
+          computed_at: string
+          facility_id: string
+          metrics: Json
+          module_key: string
+        }
+        Insert: {
+          business_date: string
+          computed_at?: string
+          facility_id: string
+          metrics?: Json
+          module_key: string
+        }
+        Update: {
+          business_date?: string
+          computed_at?: string
+          facility_id?: string
+          metrics?: Json
+          module_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_daily_metrics_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
@@ -5777,6 +5821,7 @@ export type Database = {
       }
       ice_depth_sessions: {
         Row: {
+          business_date: string
           created_at: string
           employee_id: string | null
           facility_id: string
@@ -5795,6 +5840,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           facility_id: string
@@ -5813,6 +5859,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           facility_id?: string
@@ -6360,6 +6407,7 @@ export type Database = {
       }
       ice_operations_submissions: {
         Row: {
+          business_date: string
           created_at: string
           employee_id: string | null
           equipment_id: string | null
@@ -6376,6 +6424,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           equipment_id?: string | null
@@ -6392,6 +6441,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           equipment_id?: string | null
@@ -6638,6 +6688,7 @@ export type Database = {
           activity_other: string | null
           ambulance_flag: boolean
           archived_at: string | null
+          business_date: string
           created_at: string
           description: string
           edit_window_ends_at: string
@@ -6665,6 +6716,7 @@ export type Database = {
           activity_other?: string | null
           ambulance_flag?: boolean
           archived_at?: string | null
+          business_date?: string
           created_at?: string
           description: string
           edit_window_ends_at?: string
@@ -6692,6 +6744,7 @@ export type Database = {
           activity_other?: string | null
           ambulance_flag?: boolean
           archived_at?: string | null
+          business_date?: string
           created_at?: string
           description?: string
           edit_window_ends_at?: string
@@ -7606,6 +7659,7 @@ export type Database = {
       }
       refrigeration_reports: {
         Row: {
+          business_date: string
           created_at: string
           employee_id: string | null
           facility_id: string
@@ -7618,6 +7672,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           facility_id: string
@@ -7630,6 +7685,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          business_date?: string
           created_at?: string
           employee_id?: string | null
           facility_id?: string
@@ -7862,6 +7918,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      report_metric_definitions: {
+        Row: {
+          aggregation: string
+          created_at: string
+          label: string
+          metric_key: string
+          module_key: string
+          sort_order: number
+          unit: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          aggregation: string
+          created_at?: string
+          label: string
+          metric_key: string
+          module_key: string
+          sort_order?: number
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          aggregation?: string
+          created_at?: string
+          label?: string
+          metric_key?: string
+          module_key?: string
+          sort_order?: number
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       retention_module_floors: {
         Row: {
@@ -10776,6 +10865,10 @@ export type Database = {
         Args: { p_input: string }
         Returns: string
       }
+      backfill_facility_daily_metrics: {
+        Args: { p_facility_id: string; p_from: string; p_to: string }
+        Returns: Json
+      }
       can_edit_user_profile: {
         Args: { p_target_user_id: string }
         Returns: boolean
@@ -10824,6 +10917,50 @@ export type Database = {
       citextsend: {
         Args: { "": string }
         Returns: string
+      }
+      compute_daily_metrics_accident_reports: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_air_quality: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_daily_reports: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_dasher_boards: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_ice_depth: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_ice_operations: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_incident_reports: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_refrigeration: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_daily_metrics_scheduling: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: Json
+      }
+      compute_facility_daily_metrics: {
+        Args: { p_business_date: string; p_facility_id: string }
+        Returns: number
+      }
+      compute_live_daily_metrics: {
+        Args: { p_business_date: string; p_module_key: string }
+        Returns: Json
       }
       copy_role_permission_defaults: {
         Args: { p_source_role_id: string; p_target_role_id: string }
@@ -11124,6 +11261,13 @@ export type Database = {
         Args: { p_facility_id: string; p_role_id: string }
         Returns: number
       }
+      report_period_bounds: {
+        Args: { p_anchor: string; p_facility_id: string; p_period: string }
+        Returns: {
+          end_date: string
+          start_date: string
+        }[]
+      }
       resolve_daily_area_assignments: {
         Args: { p_date: string }
         Returns: number
@@ -11141,6 +11285,10 @@ export type Database = {
       rink_scheduling_guard_exempt: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      run_daily_metrics_rollup_for_yesterday: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
       scheduling_admin_assign_open_shift: {
         Args: { p_employee_id: string; p_open_shift_id: string }
@@ -11261,6 +11409,10 @@ export type Database = {
         Returns: undefined
       }
       seed_default_door_types: {
+        Args: { p_facility_id: string }
+        Returns: undefined
+      }
+      seed_default_export_settings: {
         Args: { p_facility_id: string }
         Returns: undefined
       }

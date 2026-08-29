@@ -482,6 +482,57 @@ $$;
 
 
 --
+-- Name: backfill_facility_daily_metrics(uuid, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.backfill_facility_daily_metrics(p_facility_id uuid, p_from date, p_to date) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_day date;
+  v_rows int;
+  v_total_rows int := 0;
+  v_days int := 0;
+begin
+  if not (public.is_super_admin() or coalesce(auth.role(), '') = 'service_role') then
+    raise exception 'backfill_facility_daily_metrics: not authorized';
+  end if;
+
+  if p_facility_id is null or p_from is null or p_to is null then
+    raise exception 'backfill_facility_daily_metrics: facility_id, from and to are required';
+  end if;
+
+  if p_to < p_from then
+    raise exception 'backfill_facility_daily_metrics: to (%) is before from (%)', p_to, p_from;
+  end if;
+
+  if (p_to - p_from) > 400 then
+    raise exception 'backfill_facility_daily_metrics: range is % days, capped at 400 per invocation',
+      (p_to - p_from) + 1;
+  end if;
+
+  v_day := p_from;
+  while v_day <= p_to loop
+    v_rows := public.compute_facility_daily_metrics(p_facility_id, v_day);
+    v_total_rows := v_total_rows + v_rows;
+    v_days := v_days + 1;
+    v_day := v_day + 1;
+  end loop;
+
+  return jsonb_build_object('facility_id', p_facility_id, 'days', v_days, 'total_rows', v_total_rows);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION backfill_facility_daily_metrics(p_facility_id uuid, p_from date, p_to date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.backfill_facility_daily_metrics(p_facility_id uuid, p_from date, p_to date) IS 'Recomputes facility_daily_metrics for ONE facility across an inclusive date range, capped at 400 days per call. Idempotent (same upsert as the nightly path), so this is how a metric-definition bug is recovered from after the fact and how historical data is backfilled the first time. Called by /api/cron/daily-metrics-backfill.';
+
+
+--
 -- Name: can_edit_user_profile(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -710,7 +761,23 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('admin','rink_scheduling','admin'::public.user_action),
       ('manager','rink_scheduling','edit'::public.user_action),
       ('staff','rink_scheduling','view'::public.user_action),
-      ('driver','rink_scheduling','view'::public.user_action)
+      ('driver','rink_scheduling','view'::public.user_action),
+      -- reports (added migration 268). The reporting layer aggregates every
+      -- other module's data into facility-wide compliance numbers, so the
+      -- ceiling is deliberately NOT the house default.
+      --
+      -- staff and driver get NO ROWS AT ALL — that is how 'none' is expressed
+      -- in this model, and it is the point of the module: a front desk
+      -- employee must not be able to pull the facility's annual incident
+      -- summary. Do not "fix" their absence by adding a view row.
+      --
+      -- manager sits at admin (approved 2026-08-28): facility managers are the
+      -- people who actually run and export the monthly report. Under the
+      -- Phase 6 export gate ('edit' or higher) this is what lets them produce
+      -- the PDF, and admin additionally lets them configure report settings.
+      ('super_admin','reports','admin'::public.user_action),
+      ('admin','reports','admin'::public.user_action),
+      ('manager','reports','admin'::public.user_action)
   ),
   action_levels(action, lvl) as (
     values
@@ -730,7 +797,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. rink_scheduling added in migration 249.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. reports added in migration 268.';
 
 
 --
@@ -818,6 +885,675 @@ $$;
 --
 
 COMMENT ON FUNCTION public.cleanup_daily_report_area_permissions() IS 'AFTER DELETE on daily_report_areas: removes per-area permission grants for the deleted area — the ON DELETE CASCADE a polymorphic soft reference cannot express. SECURITY DEFINER so an area delete by a module admin also clears grants regardless of the caller''s module_area_permissions write scope.';
+
+
+--
+-- Name: compute_daily_metrics_accident_reports(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_accident_reports(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_reported int;
+  v_by_severity jsonb;
+  v_medical int;
+  v_workers_comp int;
+begin
+  select count(*), count(*) filter (where workers_comp)
+    into v_reported, v_workers_comp
+    from public.accident_reports
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  select coalesce(jsonb_object_agg(coalesce(d.key, 'unspecified'), cnt), '{}'::jsonb)
+    into v_by_severity
+    from (
+      select d.key, count(*) as cnt
+        from public.accident_reports a
+        left join public.accident_dropdowns d on d.id = a.severity_dropdown_id
+       where a.facility_id = p_facility_id and a.business_date = p_business_date
+       group by d.key
+    ) d(key, cnt);
+
+  select count(*) into v_medical
+    from public.accident_reports a
+    join public.accident_dropdowns d on d.id = a.medical_attention_dropdown_id
+   where a.facility_id = p_facility_id
+     and a.business_date = p_business_date
+     and d.key <> 'none';
+
+  return jsonb_build_object(
+    'reported', v_reported,
+    'by_severity', v_by_severity,
+    'medical_attention_count', v_medical,
+    'workers_comp_count', v_workers_comp
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_accident_reports(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_accident_reports(p_facility_id uuid, p_business_date date) IS 'Accident reports rollup for one facility/day. medical_attention_count is every report whose medical_attention dropdown selection is anything other than the seeded ''none'' key (includes first aid) — a report with no matching dropdown row (deleted/never set) is excluded rather than assumed.';
+
+
+--
+-- Name: compute_daily_metrics_air_quality(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_air_quality(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_reports int;
+  v_exceedances int;
+  v_metrics_measured int;
+  v_max_by_metric jsonb;
+begin
+  select count(*), count(*) filter (where has_exceedance)
+    into v_reports, v_exceedances
+    from public.air_quality_reports
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  -- exceedance_max_by_metric only ever needs the exceeding rows.
+  select coalesce(jsonb_object_agg(k.key_snapshot, k.max_value) filter (where k.max_value is not null), '{}'::jsonb)
+    into v_max_by_metric
+    from (
+      select r.reading_type_id, r.key_snapshot, max(r.value_numeric) as max_value
+        from public.air_quality_readings r
+        join public.air_quality_reports rp on rp.id = r.report_id
+       where rp.facility_id = p_facility_id
+         and rp.business_date = p_business_date
+         and r.is_exceedance
+       group by r.reading_type_id, r.key_snapshot
+    ) k;
+
+  -- metrics_measured counts every reading type SUBMITTED that day, exceeding
+  -- or not — a separate, wider query from the exceedance-only one above.
+  select count(distinct r.reading_type_id) into v_metrics_measured
+    from public.air_quality_readings r
+    join public.air_quality_reports rp on rp.id = r.report_id
+   where rp.facility_id = p_facility_id and rp.business_date = p_business_date;
+
+  return jsonb_build_object(
+    'reports_submitted', v_reports,
+    'exceedances', v_exceedances,
+    'exceedance_max_by_metric', v_max_by_metric,
+    'metrics_measured', v_metrics_measured
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_air_quality(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_air_quality(p_facility_id uuid, p_business_date date) IS 'Air quality rollup for one facility/day. exceedance_max_by_metric is keyed by key_snapshot (stable if a reading type is later renamed/deleted), value is the day''s maximum exceeding reading for that key. metrics_measured counts distinct reading types submitted that day, exceeding or not.';
+
+
+--
+-- Name: compute_daily_metrics_daily_reports(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_daily_reports(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_areas_assigned  int;
+  v_areas_completed int;
+  v_submissions     int;
+  v_superseded      int;
+  v_items_checked   int;
+  v_items_total     int;
+begin
+  select count(*), count(*) filter (where completed)
+    into v_areas_assigned, v_areas_completed
+    from public.daily_area_assignment_snapshots
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  select count(*) filter (where superseded_at is null),
+         count(*) filter (where superseded_at is not null)
+    into v_submissions, v_superseded
+    from public.daily_report_submissions
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  select count(*) filter (where i.is_checked), count(*)
+    into v_items_checked, v_items_total
+    from public.daily_report_submission_items i
+    join public.daily_report_submissions s on s.id = i.submission_id
+   where s.facility_id = p_facility_id
+     and s.business_date = p_business_date
+     and s.superseded_at is null;
+
+  return jsonb_build_object(
+    'areas_assigned', v_areas_assigned,
+    'areas_completed', v_areas_completed,
+    'completion_pct',
+      case when v_areas_assigned > 0
+           then round(100.0 * v_areas_completed / v_areas_assigned, 1)
+           else null end,
+    'submissions', v_submissions,
+    'submissions_superseded', v_superseded,
+    'items_checked', v_items_checked,
+    'items_total', v_items_total
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_daily_reports(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_daily_reports(p_facility_id uuid, p_business_date date) IS 'Daily reports rollup for one facility/day. areas_assigned/completed from daily_area_assignment_snapshots (only areas with an active assignee at close get a row there, so both counts are exact, not "all configured areas"). submissions counts the as-corrected view (superseded_at is null); submissions_superseded makes corrections visible rather than hiding them.';
+
+
+--
+-- Name: compute_daily_metrics_dasher_boards(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_dasher_boards(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_tz text;
+  v_completed int;
+  v_started int;
+  v_opened int;
+  v_resolved int;
+  v_open_by_severity jsonb;
+  v_mean_days_open numeric;
+begin
+  select coalesce(timezone, 'UTC') into v_tz from public.facilities where id = p_facility_id;
+
+  select count(*) into v_completed
+    from public.dasher_boards_inspections
+   where facility_id = p_facility_id
+     and business_date = p_business_date
+     and completed_at is not null;
+
+  select count(*) into v_started
+    from public.dasher_boards_inspections
+   where facility_id = p_facility_id
+     and (started_at at time zone v_tz)::date = p_business_date;
+
+  select count(*) into v_opened
+    from public.dasher_boards_issues
+   where facility_id = p_facility_id
+     and (created_at at time zone v_tz)::date = p_business_date;
+
+  select count(*) into v_resolved
+    from public.dasher_boards_issues
+   where facility_id = p_facility_id
+     and resolved_at is not null
+     and (resolved_at at time zone v_tz)::date = p_business_date;
+
+  -- Open as of end of day: reported on or before p_business_date, not resolved
+  -- by then (resolved_at's local date, not the mutable resolved_by/ack state).
+  -- v_mean_days_open is the mean age across ALL open issues, computed
+  -- separately from the per-severity breakdown below — it is NOT an average
+  -- of the per-severity averages, which would over-weight low-volume
+  -- severities.
+  select coalesce(jsonb_object_agg(sev, cnt), '{}'::jsonb)
+    into v_open_by_severity
+    from (
+      select severity as sev, count(*) as cnt
+        from public.dasher_boards_issues
+       where facility_id = p_facility_id
+         and (created_at at time zone v_tz)::date <= p_business_date
+         and (resolved_at is null or (resolved_at at time zone v_tz)::date > p_business_date)
+       group by severity
+    ) grp(sev, cnt);
+
+  select round(avg(p_business_date - (created_at at time zone v_tz)::date)::numeric, 1)
+    into v_mean_days_open
+    from public.dasher_boards_issues
+   where facility_id = p_facility_id
+     and (created_at at time zone v_tz)::date <= p_business_date
+     and (resolved_at is null or (resolved_at at time zone v_tz)::date > p_business_date);
+
+  return jsonb_build_object(
+    'walks_completed', v_completed,
+    'walks_started', v_started,
+    'issues_opened', v_opened,
+    'issues_resolved', v_resolved,
+    'open_issues_at_eod', v_open_by_severity,
+    'mean_days_open', v_mean_days_open
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_dasher_boards(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_dasher_boards(p_facility_id uuid, p_business_date date) IS 'Dasher boards rollup for one facility/day. walks_completed buckets on business_date (completion day); walks_started buckets on started_at through the facility timezone directly, NOT business_date, because a walk begun before local midnight and completed after belongs to different days for the two counts. open_issues_at_eod/mean_days_open reconstruct backlog state as of end of p_business_date from resolved_at (never the mutable status), so recomputing a past day is stable. mean_days_open is the mean age of ALL open issues at eod, not an average of the per-severity averages.';
+
+
+--
+-- Name: compute_daily_metrics_ice_depth(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_ice_depth(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_sessions int;
+  v_measurements int;
+  v_low int;
+  v_high int;
+  v_min numeric;
+  v_mean numeric;
+begin
+  select count(*),
+         coalesce(sum(total_measurements), 0),
+         coalesce(sum(low_count), 0),
+         coalesce(sum(high_count), 0)
+    into v_sessions, v_measurements, v_low, v_high
+    from public.ice_depth_sessions
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  select min(m.depth_value), avg(m.depth_value)
+    into v_min, v_mean
+    from public.ice_depth_measurements m
+    join public.ice_depth_sessions s on s.id = m.session_id
+   where s.facility_id = p_facility_id and s.business_date = p_business_date;
+
+  return jsonb_build_object(
+    'sessions', v_sessions,
+    'measurements_total', v_measurements,
+    'low_readings', v_low,
+    'high_readings', v_high,
+    'min_depth', v_min,
+    'mean_depth', case when v_mean is not null then round(v_mean, 3) else null end
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_ice_depth(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_ice_depth(p_facility_id uuid, p_business_date date) IS 'Ice depth rollup for one facility/day. sessions/measurements_total/low_readings/high_readings sum the counters already persisted on ice_depth_sessions at submit time; min_depth/mean_depth read the raw per-point ice_depth_measurements rows (no equivalent counter exists on the session row for those). Depth values are stored in whatever unit the session was submitted in (measurement_unit_snapshot) — this function does not normalize units; a facility that has switched units mid-period will need that reconciled at the read layer.';
+
+
+--
+-- Name: compute_daily_metrics_ice_operations(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_ice_operations(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_ice_cuts int;
+  v_edging   int;
+  v_blade    int;
+  v_propane  int;
+  v_cc_completed int;
+  v_cc_with_failure int;
+  v_failed_total int;
+begin
+  select
+    count(*) filter (where operation_type = 'ice_make'),
+    count(*) filter (where operation_type = 'edging'),
+    count(*) filter (where operation_type = 'blade_change'),
+    count(*) filter (where operation_type = 'propane_tank_change'),
+    count(*) filter (where operation_type = 'circle_check'),
+    count(*) filter (where operation_type = 'circle_check' and has_failed_check),
+    coalesce(sum(failed_count) filter (where operation_type = 'circle_check'), 0)
+    into v_ice_cuts, v_edging, v_blade, v_propane,
+         v_cc_completed, v_cc_with_failure, v_failed_total
+    from public.ice_operations_submissions
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  return jsonb_build_object(
+    'ice_cuts', v_ice_cuts,
+    'edging_ops', v_edging,
+    'blade_changes', v_blade,
+    'propane_changes', v_propane,
+    'circle_checks_completed', v_cc_completed,
+    'circle_checks_with_failure', v_cc_with_failure,
+    'failed_items_total', v_failed_total
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_ice_operations(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_ice_operations(p_facility_id uuid, p_business_date date) IS 'Ice operations rollup for one facility/day, grouped by operation_type. circle_checks_with_failure/failed_items_total read the has_failed_check and failed_count columns already persisted at submit time rather than recomputing from a child table.';
+
+
+--
+-- Name: compute_daily_metrics_incident_reports(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_incident_reports(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_tz text;
+  v_reported int;
+  v_by_type jsonb;
+  v_by_severity jsonb;
+  v_open_at_eod int;
+  v_resolved_today int;
+  v_median_hours numeric;
+begin
+  select coalesce(timezone, 'UTC') into v_tz from public.facilities where id = p_facility_id;
+
+  select count(*) into v_reported
+    from public.incident_reports
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  select coalesce(jsonb_object_agg(coalesce(t.name, 'unspecified'), cnt), '{}'::jsonb)
+    into v_by_type
+    from (
+      select it.name, count(*) as cnt
+        from public.incident_reports ir
+        left join public.incident_types it on it.id = ir.incident_type_id
+       where ir.facility_id = p_facility_id and ir.business_date = p_business_date
+       group by it.name
+    ) t(name, cnt);
+
+  select coalesce(jsonb_object_agg(coalesce(s.key, 'unspecified'), cnt), '{}'::jsonb)
+    into v_by_severity
+    from (
+      select sl.key, count(*) as cnt
+        from public.incident_reports ir
+        left join public.incident_severity_levels sl on sl.id = ir.severity_level_id
+       where ir.facility_id = p_facility_id and ir.business_date = p_business_date
+       group by sl.key
+    ) s(key, cnt);
+
+  -- Open as of end of p_business_date: reported on or before that day, and
+  -- neither resolved nor archived by then (facility-local date of the
+  -- transition timestamp, not the current `status` text).
+  select count(*) into v_open_at_eod
+    from public.incident_reports
+   where facility_id = p_facility_id
+     and business_date <= p_business_date
+     and (resolved_at is null or (resolved_at at time zone v_tz)::date > p_business_date)
+     and (archived_at is null or (archived_at at time zone v_tz)::date > p_business_date);
+
+  select count(*) into v_resolved_today
+    from public.incident_reports
+   where facility_id = p_facility_id
+     and resolved_at is not null
+     and (resolved_at at time zone v_tz)::date = p_business_date;
+
+  select round(
+           (percentile_cont(0.5) within group (
+              order by extract(epoch from (resolved_at - submitted_at)) / 3600.0
+            ))::numeric,
+           1
+         )
+    into v_median_hours
+    from public.incident_reports
+   where facility_id = p_facility_id
+     and resolved_at is not null
+     and (resolved_at at time zone v_tz)::date = p_business_date;
+
+  return jsonb_build_object(
+    'reported', v_reported,
+    'by_type', v_by_type,
+    'by_severity', v_by_severity,
+    'open_at_eod', v_open_at_eod,
+    'resolved_today', v_resolved_today,
+    'median_hours_to_resolve', v_median_hours
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_incident_reports(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_incident_reports(p_facility_id uuid, p_business_date date) IS 'Incident reports rollup for one facility/day. open_at_eod/resolved_today are reconstructed from resolved_at/archived_at (timestamped, immutable once set) rather than the current `status` column, so recomputing a past day never drifts as tickets move through the current-state workflow. median_hours_to_resolve is a per-day median (an acknowledged approximation when later averaged across a period — see migration file header).';
+
+
+--
+-- Name: compute_daily_metrics_refrigeration(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_refrigeration(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_reports int;
+  v_readings_expected int;
+  v_oor_count int;
+  v_oor_fields jsonb;
+begin
+  select count(*) into v_reports
+    from public.refrigeration_reports
+   where facility_id = p_facility_id and business_date = p_business_date;
+
+  select readings_per_shift into v_readings_expected
+    from public.refrigeration_settings
+   where facility_id = p_facility_id;
+
+  select count(*) filter (where v.is_out_of_range),
+         coalesce(jsonb_agg(distinct v.label_snapshot) filter (where v.is_out_of_range), '[]'::jsonb)
+    into v_oor_count, v_oor_fields
+    from public.refrigeration_report_values v
+    join public.refrigeration_reports r on r.id = v.report_id
+   where r.facility_id = p_facility_id and r.business_date = p_business_date;
+
+  return jsonb_build_object(
+    'reports_submitted', v_reports,
+    'readings_expected', v_readings_expected,
+    'out_of_range_count', v_oor_count,
+    'out_of_range_fields', v_oor_fields
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_refrigeration(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_refrigeration(p_facility_id uuid, p_business_date date) IS 'Refrigeration rollup for one facility/day. out_of_range_count/fields read is_out_of_range as persisted on refrigeration_report_values at submit time (thresholds active then), never re-evaluated against today''s thresholds. readings_expected is the raw refrigeration_settings.readings_per_shift value (nullable), not a per-day target — the schema has no shifts-per-day concept to multiply it by.';
+
+
+--
+-- Name: compute_daily_metrics_scheduling(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_daily_metrics_scheduling(p_facility_id uuid, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_tz text;
+  v_scheduled int;
+  v_published int;
+  v_open_unfilled int;
+  v_warnings int;
+begin
+  select coalesce(timezone, 'UTC') into v_tz from public.facilities where id = p_facility_id;
+
+  select count(*), count(*) filter (where status = 'published')
+    into v_scheduled, v_published
+    from public.schedule_shifts
+   where facility_id = p_facility_id
+     and (starts_at at time zone v_tz)::date = p_business_date;
+
+  select count(*) into v_open_unfilled
+    from public.schedule_open_shifts o
+    join public.schedule_shifts s on s.id = o.shift_id
+   where s.facility_id = p_facility_id
+     and (s.starts_at at time zone v_tz)::date = p_business_date
+     and o.claim_status = 'open';
+
+  select count(*) into v_warnings
+    from public.schedule_shifts
+   where facility_id = p_facility_id
+     and (starts_at at time zone v_tz)::date = p_business_date
+     and jsonb_array_length(coalesce(compliance_warnings, '[]'::jsonb)) > 0;
+
+  return jsonb_build_object(
+    'shifts_scheduled', v_scheduled,
+    'shifts_published', v_published,
+    'open_shifts_unfilled', v_open_unfilled,
+    'compliance_warnings_count', v_warnings
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_daily_metrics_scheduling(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_daily_metrics_scheduling(p_facility_id uuid, p_business_date date) IS 'Scheduling rollup for one facility/day. Bucketed by each shift''s starts_at converted through the facility timezone directly (schedule_shifts has no business_date column). open_shifts_unfilled and compliance_warnings_count are current-state reads with no eod history to reconstruct from — a backfilled past day reflects today''s claim_status/compliance_warnings on those rows, not necessarily what was true at the time. compliance_warnings_count counts AFFECTED SHIFTS (>=1 warning), not the total number of individual warnings.';
+
+
+--
+-- Name: compute_facility_daily_metrics(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_facility_daily_metrics(p_facility_id uuid, p_business_date date) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_row_count int := 0;
+  v_module    text;
+  v_metrics   jsonb;
+begin
+  if not (public.is_super_admin() or coalesce(auth.role(), '') = 'service_role') then
+    raise exception 'compute_facility_daily_metrics: not authorized';
+  end if;
+
+  if p_facility_id is null or p_business_date is null then
+    raise exception 'compute_facility_daily_metrics: facility_id and business_date are required';
+  end if;
+
+  -- Only the nine modules this migration has a rollup function for. Iterating
+  -- a fixed list (rather than every facility_modules row) means an unrelated
+  -- module key (communications, facility_paperwork, rink_scheduling, admin)
+  -- is silently skipped rather than raising on a missing function.
+  for v_module in
+    select unnest(array[
+      'daily_reports', 'ice_operations', 'ice_depth', 'refrigeration',
+      'air_quality', 'incident_reports', 'accident_reports',
+      'dasher_boards', 'scheduling'
+    ])
+  loop
+    if not exists (
+      select 1 from public.facility_modules m
+       where m.facility_id = p_facility_id and m.module_key = v_module and m.enabled
+    ) then
+      continue;
+    end if;
+
+    v_metrics := case v_module
+      when 'daily_reports'    then public.compute_daily_metrics_daily_reports(p_facility_id, p_business_date)
+      when 'ice_operations'   then public.compute_daily_metrics_ice_operations(p_facility_id, p_business_date)
+      when 'ice_depth'        then public.compute_daily_metrics_ice_depth(p_facility_id, p_business_date)
+      when 'refrigeration'    then public.compute_daily_metrics_refrigeration(p_facility_id, p_business_date)
+      when 'air_quality'      then public.compute_daily_metrics_air_quality(p_facility_id, p_business_date)
+      when 'incident_reports' then public.compute_daily_metrics_incident_reports(p_facility_id, p_business_date)
+      when 'accident_reports' then public.compute_daily_metrics_accident_reports(p_facility_id, p_business_date)
+      when 'dasher_boards'    then public.compute_daily_metrics_dasher_boards(p_facility_id, p_business_date)
+      when 'scheduling'       then public.compute_daily_metrics_scheduling(p_facility_id, p_business_date)
+    end;
+
+    insert into public.facility_daily_metrics (facility_id, business_date, module_key, metrics, computed_at)
+    values (p_facility_id, p_business_date, v_module, v_metrics, now())
+    on conflict (facility_id, business_date, module_key)
+      do update set metrics = excluded.metrics, computed_at = excluded.computed_at;
+
+    v_row_count := v_row_count + 1;
+  end loop;
+
+  return v_row_count;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_facility_daily_metrics(p_facility_id uuid, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_facility_daily_metrics(p_facility_id uuid, p_business_date date) IS 'Computes and upserts one facility_daily_metrics row per ENABLED module (of the nine this migration covers) for one facility/day. Idempotent: recomputing a day updates metrics and computed_at in place. Callable by service_role or a super admin (e.g. a future "recompute this day" admin action) — nobody else.';
+
+
+--
+-- Name: compute_live_daily_metrics(text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.compute_live_daily_metrics(p_module_key text, p_business_date date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility_id uuid;
+  v_result      jsonb;
+begin
+  if p_module_key is null or p_business_date is null then
+    raise exception 'compute_live_daily_metrics: module_key and business_date are required';
+  end if;
+
+  v_facility_id := public.current_facility_id();
+  if v_facility_id is null then
+    raise exception 'compute_live_daily_metrics: caller has no facility';
+  end if;
+
+  if not public.has_module_access('reports') then
+    raise exception 'compute_live_daily_metrics: not authorized';
+  end if;
+
+  if p_module_key = 'daily_reports' then
+    v_result := public.compute_daily_metrics_daily_reports(v_facility_id, p_business_date);
+  elsif p_module_key = 'ice_operations' then
+    v_result := public.compute_daily_metrics_ice_operations(v_facility_id, p_business_date);
+  elsif p_module_key = 'ice_depth' then
+    v_result := public.compute_daily_metrics_ice_depth(v_facility_id, p_business_date);
+  elsif p_module_key = 'refrigeration' then
+    v_result := public.compute_daily_metrics_refrigeration(v_facility_id, p_business_date);
+  elsif p_module_key = 'air_quality' then
+    v_result := public.compute_daily_metrics_air_quality(v_facility_id, p_business_date);
+  elsif p_module_key = 'incident_reports' then
+    v_result := public.compute_daily_metrics_incident_reports(v_facility_id, p_business_date);
+  elsif p_module_key = 'accident_reports' then
+    v_result := public.compute_daily_metrics_accident_reports(v_facility_id, p_business_date);
+  elsif p_module_key = 'dasher_boards' then
+    v_result := public.compute_daily_metrics_dasher_boards(v_facility_id, p_business_date);
+  elsif p_module_key = 'scheduling' then
+    v_result := public.compute_daily_metrics_scheduling(v_facility_id, p_business_date);
+  else
+    raise exception 'compute_live_daily_metrics: unknown module_key %, expected one of the nine reporting modules', p_module_key;
+  end if;
+
+  return v_result;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION compute_live_daily_metrics(p_module_key text, p_business_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.compute_live_daily_metrics(p_module_key text, p_business_date date) IS 'Read-only dispatcher for the reporting layer''s live "today" path. Resolves facility_id from the CALLER''S OWN session (current_facility_id()), never a parameter, then dispatches to the matching compute_daily_metrics_* function (migration 270) after checking has_module_access(''reports''). Exists so an authenticated browser session can reuse the exact same computation the nightly rollup uses, without widening those nine functions'' grant beyond service_role (which would let any caller pass an arbitrary facility_id and read cross-tenant data — see the file header).';
 
 
 --
@@ -4430,6 +5166,86 @@ COMMENT ON FUNCTION public.report_area_assignments_block_past() IS 'Trigger: rej
 
 
 --
+-- Name: report_period_bounds(uuid, text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.report_period_bounds(p_facility_id uuid, p_period text, p_anchor date) RETURNS TABLE(start_date date, end_date date)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_week_start int;
+  v_fy_start   int;
+  v_offset     int;
+  v_year       int;
+  v_start      date;
+begin
+  if p_facility_id is null or p_period is null or p_anchor is null then
+    raise exception 'report_period_bounds: facility_id, period and anchor are required';
+  end if;
+
+  if not (
+    public.is_super_admin()
+    or coalesce(auth.role(), '') = 'service_role'
+    or p_facility_id = public.current_facility_id()
+  ) then
+    raise exception 'report_period_bounds: not authorized for that facility';
+  end if;
+
+  case p_period
+    when 'day' then
+      return query select p_anchor, p_anchor;
+
+    when 'week' then
+      -- The reporting week MUST start on the same day as the scheduling
+      -- module's week, or the same product disagrees with itself about what
+      -- "last week" means. date_trunc('week') is ISO Monday and is wrong here.
+      select coalesce(s.week_start_day, 0) into v_week_start
+        from public.schedule_settings s
+       where s.facility_id = p_facility_id;
+      v_week_start := coalesce(v_week_start, 0);
+
+      -- Postgres dow and schedule_settings.week_start_day share the same
+      -- encoding (0 = Sunday .. 6 = Saturday), so this is a plain rotation.
+      v_offset := (extract(dow from p_anchor)::int - v_week_start + 7) % 7;
+      v_start  := p_anchor - v_offset;
+      return query select v_start, (v_start + 6);
+
+    when 'month' then
+      v_start := date_trunc('month', p_anchor)::date;
+      return query select v_start, (v_start + interval '1 month' - interval '1 day')::date;
+
+    when 'year' then
+      select coalesce(f.fiscal_year_start_month, 1) into v_fy_start
+        from public.facilities f
+       where f.id = p_facility_id;
+      v_fy_start := coalesce(v_fy_start, 1);
+
+      -- A fiscal year is named for the calendar year it STARTS in. With a July
+      -- start, 2026-08-28 falls in FY 2026-07-01..2027-06-30, while 2026-03-01
+      -- still belongs to the year that began 2025-07-01.
+      v_year := extract(year from p_anchor)::int;
+      if extract(month from p_anchor)::int < v_fy_start then
+        v_year := v_year - 1;
+      end if;
+      v_start := make_date(v_year, v_fy_start, 1);
+      return query select v_start, (v_start + interval '1 year' - interval '1 day')::date;
+
+    else
+      raise exception 'report_period_bounds: unknown period %, expected day | week | month | year', p_period;
+  end case;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION report_period_bounds(p_facility_id uuid, p_period text, p_anchor date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.report_period_bounds(p_facility_id uuid, p_period text, p_anchor date) IS 'Inclusive [start_date, end_date] of the reporting period containing p_anchor. week honours schedule_settings.week_start_day (NOT ISO Monday); year honours facilities.fiscal_year_start_month (a fiscal year is named for the calendar year it starts in). SECURITY DEFINER so a reports-only manager can resolve bounds without scheduling-module access; gated to the caller''s own facility unless super admin or service role.';
+
+
+--
 -- Name: resolve_daily_area_assignments(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5255,6 +6071,54 @@ $$;
 --
 
 COMMENT ON FUNCTION public.rink_scheduling_guard_exempt() IS 'Exemption tier for rink_scheduling guard triggers: super admins, the service role (cron sweeps, the public display endpoint), and the migration/owner roles.';
+
+
+--
+-- Name: run_daily_metrics_rollup_for_yesterday(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.run_daily_metrics_rollup_for_yesterday() RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_facility record;
+  v_business_date date;
+  v_rows int;
+  v_total_rows int := 0;
+  v_facilities int := 0;
+  v_per_facility jsonb := '[]'::jsonb;
+begin
+  if not (public.is_super_admin() or coalesce(auth.role(), '') = 'service_role') then
+    raise exception 'run_daily_metrics_rollup_for_yesterday: not authorized';
+  end if;
+
+  for v_facility in select id, timezone from public.facilities loop
+    v_business_date := ((now() at time zone coalesce(v_facility.timezone, 'UTC'))::date - 1);
+    v_rows := public.compute_facility_daily_metrics(v_facility.id, v_business_date);
+    v_total_rows := v_total_rows + v_rows;
+    v_facilities := v_facilities + 1;
+    v_per_facility := v_per_facility || jsonb_build_object(
+      'facility_id', v_facility.id,
+      'business_date', v_business_date,
+      'rows', v_rows
+    );
+  end loop;
+
+  return jsonb_build_object(
+    'facilities', v_facilities,
+    'total_rows', v_total_rows,
+    'per_facility', v_per_facility
+  );
+end;
+$$;
+
+
+--
+-- Name: FUNCTION run_daily_metrics_rollup_for_yesterday(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.run_daily_metrics_rollup_for_yesterday() IS 'Nightly rollup entry point: for every facility, computes YESTERDAY in that facility''s OWN timezone (not a shared "yesterday UTC") and upserts its facility_daily_metrics rows. Called by /api/cron/daily-metrics-rollup via a single RPC, matching the snapshot_closed_daily_assignment_days pattern.';
 
 
 --
@@ -8128,6 +8992,29 @@ COMMENT ON FUNCTION public.seed_default_door_types(p_facility_id uuid) IS 'Seeds
 
 
 --
+-- Name: seed_default_export_settings(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.seed_default_export_settings(p_facility_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  insert into public.export_settings (facility_id)
+  values (p_facility_id)
+  on conflict (facility_id) do nothing;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION seed_default_export_settings(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.seed_default_export_settings(p_facility_id uuid) IS 'Seeds one export_settings row (all defaults) for a facility if it does not already have one. Idempotent via on conflict on the facility_id unique constraint (migration 19). Called from the facilities insert trigger for new facilities, and once here as a backfill for existing ones.';
+
+
+--
 -- Name: seed_default_facility_air_quality_config(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8235,7 +9122,8 @@ begin
     ('communications'),
     ('facility_paperwork'),
     ('dasher_boards'),
-    ('rink_scheduling')
+    ('rink_scheduling'),
+    ('reports')
   ) as m(k)
   on conflict (facility_id, module_key) do nothing;
 end;
@@ -8246,7 +9134,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. rink_scheduling as of migration 249). Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. reports as of migration 268). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --
@@ -8943,6 +9831,56 @@ $$;
 
 
 --
+-- Name: stamp_business_date_from(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.stamp_business_date_from() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_source   text := tg_argv[0];
+  v_fallback text := case when array_length(tg_argv, 1) > 1 then tg_argv[1] end;
+  v_row      jsonb := to_jsonb(new);
+  v_ts       timestamptz;
+  v_tz       text;
+begin
+  -- Column read by name out of the row's jsonb projection. to_jsonb renders a
+  -- timestamptz as ISO-8601 WITH its offset, so the cast back is exact
+  -- regardless of the session TimeZone.
+  v_ts := nullif(v_row ->> v_source, '')::timestamptz;
+
+  if v_ts is null and v_fallback is not null then
+    v_ts := nullif(v_row ->> v_fallback, '')::timestamptz;
+  end if;
+
+  -- Last resort. Every source column here is NOT NULL or has a fallback that
+  -- is, so this is unreachable in practice; it exists so the trigger can never
+  -- be the reason an insert fails.
+  v_ts := coalesce(v_ts, now());
+
+  select f.timezone into v_tz
+    from public.facilities f
+   where f.id = new.facility_id;
+
+  -- coalesce for parity with migration 183. facilities.timezone is NOT NULL
+  -- DEFAULT 'America/New_York', so the fallback cannot fire today; it survives
+  -- as insurance against a future nullable-timezone change.
+  new.business_date := (v_ts at time zone coalesce(v_tz, 'UTC'))::date;
+
+  return new;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION stamp_business_date_from(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.stamp_business_date_from() IS 'BEFORE INSERT/UPDATE trigger: stamps NEW.business_date with the facility-local calendar date of the timestamptz column named in TG_ARGV[0] (falling back to TG_ARGV[1] when that column is NULL), resolved through facilities.timezone. Stamps unconditionally so business_date is always server-derived. Added in migration 267 for the seven module fact tables.';
+
+
+--
 -- Name: submit_incident_report(uuid, uuid, uuid, uuid, uuid, text, text, text, timestamp with time zone, text, text, text, boolean, integer, boolean, uuid[], jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9158,6 +10096,21 @@ CREATE FUNCTION public.tg_seed_door_types() RETURNS trigger
     AS $$
 begin
   perform public.seed_default_door_types(new.id);
+  return new;
+end;
+$$;
+
+
+--
+-- Name: tg_seed_export_settings(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.tg_seed_export_settings() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.seed_default_export_settings(new.id);
   return new;
 end;
 $$;
@@ -9664,6 +10617,8 @@ CREATE TABLE public.accident_reports (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     injured_person_age smallint,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT accident_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT accident_reports_injured_person_age_check CHECK (((injured_person_age IS NULL) OR ((injured_person_age >= 0) AND (injured_person_age <= 120))))
 );
 
@@ -9701,6 +10656,13 @@ COMMENT ON COLUMN public.accident_reports.edit_window_ends_at IS 'Convenience ti
 --
 
 COMMENT ON COLUMN public.accident_reports.injured_person_age IS 'Age (years) of the injured person at the time of submission. Nullable for historical rows; the submission form requires it on new reports.';
+
+
+--
+-- Name: COLUMN accident_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.accident_reports.business_date IS 'Facility-local calendar date of the accident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -9982,6 +10944,8 @@ CREATE TABLE public.air_quality_reports (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
     form_data jsonb,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT air_quality_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT air_quality_reports_max_severity_check CHECK ((max_severity = ANY (ARRAY['warn'::text, 'high'::text, 'critical'::text])))
 );
 
@@ -10019,6 +10983,13 @@ COMMENT ON COLUMN public.air_quality_reports.max_severity IS 'Denormalized: max 
 --
 
 COMMENT ON COLUMN public.air_quality_reports.form_data IS 'Optional extended monitoring-log payload (tester/equipment details, Section 1 general info, Section 2 routine/post-edging measurements, Section 4 recommendations). All fields optional; supplementary to air_quality_readings. Written by the staff submit action.';
+
+
+--
+-- Name: COLUMN air_quality_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.air_quality_reports.business_date IS 'Facility-local calendar date of the report, derived from submitted_at through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -11562,6 +12533,8 @@ CREATE TABLE public.dasher_boards_inspections (
     inspection_kind text DEFAULT 'routine'::text NOT NULL,
     contractor_name text,
     contractor_company text,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT dasher_boards_inspections_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT dasher_boards_inspections_contractor_iff_annual CHECK ((((inspection_kind = 'annual_contractor'::text) AND (contractor_name IS NOT NULL) AND (char_length(btrim(contractor_name)) > 0)) OR ((inspection_kind = 'routine'::text) AND (contractor_name IS NULL) AND (contractor_company IS NULL)))),
     CONSTRAINT dasher_boards_inspections_kind_check CHECK ((inspection_kind = ANY (ARRAY['routine'::text, 'annual_contractor'::text])))
 );
@@ -11593,6 +12566,13 @@ COMMENT ON COLUMN public.dasher_boards_inspections.contractor_name IS 'The quali
 --
 
 COMMENT ON COLUMN public.dasher_boards_inspections.contractor_company IS 'The contractor''s company, when the facility records it. Only on annual_contractor walks.';
+
+
+--
+-- Name: COLUMN dasher_boards_inspections.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dasher_boards_inspections.business_date IS 'Facility-local calendar date of the walk, derived from completed_at through facilities.timezone and stamped server-side (migration 267). An OPEN walk is stamped from started_at instead and re-stamped when it is completed, so a walk begun 11 PM and signed off after midnight reports on the day it was COMPLETED. Phase 4 metrics that count walks started must account for that.';
 
 
 --
@@ -12120,7 +13100,9 @@ CREATE TABLE public.facilities (
     phone text,
     city text,
     state text,
-    email text
+    email text,
+    fiscal_year_start_month smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT facilities_fiscal_year_start_month_check CHECK (((fiscal_year_start_month >= 1) AND (fiscal_year_start_month <= 12)))
 );
 
 
@@ -12143,6 +13125,13 @@ COMMENT ON COLUMN public.facilities.slug IS 'URL-safe unique identifier for the 
 --
 
 COMMENT ON COLUMN public.facilities.settings IS 'Per-facility feature flags / configuration blob.';
+
+
+--
+-- Name: COLUMN facilities.fiscal_year_start_month; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facilities.fiscal_year_start_month IS 'Month (1-12) the facility''s FISCAL year begins; 1 = calendar year. Drives the ''year'' period in report_period_bounds(). Tennity = 7 (Syracuse University''s July-June fiscal year).';
 
 
 --
@@ -12176,6 +13165,40 @@ COMMENT ON TABLE public.facility_air_quality_config IS 'Per-facility Air Quality
 --
 
 COMMENT ON COLUMN public.facility_air_quality_config.threshold_overrides IS 'Per-metric/per-tier ceilings that TIGHTEN the profile (never loosen). Shape mirrors profile tiers: { <metric>: { corrective?: {max}, notification?: {max}, evacuation?: {max} } }. Stricter-only is enforced in the admin server action.';
+
+
+--
+-- Name: facility_daily_metrics; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.facility_daily_metrics (
+    facility_id uuid NOT NULL,
+    business_date date NOT NULL,
+    module_key text NOT NULL,
+    metrics jsonb DEFAULT '{}'::jsonb NOT NULL,
+    computed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE facility_daily_metrics; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.facility_daily_metrics IS 'Nightly per-facility, per-day, per-module metric rollup. All four report periods (day/week/month/year) aggregate THIS table; only "today" reads live fact tables. WRITE PATH: the SECURITY DEFINER rollup functions (migration 270) and the service role ONLY — there are deliberately no INSERT/UPDATE/DELETE policies for authenticated, and those privileges are revoked. Recomputation is idempotent via ON CONFLICT on the primary key.';
+
+
+--
+-- Name: COLUMN facility_daily_metrics.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_daily_metrics.business_date IS 'Facility-local business date (migration 267), NOT a UTC date. This is the grain.';
+
+
+--
+-- Name: COLUMN facility_daily_metrics.metrics; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.facility_daily_metrics.metrics IS 'Metric name -> value for this facility/day/module. Keys are registered in public.report_metric_definitions, which also carries each key''s label, unit and aggregation mode (how daily values combine into a weekly/monthly/annual figure).';
 
 
 --
@@ -12778,6 +13801,8 @@ CREATE TABLE public.ice_depth_sessions (
     total_measurements integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT ice_depth_sessions_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT ice_depth_sessions_measurement_unit_snapshot_check CHECK ((measurement_unit_snapshot = ANY (ARRAY['inches'::text, 'mm'::text])))
 );
 
@@ -12815,6 +13840,13 @@ COMMENT ON COLUMN public.ice_depth_sessions.has_high_reading IS 'Denormalized: t
 --
 
 COMMENT ON COLUMN public.ice_depth_sessions.total_measurements IS 'Count of recorded child measurements. May be less than the layout''s active point count -- incomplete submissions are allowed.';
+
+
+--
+-- Name: COLUMN ice_depth_sessions.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_depth_sessions.business_date IS 'Facility-local calendar date of the session, derived from submitted_at through facilities.timezone and stamped server-side (migration 267). The reporting layer buckets on this, never on the raw timestamptz.';
 
 
 --
@@ -13154,6 +14186,8 @@ CREATE TABLE public.ice_operations_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT ice_operations_submissions_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT ice_operations_submissions_operation_type_check CHECK ((operation_type = ANY (ARRAY['ice_make'::text, 'circle_check'::text, 'edging'::text, 'blade_change'::text, 'propane_tank_change'::text])))
 );
 
@@ -13198,6 +14232,13 @@ COMMENT ON COLUMN public.ice_operations_submissions.has_failed_check IS 'Denorma
 --
 
 COMMENT ON COLUMN public.ice_operations_submissions.failed_count IS 'Denormalized count of failed circle-check items. Drives the alert body. Always 0 for non-circle_check operations.';
+
+
+--
+-- Name: COLUMN ice_operations_submissions.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ice_operations_submissions.business_date IS 'Facility-local calendar date of the operation, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -13318,6 +14359,8 @@ CREATE TABLE public.incident_reports (
     ambulance_flag boolean DEFAULT false NOT NULL,
     persons_involved integer,
     follow_up_required boolean DEFAULT false NOT NULL,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT incident_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date)),
     CONSTRAINT incident_reports_persons_involved_nonneg CHECK (((persons_involved IS NULL) OR (persons_involved >= 0))),
     CONSTRAINT incident_reports_status_check CHECK ((status = ANY (ARRAY['submitted'::text, 'in_review'::text, 'resolved'::text, 'archived'::text])))
 );
@@ -13398,6 +14441,13 @@ COMMENT ON COLUMN public.incident_reports.persons_involved IS 'Count of people i
 --
 
 COMMENT ON COLUMN public.incident_reports.follow_up_required IS 'Whether the incident is flagged as needing follow-up.';
+
+
+--
+-- Name: COLUMN incident_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.incident_reports.business_date IS 'Facility-local calendar date of the incident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -13871,7 +14921,9 @@ CREATE TABLE public.refrigeration_reports (
     updated_at timestamp with time zone,
     reading_at timestamp with time zone DEFAULT now() NOT NULL,
     shift text,
-    round_no smallint
+    round_no smallint,
+    business_date date DEFAULT '-infinity'::date NOT NULL,
+    CONSTRAINT refrigeration_reports_business_date_stamped CHECK ((business_date <> '-infinity'::date))
 );
 
 
@@ -13908,6 +14960,13 @@ COMMENT ON COLUMN public.refrigeration_reports.shift IS 'Optional shift label fo
 --
 
 COMMENT ON COLUMN public.refrigeration_reports.round_no IS 'Optional sequential round number within a shift/day for cadence reporting. Nullable.';
+
+
+--
+-- Name: COLUMN refrigeration_reports.business_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.refrigeration_reports.business_date IS 'Facility-local calendar date of the reading, derived from reading_at through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -14028,6 +15087,37 @@ COMMENT ON COLUMN public.report_area_assignments.report_date IS 'Facility-local 
 --
 
 COMMENT ON COLUMN public.report_area_assignments.superseded_at IS 'NULL = active. Set (never deleted) when the assignment is replaced or removed, so the assignment history for the day remains auditable.';
+
+
+--
+-- Name: report_metric_definitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.report_metric_definitions (
+    module_key text NOT NULL,
+    metric_key text NOT NULL,
+    label text NOT NULL,
+    unit text,
+    aggregation text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone,
+    CONSTRAINT report_metric_definitions_aggregation_check CHECK ((aggregation = ANY (ARRAY['sum'::text, 'avg'::text, 'max'::text, 'min'::text, 'last'::text])))
+);
+
+
+--
+-- Name: TABLE report_metric_definitions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.report_metric_definitions IS 'Registry for the keys stored in facility_daily_metrics.metrics: display label, unit, sort order, and the aggregation mode used to combine DAILY values into a weekly/monthly/annual figure. Global metadata (no facility_id) — it describes what a metric means, not any facility''s data. Seeded per module in migration 270.';
+
+
+--
+-- Name: COLUMN report_metric_definitions.aggregation; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_metric_definitions.aggregation IS 'How daily values combine over a period: sum | avg | max | min | last. Counts are sum. A mean is avg. A point-in-time snapshot (open issues at end of day) is LAST and must never be summed — summing it across a year is how a report ends up claiming thousands of open issues.';
 
 
 --
@@ -15725,7 +16815,7 @@ CREATE TABLE public.user_permissions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     source text DEFAULT 'role_default'::text NOT NULL,
-    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'rink_scheduling'::text, 'admin'::text]))),
+    CONSTRAINT user_permissions_module_name_check CHECK ((module_name = ANY (ARRAY['daily_reports'::text, 'ice_depth'::text, 'ice_operations'::text, 'incident_reports'::text, 'accident_reports'::text, 'refrigeration'::text, 'air_quality'::text, 'scheduling'::text, 'communications'::text, 'facility_paperwork'::text, 'dasher_boards'::text, 'rink_scheduling'::text, 'reports'::text, 'admin'::text]))),
     CONSTRAINT user_permissions_source_check CHECK ((source = ANY (ARRAY['role_default'::text, 'manual_override'::text])))
 );
 
@@ -16764,6 +17854,14 @@ ALTER TABLE ONLY public.facility_air_quality_config
 
 
 --
+-- Name: facility_daily_metrics facility_daily_metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_daily_metrics
+    ADD CONSTRAINT facility_daily_metrics_pkey PRIMARY KEY (facility_id, business_date, module_key);
+
+
+--
 -- Name: facility_documents facility_documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -17496,6 +18594,14 @@ ALTER TABLE ONLY public.refrigeration_thresholds
 
 ALTER TABLE ONLY public.report_area_assignments
     ADD CONSTRAINT report_area_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: report_metric_definitions report_metric_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_metric_definitions
+    ADD CONSTRAINT report_metric_definitions_pkey PRIMARY KEY (module_key, metric_key);
 
 
 --
@@ -18883,6 +19989,13 @@ CREATE INDEX idx_accident_reports_employee ON public.accident_reports USING btre
 
 
 --
+-- Name: idx_accident_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_accident_reports_facility_business_date ON public.accident_reports USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_accident_reports_facility_submitted; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -19027,6 +20140,13 @@ CREATE INDEX idx_air_quality_reports_employee ON public.air_quality_reports USIN
 --
 
 CREATE INDEX idx_air_quality_reports_exceedance ON public.air_quality_reports USING btree (facility_id, submitted_at DESC) WHERE (has_exceedance = true);
+
+
+--
+-- Name: idx_air_quality_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_air_quality_reports_facility_business_date ON public.air_quality_reports USING btree (facility_id, business_date DESC);
 
 
 --
@@ -19555,6 +20675,13 @@ CREATE INDEX idx_dasher_boards_inspections_facility ON public.dasher_boards_insp
 
 
 --
+-- Name: idx_dasher_boards_inspections_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dasher_boards_inspections_facility_business_date ON public.dasher_boards_inspections USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_dasher_boards_inspections_one_open_per_inspector; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -19748,6 +20875,13 @@ CREATE INDEX idx_facility_air_quality_config_facility ON public.facility_air_qua
 --
 
 CREATE INDEX idx_facility_air_quality_config_profile ON public.facility_air_quality_config USING btree (compliance_profile_id);
+
+
+--
+-- Name: idx_facility_daily_metrics_facility_module_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_facility_daily_metrics_facility_module_date ON public.facility_daily_metrics USING btree (facility_id, module_key, business_date DESC);
 
 
 --
@@ -19961,6 +21095,13 @@ CREATE INDEX idx_ice_depth_sessions_employee ON public.ice_depth_sessions USING 
 
 
 --
+-- Name: idx_ice_depth_sessions_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ice_depth_sessions_facility_business_date ON public.ice_depth_sessions USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_ice_depth_sessions_facility_submitted; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -20087,6 +21228,13 @@ CREATE INDEX idx_ice_operations_submissions_equipment ON public.ice_operations_s
 
 
 --
+-- Name: idx_ice_operations_submissions_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ice_operations_submissions_facility_business_date ON public.ice_operations_submissions USING btree (facility_id, business_date DESC);
+
+
+--
 -- Name: idx_ice_operations_submissions_facility_submitted; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -20182,6 +21330,13 @@ CREATE INDEX idx_incident_reports_activity ON public.incident_reports USING btre
 --
 
 CREATE INDEX idx_incident_reports_employee ON public.incident_reports USING btree (employee_id);
+
+
+--
+-- Name: idx_incident_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_incident_reports_facility_business_date ON public.incident_reports USING btree (facility_id, business_date DESC);
 
 
 --
@@ -20462,6 +21617,13 @@ CREATE INDEX idx_refrigeration_report_values_report ON public.refrigeration_repo
 --
 
 CREATE INDEX idx_refrigeration_reports_employee ON public.refrigeration_reports USING btree (employee_id);
+
+
+--
+-- Name: idx_refrigeration_reports_facility_business_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_refrigeration_reports_facility_business_date ON public.refrigeration_reports USING btree (facility_id, business_date DESC);
 
 
 --
@@ -21879,6 +23041,13 @@ CREATE TRIGGER facilities_seed_door_types AFTER INSERT ON public.facilities FOR 
 
 
 --
+-- Name: facilities facilities_seed_export_settings; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER facilities_seed_export_settings AFTER INSERT ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.tg_seed_export_settings();
+
+
+--
 -- Name: facilities facilities_seed_modules; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21918,6 +23087,13 @@ CREATE TRIGGER trg_accident_body_part_selections_updated_at BEFORE UPDATE ON pub
 --
 
 CREATE TRIGGER trg_accident_dropdowns_updated_at BEFORE UPDATE ON public.accident_dropdowns FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: accident_reports trg_accident_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_accident_reports_stamp_business_date BEFORE INSERT ON public.accident_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('occurred_at');
 
 
 --
@@ -21974,6 +23150,13 @@ CREATE TRIGGER trg_air_quality_equipment_updated_at BEFORE UPDATE ON public.air_
 --
 
 CREATE TRIGGER trg_air_quality_reading_types_updated_at BEFORE UPDATE ON public.air_quality_reading_types FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: air_quality_reports trg_air_quality_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_air_quality_reports_stamp_business_date BEFORE INSERT ON public.air_quality_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('submitted_at');
 
 
 --
@@ -22411,6 +23594,20 @@ CREATE TRIGGER trg_dasher_boards_inspections_guard BEFORE DELETE OR UPDATE ON pu
 
 
 --
+-- Name: dasher_boards_inspections trg_dasher_boards_inspections_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_inspections_stamp_business_date BEFORE INSERT ON public.dasher_boards_inspections FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('completed_at', 'started_at');
+
+
+--
+-- Name: dasher_boards_inspections trg_dasher_boards_inspections_stamp_business_date_on_complete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dasher_boards_inspections_stamp_business_date_on_complete BEFORE UPDATE ON public.dasher_boards_inspections FOR EACH ROW WHEN (((old.completed_at IS NULL) AND (new.completed_at IS NOT NULL))) EXECUTE FUNCTION public.stamp_business_date_from('completed_at', 'started_at');
+
+
+--
 -- Name: dasher_boards_inspections trg_dasher_boards_inspections_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22670,6 +23867,13 @@ CREATE TRIGGER trg_ice_depth_rinks_updated_at BEFORE UPDATE ON public.ice_depth_
 
 
 --
+-- Name: ice_depth_sessions trg_ice_depth_sessions_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ice_depth_sessions_stamp_business_date BEFORE INSERT ON public.ice_depth_sessions FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('submitted_at');
+
+
+--
 -- Name: ice_depth_sessions trg_ice_depth_sessions_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22733,6 +23937,13 @@ CREATE TRIGGER trg_ice_operations_settings_updated_at BEFORE UPDATE ON public.ic
 
 
 --
+-- Name: ice_operations_submissions trg_ice_operations_submissions_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ice_operations_submissions_stamp_business_date BEFORE INSERT ON public.ice_operations_submissions FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('occurred_at');
+
+
+--
 -- Name: ice_operations_submissions trg_ice_operations_submissions_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22744,6 +23955,13 @@ CREATE TRIGGER trg_ice_operations_submissions_updated_at BEFORE UPDATE ON public
 --
 
 CREATE TRIGGER trg_incident_activities_updated_at BEFORE UPDATE ON public.incident_activities FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: incident_reports trg_incident_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_incident_reports_stamp_business_date BEFORE INSERT ON public.incident_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('occurred_at');
 
 
 --
@@ -22824,6 +24042,13 @@ CREATE TRIGGER trg_refrigeration_fields_updated_at BEFORE UPDATE ON public.refri
 
 
 --
+-- Name: refrigeration_reports trg_refrigeration_reports_stamp_business_date; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_refrigeration_reports_stamp_business_date BEFORE INSERT ON public.refrigeration_reports FOR EACH ROW EXECUTE FUNCTION public.stamp_business_date_from('reading_at');
+
+
+--
 -- Name: refrigeration_reports trg_refrigeration_reports_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22856,6 +24081,13 @@ CREATE TRIGGER trg_refrigeration_thresholds_updated_at BEFORE UPDATE ON public.r
 --
 
 CREATE TRIGGER trg_report_area_assignments_block_past BEFORE INSERT OR UPDATE ON public.report_area_assignments FOR EACH ROW EXECUTE FUNCTION public.report_area_assignments_block_past();
+
+
+--
+-- Name: report_metric_definitions trg_report_metric_definitions_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_report_metric_definitions_set_updated_at BEFORE UPDATE ON public.report_metric_definitions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -24667,6 +25899,14 @@ ALTER TABLE ONLY public.facility_air_quality_config
 
 ALTER TABLE ONLY public.facility_air_quality_config
     ADD CONSTRAINT facility_air_quality_config_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
+
+
+--
+-- Name: facility_daily_metrics facility_daily_metrics_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facility_daily_metrics
+    ADD CONSTRAINT facility_daily_metrics_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE CASCADE;
 
 
 --
@@ -28852,6 +30092,19 @@ CREATE POLICY facility_air_quality_config_update ON public.facility_air_quality_
 
 
 --
+-- Name: facility_daily_metrics; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.facility_daily_metrics ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: facility_daily_metrics facility_daily_metrics_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY facility_daily_metrics_select ON public.facility_daily_metrics FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('reports'::text))));
+
+
+--
 -- Name: facility_documents; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -30586,6 +31839,26 @@ CREATE POLICY report_area_assignments_select ON public.report_area_assignments F
 CREATE POLICY report_area_assignments_update ON public.report_area_assignments FOR UPDATE TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text))))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND (public.has_module_admin_access('daily_reports'::text) OR public.has_module_edit_access('daily_reports'::text)) AND (EXISTS ( SELECT 1
    FROM public.employees e
   WHERE ((e.id = report_area_assignments.employee_id) AND (e.facility_id = report_area_assignments.facility_id)))))));
+
+
+--
+-- Name: report_metric_definitions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.report_metric_definitions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: report_metric_definitions report_metric_definitions_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_metric_definitions_select ON public.report_metric_definitions FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: report_metric_definitions report_metric_definitions_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY report_metric_definitions_write ON public.report_metric_definitions TO authenticated USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
 
 
 --

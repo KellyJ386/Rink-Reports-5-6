@@ -18,6 +18,7 @@ export const TOGGLEABLE_MODULE_KEYS = [
   "facility_paperwork",
   "dasher_boards",
   "rink_scheduling",
+  "reports",
 ] as const
 
 export type ToggleableModuleKey = (typeof TOGGLEABLE_MODULE_KEYS)[number]
@@ -35,4 +36,5 @@ export const MODULE_LABELS: Record<ToggleableModuleKey, string> = {
   facility_paperwork: "Facility Paperwork",
   dasher_boards: "Dasher Boards",
   rink_scheduling: "Rink Scheduling",
+  reports: "Insights",
 }

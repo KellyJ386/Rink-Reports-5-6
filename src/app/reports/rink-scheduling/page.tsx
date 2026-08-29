@@ -225,36 +225,45 @@ export default async function RinkSchedulePage({
         title="Rink Schedule"
         description="Ice bookings across every surface. Times are the rink's own local clock."
         actions={
-          // Invoicing and insights are edit-tier (they show the money), so the
-          // links only render for accounts that can actually open them.
-          canEdit ? (
-            <>
-              <Link
-                href="/reports/rink-scheduling/invoices"
-                className="text-muted-foreground text-sm no-underline hover:underline"
-              >
-                Invoices →
-              </Link>
-              <Link
-                href="/reports/rink-scheduling/insights"
-                className="text-muted-foreground text-sm no-underline hover:underline"
-              >
-                Insights →
-              </Link>
-              <Link
-                href="/reports/rink-scheduling/requests"
-                className="text-muted-foreground text-sm no-underline hover:underline"
-              >
-                Requests →
-              </Link>
-              <Link
-                href="/reports/rink-scheduling/contracts"
-                className="text-muted-foreground text-sm no-underline hover:underline"
-              >
-                Contracts →
-              </Link>
-            </>
-          ) : undefined
+          <>
+            {/* Front Desk is view-tier, same as this page, so it always
+                renders — unlike Invoices/Insights/Requests/Contracts below,
+                which show the money and stay edit-tier only. */}
+            <Link
+              href="/reports/rink-scheduling/desk"
+              className="text-muted-foreground text-sm no-underline hover:underline"
+            >
+              Front Desk →
+            </Link>
+            {canEdit && (
+              <>
+                <Link
+                  href="/reports/rink-scheduling/invoices"
+                  className="text-muted-foreground text-sm no-underline hover:underline"
+                >
+                  Invoices →
+                </Link>
+                <Link
+                  href="/reports/rink-scheduling/insights"
+                  className="text-muted-foreground text-sm no-underline hover:underline"
+                >
+                  Insights →
+                </Link>
+                <Link
+                  href="/reports/rink-scheduling/requests"
+                  className="text-muted-foreground text-sm no-underline hover:underline"
+                >
+                  Requests →
+                </Link>
+                <Link
+                  href="/reports/rink-scheduling/contracts"
+                  className="text-muted-foreground text-sm no-underline hover:underline"
+                >
+                  Contracts →
+                </Link>
+              </>
+            )}
+          </>
         }
       />
       <CalendarClient
