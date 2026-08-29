@@ -107,12 +107,17 @@ alter table public.rink_bookings
     check (resurface_status is null
            or resurface_status in ('scheduled', 'completed', 'skipped'));
 
--- SET NULL: if the operations record is ever purged, the schedule row's own
--- history (resurface_status) survives.
+-- SET NULL (ice_cut_submission_id): if the operations record is ever purged,
+-- the schedule row's own history (resurface_status) survives. The COLUMN
+-- LIST matters — a plain composite SET NULL nulls BOTH columns, and
+-- facility_id is NOT NULL, so every ice_operations retention purge touching
+-- a linked row would error instead of clearing the link. Same trap, same
+-- fix as migration 190 (recurring_parent_id) and 259 (zone_id).
 alter table public.rink_bookings
   add constraint rink_bookings_ice_cut_fk
     foreign key (ice_cut_submission_id, facility_id)
-    references public.ice_operations_submissions (id, facility_id) on delete set null;
+    references public.ice_operations_submissions (id, facility_id)
+    on delete set null (ice_cut_submission_id);
 
 comment on column public.rink_bookings.resurface_status is
   'Lifecycle of a resurface booking (its type has is_resurface): scheduled -> completed | skipped. Null on every other booking — the coherence trigger enforces both directions.';
@@ -124,9 +129,16 @@ comment on column public.rink_bookings.ice_cut_submission_id is
 --    this cannot be a CHECK).
 -- ---------------------------------------------------------------------------
 
+-- SECURITY DEFINER for the same reason as rink_invoice_line_items_inherit_void
+-- (migration 247): the lookup must see the booking type regardless of the
+-- caller's SELECT visibility — user_permissions actions are independently
+-- toggleable, so an account with submit-but-not-view access would otherwise
+-- read no row, coalesce to "not a resurface", and insert a resurface with no
+-- lifecycle status. Trigger-only; EXECUTE is revoked below.
 create or replace function public.rink_bookings_resurface_coherence()
 returns trigger
 language plpgsql
+security definer
 set search_path = public, pg_temp
 as $$
 declare
@@ -153,6 +165,9 @@ $$;
 
 comment on function public.rink_bookings_resurface_coherence() is
   'Resurface-typed bookings (rink_booking_types.is_resurface) always carry a resurface_status (defaulted to scheduled); every other booking carries neither the status nor the ice-cut link. Cross-row rule (the flag lives on the type), so a trigger rather than a CHECK.';
+
+revoke execute on function public.rink_bookings_resurface_coherence()
+  from public, anon, authenticated;
 
 drop trigger if exists trg_rink_bookings_resurface_coherence on public.rink_bookings;
 create trigger trg_rink_bookings_resurface_coherence

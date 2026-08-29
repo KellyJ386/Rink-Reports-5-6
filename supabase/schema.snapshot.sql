@@ -4930,7 +4930,7 @@ COMMENT ON FUNCTION public.rink_bookings_require_customer() IS 'Enforces "custom
 --
 
 CREATE FUNCTION public.rink_bookings_resurface_coherence() RETURNS trigger
-    LANGUAGE plpgsql
+    LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
 declare
@@ -25718,7 +25718,7 @@ ALTER TABLE ONLY public.rink_bookings
 --
 
 ALTER TABLE ONLY public.rink_bookings
-    ADD CONSTRAINT rink_bookings_ice_cut_fk FOREIGN KEY (ice_cut_submission_id, facility_id) REFERENCES public.ice_operations_submissions(id, facility_id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_bookings_ice_cut_fk FOREIGN KEY (ice_cut_submission_id, facility_id) REFERENCES public.ice_operations_submissions(id, facility_id) ON DELETE SET NULL (ice_cut_submission_id);
 
 
 --

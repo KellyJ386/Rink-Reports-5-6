@@ -9744,6 +9744,23 @@ select pg_temp.expect_error(
 
 reset role;
 
+-- Purging the linked ice-cut record must clear ONLY the link — the column
+-- list on the composite SET NULL. A plain composite SET NULL would try to
+-- null facility_id too and every ice_operations retention purge touching a
+-- linked row would error (the migration-190 trap).
+select pg_temp.expect_ok(
+  $$delete from public.ice_operations_submissions
+     where id = 'a2650001-0000-4000-8000-00000000001c'$$,
+  'RF11: purging a linked ice-cut record succeeds');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where id = 'a2650001-0000-4000-8000-0000000000b1'
+       and ice_cut_submission_id is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and resurface_status = 'completed'$$,
+  1, 'RF12: the purge cleared only the link — facility and lifecycle survive');
+
 -- Duration settings mirror their CHECKs (as postgres: settings writes are
 -- admin-tier under RLS, and a zero-row match would pass vacuously).
 select pg_temp.expect_error(
