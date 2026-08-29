@@ -566,7 +566,18 @@ export async function generateContractInvoiceNow(
       employeeId: ctx.employeeId,
       contractId: contract.id,
     })
-    if (!generated.ok) return generated
+    if (!generated.ok) {
+      // Put the claimed period back so the month stays billable — without
+      // this, a transient failure here would read as "nothing to invoice"
+      // forever. Guarded on the value we wrote.
+      await supabase
+        .from("rink_season_contracts")
+        .update({ last_invoiced_period: contract.last_invoiced_period })
+        .eq("id", contractId)
+        .eq("facility_id", ctx.facilityId)
+        .eq("last_invoiced_period", decision.periodKey)
+      return generated
+    }
 
     revalidatePath(CONTRACTS_PATH)
     revalidatePath(AR_PATH)

@@ -158,6 +158,28 @@ export async function runContractInvoices(supabase: Client): Promise<ContractSwe
         contractId: contract.id,
       })
       if (!generated.ok) {
+        // COMPENSATE THE CLAIM: the period cursor advanced before generation
+        // (claim-first is what stops double-billing), so a failed generation
+        // must put it back or this month is silently unbillable forever —
+        // decideContractInvoice never re-proposes a claimed period. Guarded
+        // on the value we wrote, so a later legitimate advance is never
+        // clobbered. If the revert itself fails, say so loudly: that IS the
+        // lost-month case, and it should read like one in the logs.
+        const { data: reverted } = await supabase
+          .from("rink_season_contracts")
+          .update({ last_invoiced_period: contract.last_invoiced_period })
+          .eq("id", contract.id)
+          .eq("facility_id", contract.facility_id)
+          .eq("last_invoiced_period", decision.periodKey)
+          .select("id")
+        if ((reverted ?? []).length === 0) {
+          logServerError(
+            "rink-scheduling/contract-invoices",
+            new Error(
+              `LOST PERIOD ${decision.periodKey} on contract ${contract.id}: generation failed AND the cursor revert did not land`,
+            ),
+          )
+        }
         logServerError("rink-scheduling/contract-invoices", new Error(generated.error))
         result.failures += 1
         continue

@@ -308,12 +308,28 @@ export async function generateInvoiceCore(
   if (linesError) {
     // The partial unique index refused a booking that reached a live invoice
     // between the read and the write. Roll the draft back rather than leave a
-    // half-built document behind.
-    await supabase
+    // half-built document behind. The RLS delete policy on rink_invoices is
+    // super-admin-only, so for an ordinary biller's session client the
+    // delete matches ZERO rows — fall back to voiding the orphan (an update
+    // the edit tier holds), which releases nothing (it has no lines) but
+    // leaves an honest, visible record instead of a phantom draft.
+    const { data: deleted } = await supabase
       .from("rink_invoices")
       .delete()
       .eq("id", invoice.id)
       .eq("facility_id", facilityId)
+      .select("id")
+    if ((deleted ?? []).length === 0) {
+      await supabase
+        .from("rink_invoices")
+        .update({
+          status: "void",
+          voided_at: new Date().toISOString(),
+          void_reason: "Generation failed before any line landed; number consumed, nothing owed.",
+        })
+        .eq("id", invoice.id)
+        .eq("facility_id", facilityId)
+    }
     if (linesError.code === "23505") {
       return {
         ok: false,
