@@ -5354,6 +5354,7 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          resurface_minutes_override: number | null
           short_code: string
           slug: string
           sort_order: number
@@ -5366,6 +5367,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          resurface_minutes_override?: number | null
           short_code: string
           slug: string
           sort_order?: number
@@ -5378,6 +5380,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          resurface_minutes_override?: number | null
           short_code?: string
           slug?: string
           sort_order?: number
@@ -8144,6 +8147,7 @@ export type Database = {
           id: string
           is_active: boolean
           is_billable: boolean
+          is_resurface: boolean
           is_system: boolean
           name: string
           slug: string
@@ -8157,6 +8161,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_billable?: boolean
+          is_resurface?: boolean
           is_system?: boolean
           name: string
           slug: string
@@ -8170,6 +8175,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_billable?: boolean
+          is_resurface?: boolean
           is_system?: boolean
           name?: string
           slug?: string
@@ -8202,10 +8208,12 @@ export type Database = {
           customer_id: string | null
           ends_at: string
           facility_id: string
+          ice_cut_submission_id: string | null
           id: string
           notes: string | null
           rate_snapshot_hourly: number | null
           rate_snapshot_prime: boolean | null
+          resurface_status: string | null
           rink_id: string
           series_id: string | null
           starts_at: string
@@ -8228,10 +8236,12 @@ export type Database = {
           customer_id?: string | null
           ends_at: string
           facility_id: string
+          ice_cut_submission_id?: string | null
           id?: string
           notes?: string | null
           rate_snapshot_hourly?: number | null
           rate_snapshot_prime?: boolean | null
+          resurface_status?: string | null
           rink_id: string
           series_id?: string | null
           starts_at: string
@@ -8254,10 +8264,12 @@ export type Database = {
           customer_id?: string | null
           ends_at?: string
           facility_id?: string
+          ice_cut_submission_id?: string | null
           id?: string
           notes?: string | null
           rate_snapshot_hourly?: number | null
           rate_snapshot_prime?: boolean | null
+          resurface_status?: string | null
           rink_id?: string
           series_id?: string | null
           starts_at?: string
@@ -8293,6 +8305,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rink_bookings_ice_cut_fk"
+            columns: ["ice_cut_submission_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "ice_operations_submissions"
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_bookings_rink_fk"
@@ -9103,6 +9122,7 @@ export type Database = {
           created_at: string
           default_buffer_minutes: number
           default_payment_terms_days: number
+          default_resurface_minutes: number
           display_refresh_seconds: number
           facility_id: string
           id: string
@@ -9121,6 +9141,7 @@ export type Database = {
           created_at?: string
           default_buffer_minutes?: number
           default_payment_terms_days?: number
+          default_resurface_minutes?: number
           display_refresh_seconds?: number
           facility_id: string
           id?: string
@@ -9139,6 +9160,7 @@ export type Database = {
           created_at?: string
           default_buffer_minutes?: number
           default_payment_terms_days?: number
+          default_resurface_minutes?: number
           display_refresh_seconds?: number
           facility_id?: string
           id?: string

@@ -9652,6 +9652,113 @@ select pg_temp.expect_count(
 reset role;
 
 -- ---------------------------------------------------------------------------
+-- RF: migration 265 resurfaces — the type flag, lifecycle coherence, the
+-- facility-fenced ice-cut join, and the untouched overlap referee.
+-- ---------------------------------------------------------------------------
+
+-- Fixtures as postgres: a resurface booking type for facility A, and one
+-- ice-cut submission per facility to attack the composite FK with.
+insert into public.rink_booking_types
+  (id, facility_id, name, slug, color, is_billable, is_system, sort_order, is_resurface)
+values ('a2650001-0000-4000-8000-00000000007b', '11111111-1111-1111-1111-111111111111',
+        'Resurface', 'resurface-test', '#56666F', false, false, 99, true)
+on conflict (id) do nothing;
+
+insert into public.ice_operations_submissions
+  (id, facility_id, operation_type, occurred_at)
+values
+  ('a2650001-0000-4000-8000-00000000001c', '11111111-1111-1111-1111-111111111111',
+   'ice_make', '2027-08-01 12:00:00Z'),
+  ('b2650001-0000-4000-8000-00000000001c', '22222222-2222-2222-2222-222222222222',
+   'ice_make', '2027-08-01 12:00:00Z')
+on conflict (id) do nothing;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+
+select pg_temp.expect_ok(
+  $$insert into public.rink_bookings
+      (id, facility_id, rink_id, booking_type_id, starts_at, ends_at, status)
+    values ('a2650001-0000-4000-8000-0000000000b1',
+            '11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-000000000001',
+            'a2650001-0000-4000-8000-00000000007b',
+            '2027-08-02 18:00:00-04', '2027-08-02 18:15:00-04', 'confirmed')$$,
+  'RF1: carol (edit) CAN schedule a resurface (no customer needed)');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where id = 'a2650001-0000-4000-8000-0000000000b1'
+       and resurface_status = 'scheduled'$$,
+  1, 'RF2: a new resurface DEFAULTS to resurface_status = scheduled (trigger)');
+
+select pg_temp.expect_error(
+  $$insert into public.rink_bookings
+      (facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at,
+       status, resurface_status)
+    select '11111111-1111-1111-1111-111111111111',
+           'a5000001-0000-4000-8000-000000000001',
+           'a5000001-0000-4000-8000-0000000000c1', bt.id,
+           '2027-08-03 09:00:00-04', '2027-08-03 10:00:00-04', 'confirmed', 'scheduled'
+    from public.rink_booking_types bt
+    where bt.facility_id = '11111111-1111-1111-1111-111111111111'
+      and bt.slug = 'ice-rental'$$,
+  'RF3: a NON-resurface booking CANNOT carry resurface_status');
+
+select pg_temp.expect_error(
+  $$update public.rink_bookings
+       set ice_cut_submission_id = 'a2650001-0000-4000-8000-00000000001c'
+     where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
+  'RF4: a NON-resurface booking CANNOT carry an ice-cut link');
+
+select pg_temp.expect_error(
+  $$update public.rink_bookings
+       set resurface_status = 'polished'
+     where id = 'a2650001-0000-4000-8000-0000000000b1'$$,
+  'RF5: an unknown resurface_status is REJECTED (CHECK)');
+
+select pg_temp.expect_error(
+  $$update public.rink_bookings
+       set ice_cut_submission_id = 'b2650001-0000-4000-8000-00000000001c'
+     where id = 'a2650001-0000-4000-8000-0000000000b1'$$,
+  'RF6: linking ANOTHER facility''s ice-cut record is IMPOSSIBLE (composite FK)');
+
+select pg_temp.expect_ok(
+  $$update public.rink_bookings
+       set ice_cut_submission_id = 'a2650001-0000-4000-8000-00000000001c',
+           resurface_status = 'completed'
+     where id = 'a2650001-0000-4000-8000-0000000000b1'$$,
+  'RF7: completing a resurface with its own facility''s ice-cut record works');
+
+-- The overlap referee is untouched: a cut occupies the sheet like any other
+-- booking, so a second one on the same window is refused.
+select pg_temp.expect_error(
+  $$insert into public.rink_bookings
+      (facility_id, rink_id, booking_type_id, starts_at, ends_at, status)
+    values ('11111111-1111-1111-1111-111111111111',
+            'a5000001-0000-4000-8000-000000000001',
+            'a2650001-0000-4000-8000-00000000007b',
+            '2027-08-02 18:05:00-04', '2027-08-02 18:20:00-04', 'confirmed')$$,
+  'RF8: a resurface still answers to the overlap referee (no double-cut)');
+
+reset role;
+
+-- Duration settings mirror their CHECKs (as postgres: settings writes are
+-- admin-tier under RLS, and a zero-row match would pass vacuously).
+select pg_temp.expect_error(
+  $$update public.rink_scheduling_settings set default_resurface_minutes = 0
+     where facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  'RF9: a resurface default outside 1-120 minutes is REJECTED');
+
+select pg_temp.expect_error(
+  $$update public.facility_rinks set resurface_minutes_override = 200
+     where facility_id = '11111111-1111-1111-1111-111111111111'
+       and slug = (select slug from public.facility_rinks
+                    where facility_id = '11111111-1111-1111-1111-111111111111' limit 1)$$,
+  'RF10: a per-sheet override outside 1-120 minutes is REJECTED');
+
+-- ---------------------------------------------------------------------------
 -- GATE-246: cron RPC caller gates (migration 247).
 --
 -- The first production cron runs proved a `session_user = 'service_role'`
