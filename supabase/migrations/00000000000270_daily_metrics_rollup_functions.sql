@@ -553,7 +553,7 @@ grant  execute on function public.compute_daily_metrics_accident_reports(uuid, d
 -- -----------------------------------------------------------------------------
 -- dasher_boards
 --   walks_completed buckets on business_date (which reflects the COMPLETION
---   day, migration 264) with completed_at not null. walks_started buckets on
+--   day, migration 267) with completed_at not null. walks_started buckets on
 --   started_at converted through the facility's OWN timezone directly — NOT
 --   business_date — because a walk that starts before midnight and completes
 --   after belongs to different days for the two counts. See file header.
@@ -657,7 +657,7 @@ grant  execute on function public.compute_daily_metrics_dasher_boards(uuid, date
 -- scheduling
 --   Shifts are bucketed by their START day in the facility's own timezone
 --   (schedule_shifts carries no business_date — scheduling was out of scope
---   for migration 264). open_shifts_unfilled and compliance_warnings_count are
+--   for migration 267). open_shifts_unfilled and compliance_warnings_count are
 --   best-effort CURRENT-state reads: schedule_open_shifts.claim_status and
 --   schedule_shifts.compliance_warnings are mutable with no history table, so
 --   a backfilled day reflects today's state of old rows, not a true eod

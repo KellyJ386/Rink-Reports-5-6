@@ -8,7 +8,7 @@ export const maxDuration = 60
 /**
  * Nightly reporting rollup: for every facility, computes and upserts
  * facility_daily_metrics for YESTERDAY in that facility's OWN timezone
- * (migration 267's run_daily_metrics_rollup_for_yesterday), covering the nine
+ * (migration 270's run_daily_metrics_rollup_for_yesterday), covering the nine
  * modules that have a compute_daily_metrics_* function.
  *
  * A single RPC call does the per-facility loop and the "yesterday" resolution

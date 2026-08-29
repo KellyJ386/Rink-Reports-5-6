@@ -23,7 +23,7 @@ export type MetricDefinition = {
 }
 
 export type DailyMetricRow = {
-  /** "YYYY-MM-DD", facility-local (migration 264). */
+  /** "YYYY-MM-DD", facility-local (migration 267). */
   businessDate: string
   moduleKey: string
   metrics: Record<string, unknown>
@@ -60,7 +60,7 @@ function combineScalars(values: number[], aggregation: AggregationMode): number 
 
 /**
  * Combines one metric's per-day values (in businessDate ascending order) into
- * one period value, per the contract in migration 267's header:
+ * one period value, per the contract in migration 270's header:
  *   - 'last': the most recent non-null value, whatever its shape — a
  *     snapshot to REPLACE, never merged with earlier days.
  *   - object values (a breakdown): union the keys, combine per key using the

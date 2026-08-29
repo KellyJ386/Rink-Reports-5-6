@@ -225,7 +225,7 @@ grant insert, select on _rls_failures to authenticated;
 -- expect_count()/expect_error() lose the ability to log failures and silently
 -- mask everything as "ok".
 grant insert, select on _rls_failures to anon;
--- Likewise for service_role: the BD264 block below asserts under it, and
+-- Likewise for service_role: the BD267 block below asserts under it, and
 -- without this grant a genuine failure surfaces as "permission denied for table
 -- _rls_failures" rather than the assertion message that explains it.
 grant insert, select on _rls_failures to service_role;
@@ -10578,9 +10578,9 @@ select pg_temp.expect_error(
 reset role;
 
 -- ===========================================================================
--- BD-264: business_date is the FACILITY-LOCAL calendar date of the event.
+-- BD-267: business_date is the FACILITY-LOCAL calendar date of the event.
 --
--- Migration 264 stamps business_date on all seven module fact tables from each
+-- Migration 267 stamps business_date on all seven module fact tables from each
 -- one's EVENT timestamp, resolved through facilities.timezone. Every number the
 -- reporting layer produces buckets on this column, so a trigger that silently
 -- reverts to UTC math would misfile every late-evening event by a day — and
@@ -10597,97 +10597,97 @@ set local role service_role;
 insert into public.ice_depth_sessions
   (id, facility_id, layout_id, measurement_unit_snapshot,
    low_threshold_snapshot, high_threshold_snapshot, submitted_at)
-values ('bd264000-0000-4000-8000-000000000001',
+values ('bd267000-0000-4000-8000-000000000001',
         '11111111-1111-1111-1111-111111111111',
         'aaaa1111-1ae0-aaaa-aaaa-aaaa11110072', 'inches', 1, 2,
         '2026-09-01T03:30:00Z');
 
 insert into public.ice_operations_submissions (id, facility_id, operation_type, occurred_at)
-values ('bd264000-0000-4000-8000-000000000002',
+values ('bd267000-0000-4000-8000-000000000002',
         '11111111-1111-1111-1111-111111111111', 'ice_make', '2026-09-01T03:30:00Z');
 
 insert into public.refrigeration_reports (id, facility_id, reading_at)
-values ('bd264000-0000-4000-8000-000000000003',
+values ('bd267000-0000-4000-8000-000000000003',
         '11111111-1111-1111-1111-111111111111', '2026-09-01T03:30:00Z');
 
 insert into public.air_quality_reports (id, facility_id, location_id, submitted_at)
-values ('bd264000-0000-4000-8000-000000000004',
+values ('bd267000-0000-4000-8000-000000000004',
         '11111111-1111-1111-1111-111111111111',
         'aaaa1111-0a01-aaaa-aaaa-aaaa11110021', '2026-09-01T03:30:00Z');
 
 insert into public.incident_reports (id, facility_id, reporter_name, description, occurred_at)
-values ('bd264000-0000-4000-8000-000000000005',
+values ('bd267000-0000-4000-8000-000000000005',
         '11111111-1111-1111-1111-111111111111', 'BD Reporter',
-        'bd264 boundary incident', '2026-09-01T03:30:00Z');
+        'bd267 boundary incident', '2026-09-01T03:30:00Z');
 
 insert into public.accident_reports
   (id, facility_id, injured_person_name, injured_person_contact, description, occurred_at)
-values ('bd264000-0000-4000-8000-000000000006',
+values ('bd267000-0000-4000-8000-000000000006',
         '11111111-1111-1111-1111-111111111111', 'BD Injured', '555-0100',
-        'bd264 boundary accident', '2026-09-01T03:30:00Z');
+        'bd267 boundary accident', '2026-09-01T03:30:00Z');
 
 -- Open walk: completed_at is NULL, so the insert falls back to started_at.
 insert into public.dasher_boards_inspections (id, facility_id, rink_id, started_at)
-values ('bd264000-0000-4000-8000-000000000007',
+values ('bd267000-0000-4000-8000-000000000007',
         '11111111-1111-1111-1111-111111111111',
         'dab0000a-0000-4000-8000-00000000000a', '2026-09-01T03:30:00Z');
 
 select pg_temp.expect_count(
   $$select count(*) from (
-      select business_date from public.ice_depth_sessions         where id = 'bd264000-0000-4000-8000-000000000001'
-      union all select business_date from public.ice_operations_submissions where id = 'bd264000-0000-4000-8000-000000000002'
-      union all select business_date from public.refrigeration_reports      where id = 'bd264000-0000-4000-8000-000000000003'
-      union all select business_date from public.air_quality_reports        where id = 'bd264000-0000-4000-8000-000000000004'
-      union all select business_date from public.incident_reports           where id = 'bd264000-0000-4000-8000-000000000005'
-      union all select business_date from public.accident_reports           where id = 'bd264000-0000-4000-8000-000000000006'
-      union all select business_date from public.dasher_boards_inspections  where id = 'bd264000-0000-4000-8000-000000000007'
+      select business_date from public.ice_depth_sessions         where id = 'bd267000-0000-4000-8000-000000000001'
+      union all select business_date from public.ice_operations_submissions where id = 'bd267000-0000-4000-8000-000000000002'
+      union all select business_date from public.refrigeration_reports      where id = 'bd267000-0000-4000-8000-000000000003'
+      union all select business_date from public.air_quality_reports        where id = 'bd267000-0000-4000-8000-000000000004'
+      union all select business_date from public.incident_reports           where id = 'bd267000-0000-4000-8000-000000000005'
+      union all select business_date from public.accident_reports           where id = 'bd267000-0000-4000-8000-000000000006'
+      union all select business_date from public.dasher_boards_inspections  where id = 'bd267000-0000-4000-8000-000000000007'
     ) q where business_date = date '2026-08-31'$$,
-  7, 'BD264a: all 7 fact tables stamp the facility-local date (2026-08-31), not the UTC date');
+  7, 'BD267a: all 7 fact tables stamp the facility-local date (2026-08-31), not the UTC date');
 
 -- Completing the walk after local midnight re-stamps it onto the completion day.
 update public.dasher_boards_inspections
    set completed_at = '2026-09-01T04:30:00Z'
- where id = 'bd264000-0000-4000-8000-000000000007';
+ where id = 'bd267000-0000-4000-8000-000000000007';
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_inspections
-     where id = 'bd264000-0000-4000-8000-000000000007'
+     where id = 'bd267000-0000-4000-8000-000000000007'
        and business_date = date '2026-09-01'$$,
-  1, 'BD264b: completing an open walk re-stamps business_date onto the completion day');
+  1, 'BD267b: completing an open walk re-stamps business_date onto the completion day');
 
 -- A client-supplied business_date must never survive: it is the one input that
 -- could book a submission into an already-closed reporting period.
 insert into public.incident_reports
   (id, facility_id, reporter_name, description, occurred_at, business_date)
-values ('bd264000-0000-4000-8000-000000000008',
+values ('bd267000-0000-4000-8000-000000000008',
         '11111111-1111-1111-1111-111111111111', 'BD Reporter',
-        'bd264 spoofed date', '2026-07-04T16:00:00Z', date '1999-01-01');
+        'bd267 spoofed date', '2026-07-04T16:00:00Z', date '1999-01-01');
 select pg_temp.expect_count(
   $$select count(*) from public.incident_reports
-     where id = 'bd264000-0000-4000-8000-000000000008'
+     where id = 'bd267000-0000-4000-8000-000000000008'
        and business_date = date '2026-07-04'$$,
-  1, 'BD264c: a client-supplied business_date is overridden by the server-derived one');
+  1, 'BD267c: a client-supplied business_date is overridden by the server-derived one');
 
 -- Resolution is per-facility, not one global zone. The Seed Test Rink is
 -- America/Chicago (UTC-5 in September); 2026-09-01 04:30Z is already
 -- 2026-09-01 00:30 in New York but still 2026-08-31 23:30 in Chicago, so this
 -- row fails if the stamp ever resolves through a single hardcoded zone.
 insert into public.incident_reports (id, facility_id, reporter_name, description, occurred_at)
-values ('bd264000-0000-4000-8000-000000000009',
+values ('bd267000-0000-4000-8000-000000000009',
         '33333333-3333-4333-8333-333333333333', 'BD Reporter',
-        'bd264 chicago', '2026-09-01T04:30:00Z');
+        'bd267 chicago', '2026-09-01T04:30:00Z');
 select pg_temp.expect_count(
   $$select count(*) from public.incident_reports
-     where id = 'bd264000-0000-4000-8000-000000000009'
+     where id = 'bd267000-0000-4000-8000-000000000009'
        and business_date = date '2026-08-31'$$,
-  1, 'BD264d: business_date resolves through the row''s OWN facility timezone (Chicago), not a global one');
+  1, 'BD267d: business_date resolves through the row''s OWN facility timezone (Chicago), not a global one');
 
 reset role;
 
 -- ===========================================================================
--- RP265: the 'reports' module is gated, and STAFF DO NOT HAVE IT.
+-- RP268: the 'reports' module is gated, and STAFF DO NOT HAVE IT.
 --
 -- The reporting layer aggregates every other module into facility-wide
--- compliance numbers. Registering it (migration 265) before the data layer and
+-- compliance numbers. Registering it (migration 268) before the data layer and
 -- UI exist is deliberate: the alternative ships a window in which any
 -- authenticated account can read those aggregates. The assertions below are the
 -- standing proof that the gate is real — a future migration that re-seeds
@@ -10700,18 +10700,18 @@ set local role service_role;
 select pg_temp.expect_count(
   $$select count(*) from public.canonical_role_permission_grants()
      where module_name = 'reports' and role_key in ('staff','driver')$$,
-  0, 'RP265a: staff and driver hold ZERO canonical grants on the reports module');
+  0, 'RP268a: staff and driver hold ZERO canonical grants on the reports module');
 
 select pg_temp.expect_count(
   $$select count(*) from public.canonical_role_permission_grants()
      where module_name = 'reports' and role_key = 'manager'$$,
-  4, 'RP265b: manager holds all 4 cumulative actions on reports (admin ceiling)');
+  4, 'RP268b: manager holds all 4 cumulative actions on reports (admin ceiling)');
 
 select pg_temp.expect_count(
   $$select count(*) from public.role_permission_defaults rpd
       join public.roles r on r.id = rpd.role_id
      where rpd.module_name = 'reports' and r.key in ('staff','driver')$$,
-  0, 'RP265c: no staff/driver role_permission_defaults row seeds the reports module');
+  0, 'RP268c: no staff/driver role_permission_defaults row seeds the reports module');
 
 -- The module_name CHECK must admit 'reports' — without it no permission row for
 -- the module can be written at all, and the whole registration is inert.
@@ -10719,7 +10719,7 @@ select pg_temp.expect_ok(
   $$insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
     values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
             '11111111-1111-1111-1111-111111111111', 'reports', 'view', false, 'manual_override')$$,
-  'RP265d: user_permissions accepts module_name = reports (CHECK was widened)');
+  'RP268d: user_permissions accepts module_name = reports (CHECK was widened)');
 delete from public.user_permissions
  where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
 
@@ -10727,7 +10727,7 @@ select pg_temp.expect_count(
   $$select count(*) from public.facilities f
      where not exists (select 1 from public.facility_modules m
                         where m.facility_id = f.id and m.module_key = 'reports' and m.enabled)$$,
-  0, 'RP265e: every facility has an enabled reports module row (nav toggle registered)');
+  0, 'RP268e: every facility has an enabled reports module row (nav toggle registered)');
 
 reset role;
 
@@ -10738,16 +10738,16 @@ select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
 select pg_temp.expect_count(
   $$select count(*) from (select public.has_module_access('reports') as ok) q where q.ok$$,
-  0, 'RP265f: staff alice is DENIED module access to reports');
+  0, 'RP268f: staff alice is DENIED module access to reports');
 
 select pg_temp.expect_count(
   $$select count(*) from (select public.has_module_admin_access('reports') as ok) q where q.ok$$,
-  0, 'RP265g: staff alice is DENIED module ADMIN access to reports');
+  0, 'RP268g: staff alice is DENIED module ADMIN access to reports');
 
 reset role;
 
 -- Prove the helper is not simply always-false: granting Alice the view action
--- flips it, so RP265f above is a real gate rather than a broken lookup.
+-- flips it, so RP268f above is a real gate rather than a broken lookup.
 set local role service_role;
 insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
 values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -10759,7 +10759,7 @@ set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","
 select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
 select pg_temp.expect_count(
   $$select count(*) from (select public.has_module_access('reports') as ok) q where q.ok$$,
-  1, 'RP265h: an explicit reports view grant DOES flip has_module_access (the gate is live)');
+  1, 'RP268h: an explicit reports view grant DOES flip has_module_access (the gate is live)');
 reset role;
 
 set local role service_role;
@@ -10768,7 +10768,7 @@ delete from public.user_permissions
 reset role;
 
 -- ===========================================================================
--- FDM266: the reporting data layer (migration 266).
+-- FDM269: the reporting data layer (migration 269).
 --
 -- facility_daily_metrics holds facility-wide compliance aggregates, so its read
 -- gate is BOTH tenancy AND the 'reports' module permission — facility scoping
@@ -10802,31 +10802,31 @@ select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
 select pg_temp.expect_count(
   $$select count(*) from public.facility_daily_metrics$$,
-  0, 'FDM266a: staff alice sees ZERO facility_daily_metrics rows (reports permission is required, not just tenancy)');
+  0, 'FDM269a: staff alice sees ZERO facility_daily_metrics rows (reports permission is required, not just tenancy)');
 
 select pg_temp.expect_error(
   $$insert into public.facility_daily_metrics (facility_id, business_date, module_key, metrics)
     values ('11111111-1111-1111-1111-111111111111', date '2026-08-27', 'ice_operations', '{"ice_cuts": 999}')$$,
-  'FDM266b: staff alice CANNOT insert into the rollup table (write-closed to authenticated)');
+  'FDM269b: staff alice CANNOT insert into the rollup table (write-closed to authenticated)');
 
 select pg_temp.expect_error(
   $$select * from public.report_period_bounds('22222222-2222-2222-2222-222222222222', 'week', date '2026-08-28')$$,
-  'FDM266c: alice CANNOT resolve period bounds for another facility');
+  'FDM269c: alice CANNOT resolve period bounds for another facility');
 
 -- Metric definitions are global metadata: readable, but not writable by a
 -- non-super-admin.
 select pg_temp.expect_ok(
   $$select count(*) from public.report_metric_definitions$$,
-  'FDM266d: alice CAN read report_metric_definitions (labels are not tenant data)');
+  'FDM269d: alice CAN read report_metric_definitions (labels are not tenant data)');
 
 select pg_temp.expect_error(
   $$insert into public.report_metric_definitions (module_key, metric_key, label, aggregation)
     values ('ice_operations', 'rogue_metric', 'Rogue', 'sum')$$,
-  'FDM266e: alice CANNOT write report_metric_definitions (super admin only)');
+  'FDM269e: alice CANNOT write report_metric_definitions (super admin only)');
 reset role;
 
 -- Grant alice the reports view action and the same reads must open up — proving
--- FDM266a is a live permission gate, not an empty table.
+-- FDM269a is a live permission gate, not an empty table.
 set local role service_role;
 insert into public.user_permissions (user_id, facility_id, module_name, action, enabled, source)
 values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -10839,32 +10839,32 @@ select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
 select pg_temp.expect_count(
   $$select count(*) from public.facility_daily_metrics$$,
-  1, 'FDM266f: with a reports grant alice sees her facility''s 1 row — and still not facility B''s');
+  1, 'FDM269f: with a reports grant alice sees her facility''s 1 row — and still not facility B''s');
 
 -- The period definitions themselves, as a non-super-admin sees them.
 select pg_temp.expect_count(
   $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','week', date '2026-08-28')
      where start_date = date '2026-08-23' and end_date = date '2026-08-29'$$,
-  1, 'FDM266g: week honours schedule_settings.week_start_day = Sunday (NOT date_trunc ISO Monday)');
+  1, 'FDM269g: week honours schedule_settings.week_start_day = Sunday (NOT date_trunc ISO Monday)');
 
 select pg_temp.expect_count(
   $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','year', date '2026-08-28')
      where start_date = date '2026-07-01' and end_date = date '2027-06-30'$$,
-  1, 'FDM266h: year honours facilities.fiscal_year_start_month = 7 (fiscal, not calendar)');
+  1, 'FDM269h: year honours facilities.fiscal_year_start_month = 7 (fiscal, not calendar)');
 
 select pg_temp.expect_count(
   $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','year', date '2026-03-01')
      where start_date = date '2025-07-01' and end_date = date '2026-06-30'$$,
-  1, 'FDM266i: a date before the fiscal start belongs to the fiscal year that began the previous July');
+  1, 'FDM269i: a date before the fiscal start belongs to the fiscal year that began the previous July');
 
 select pg_temp.expect_count(
   $$select count(*) from public.report_period_bounds('11111111-1111-1111-1111-111111111111','month', date '2026-08-28')
      where start_date = date '2026-08-01' and end_date = date '2026-08-31'$$,
-  1, 'FDM266j: month bounds are whole-month inclusive');
+  1, 'FDM269j: month bounds are whole-month inclusive');
 
 select pg_temp.expect_error(
   $$select * from public.report_period_bounds('11111111-1111-1111-1111-111111111111','quarter', date '2026-08-28')$$,
-  'FDM266k: an unknown period raises rather than silently returning no window');
+  'FDM269k: an unknown period raises rather than silently returning no window');
 reset role;
 
 set local role service_role;
@@ -10873,7 +10873,7 @@ delete from public.user_permissions
 reset role;
 
 -- ===========================================================================
--- CLDM268: compute_live_daily_metrics (migration 268) is the sole authenticated
+-- CLDM271: compute_live_daily_metrics (migration 271) is the sole authenticated
 -- caller of the compute_daily_metrics_* functions. Its whole job is closing a
 -- tenancy gap those functions don't check themselves (they trust their only
 -- other caller, the service-role cron) -- p_facility_id is NOT a parameter,
@@ -10891,7 +10891,7 @@ set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","
 select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
 select pg_temp.expect_error(
   $$select public.compute_live_daily_metrics('incident_reports', date '2026-08-20')$$,
-  'CLDM268a: staff alice (no reports grant) cannot call compute_live_daily_metrics');
+  'CLDM271a: staff alice (no reports grant) cannot call compute_live_daily_metrics');
 reset role;
 
 -- Grant alice reports view, then confirm she gets ONLY Facility A's data --
@@ -10910,11 +10910,11 @@ select pg_temp.expect_count(
   $$select count(*) from (
       select (public.compute_live_daily_metrics('incident_reports', date '2026-08-20')->>'reported')::int as n
     ) q where n = 0$$,
-  1, 'CLDM268b: alice (now granted) sees 0 incidents for 2026-08-20 -- Facility B''s row never leaks in, though the call carries no facility_id at all');
+  1, 'CLDM271b: alice (now granted) sees 0 incidents for 2026-08-20 -- Facility B''s row never leaks in, though the call carries no facility_id at all');
 
 select pg_temp.expect_error(
   $$select public.compute_live_daily_metrics('not_a_real_module', date '2026-08-20')$$,
-  'CLDM268c: an unrecognized module_key is rejected rather than silently returning null');
+  'CLDM271c: an unrecognized module_key is rejected rather than silently returning null');
 reset role;
 
 set local role service_role;

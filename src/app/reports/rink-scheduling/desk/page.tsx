@@ -43,11 +43,11 @@ function nowDate(): Date {
   return new Date()
 }
 
-function isMaintenanceFilterable(type: DeskTypeRow): boolean {
-  // Maintenance Block isn't something a caller asks to filter to — it's
-  // ice-down time, not a bookable slot — so it's excluded from the type
-  // picker even though its bookings always render in the agenda.
-  return !type.is_system
+function isResurfaceFilterable(type: DeskTypeRow): boolean {
+  // A resurface isn't something a caller asks to filter to — it's ice-down
+  // time, not a bookable slot — so it's excluded from the type picker even
+  // though its bookings always render in the agenda.
+  return !type.is_resurface
 }
 
 export default async function DeskPage({
@@ -84,7 +84,7 @@ export default async function DeskPage({
       .order("sort_order", { ascending: true }),
     supabase
       .from("rink_booking_types")
-      .select("id, name, color, slug, is_system")
+      .select("id, name, color, slug, is_resurface")
       .eq("facility_id", facilityId)
       .eq("is_active", true)
       .order("sort_order", { ascending: true }),
@@ -105,7 +105,7 @@ export default async function DeskPage({
   const queryToKey = addDaysToKey(selectedDayKey, 1)
   const dayBookingsRes = await supabase
     .from("rink_bookings")
-    .select("id, rink_id, booking_type_id, starts_at, ends_at, status, title")
+    .select("id, rink_id, booking_type_id, starts_at, ends_at, status, title, resurface_status")
     .eq("facility_id", facilityId)
     .gte("starts_at", `${queryFromKey}T00:00:00.000Z`)
     .lte("starts_at", `${queryToKey}T23:59:59.999Z`)
@@ -120,14 +120,15 @@ export default async function DeskPage({
     typeFilterId: selectedTypeId,
   })
 
-  // Pinned widgets: bounded to the two structural types (Maintenance Block,
-  // Public Skate) over a rolling window, independent of the selected day —
-  // this is intentionally its own small query rather than folding into the
-  // day fetch above, so flipping days on the phone never triggers a wider
-  // scan than the one day being shown.
-  const maintenanceType = types.find((t) => t.is_system)
+  // Pinned widgets: bounded to the structural types (every is_resurface
+  // type — a facility can carry several, e.g. a game cut and a deep cut —
+  // plus Public Skate) over a rolling window, independent of the selected
+  // day. This is intentionally its own small query rather than folding into
+  // the day fetch above, so flipping days on the phone never triggers a
+  // wider scan than the one day being shown.
+  const resurfaceTypeIds = types.filter((t) => t.is_resurface).map((t) => t.id)
   const publicSkateType = types.find((t) => t.slug === "public-skate")
-  const pinnedTypeIds = [maintenanceType?.id, publicSkateType?.id].filter(
+  const pinnedTypeIds = [...resurfaceTypeIds, publicSkateType?.id].filter(
     (id): id is string => Boolean(id),
   )
 
@@ -136,7 +137,7 @@ export default async function DeskPage({
   const pinnedBookingsRes = pinnedTypeIds.length
     ? await supabase
         .from("rink_bookings")
-        .select("id, rink_id, booking_type_id, starts_at, ends_at, status, title")
+        .select("id, rink_id, booking_type_id, starts_at, ends_at, status, title, resurface_status")
         .eq("facility_id", facilityId)
         .in("booking_type_id", pinnedTypeIds)
         .gte("ends_at", pinFromIso)
@@ -153,7 +154,7 @@ export default async function DeskPage({
   })
   const nextSkate = nextPublicSkate({ bookings: pinnedBookings, typeById, nowMs: now.getTime() })
 
-  const filterableTypes = types.filter(isMaintenanceFilterable)
+  const filterableTypes = types.filter(isResurfaceFilterable)
 
   function dayHref(dayKey: string): string {
     const sp = new URLSearchParams()
@@ -256,7 +257,7 @@ export default async function DeskPage({
                 <li
                   key={row.bookingId}
                   className={
-                    row.isMaintenance
+                    row.isResurface
                       ? "border-dashed flex w-full flex-wrap items-center gap-3 bg-muted/30 py-2"
                       : "flex w-full flex-wrap items-center gap-3 py-2"
                   }
@@ -270,7 +271,7 @@ export default async function DeskPage({
                     style={{ backgroundColor: row.typeColor }}
                   />
                   <span className="min-w-0 flex-1 truncate">
-                    {row.isMaintenance ? (
+                    {row.isResurface ? (
                       <span className="text-muted-foreground inline-flex items-center gap-1">
                         <Wrench className="size-3.5" aria-hidden /> {row.label}
                       </span>

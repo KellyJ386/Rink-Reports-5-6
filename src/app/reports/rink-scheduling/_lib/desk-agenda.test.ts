@@ -19,9 +19,9 @@ const RINKS: DeskRinkRow[] = [
 const rinkById = new Map(RINKS.map((r) => [r.id, r]))
 
 const TYPES: DeskTypeRow[] = [
-  { id: "type-public", name: "Public Skate", color: "#2F9E00", slug: "public-skate", is_system: false },
-  { id: "type-lts", name: "Learn to Skate", color: "#1E88E5", slug: "learn-to-skate", is_system: false },
-  { id: "type-maint", name: "Maintenance Block", color: "#56666F", slug: "maintenance-block", is_system: true },
+  { id: "type-public", name: "Public Skate", color: "#2F9E00", slug: "public-skate", is_resurface: false },
+  { id: "type-lts", name: "Learn to Skate", color: "#1E88E5", slug: "learn-to-skate", is_resurface: false },
+  { id: "type-cut", name: "Ice Cut", color: "#56666F", slug: "ice-cut", is_resurface: true },
 ]
 const typeById = new Map(TYPES.map((t) => [t.id, t]))
 
@@ -34,8 +34,17 @@ function booking(overrides: Partial<DeskBookingRow>): DeskBookingRow {
     ends_at: "2026-09-01T15:00:00.000Z",
     status: "confirmed",
     title: null,
+    resurface_status: null,
     ...overrides,
   }
+}
+
+function resurfaceBooking(overrides: Partial<DeskBookingRow>): DeskBookingRow {
+  return booking({
+    booking_type_id: "type-cut",
+    resurface_status: "scheduled",
+    ...overrides,
+  })
 }
 
 describe("deskDayOptions", () => {
@@ -63,7 +72,7 @@ describe("buildDeskAgenda", () => {
     expect(rows.map((r) => r.bookingId)).toEqual(["b1", "b2"])
     expect(rows[0].rinkName).toBe("Rink A")
     expect(rows[0].typeName).toBe("Public Skate")
-    expect(rows[0].isMaintenance).toBe(false)
+    expect(rows[0].isResurface).toBe(false)
   })
 
   it("excludes cancelled bookings", () => {
@@ -88,22 +97,22 @@ describe("buildDeskAgenda", () => {
     expect(rows).toEqual([])
   })
 
-  it("flags a Maintenance Block booking as isMaintenance", () => {
+  it("flags a resurface-typed booking as isResurface", () => {
     const rows = buildDeskAgenda({
-      bookings: [booking({ booking_type_id: "type-maint" })],
+      bookings: [resurfaceBooking({})],
       rinkById,
       typeById,
       dayKey: "2026-09-01",
       timeZone: TZ,
     })
-    expect(rows[0].isMaintenance).toBe(true)
+    expect(rows[0].isResurface).toBe(true)
   })
 
-  it("filters to the selected booking type but always keeps maintenance blocks", () => {
+  it("filters to the selected booking type but always keeps resurfaces", () => {
     const bookings = [
       booking({ id: "public", booking_type_id: "type-public" }),
       booking({ id: "lts", booking_type_id: "type-lts" }),
-      booking({ id: "maint", booking_type_id: "type-maint" }),
+      resurfaceBooking({ id: "cut" }),
     ]
     const rows = buildDeskAgenda({
       bookings,
@@ -113,7 +122,7 @@ describe("buildDeskAgenda", () => {
       timeZone: TZ,
       typeFilterId: "type-public",
     })
-    expect(rows.map((r) => r.bookingId).sort()).toEqual(["maint", "public"])
+    expect(rows.map((r) => r.bookingId).sort()).toEqual(["cut", "public"])
   })
 
   it("falls back to the type name when a booking has no title", () => {
@@ -131,20 +140,29 @@ describe("buildDeskAgenda", () => {
 describe("nextResurfacePerRink", () => {
   const now = new Date("2026-09-01T12:00:00.000Z").getTime()
 
-  it("finds the earliest upcoming maintenance block per rink and nulls out rinks with none", () => {
+  it("finds the earliest upcoming scheduled resurface per rink and nulls out rinks with none", () => {
     const bookings = [
-      booking({ id: "late", rink_id: "rink-a", booking_type_id: "type-maint", starts_at: "2026-09-02T00:00:00.000Z", ends_at: "2026-09-02T00:30:00.000Z" }),
-      booking({ id: "early", rink_id: "rink-a", booking_type_id: "type-maint", starts_at: "2026-09-01T20:00:00.000Z", ends_at: "2026-09-01T20:30:00.000Z" }),
-      booking({ id: "past", rink_id: "rink-a", booking_type_id: "type-maint", starts_at: "2026-08-31T20:00:00.000Z", ends_at: "2026-08-31T20:30:00.000Z" }),
-      booking({ id: "not-maint", rink_id: "rink-b", booking_type_id: "type-public" }),
+      resurfaceBooking({ id: "late", rink_id: "rink-a", starts_at: "2026-09-02T00:00:00.000Z", ends_at: "2026-09-02T00:30:00.000Z" }),
+      resurfaceBooking({ id: "early", rink_id: "rink-a", starts_at: "2026-09-01T20:00:00.000Z", ends_at: "2026-09-01T20:30:00.000Z" }),
+      resurfaceBooking({ id: "past", rink_id: "rink-a", starts_at: "2026-08-31T20:00:00.000Z", ends_at: "2026-08-31T20:30:00.000Z" }),
+      booking({ id: "not-cut", rink_id: "rink-b", booking_type_id: "type-public" }),
     ]
     const result = nextResurfacePerRink({ bookings, rinkIds: ["rink-a", "rink-b"], typeById, nowMs: now })
     expect(result.get("rink-a")?.startsAt).toBe("2026-09-01T20:00:00.000Z")
     expect(result.get("rink-b")).toBeNull()
   })
 
-  it("ignores cancelled maintenance blocks", () => {
-    const bookings = [booking({ booking_type_id: "type-maint", status: "cancelled" })]
+  it("ignores cancelled resurfaces", () => {
+    const bookings = [resurfaceBooking({ status: "cancelled" })]
+    const result = nextResurfacePerRink({ bookings, rinkIds: ["rink-a"], typeById, nowMs: now })
+    expect(result.get("rink-a")).toBeNull()
+  })
+
+  it("ignores a resurface already completed or skipped, even if its time is still in the future", () => {
+    const bookings = [
+      resurfaceBooking({ id: "done", resurface_status: "completed", starts_at: "2026-09-02T00:00:00.000Z", ends_at: "2026-09-02T00:30:00.000Z" }),
+      resurfaceBooking({ id: "skipped", resurface_status: "skipped", starts_at: "2026-09-02T01:00:00.000Z", ends_at: "2026-09-02T01:30:00.000Z" }),
+    ]
     const result = nextResurfacePerRink({ bookings, rinkIds: ["rink-a"], typeById, nowMs: now })
     expect(result.get("rink-a")).toBeNull()
   })

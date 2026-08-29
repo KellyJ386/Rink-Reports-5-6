@@ -20,6 +20,10 @@ export type DeskBookingRow = {
   ends_at: string
   status: string
   title: string | null
+  /** Null on every non-resurface booking; 'scheduled' | 'completed' | 'skipped'
+   *  on one whose type has is_resurface (migration 265's coherence trigger
+   *  guarantees this pairing — see rink_bookings_resurface_coherence()). */
+  resurface_status: string | null
 }
 
 export type DeskRinkRow = { id: string; name: string }
@@ -29,10 +33,11 @@ export type DeskTypeRow = {
   name: string
   color: string
   slug: string
-  /** The durable identifier for the Maintenance Block type (migration 247) —
-   *  an admin can rename or recolor it but never flip this flag, so matching
-   *  on it can't silently break the way matching on a name or slug could. */
-  is_system: boolean
+  /** The durable, structural identifier for an ice-resurface booking type
+   *  (migration 265) — "App behavior keys on this flag, never on the type's
+   *  name" (that migration's own comment). Unlike a slug, an admin renaming
+   *  or recoloring the type can't silently break this. */
+  is_resurface: boolean
 }
 
 /** The 8 facility-local day keys a front-desk caller can be asked about:
@@ -51,11 +56,11 @@ export type DeskAgendaRow = {
   typeName: string
   typeColor: string
   label: string
-  /** True for a Maintenance Block booking — rendered visually distinct from
-   *  an ordinary booking, and never hidden by the booking-type filter (a
-   *  caller filtering to "Public Skate" still needs to know the ice goes
-   *  down for resurfacing in between). */
-  isMaintenance: boolean
+  /** True for an ice-resurface booking — rendered visually distinct from an
+   *  ordinary booking, and never hidden by the booking-type filter (a caller
+   *  filtering to "Public Skate" still needs to know the ice goes down for
+   *  resurfacing in between). */
+  isResurface: boolean
 }
 
 /**
@@ -79,8 +84,8 @@ export function buildDeskAgenda(params: {
     if (b.status === "cancelled") continue
 
     const type = typeById.get(b.booking_type_id)
-    const isMaintenance = type?.is_system === true
-    if (typeFilterId && !isMaintenance && b.booking_type_id !== typeFilterId) continue
+    const isResurface = type?.is_resurface === true
+    if (typeFilterId && !isResurface && b.booking_type_id !== typeFilterId) continue
 
     const minutes = bookingMinutesOnDay(b.starts_at, b.ends_at, dayKey, timeZone)
     if (!minutes) continue
@@ -96,7 +101,7 @@ export function buildDeskAgenda(params: {
       typeName: type?.name ?? "Booking",
       typeColor: type?.color ?? "#002244",
       label: b.title?.trim() || type?.name || "Booking",
-      isMaintenance,
+      isResurface,
     })
   }
 
@@ -108,10 +113,15 @@ export function buildDeskAgenda(params: {
 export type NextResurface = { rinkId: string; startsAt: string; endsAt: string }
 
 /**
- * The earliest upcoming-or-in-progress Maintenance Block booking per active
- * rink, pinned independent of whatever day the agenda is showing. A rink
- * with nothing scheduled maps to null rather than being omitted, so the
- * widget can render "None scheduled" instead of silently dropping a rink.
+ * The earliest upcoming-or-in-progress resurface per active rink, pinned
+ * independent of whatever day the agenda is showing. A rink with nothing
+ * scheduled maps to null rather than being omitted, so the widget can render
+ * "None scheduled" instead of silently dropping a rink.
+ *
+ * Requires resurface_status = 'scheduled' — a 'completed' or 'skipped' one
+ * is not "next" even if its stored time is still technically in the future
+ * (e.g. marked done early), because the operational lifecycle, not the
+ * clock, is the source of truth once staff have acted on it.
  */
 export function nextResurfacePerRink(params: {
   bookings: DeskBookingRow[]
@@ -125,7 +135,8 @@ export function nextResurfacePerRink(params: {
   for (const b of bookings) {
     if (b.status === "cancelled") continue
     if (!result.has(b.rink_id)) continue
-    if (typeById.get(b.booking_type_id)?.is_system !== true) continue
+    if (typeById.get(b.booking_type_id)?.is_resurface !== true) continue
+    if (b.resurface_status !== "scheduled") continue
     if (new Date(b.ends_at).getTime() <= nowMs) continue
 
     const current = result.get(b.rink_id) ?? null
@@ -142,7 +153,7 @@ export type NextPublicSkate = { rinkId: string; startsAt: string; endsAt: string
 /**
  * The earliest upcoming-or-in-progress Public Skate session, facility-wide.
  * Matched by slug — the same convention request-actions.ts already uses to
- * find "ice-rental" — since, unlike Maintenance Block, Public Skate has no
+ * find "ice-rental" — since, unlike a resurface type, Public Skate has no
  * durable boolean flag protecting it from being renamed.
  */
 export function nextPublicSkate(params: {

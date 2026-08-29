@@ -762,7 +762,7 @@ CREATE FUNCTION public.canonical_role_permission_grants() RETURNS TABLE(role_key
       ('manager','rink_scheduling','edit'::public.user_action),
       ('staff','rink_scheduling','view'::public.user_action),
       ('driver','rink_scheduling','view'::public.user_action),
-      -- reports (added migration 265). The reporting layer aggregates every
+      -- reports (added migration 268). The reporting layer aggregates every
       -- other module's data into facility-wide compliance numbers, so the
       -- ceiling is deliberately NOT the house default.
       --
@@ -797,7 +797,7 @@ $$;
 -- Name: FUNCTION canonical_role_permission_grants(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. reports added in migration 265.';
+COMMENT ON FUNCTION public.canonical_role_permission_grants() IS 'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. reports added in migration 268.';
 
 
 --
@@ -1553,7 +1553,7 @@ $$;
 -- Name: FUNCTION compute_live_daily_metrics(p_module_key text, p_business_date date); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.compute_live_daily_metrics(p_module_key text, p_business_date date) IS 'Read-only dispatcher for the reporting layer''s live "today" path. Resolves facility_id from the CALLER''S OWN session (current_facility_id()), never a parameter, then dispatches to the matching compute_daily_metrics_* function (migration 267) after checking has_module_access(''reports''). Exists so an authenticated browser session can reuse the exact same computation the nightly rollup uses, without widening those nine functions'' grant beyond service_role (which would let any caller pass an arbitrary facility_id and read cross-tenant data — see the file header).';
+COMMENT ON FUNCTION public.compute_live_daily_metrics(p_module_key text, p_business_date date) IS 'Read-only dispatcher for the reporting layer''s live "today" path. Resolves facility_id from the CALLER''S OWN session (current_facility_id()), never a parameter, then dispatches to the matching compute_daily_metrics_* function (migration 270) after checking has_module_access(''reports''). Exists so an authenticated browser session can reuse the exact same computation the nightly rollup uses, without widening those nine functions'' grant beyond service_role (which would let any caller pass an arbitrary facility_id and read cross-tenant data — see the file header).';
 
 
 --
@@ -9134,7 +9134,7 @@ $$;
 -- Name: FUNCTION seed_default_facility_modules(p_facility_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. reports as of migration 265). Idempotent via on conflict do nothing on (facility_id, module_key).';
+COMMENT ON FUNCTION public.seed_default_facility_modules(p_facility_id uuid) IS 'Seeds facility_modules with every canonical module enabled (incl. reports as of migration 268). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 
 --
@@ -9877,7 +9877,7 @@ $$;
 -- Name: FUNCTION stamp_business_date_from(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.stamp_business_date_from() IS 'BEFORE INSERT/UPDATE trigger: stamps NEW.business_date with the facility-local calendar date of the timestamptz column named in TG_ARGV[0] (falling back to TG_ARGV[1] when that column is NULL), resolved through facilities.timezone. Stamps unconditionally so business_date is always server-derived. Added in migration 264 for the seven module fact tables.';
+COMMENT ON FUNCTION public.stamp_business_date_from() IS 'BEFORE INSERT/UPDATE trigger: stamps NEW.business_date with the facility-local calendar date of the timestamptz column named in TG_ARGV[0] (falling back to TG_ARGV[1] when that column is NULL), resolved through facilities.timezone. Stamps unconditionally so business_date is always server-derived. Added in migration 267 for the seven module fact tables.';
 
 
 --
@@ -10662,7 +10662,7 @@ COMMENT ON COLUMN public.accident_reports.injured_person_age IS 'Age (years) of 
 -- Name: COLUMN accident_reports.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.accident_reports.business_date IS 'Facility-local calendar date of the accident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 264).';
+COMMENT ON COLUMN public.accident_reports.business_date IS 'Facility-local calendar date of the accident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -10989,7 +10989,7 @@ COMMENT ON COLUMN public.air_quality_reports.form_data IS 'Optional extended mon
 -- Name: COLUMN air_quality_reports.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.air_quality_reports.business_date IS 'Facility-local calendar date of the report, derived from submitted_at through facilities.timezone and stamped server-side (migration 264).';
+COMMENT ON COLUMN public.air_quality_reports.business_date IS 'Facility-local calendar date of the report, derived from submitted_at through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -12572,7 +12572,7 @@ COMMENT ON COLUMN public.dasher_boards_inspections.contractor_company IS 'The co
 -- Name: COLUMN dasher_boards_inspections.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.dasher_boards_inspections.business_date IS 'Facility-local calendar date of the walk, derived from completed_at through facilities.timezone and stamped server-side (migration 264). An OPEN walk is stamped from started_at instead and re-stamped when it is completed, so a walk begun 11 PM and signed off after midnight reports on the day it was COMPLETED. Phase 4 metrics that count walks started must account for that.';
+COMMENT ON COLUMN public.dasher_boards_inspections.business_date IS 'Facility-local calendar date of the walk, derived from completed_at through facilities.timezone and stamped server-side (migration 267). An OPEN walk is stamped from started_at instead and re-stamped when it is completed, so a walk begun 11 PM and signed off after midnight reports on the day it was COMPLETED. Phase 4 metrics that count walks started must account for that.';
 
 
 --
@@ -13184,14 +13184,14 @@ CREATE TABLE public.facility_daily_metrics (
 -- Name: TABLE facility_daily_metrics; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.facility_daily_metrics IS 'Nightly per-facility, per-day, per-module metric rollup. All four report periods (day/week/month/year) aggregate THIS table; only "today" reads live fact tables. WRITE PATH: the SECURITY DEFINER rollup functions (migration 267) and the service role ONLY — there are deliberately no INSERT/UPDATE/DELETE policies for authenticated, and those privileges are revoked. Recomputation is idempotent via ON CONFLICT on the primary key.';
+COMMENT ON TABLE public.facility_daily_metrics IS 'Nightly per-facility, per-day, per-module metric rollup. All four report periods (day/week/month/year) aggregate THIS table; only "today" reads live fact tables. WRITE PATH: the SECURITY DEFINER rollup functions (migration 270) and the service role ONLY — there are deliberately no INSERT/UPDATE/DELETE policies for authenticated, and those privileges are revoked. Recomputation is idempotent via ON CONFLICT on the primary key.';
 
 
 --
 -- Name: COLUMN facility_daily_metrics.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.facility_daily_metrics.business_date IS 'Facility-local business date (migration 264), NOT a UTC date. This is the grain.';
+COMMENT ON COLUMN public.facility_daily_metrics.business_date IS 'Facility-local business date (migration 267), NOT a UTC date. This is the grain.';
 
 
 --
@@ -13837,7 +13837,7 @@ COMMENT ON COLUMN public.ice_depth_sessions.total_measurements IS 'Count of reco
 -- Name: COLUMN ice_depth_sessions.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.ice_depth_sessions.business_date IS 'Facility-local calendar date of the session, derived from submitted_at through facilities.timezone and stamped server-side (migration 264). The reporting layer buckets on this, never on the raw timestamptz.';
+COMMENT ON COLUMN public.ice_depth_sessions.business_date IS 'Facility-local calendar date of the session, derived from submitted_at through facilities.timezone and stamped server-side (migration 267). The reporting layer buckets on this, never on the raw timestamptz.';
 
 
 --
@@ -14229,7 +14229,7 @@ COMMENT ON COLUMN public.ice_operations_submissions.failed_count IS 'Denormalize
 -- Name: COLUMN ice_operations_submissions.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.ice_operations_submissions.business_date IS 'Facility-local calendar date of the operation, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 264).';
+COMMENT ON COLUMN public.ice_operations_submissions.business_date IS 'Facility-local calendar date of the operation, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -14438,7 +14438,7 @@ COMMENT ON COLUMN public.incident_reports.follow_up_required IS 'Whether the inc
 -- Name: COLUMN incident_reports.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.incident_reports.business_date IS 'Facility-local calendar date of the incident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 264).';
+COMMENT ON COLUMN public.incident_reports.business_date IS 'Facility-local calendar date of the incident, derived from occurred_at (when it happened, not when it was filed) through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -14957,7 +14957,7 @@ COMMENT ON COLUMN public.refrigeration_reports.round_no IS 'Optional sequential 
 -- Name: COLUMN refrigeration_reports.business_date; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.refrigeration_reports.business_date IS 'Facility-local calendar date of the reading, derived from reading_at through facilities.timezone and stamped server-side (migration 264).';
+COMMENT ON COLUMN public.refrigeration_reports.business_date IS 'Facility-local calendar date of the reading, derived from reading_at through facilities.timezone and stamped server-side (migration 267).';
 
 
 --
@@ -15101,7 +15101,7 @@ CREATE TABLE public.report_metric_definitions (
 -- Name: TABLE report_metric_definitions; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.report_metric_definitions IS 'Registry for the keys stored in facility_daily_metrics.metrics: display label, unit, sort order, and the aggregation mode used to combine DAILY values into a weekly/monthly/annual figure. Global metadata (no facility_id) — it describes what a metric means, not any facility''s data. Seeded per module in migration 267.';
+COMMENT ON TABLE public.report_metric_definitions IS 'Registry for the keys stored in facility_daily_metrics.metrics: display label, unit, sort order, and the aggregation mode used to combine DAILY values into a weekly/monthly/annual figure. Global metadata (no facility_id) — it describes what a metric means, not any facility''s data. Seeded per module in migration 270.';
 
 
 --

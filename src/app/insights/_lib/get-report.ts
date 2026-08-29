@@ -66,9 +66,9 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
  * action directly, unauthorized, gets an error result, not empty data.
  *
  * period='day' with anchorDate = today (in the facility's OWN timezone) reads
- * LIVE fact tables via compute_live_daily_metrics (migration 268), which
+ * LIVE fact tables via compute_live_daily_metrics (migration 271), which
  * dispatches to the exact same compute_daily_metrics_* functions the nightly
- * rollup uses (migration 267) — so a live number and tomorrow's rolled-up
+ * rollup uses (migration 270) — so a live number and tomorrow's rolled-up
  * number for the same day cannot diverge into two implementations. Every
  * other case aggregates facility_daily_metrics via combine.ts, honoring each
  * metric's registered aggregation mode.

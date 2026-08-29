@@ -8,7 +8,7 @@ export const maxDuration = 60
 /**
  * On-demand recovery route: recomputes facility_daily_metrics for ONE
  * facility across a date range, via backfill_facility_daily_metrics
- * (migration 267). This is how a metric-definition bug gets fixed after the
+ * (migration 270). This is how a metric-definition bug gets fixed after the
  * fact, and how a facility's history is backfilled the first time.
  *
  * Query params: facility_id (uuid), from (YYYY-MM-DD), to (YYYY-MM-DD),

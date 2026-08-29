@@ -63,7 +63,7 @@ begin
     perform public.seed_default_export_settings(f.id);
     v_seeded := v_seeded + 1;
   end loop;
-  raise notice 'migration 269: seed_default_export_settings invoked for % facility(ies)', v_seeded;
+  raise notice 'migration 272: seed_default_export_settings invoked for % facility(ies)', v_seeded;
 end $$;
 
 commit;
