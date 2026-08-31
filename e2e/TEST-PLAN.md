@@ -136,3 +136,29 @@ Owns the notification and email pipeline; previously uncovered.
 **Not covered, deliberately.** The admin Broadcast tab is loaded but never
 submitted — sending queues real email to real staff, which a test suite should
 not do against a shared environment.
+
+## 15. Rink Scheduling & Billing — `15-rink-scheduling.spec.ts`
+
+The most money-critical module in the app; previously the only major one with
+no browser coverage.
+
+| Scenario | Covered by |
+| --- | --- |
+| Calendar renders; all four views reachable | `calendar renders with all four views reachable` |
+| Edit affordances gate as a set, seed-independently | `edit-tier affordances gate together, not piecemeal` |
+| View-tier denied every money page at the route | `money pages deny a non-edit account by rendering the gate, not data` |
+| Front Desk renders at view tier | `front desk view is view-tier and renders` |
+| Agenda offers the printed daily schedule | `agenda view offers the print button` |
+| Dashboard widget renders read-only with freshness stamp | `dashboard shows the read-only ice schedule widget` |
+| Admin sees edit surface + money links | `calendar shows the edit surface and the money links` |
+| Booking sheet opens/closes without writing | `booking sheet opens from a slot and closes without writing` |
+| Invoices/Insights/Requests/Contracts render for edit tier | `money pages render for an edit-tier account` |
+| All five admin console tabs render | `admin console tabs all render` |
+
+**Not covered, deliberately.** Creating, moving, or cancelling a booking, and
+every invoice/payment write: the overlap exclusion constraint means a test
+booking collides with (or blocks) real ice on a shared environment, and
+billing rows are append-only. Driving those flows needs a disposable seeded
+facility. Opening the booking sheet is the one interaction driven — it only
+reads (the rate preview); nothing is written until "Create booking", which
+the spec never clicks.
