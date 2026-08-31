@@ -225,9 +225,20 @@ export async function applyResurfacePlan(input: {
         created_by: employeeId,
       })
       if (error) {
-        // 23P01: the world moved between compute and insert; the constraint
-        // is the referee, the cut is simply skipped and reported.
-        skipped++
+        // Only an overlap rejection is a "skip" — the world moved between
+        // compute and insert, and the constraint refereed. Anything else is
+        // a real failure and must not hide inside the skip count.
+        if (error.code === "23P01") {
+          skipped++
+        } else {
+          return {
+            ok: false,
+            error:
+              created > 0
+                ? `${created} cut(s) were scheduled, then one failed: ${error.message}`
+                : error.message || "Failed to schedule the cuts.",
+          }
+        }
       } else {
         created++
       }
