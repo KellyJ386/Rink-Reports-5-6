@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/client"
 import { addDaysToKey, formatInTz, weekdayOfKey } from "@/lib/timezone"
 
 import { BookingSheet } from "./booking-sheet"
+import { FindSlotSheet } from "./find-slot-sheet"
 import { SeriesSheet } from "./series-sheet"
 import {
   blockGeometry,
@@ -97,6 +98,7 @@ export function CalendarClient(props: Props) {
 
   const [sheet, setSheet] = useState<SheetState>({ mode: "closed" })
   const [seriesOpen, setSeriesOpen] = useState(false)
+  const [finderOpen, setFinderOpen] = useState(false)
 
   useCalendarCacheWriter(props)
 
@@ -143,6 +145,7 @@ export function CalendarClient(props: Props) {
         {...props}
         futureGapCount={futureGapCount}
         onNewSeries={() => setSeriesOpen(true)}
+        onFindSlot={() => setFinderOpen(true)}
       />
 
       {view === "day" && (
@@ -208,6 +211,18 @@ export function CalendarClient(props: Props) {
         />
       )}
 
+      {finderOpen && (
+        <FindSlotSheet
+          rinks={rinks}
+          defaultDayKey={focusKey < todayKey ? todayKey : focusKey}
+          onPick={(rinkId, dayKey, startMinute) => {
+            setFinderOpen(false)
+            setSheet({ mode: "create", rinkId, dayKey, startMinute })
+          }}
+          onClose={() => setFinderOpen(false)}
+        />
+      )}
+
       {seriesOpen && (
         <SeriesSheet
           rinks={rinks}
@@ -253,9 +268,11 @@ function Toolbar({
   showCancelled,
   gapsOnly,
   futureGapCount,
+  canCreate,
   canEdit,
   onNewSeries,
-}: Props & { futureGapCount: number; onNewSeries: () => void }) {
+  onFindSlot,
+}: Props & { futureGapCount: number; onNewSeries: () => void; onFindSlot: () => void }) {
   function href(next: Partial<Record<string, string>>): string {
     const sp = new URLSearchParams()
     sp.set("view", next.view ?? view)
@@ -345,6 +362,14 @@ function Toolbar({
       )}
 
       <div className="ml-auto flex items-center gap-1">
+        {/* Search is view-tier (it reveals only what the calendar shows), but
+            surfacing it to accounts that can then BOOK the result is where it
+            earns its place, so the button follows canCreate. */}
+        {canCreate && (
+          <Button variant="outline" size="sm" onClick={onFindSlot}>
+            Find a slot
+          </Button>
+        )}
         {/* The agenda doubles as the printed daily schedule; shell chrome and
             this toolbar are all print:hidden, so what comes out is the list. */}
         {view === "list" && (
