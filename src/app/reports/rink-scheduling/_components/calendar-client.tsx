@@ -16,6 +16,7 @@ import { addDaysToKey, formatInTz, weekdayOfKey } from "@/lib/timezone"
 
 import { BookingSheet } from "./booking-sheet"
 import { FindSlotSheet } from "./find-slot-sheet"
+import { PlanCutsSheet } from "./plan-cuts-sheet"
 import { SeriesSheet } from "./series-sheet"
 import {
   blockGeometry,
@@ -99,6 +100,7 @@ export function CalendarClient(props: Props) {
   const [sheet, setSheet] = useState<SheetState>({ mode: "closed" })
   const [seriesOpen, setSeriesOpen] = useState(false)
   const [finderOpen, setFinderOpen] = useState(false)
+  const [plannerOpen, setPlannerOpen] = useState(false)
 
   useCalendarCacheWriter(props)
 
@@ -146,6 +148,7 @@ export function CalendarClient(props: Props) {
         futureGapCount={futureGapCount}
         onNewSeries={() => setSeriesOpen(true)}
         onFindSlot={() => setFinderOpen(true)}
+        onPlanCuts={() => setPlannerOpen(true)}
       />
 
       {view === "day" && (
@@ -223,6 +226,14 @@ export function CalendarClient(props: Props) {
         />
       )}
 
+      {plannerOpen && (
+        <PlanCutsSheet
+          rinks={rinks}
+          defaultDayKey={focusKey}
+          onClose={() => setPlannerOpen(false)}
+        />
+      )}
+
       {seriesOpen && (
         <SeriesSheet
           rinks={rinks}
@@ -272,7 +283,13 @@ function Toolbar({
   canEdit,
   onNewSeries,
   onFindSlot,
-}: Props & { futureGapCount: number; onNewSeries: () => void; onFindSlot: () => void }) {
+  onPlanCuts,
+}: Props & {
+  futureGapCount: number
+  onNewSeries: () => void
+  onFindSlot: () => void
+  onPlanCuts: () => void
+}) {
   function href(next: Partial<Record<string, string>>): string {
     const sp = new URLSearchParams()
     sp.set("view", next.view ?? view)
@@ -378,9 +395,14 @@ function Toolbar({
           </Button>
         )}
         {canEdit && (
-          <Button variant="outline" size="sm" onClick={onNewSeries}>
-            New series
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={onPlanCuts}>
+              Plan cuts
+            </Button>
+            <Button variant="outline" size="sm" onClick={onNewSeries}>
+              New series
+            </Button>
+          </>
         )}
         <Button asChild variant={gapsOnly ? "default" : "outline"} size="sm">
           <Link href={href({ gaps: gapsOnly ? "" : "1" })}>
