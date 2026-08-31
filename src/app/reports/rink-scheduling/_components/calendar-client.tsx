@@ -282,7 +282,7 @@ function Toolbar({
       : addDaysToKey(focusKey, n * (view === "week" ? 7 : 1))
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 print:hidden">
       <div className="flex items-center gap-1">
         <Button asChild variant="outline" size="sm">
           <Link href={href({ date: stepBy(-1) })} aria-label="Previous">
@@ -345,6 +345,13 @@ function Toolbar({
       )}
 
       <div className="ml-auto flex items-center gap-1">
+        {/* The agenda doubles as the printed daily schedule; shell chrome and
+            this toolbar are all print:hidden, so what comes out is the list. */}
+        {view === "list" && (
+          <Button variant="outline" size="sm" onClick={() => window.print()}>
+            Print
+          </Button>
+        )}
         {canEdit && (
           <Button variant="outline" size="sm" onClick={onNewSeries}>
             New series
@@ -822,8 +829,8 @@ function AgendaList({
         const window = resolveDayWindow(dayKey, hours, exceptions)
 
         return (
-          <Card key={dayKey}>
-            <CardContent className="flex flex-col gap-2 py-4">
+          <Card key={dayKey} className="print:break-inside-avoid print:border-0 print:shadow-none">
+            <CardContent className="flex flex-col gap-2 py-4 print:px-0">
               <div className="flex flex-wrap items-baseline gap-2">
                 <h2 className="font-semibold">
                   {DAY_NAMES[weekdayOfKey(dayKey)]} {dayKey}

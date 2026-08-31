@@ -17798,6 +17798,21 @@ ALTER TABLE ONLY public.employees
 
 
 --
+-- Name: employees employees_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employees
+    ADD CONSTRAINT employees_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: CONSTRAINT employees_id_facility_uniq ON employees; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT employees_id_facility_uniq ON public.employees IS 'Composite join point so actor columns elsewhere can be fenced with (actor_id, facility_id) foreign keys — an actor must belong to the same facility as the row that names them (migration 268).';
+
+
+--
 -- Name: employees employees_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -26882,7 +26897,7 @@ ALTER TABLE ONLY public.rink_booking_requests
 --
 
 ALTER TABLE ONLY public.rink_booking_requests
-    ADD CONSTRAINT rink_booking_requests_decided_by_fkey FOREIGN KEY (decided_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_booking_requests_decided_by_fkey FOREIGN KEY (decided_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (decided_by);
 
 
 --
@@ -26914,7 +26929,7 @@ ALTER TABLE ONLY public.rink_booking_series
 --
 
 ALTER TABLE ONLY public.rink_booking_series
-    ADD CONSTRAINT rink_booking_series_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_booking_series_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
@@ -26970,7 +26985,7 @@ ALTER TABLE ONLY public.rink_booking_types
 --
 
 ALTER TABLE ONLY public.rink_bookings
-    ADD CONSTRAINT rink_bookings_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_bookings_cancelled_by_fkey FOREIGN KEY (cancelled_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (cancelled_by);
 
 
 --
@@ -26978,7 +26993,7 @@ ALTER TABLE ONLY public.rink_bookings
 --
 
 ALTER TABLE ONLY public.rink_bookings
-    ADD CONSTRAINT rink_bookings_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_bookings_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
@@ -27010,7 +27025,7 @@ ALTER TABLE ONLY public.rink_bookings
 --
 
 ALTER TABLE ONLY public.rink_bookings
-    ADD CONSTRAINT rink_bookings_resurface_resolved_by_fkey FOREIGN KEY (resurface_resolved_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_bookings_resurface_resolved_by_fkey FOREIGN KEY (resurface_resolved_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (resurface_resolved_by);
 
 
 --
@@ -27082,7 +27097,7 @@ ALTER TABLE ONLY public.rink_customers
 --
 
 ALTER TABLE ONLY public.rink_display_tokens
-    ADD CONSTRAINT rink_display_tokens_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_display_tokens_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
@@ -27138,7 +27153,7 @@ ALTER TABLE ONLY public.rink_invoices
 --
 
 ALTER TABLE ONLY public.rink_invoices
-    ADD CONSTRAINT rink_invoices_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_invoices_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
@@ -27162,7 +27177,7 @@ ALTER TABLE ONLY public.rink_invoices
 --
 
 ALTER TABLE ONLY public.rink_invoices
-    ADD CONSTRAINT rink_invoices_voided_by_fkey FOREIGN KEY (voided_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_invoices_voided_by_fkey FOREIGN KEY (voided_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (voided_by);
 
 
 --
@@ -27186,7 +27201,7 @@ ALTER TABLE ONLY public.rink_locker_room_assignments
 --
 
 ALTER TABLE ONLY public.rink_locker_room_assignments
-    ADD CONSTRAINT rink_locker_room_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_locker_room_assignments_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
@@ -27234,7 +27249,7 @@ ALTER TABLE ONLY public.rink_payments
 --
 
 ALTER TABLE ONLY public.rink_payments
-    ADD CONSTRAINT rink_payments_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_payments_recorded_by_fkey FOREIGN KEY (recorded_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (recorded_by);
 
 
 --
@@ -27306,7 +27321,7 @@ ALTER TABLE ONLY public.rink_scheduling_settings
 --
 
 ALTER TABLE ONLY public.rink_season_contracts
-    ADD CONSTRAINT rink_season_contracts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_season_contracts_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
@@ -27338,7 +27353,7 @@ ALTER TABLE ONLY public.rink_season_contracts
 --
 
 ALTER TABLE ONLY public.rink_waitlist_entries
-    ADD CONSTRAINT rink_waitlist_entries_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.employees(id) ON DELETE SET NULL;
+    ADD CONSTRAINT rink_waitlist_entries_created_by_fkey FOREIGN KEY (created_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (created_by);
 
 
 --
