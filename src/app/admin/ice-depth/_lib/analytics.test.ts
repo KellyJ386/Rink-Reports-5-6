@@ -101,11 +101,14 @@ describe("rollupByPoint", () => {
 })
 
 describe("trendByDay", () => {
-  it("buckets sessions into UTC days, ascending", () => {
+  it("buckets sessions by facility-local business_date, ascending", () => {
+    // The third session was submitted at 01:00 UTC on 06-03 but its facility
+    // (e.g. America/New_York) business_date is still 06-02 — it must bucket with
+    // the 06-02 sessions, not spill onto a UTC 06-03 day.
     const sessions: AnalyticsSession[] = [
-      { submitted_at: "2026-06-02T08:00:00Z", low_count: 1, high_count: 0, total_measurements: 5 },
-      { submitted_at: "2026-06-01T09:00:00Z", low_count: 0, high_count: 2, total_measurements: 6 },
-      { submitted_at: "2026-06-02T20:00:00Z", low_count: 3, high_count: 1, total_measurements: 5 },
+      { submitted_at: "2026-06-02T08:00:00Z", business_date: "2026-06-02", low_count: 1, high_count: 0, total_measurements: 5 },
+      { submitted_at: "2026-06-01T09:00:00Z", business_date: "2026-06-01", low_count: 0, high_count: 2, total_measurements: 6 },
+      { submitted_at: "2026-06-03T01:00:00Z", business_date: "2026-06-02", low_count: 3, high_count: 1, total_measurements: 5 },
     ]
     const days = trendByDay(sessions)
     expect(days.map((d) => d.date)).toEqual(["2026-06-01", "2026-06-02"])
