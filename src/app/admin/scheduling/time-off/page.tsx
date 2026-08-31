@@ -99,9 +99,17 @@ export default async function TimeOffPage({
   if (status !== "all") {
     query = query.eq("status", status)
   }
-  const { data: rawRows } = await query
+  const [{ data: rawRows }, { data: facility }] = await Promise.all([
+    query,
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
 
   const rows = (rawRows ?? []) as unknown as TimeOffWithEmployee[]
+  const tz = facility?.timezone ?? null
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -127,7 +135,7 @@ export default async function TimeOffPage({
         })}
       </div>
 
-      <TimeOffList rows={rows} />
+      <TimeOffList rows={rows} timeZone={tz} />
     </div>
   )
 }

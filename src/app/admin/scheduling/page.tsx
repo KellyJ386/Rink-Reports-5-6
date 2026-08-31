@@ -432,7 +432,7 @@ export default async function SchedulingOverviewPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <PendingSwapsPanel rows={pendingSwaps.slice(0, 5)} />
+            <PendingSwapsPanel rows={pendingSwaps.slice(0, 5)} timeZone={tz} />
           </CardContent>
         </Card>
 
@@ -449,7 +449,7 @@ export default async function SchedulingOverviewPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <PendingTimeOffPanel rows={pendingTimeOff.slice(0, 5)} />
+            <PendingTimeOffPanel rows={pendingTimeOff.slice(0, 5)} timeZone={tz} />
           </CardContent>
         </Card>
 
@@ -466,7 +466,7 @@ export default async function SchedulingOverviewPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <PendingDropsPanel rows={pendingDrops.slice(0, 5)} />
+            <PendingDropsPanel rows={pendingDrops.slice(0, 5)} timeZone={tz} />
           </CardContent>
         </Card>
       </section>
@@ -487,6 +487,7 @@ export default async function SchedulingOverviewPage() {
           <OpenShiftsPanel
             rows={openShiftsList.slice(0, 8)}
             employeeOptions={employeeOptions}
+            timeZone={tz}
           />
         </CardContent>
       </Card>

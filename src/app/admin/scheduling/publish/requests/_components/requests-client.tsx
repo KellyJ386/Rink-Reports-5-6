@@ -43,6 +43,7 @@ type Props = {
   rows: PublishRequestRow[]
   employees: EmployeeLite[]
   me: CurrentUser
+  timeZone: string | null
 }
 
 // Token-based badge variants (defined in ui/badge) so both themes render
@@ -54,7 +55,7 @@ const STATUS_BADGE: Record<PublishRequestRow["status"], BadgeProps["variant"]> =
     rejected: "error",
   }
 
-export function RequestsClient({ rows, employees, me }: Props) {
+export function RequestsClient({ rows, employees, me, timeZone }: Props) {
   const empById = new Map(employees.map((e) => [e.id, e]))
   const name = (id: string | null) => {
     if (!id) return "—"
@@ -80,6 +81,7 @@ export function RequestsClient({ rows, employees, me }: Props) {
                 row={r}
                 requesterName={name(r.requested_by_employee_id)}
                 me={me}
+                timeZone={timeZone}
               />
             ))}
           </ul>
@@ -108,11 +110,11 @@ export function RequestsClient({ rows, employees, me }: Props) {
                 {decided.map((r) => (
                   <tr key={r.id}>
                     <td className="border-b px-3 py-2 tabular-nums">
-                      {formatDateTime(r.created_at)}
+                      {formatDateTime(r.created_at, timeZone)}
                     </td>
                     <td className="border-b px-3 py-2 tabular-nums">
-                      {formatDateTime(r.range_starts_at)} –{" "}
-                      {formatDateTime(r.range_ends_at)}
+                      {formatDateTime(r.range_starts_at, timeZone)} –{" "}
+                      {formatDateTime(r.range_ends_at, timeZone)}
                     </td>
                     <td className="border-b px-3 py-2">
                       {name(r.requested_by_employee_id)}
@@ -123,7 +125,7 @@ export function RequestsClient({ rows, employees, me }: Props) {
                       </Badge>
                     </td>
                     <td className="border-b px-3 py-2">
-                      {r.decided_at ? formatDateTime(r.decided_at) : "—"}
+                      {r.decided_at ? formatDateTime(r.decided_at, timeZone) : "—"}
                       {r.decided_by_employee_id ? (
                         <span className="text-muted-foreground block text-xs">
                           by {name(r.decided_by_employee_id)}
@@ -163,10 +165,12 @@ function PendingCard({
   row,
   requesterName,
   me,
+  timeZone,
 }: {
   row: PublishRequestRow
   requesterName: string
   me: CurrentUser
+  timeZone: string | null
 }) {
   const [pending, start] = useTransition()
   const [showReject, setShowReject] = useState(false)
@@ -214,11 +218,12 @@ function PendingCard({
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div className="flex flex-col gap-0.5">
           <div className="text-sm font-medium tabular-nums">
-            {formatDateTime(row.range_starts_at)} –{" "}
-            {formatDateTime(row.range_ends_at)}
+            {formatDateTime(row.range_starts_at, timeZone)} –{" "}
+            {formatDateTime(row.range_ends_at, timeZone)}
           </div>
           <div className="text-muted-foreground text-xs">
-            Requested by {requesterName} · {formatDateTime(row.created_at)}
+            Requested by {requesterName} ·{" "}
+            {formatDateTime(row.created_at, timeZone)}
           </div>
         </div>
         <Badge variant={STATUS_BADGE[row.status]}>{row.status}</Badge>

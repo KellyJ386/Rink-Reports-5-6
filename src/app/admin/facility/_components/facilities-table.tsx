@@ -8,27 +8,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import type { FacilityListItem } from "../types"
 
 type Props = {
   facilities: ReadonlyArray<FacilityListItem>
   selectedId: string | null
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "—"
-  try {
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) return "—"
-    return d.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return "—"
-  }
 }
 
 export function FacilitiesTable({ facilities, selectedId }: Props) {
@@ -75,7 +61,14 @@ export function FacilitiesTable({ facilities, selectedId }: Props) {
                     <span className="mx-2">·</span>
                     <span>{facility.timezone}</span>
                     <span className="mx-2">·</span>
-                    <span>Created {formatDate(facility.created_at)}</span>
+                    <span>
+                      Created{" "}
+                      <LocalDateTime
+                        iso={facility.created_at}
+                        format="date"
+                        options={{ dateStyle: "medium" }}
+                      />
+                    </span>
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">

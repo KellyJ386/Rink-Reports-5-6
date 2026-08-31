@@ -75,9 +75,9 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function describeShift(shift: ShiftLite | null): string {
+function describeShift(shift: ShiftLite | null, timeZone: string | null): string {
   if (!shift) return "Shift unavailable"
-  return `${formatDateOnly(shift.starts_at)} · ${formatTimeRange(shift.starts_at, shift.ends_at)}`
+  return `${formatDateOnly(shift.starts_at, timeZone)} · ${formatTimeRange(shift.starts_at, shift.ends_at, timeZone)}`
 }
 
 function nameOf(emp: EmployeeLite | null): string {
@@ -89,9 +89,11 @@ function nameOf(emp: EmployeeLite | null): string {
 export function SwapsList({
   rows,
   employeeOptions,
+  timeZone,
 }: {
   rows: SwapRow[]
   employeeOptions: SwapEmployeeOption[]
+  timeZone: string | null
 }) {
   if (rows.length === 0) {
     return (
@@ -103,7 +105,12 @@ export function SwapsList({
   return (
     <div className="flex flex-col gap-3">
       {rows.map((r) => (
-        <SwapRowCard key={r.id} row={r} employeeOptions={employeeOptions} />
+        <SwapRowCard
+          key={r.id}
+          row={r}
+          employeeOptions={employeeOptions}
+          timeZone={timeZone}
+        />
       ))}
     </div>
   )
@@ -114,9 +121,11 @@ type Mode = null | "assign" | "approve" | "deny"
 function SwapRowCard({
   row,
   employeeOptions,
+  timeZone,
 }: {
   row: SwapRow
   employeeOptions: SwapEmployeeOption[]
+  timeZone: string | null
 }) {
   const [mode, setMode] = useState<Mode>(null)
   const [note, setNote] = useState("")
@@ -204,7 +213,7 @@ function SwapRowCard({
                 {nameOf(row.requester.employee)}
               </div>
               <div className="text-muted-foreground text-xs">
-                {describeShift(row.requester.shift)}
+                {describeShift(row.requester.shift, timeZone)}
               </div>
             </div>
             <div>
@@ -218,7 +227,7 @@ function SwapRowCard({
               </div>
               <div className="text-muted-foreground text-xs">
                 {row.target.shift
-                  ? describeShift(row.target.shift)
+                  ? describeShift(row.target.shift, timeZone)
                   : row.target.employee_id
                     ? "No counter-shift selected"
                     : ""}
@@ -226,9 +235,9 @@ function SwapRowCard({
             </div>
           </div>
           <div className="text-muted-foreground text-xs">
-            Requested {formatDateTime(row.created_at)}
+            Requested {formatDateTime(row.created_at, timeZone)}
             {row.decided_at
-              ? ` · Decided ${formatDateTime(row.decided_at)}`
+              ? ` · Decided ${formatDateTime(row.decided_at, timeZone)}`
               : ""}
           </div>
           {row.decision_note ? (

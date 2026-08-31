@@ -1134,20 +1134,21 @@ export function WeekBoard(props: WeekBoardProps) {
               <OpenShiftsPanel
                 rows={props.openShifts}
                 employeeOptions={props.employeeOptions}
+                timeZone={timeZone}
               />
             </RailCard>
           )}
 
           <RailCard title="Swap requests">
-            <PendingSwapsPanel rows={props.pendingSwaps} />
+            <PendingSwapsPanel rows={props.pendingSwaps} timeZone={timeZone} />
           </RailCard>
 
           <RailCard title="Time-off">
-            <PendingTimeOffPanel rows={props.pendingTimeOff} />
+            <PendingTimeOffPanel rows={props.pendingTimeOff} timeZone={timeZone} />
           </RailCard>
 
           <RailCard title="Shift drops">
-            <PendingDropsPanel rows={props.pendingDrops} />
+            <PendingDropsPanel rows={props.pendingDrops} timeZone={timeZone} />
           </RailCard>
 
           <RailCard title={`Crew · ${props.employees.length}`}>

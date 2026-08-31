@@ -1,3 +1,5 @@
+import * as React from "react"
+
 import {
   Card,
   CardContent,
@@ -5,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import type { FacilityCounts, FacilityRow } from "../types"
 
@@ -13,28 +16,13 @@ type Props = {
   counts: FacilityCounts
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "—"
-  try {
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) return "—"
-    return d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return "—"
-  }
-}
-
 function ReadOnlyField({
   label,
   value,
   mono = false,
 }: {
   label: string
-  value: string
+  value: React.ReactNode
   mono?: boolean
 }) {
   return (
@@ -81,11 +69,23 @@ export function ReadOnlyFacilityView({ facility, counts }: Props) {
             <ReadOnlyField label="Email" value={facility.email ?? "—"} />
             <ReadOnlyField
               label="Created"
-              value={formatDate(facility.created_at)}
+              value={
+                <LocalDateTime
+                  iso={facility.created_at}
+                  format="date"
+                  options={{ dateStyle: "medium" }}
+                />
+              }
             />
             <ReadOnlyField
               label="Last updated"
-              value={formatDate(facility.updated_at)}
+              value={
+                <LocalDateTime
+                  iso={facility.updated_at}
+                  format="date"
+                  options={{ dateStyle: "medium" }}
+                />
+              }
             />
           </div>
         </CardContent>
