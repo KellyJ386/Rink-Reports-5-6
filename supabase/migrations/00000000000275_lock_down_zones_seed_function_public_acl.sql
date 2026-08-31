@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000274_lock_down_zones_seed_function_public_acl.sql
+-- 00000000000275_lock_down_zones_seed_function_public_acl.sql
 --
 -- Closes an anon/authenticated EXECUTE leak on seed_default_dasher_boards_zones,
 -- the same class of bug migration 201 already closed for
@@ -30,9 +30,9 @@
 -- `public, anon, authenticated` revoke (they return `trigger` and so are not
 -- PostgREST-exposed -- not exploitable, but the narrow revoke is the same
 -- latent pattern this migration exists to retire; production-readiness L-2):
---   * tg_seed_dasher_boards_zones           (migration 259)
+--   * tg_seed_dasher_boards_zones             (migration 259)
 --   * dasher_boards_assets_log_display_events (migration 259)
---   * stamp_business_date_from               (migration 267)
+--   * stamp_business_date_from                (migration 268)
 -- =============================================================================
 
 revoke execute on function public.seed_default_dasher_boards_zones(uuid)

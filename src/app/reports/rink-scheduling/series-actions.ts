@@ -7,9 +7,11 @@ import { getFacilityTimezone } from "@/lib/facility-timezone"
 import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import { resolveBufferMinutes } from "@/lib/rink-scheduling/buffer"
+import { countMatchedEntries } from "@/lib/rink-scheduling/waitlist-match"
 import { createClient } from "@/lib/supabase/server"
 import { addDaysToKey, dayKeyInTz, wallTimeToUtc } from "@/lib/timezone"
 
+import { bookingMinutesOnDay } from "./_lib/grid-model"
 import { quoteBooking } from "./_lib/rate-engine"
 import {
   applyResolution,
@@ -397,7 +399,8 @@ export async function cancelSeries(
   seriesId: string,
   reason: string,
 ): Promise<
-  { ok: true; cancelled: number; keptBilled: number } | { ok: false; error: string }
+  | { ok: true; cancelled: number; keptBilled: number; waitlistMatches: number }
+  | { ok: false; error: string }
 > {
   try {
     const ctx = await requireSeriesEditor()
@@ -419,7 +422,7 @@ export async function cancelSeries(
 
     const { data: upcoming } = await supabase
       .from("rink_bookings")
-      .select("id, starts_at")
+      .select("id, rink_id, starts_at, ends_at")
       .eq("facility_id", ctx.facilityId)
       .eq("series_id", seriesId)
       .neq("status", "cancelled")
@@ -428,7 +431,7 @@ export async function cancelSeries(
     const ids = (upcoming ?? []).map((b) => b.id)
     if (ids.length === 0) {
       await closeSeries(seriesId, ctx.facilityId)
-      return { ok: true, cancelled: 0, keptBilled: 0 }
+      return { ok: true, cancelled: 0, keptBilled: 0, waitlistMatches: 0 }
     }
 
     // An occurrence already on a live invoice stays put.
@@ -461,7 +464,49 @@ export async function cancelSeries(
     await closeSeries(seriesId, ctx.facilityId)
     await enqueueCoverage(ctx.facilityId)
     revalidatePath(CALENDAR_PATH)
-    return { ok: true, cancelled: cancellable.length, keptBilled: billedIds.size }
+
+    // A cancelled series frees many slots at once — check the waitlist for
+    // open entries any of them would satisfy. Best-effort; the cancellation
+    // stands regardless.
+    let waitlistMatches = 0
+    try {
+      const cancelledSet = new Set(cancellable)
+      const freed = (upcoming ?? [])
+        .filter((b) => cancelledSet.has(b.id))
+        .flatMap((b) => {
+          const dayKey = dayKeyInTz(b.starts_at, timeZone)
+          const onDay = bookingMinutesOnDay(b.starts_at, b.ends_at, dayKey, timeZone)
+          return onDay
+            ? [
+                {
+                  dayKey,
+                  rinkId: b.rink_id,
+                  startMinute: onDay.startMinute,
+                  endMinute: onDay.endMinute,
+                },
+              ]
+            : []
+        })
+      const dayKeys = [...new Set(freed.map((f) => f.dayKey))]
+      if (dayKeys.length > 0) {
+        const { data: entries } = await supabase
+          .from("rink_waitlist_entries")
+          .select("id, desired_date, rink_id, start_minute, end_minute")
+          .eq("facility_id", ctx.facilityId)
+          .eq("status", "open")
+          .in("desired_date", dayKeys)
+        waitlistMatches = countMatchedEntries(entries ?? [], freed)
+      }
+    } catch {
+      // The hint is a bonus, never a blocker.
+    }
+
+    return {
+      ok: true,
+      cancelled: cancellable.length,
+      keptBilled: billedIds.size,
+      waitlistMatches,
+    }
   } catch (e) {
     return caught(e)
   }

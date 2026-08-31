@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000268_reports_module_registration.sql
+-- 00000000000269_reports_module_registration.sql
 -- Register module #13 "reports" in the permission + module-toggle model.
 --
 -- This lands BEFORE the reporting data layer and UI on purpose. Registering the
@@ -119,7 +119,7 @@ end;
 $$;
 
 comment on function public.seed_default_facility_modules(uuid) is
-  'Seeds facility_modules with every canonical module enabled (incl. reports as of migration 268). Idempotent via on conflict do nothing on (facility_id, module_key).';
+  'Seeds facility_modules with every canonical module enabled (incl. reports as of migration 269). Idempotent via on conflict do nothing on (facility_id, module_key).';
 
 revoke execute on function public.seed_default_facility_modules(uuid) from public;
 grant  execute on function public.seed_default_facility_modules(uuid) to service_role;
@@ -234,7 +234,7 @@ as $$
       ('manager','rink_scheduling','edit'::public.user_action),
       ('staff','rink_scheduling','view'::public.user_action),
       ('driver','rink_scheduling','view'::public.user_action),
-      -- reports (added migration 268). The reporting layer aggregates every
+      -- reports (added migration 269). The reporting layer aggregates every
       -- other module's data into facility-wide compliance numbers, so the
       -- ceiling is deliberately NOT the house default.
       --
@@ -265,7 +265,7 @@ as $$
 $$;
 
 comment on function public.canonical_role_permission_grants() is
-  'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. reports added in migration 268.';
+  'Canonical per-role default permission grants (expanded to cumulative actions), keyed by role key. Source for seed_role_permission_defaults_for_facility() and the roles auto-seed trigger. reports added in migration 269.';
 
 -- The 193/198 guard: prove the restatement above is purely additive. Anything
 -- that was in the matrix before this migration must still be in it.
@@ -284,12 +284,12 @@ begin
 
   if v_lost > 0 then
     raise exception
-      'migration 268 DROPPED % pre-existing grant(s) from canonical_role_permission_grants() (e.g. %). '
+      'migration 269 DROPPED % pre-existing grant(s) from canonical_role_permission_grants() (e.g. %). '
       'Restate the WHOLE matrix — migration 198 existed only to repair migration 193 making exactly this mistake.',
       v_lost, v_sample;
   end if;
 
-  raise notice 'migration 268: canonical grant matrix is purely additive (% grants before, % after)',
+  raise notice 'migration 269: canonical grant matrix is purely additive (% grants before, % after)',
     (select count(*) from _canon_before),
     (select count(*) from public.canonical_role_permission_grants());
 end $$;
@@ -311,17 +311,17 @@ begin
 
   if v_config not like '%search_path=public, pg_temp%' then
     raise exception
-      'migration 268: canonical_role_permission_grants() lost its pinned search_path (now %). '
+      'migration 269: canonical_role_permission_grants() lost its pinned search_path (now %). '
       'Migration 97 hardened it; create or replace must restate `set search_path = public, pg_temp`.',
       v_config;
   end if;
 
   if v_vol <> 'i' then
     raise exception
-      'migration 268: canonical_role_permission_grants() is no longer IMMUTABLE (volatility %)', v_vol;
+      'migration 269: canonical_role_permission_grants() is no longer IMMUTABLE (volatility %)', v_vol;
   end if;
 
-  raise notice 'migration 268: function attributes preserved (immutable, %)', v_config;
+  raise notice 'migration 269: function attributes preserved (immutable, %)', v_config;
 end $$;
 
 -- -----------------------------------------------------------------------------
@@ -358,9 +358,9 @@ do $$
 declare
   r record;
 begin
-  raise notice 'migration 268: facility_modules rows for reports: %',
+  raise notice 'migration 269: facility_modules rows for reports: %',
     (select count(*) from public.facility_modules where module_key = 'reports');
-  raise notice 'migration 268: role_permission_defaults rows for reports: %',
+  raise notice 'migration 269: role_permission_defaults rows for reports: %',
     (select count(*) from public.role_permission_defaults where module_name = 'reports');
   for r in
     select coalesce(ro.key, '(no role)') as role_key, count(distinct up.user_id) as users
@@ -370,7 +370,7 @@ begin
     where up.module_name = 'reports'
     group by 1 order by 1
   loop
-    raise notice 'migration 268: reports granted to % user(s) with role %', r.users, r.role_key;
+    raise notice 'migration 269: reports granted to % user(s) with role %', r.users, r.role_key;
   end loop;
 end $$;
 

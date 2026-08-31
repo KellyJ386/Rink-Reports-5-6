@@ -108,7 +108,7 @@ export type Preset = "full_access" | "submitter_only" | "viewer_only" | "no_acce
 
 /**
  * Elevated modules the *staff-shaped* presets must never auto-grant. `reports`
- * is the cross-module compliance reporting layer (migration 268: "staff and
+ * is the cross-module compliance reporting layer (migration 269: "staff and
  * driver are absent by design… a front desk employee cannot pull the facility's
  * annual incident summary"), and `admin` is the Admin Center module. A blanket
  * `submitter_only` / `viewer_only` preset would otherwise silently hand a

@@ -8091,10 +8091,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_booking_requests_decided_by_fkey"
-            columns: ["decided_by"]
+            columns: ["decided_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_booking_requests_facility_id_fkey"
@@ -8189,10 +8189,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_booking_series_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_booking_series_customer_fk"
@@ -8378,17 +8378,17 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "rink_bookings_cancelled_by_fkey"
-            columns: ["cancelled_by"]
+            columns: ["cancelled_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_bookings_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_bookings_customer_fk"
@@ -8413,10 +8413,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_bookings_resurface_resolved_by_fkey"
-            columns: ["resurface_resolved_by"]
+            columns: ["resurface_resolved_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_bookings_rink_fk"
@@ -8651,10 +8651,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "rink_display_tokens_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_display_tokens_facility_id_fkey"
@@ -8850,10 +8850,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_invoices_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_invoices_customer_fk"
@@ -8871,10 +8871,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_invoices_voided_by_fkey"
-            columns: ["voided_by"]
+            columns: ["voided_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }
@@ -8935,10 +8935,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_locker_room_assignments_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_locker_room_assignments_facility_id_fkey"
@@ -9054,10 +9054,10 @@ export type Database = {
           },
           {
             foreignKeyName: "rink_payments_recorded_by_fkey"
-            columns: ["recorded_by"]
+            columns: ["recorded_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_payments_reverses_payment_id_fkey"
@@ -9359,10 +9359,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "rink_season_contracts_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_season_contracts_customer_fk"
@@ -9442,10 +9442,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "rink_waitlist_entries_created_by_fkey"
-            columns: ["created_by"]
+            columns: ["created_by", "facility_id"]
             isOneToOne: false
             referencedRelation: "employees"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "facility_id"]
           },
           {
             foreignKeyName: "rink_waitlist_entries_customer_id_fkey"

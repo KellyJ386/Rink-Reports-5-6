@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000267_fact_table_business_dates.sql
+-- 00000000000268_fact_table_business_dates.sql
 --
 -- Every module fact table gains `business_date date NOT NULL` — the
 -- FACILITY-LOCAL calendar date of the event — stamped by trigger at write
@@ -122,7 +122,7 @@ comment on function public.stamp_business_date_from() is
   'calendar date of the timestamptz column named in TG_ARGV[0] (falling back to '
   'TG_ARGV[1] when that column is NULL), resolved through facilities.timezone. '
   'Stamps unconditionally so business_date is always server-derived. Added in '
-  'migration 267 for the seven module fact tables.';
+  'migration 268 for the seven module fact tables.';
 
 revoke execute on function public.stamp_business_date_from() from public, anon;
 
@@ -213,10 +213,10 @@ begin
     union all select 'dasher_boards_inspections', count(*) from public.dasher_boards_inspections
     order by 1
   loop
-    raise notice 'migration 267: business_date backfilled for % row(s) in %', r.n, r.t;
+    raise notice 'migration 268: business_date backfilled for % row(s) in %', r.n, r.t;
     v_total := v_total + r.n;
   end loop;
-  raise notice 'migration 267: % row(s) backfilled across 7 fact tables', v_total;
+  raise notice 'migration 268: % row(s) backfilled across 7 fact tables', v_total;
 end $$;
 
 alter table public.ice_depth_sessions          alter column business_date set not null;
@@ -362,35 +362,35 @@ create index if not exists idx_dasher_boards_inspections_facility_business_date
 -- -----------------------------------------------------------------------------
 comment on column public.ice_depth_sessions.business_date is
   'Facility-local calendar date of the session, derived from submitted_at through '
-  'facilities.timezone and stamped server-side (migration 267). The reporting '
+  'facilities.timezone and stamped server-side (migration 268). The reporting '
   'layer buckets on this, never on the raw timestamptz.';
 
 comment on column public.ice_operations_submissions.business_date is
   'Facility-local calendar date of the operation, derived from occurred_at (when it '
   'happened, not when it was filed) through facilities.timezone and stamped '
-  'server-side (migration 267).';
+  'server-side (migration 268).';
 
 comment on column public.refrigeration_reports.business_date is
   'Facility-local calendar date of the reading, derived from reading_at through '
-  'facilities.timezone and stamped server-side (migration 267).';
+  'facilities.timezone and stamped server-side (migration 268).';
 
 comment on column public.air_quality_reports.business_date is
   'Facility-local calendar date of the report, derived from submitted_at through '
-  'facilities.timezone and stamped server-side (migration 267).';
+  'facilities.timezone and stamped server-side (migration 268).';
 
 comment on column public.incident_reports.business_date is
   'Facility-local calendar date of the incident, derived from occurred_at (when it '
   'happened, not when it was filed) through facilities.timezone and stamped '
-  'server-side (migration 267).';
+  'server-side (migration 268).';
 
 comment on column public.accident_reports.business_date is
   'Facility-local calendar date of the accident, derived from occurred_at (when it '
   'happened, not when it was filed) through facilities.timezone and stamped '
-  'server-side (migration 267).';
+  'server-side (migration 268).';
 
 comment on column public.dasher_boards_inspections.business_date is
   'Facility-local calendar date of the walk, derived from completed_at through '
-  'facilities.timezone and stamped server-side (migration 267). An OPEN walk is '
+  'facilities.timezone and stamped server-side (migration 268). An OPEN walk is '
   'stamped from started_at instead and re-stamped when it is completed, so a walk '
   'begun 11 PM and signed off after midnight reports on the day it was COMPLETED. '
   'Phase 4 metrics that count walks started must account for that.';

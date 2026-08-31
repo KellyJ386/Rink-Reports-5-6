@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000271_compute_live_daily_metrics.sql
+-- 00000000000272_compute_live_daily_metrics.sql
 --
 -- One dispatcher RPC, callable by `authenticated`, for Phase 5's live-day
 -- report path: "today" reads live fact tables (tonight's rollup has not run
@@ -9,7 +9,7 @@
 --
 -- WHY THIS IS A MIGRATION DESPITE PHASE 5 BEING SPECIFIED AS "NO MIGRATION —
 -- SERVER ACTIONS AND PAGES ONLY." The nine compute_daily_metrics_* functions
--- (migration 270) are SECURITY DEFINER, take p_facility_id as a plain
+-- (migration 271) are SECURITY DEFINER, take p_facility_id as a plain
 -- argument, and are granted to service_role ONLY — correct for their only
 -- caller until now, the fully-trusted nightly cron. They carry no internal
 -- tenancy check, because a trusted service-role caller needs none.
@@ -100,7 +100,7 @@ comment on function public.compute_live_daily_metrics(text, date) is
   'Read-only dispatcher for the reporting layer''s live "today" path. Resolves '
   'facility_id from the CALLER''S OWN session (current_facility_id()), never a '
   'parameter, then dispatches to the matching compute_daily_metrics_* function '
-  '(migration 270) after checking has_module_access(''reports''). Exists so an '
+  '(migration 271) after checking has_module_access(''reports''). Exists so an '
   'authenticated browser session can reuse the exact same computation the '
   'nightly rollup uses, without widening those nine functions'' grant beyond '
   'service_role (which would let any caller pass an arbitrary facility_id and '

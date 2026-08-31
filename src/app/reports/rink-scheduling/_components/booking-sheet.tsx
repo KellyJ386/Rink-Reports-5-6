@@ -40,7 +40,15 @@ import type {
 import { LockerRoomPanel } from "./locker-room-panel"
 
 type SheetState =
-  | { mode: "create"; rinkId: string; dayKey: string; startMinute: number }
+  | {
+      mode: "create"
+      rinkId: string
+      dayKey: string
+      startMinute: number
+      /** From drag-create; a plain slot click omits it and the default
+       *  duration below applies. */
+      endMinute?: number
+    }
   | { mode: "edit"; booking: BookingView }
 
 type Props = {
@@ -88,9 +96,16 @@ export function BookingSheet(props: Props) {
   const initialStart = isEdit
     ? (utcToWallTime(booking!.starts_at, timeZone)?.slice(11, 16) ?? "12:00")
     : hm(state.startMinute)
+  // The sheet's times are same-day, so a dragged end of 24:00 shows as 23:59
+  // rather than wrapping to 00:00 (which would read as before the start).
   const initialEnd = isEdit
     ? (utcToWallTime(booking!.ends_at, timeZone)?.slice(11, 16) ?? "13:00")
-    : hm(state.startMinute + Math.max(30, props.slotMinutes * 2))
+    : hm(
+        Math.min(
+          state.endMinute ?? state.startMinute + Math.max(30, props.slotMinutes * 2),
+          1439,
+        ),
+      )
 
   const [dayKey, setDayKey] = useState(initialDayKey)
   const [startTime, setStartTime] = useState(initialStart)
@@ -254,6 +269,21 @@ export function BookingSheet(props: Props) {
         return
       }
       toast.success("Booking cancelled.")
+      // Freed ice that someone is already waiting for should not sit quiet.
+      if (r.waitlistMatches > 0) {
+        toast.info(
+          `${r.waitlistMatches} open waitlist ${r.waitlistMatches === 1 ? "entry matches" : "entries match"} the freed ice.`,
+          {
+            action: {
+              label: "Open requests",
+              onClick: () => {
+                window.location.href = "/reports/rink-scheduling/requests"
+              },
+            },
+            duration: 10_000,
+          },
+        )
+      }
       onClose()
     })
   }
@@ -277,6 +307,7 @@ export function BookingSheet(props: Props) {
           {isEdit && booking!.status === "cancelled" && (
             <p className="border-border bg-muted/40 rounded-md border p-3 text-sm">
               This booking was cancelled
+              {booking!.cancelledByName ? ` by ${booking!.cancelledByName}` : ""}
               {booking!.cancellation_reason
                 ? `: ${booking!.cancellation_reason}`
                 : "."}
@@ -459,6 +490,8 @@ export function BookingSheet(props: Props) {
             <ResurfacePanel
               bookingId={booking!.id}
               status={booking!.resurface_status as ResurfaceLifecycleStatus}
+              startsAtIso={booking!.starts_at}
+              endsAtIso={booking!.ends_at}
               timeZone={timeZone}
               canEdit={canEdit}
               onDone={onClose}
@@ -519,6 +552,29 @@ export function BookingSheet(props: Props) {
               </Button>
             </div>
           )}
+
+          {/* Audit line — the trail exists in the database; showing it here
+              lets a "who booked this?" dispute resolve in one glance. */}
+          {isEdit && booking!.created_at && (
+            <p className="text-muted-foreground text-xs">
+              Created{" "}
+              {formatInTz(booking!.created_at, timeZone, {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+              {booking!.createdByName ? ` by ${booking!.createdByName}` : ""}
+              {booking!.updated_at && booking!.updated_at !== booking!.created_at
+                ? ` · Last changed ${formatInTz(booking!.updated_at, timeZone, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -541,12 +597,16 @@ const RESURFACE_STATUS_LABEL: Record<ResurfaceLifecycleStatus, string> = {
 function ResurfacePanel({
   bookingId,
   status,
+  startsAtIso,
+  endsAtIso,
   timeZone,
   canEdit,
   onDone,
 }: {
   bookingId: string
   status: ResurfaceLifecycleStatus
+  startsAtIso: string
+  endsAtIso: string
   timeZone: string | null
   canEdit: boolean
   onDone: () => void
@@ -555,6 +615,29 @@ function ResurfacePanel({
   const [completing, setCompleting] = useState(false)
   const [cuts, setCuts] = useState<RecentIceCut[] | null>(null)
   const [cutId, setCutId] = useState("")
+  const [nearbyCut, setNearbyCut] = useState<RecentIceCut | null>(null)
+
+  // The suggestion: when Ice Operations logged an ice-make near this cut's
+  // window, offer to close the loop in one tap. A read, fired once per open;
+  // any failure just means no hint.
+  useEffect(() => {
+    if (status !== "scheduled" || !canEdit) return
+    let cancelled = false
+    void (async () => {
+      const r = await listRecentIceCuts()
+      if (cancelled || !r.ok) return
+      const fromMs = new Date(startsAtIso).getTime() - 30 * 60_000
+      const untilMs = new Date(endsAtIso).getTime() + 30 * 60_000
+      const hit = r.cuts.find((c) => {
+        const t = new Date(c.occurredAt).getTime()
+        return t >= fromMs && t <= untilMs
+      })
+      if (!cancelled) setNearbyCut(hit ?? null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [status, canEdit, startsAtIso, endsAtIso])
 
   function move(to: ResurfaceLifecycleStatus, iceCutSubmissionId: string | null) {
     startTransition(async () => {
@@ -614,6 +697,29 @@ function ResurfacePanel({
           {RESURFACE_STATUS_LABEL[status]}
         </Badge>
       </div>
+
+      {status === "scheduled" && !completing && nearbyCut && (
+        <div className="bg-muted/40 flex flex-col gap-2 rounded-md border p-2.5">
+          <p className="text-sm">
+            An ice cut was logged in Ice Operations at{" "}
+            {formatInTz(nearbyCut.occurredAt, timeZone, {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            {nearbyCut.rinkLabel ? ` (${nearbyCut.rinkLabel})` : ""} — likely
+            this one.
+          </p>
+          <div>
+            <Button
+              size="sm"
+              onClick={() => move("completed", nearbyCut.id)}
+              disabled={pending}
+            >
+              Mark completed with that record
+            </Button>
+          </div>
+        </div>
+      )}
 
       {status === "scheduled" && !completing && (
         <div className="flex flex-wrap gap-2">
@@ -906,6 +1012,20 @@ function SeriesScopePanel({
       const parts = [`${r.cancelled} future date${r.cancelled === 1 ? "" : "s"} cancelled`]
       if (r.keptBilled > 0) parts.push(`${r.keptBilled} kept because they are invoiced`)
       toast.success(parts.join(", ") + ". Past dates were left untouched.")
+      if (r.waitlistMatches > 0) {
+        toast.info(
+          `${r.waitlistMatches} open waitlist ${r.waitlistMatches === 1 ? "entry matches" : "entries match"} the freed dates.`,
+          {
+            action: {
+              label: "Open requests",
+              onClick: () => {
+                window.location.href = "/reports/rink-scheduling/requests"
+              },
+            },
+            duration: 10_000,
+          },
+        )
+      }
       onDone()
     })
   }

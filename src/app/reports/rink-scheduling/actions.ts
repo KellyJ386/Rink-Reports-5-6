@@ -8,15 +8,15 @@ import { logServerError } from "@/lib/observability/log-server-error"
 import { currentUserCan } from "@/lib/permissions/check"
 import { resolveBufferMinutes } from "@/lib/rink-scheduling/buffer"
 import { deliverBookingConfirmation } from "@/lib/rink-scheduling/deliver-booking-email"
+import { countMatchedEntries } from "@/lib/rink-scheduling/waitlist-match"
 import { createClient } from "@/lib/supabase/server"
+import { dayKeyInTz } from "@/lib/timezone"
+
+import { bookingMinutesOnDay } from "./_lib/grid-model"
 import type { TablesUpdate } from "@/types/database"
 
 import { quoteBooking, type RateQuote } from "./_lib/rate-engine"
-import type {
-  BookingConflict,
-  CreateBookingResult,
-  SimpleResult,
-} from "./_lib/types"
+import type { BookingConflict, CreateBookingResult } from "./_lib/types"
 
 const CALENDAR_PATH = "/reports/rink-scheduling"
 
@@ -371,7 +371,7 @@ export async function updateBooking(input: {
 
     const { data: existing } = await supabase
       .from("rink_bookings")
-      .select("buffer_minutes_after, starts_at, ends_at")
+      .select("buffer_minutes_after, starts_at, ends_at, rink_id")
       .eq("id", input.id)
       .eq("facility_id", facilityId)
       .maybeSingle()
@@ -382,6 +382,7 @@ export async function updateBooking(input: {
     // that changed since it was made.
     const windowMoved =
       existing.starts_at !== input.startsAt || existing.ends_at !== input.endsAt
+    const rinkMoved = existing.rink_id !== input.rinkId
 
     const updates: TablesUpdate<"rink_bookings"> = {
       rink_id: input.rinkId,
@@ -392,6 +393,31 @@ export async function updateBooking(input: {
       ends_at: input.endsAt,
       status: input.status,
       notes: input.notes,
+    }
+
+    // Rescheduling re-resolves the ice-make buffer: the override is per
+    // sheet, so moving to another rink must pick up that rink's timing, and
+    // a time move picks up the facility's current settings. A title-only
+    // edit keeps the snapshot, mirroring the rate-snapshot rule above.
+    if (rinkMoved || windowMoved) {
+      const [{ data: settings }, { data: targetRink }] = await Promise.all([
+        supabase
+          .from("rink_scheduling_settings")
+          .select("default_buffer_minutes, buffer_included_in_rental")
+          .eq("facility_id", facilityId)
+          .maybeSingle(),
+        supabase
+          .from("facility_rinks")
+          .select("buffer_minutes_override")
+          .eq("id", input.rinkId)
+          .eq("facility_id", facilityId)
+          .maybeSingle(),
+      ])
+      updates.buffer_minutes_after = resolveBufferMinutes({
+        facilityDefaultMinutes: settings?.default_buffer_minutes,
+        rinkOverrideMinutes: targetRink?.buffer_minutes_override,
+        includedInRental: settings?.buffer_included_in_rental,
+      })
     }
 
     if (windowMoved) {
@@ -418,7 +444,9 @@ export async function updateBooking(input: {
 
     if (error) {
       if (error.code === "23P01") {
-        const buffer = existing.buffer_minutes_after ?? 0
+        // The buffer the rejected write actually carried — re-resolved when
+        // the booking moved, the stored snapshot otherwise.
+        const buffer = updates.buffer_minutes_after ?? existing.buffer_minutes_after ?? 0
         const blocksUntil = new Date(
           new Date(input.endsAt).getTime() + buffer * 60_000,
         ).toISOString()
@@ -447,10 +475,14 @@ export async function updateBooking(input: {
   }
 }
 
+export type CancelBookingResult =
+  | { ok: true; waitlistMatches: number }
+  | { ok: false; error: string }
+
 export async function cancelBooking(
   id: string,
   reason: string,
-): Promise<SimpleResult> {
+): Promise<CancelBookingResult> {
   try {
     await requireUser()
     const resolved = await resolveContext()
@@ -469,7 +501,7 @@ export async function cancelBooking(
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data: cancelledRows, error } = await supabase
       .from("rink_bookings")
       .update({
         status: "cancelled",
@@ -479,13 +511,46 @@ export async function cancelBooking(
       })
       .eq("id", id)
       .eq("facility_id", facilityId)
+      .select("rink_id, starts_at, ends_at")
     if (error) {
       return { ok: false, error: error.message || "Failed to cancel the booking." }
+    }
+    const cancelled = (cancelledRows ?? [])[0]
+    if (!cancelled) {
+      return { ok: false, error: "Booking not found, or it was already changed." }
+    }
+
+    // Freed ice is a sales opportunity: check the waitlist for open entries
+    // this slot would satisfy, so the desk can offer it while the phone is
+    // still warm. Best-effort — a failure here never un-cancels anything.
+    let waitlistMatches = 0
+    try {
+      const timeZone = await getFacilityTimezone(supabase, facilityId)
+      const dayKey = dayKeyInTz(cancelled.starts_at, timeZone)
+      const onDay = bookingMinutesOnDay(cancelled.starts_at, cancelled.ends_at, dayKey, timeZone)
+      if (onDay) {
+        const { data: entries } = await supabase
+          .from("rink_waitlist_entries")
+          .select("id, desired_date, rink_id, start_minute, end_minute")
+          .eq("facility_id", facilityId)
+          .eq("status", "open")
+          .eq("desired_date", dayKey)
+        waitlistMatches = countMatchedEntries(entries ?? [], [
+          {
+            dayKey,
+            rinkId: cancelled.rink_id,
+            startMinute: onDay.startMinute,
+            endMinute: onDay.endMinute,
+          },
+        ])
+      }
+    } catch {
+      // The cancellation stands; the hint is a bonus.
     }
 
     await enqueueCoverageCheck(facilityId, "booking_change")
     revalidatePath(CALENDAR_PATH)
-    return { ok: true }
+    return { ok: true, waitlistMatches }
   } catch (e) {
     return caught(e)
   }

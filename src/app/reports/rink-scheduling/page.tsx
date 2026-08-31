@@ -198,6 +198,26 @@ export default async function RinkSchedulePage({
   const typeById = new Map(types.map((t) => [t.id, t]))
   const customerById = new Map(customers.map((c) => [c.id, c]))
 
+  // Actor names for the booking sheet's audit line — one query for exactly
+  // the employees the visible bookings name.
+  const actorIds = [
+    ...new Set(
+      (bookingRows ?? []).flatMap((b) =>
+        [b.created_by, b.cancelled_by].filter((id): id is string => id != null),
+      ),
+    ),
+  ]
+  const { data: actorRows } = actorIds.length
+    ? await supabase
+        .from("employees")
+        .select("id, first_name, last_name")
+        .eq("facility_id", facilityId)
+        .in("id", actorIds)
+    : { data: [] as { id: string; first_name: string; last_name: string }[] }
+  const actorNameById = new Map(
+    (actorRows ?? []).map((e) => [e.id, `${e.first_name} ${e.last_name}`.trim()]),
+  )
+
   const bookings: BookingView[] = (bookingRows ?? []).map((b) => ({
     ...b,
     rinkName: rinkById.get(b.rink_id)?.name ?? "Rink",
@@ -206,6 +226,10 @@ export default async function RinkSchedulePage({
     typeColor: typeById.get(b.booking_type_id)?.color ?? "#002244",
     customerName: b.customer_id
       ? (customerById.get(b.customer_id)?.name ?? null)
+      : null,
+    createdByName: b.created_by ? (actorNameById.get(b.created_by) ?? null) : null,
+    cancelledByName: b.cancelled_by
+      ? (actorNameById.get(b.cancelled_by) ?? null)
       : null,
   }))
 
@@ -231,7 +255,7 @@ export default async function RinkSchedulePage({
                 which show the money and stay edit-tier only. */}
             <Link
               href="/reports/rink-scheduling/desk"
-              className="text-muted-foreground text-sm no-underline hover:underline"
+              className="text-muted-foreground text-sm no-underline hover:underline print:hidden"
             >
               Front Desk →
             </Link>
@@ -239,25 +263,25 @@ export default async function RinkSchedulePage({
               <>
                 <Link
                   href="/reports/rink-scheduling/invoices"
-                  className="text-muted-foreground text-sm no-underline hover:underline"
+                  className="text-muted-foreground text-sm no-underline hover:underline print:hidden"
                 >
                   Invoices →
                 </Link>
                 <Link
                   href="/reports/rink-scheduling/insights"
-                  className="text-muted-foreground text-sm no-underline hover:underline"
+                  className="text-muted-foreground text-sm no-underline hover:underline print:hidden"
                 >
                   Insights →
                 </Link>
                 <Link
                   href="/reports/rink-scheduling/requests"
-                  className="text-muted-foreground text-sm no-underline hover:underline"
+                  className="text-muted-foreground text-sm no-underline hover:underline print:hidden"
                 >
                   Requests →
                 </Link>
                 <Link
                   href="/reports/rink-scheduling/contracts"
-                  className="text-muted-foreground text-sm no-underline hover:underline"
+                  className="text-muted-foreground text-sm no-underline hover:underline print:hidden"
                 >
                   Contracts →
                 </Link>
