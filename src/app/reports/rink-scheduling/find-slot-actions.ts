@@ -105,9 +105,13 @@ export async function findOpenSlots(input: {
     const settings = settingsRes.data
     const stepMinutes = settings?.slot_increment_minutes ?? 30
 
-    // One bookings read for the whole span, slack a day each side (the same
-    // convention the calendar page uses): a booking that starts the previous
-    // local day can still block the first morning slot.
+    // One bookings read for the whole span. The LOWER bound is on
+    // blocks_until, not starts_at: bookings have no maximum duration, so a
+    // multi-day block (a tournament hold) can start long before the search
+    // window while still occupying its first morning — bounding by starts_at
+    // alone would silently offer that occupied ice (security-review finding
+    // on this feature). Upper bound stays on starts_at, slack a day for
+    // timezone skew, matching the calendar page's convention.
     const queryFromKey = addDaysToKey(fromKey, -1)
     const queryToKey = addDaysToKey(toKey, 1)
     const { data: bookingRows } = await supabase
@@ -115,7 +119,7 @@ export async function findOpenSlots(input: {
       .select("rink_id, starts_at, blocks_until")
       .eq("facility_id", facilityId)
       .neq("status", "cancelled")
-      .gte("starts_at", `${queryFromKey}T00:00:00.000Z`)
+      .gte("blocks_until", `${queryFromKey}T00:00:00.000Z`)
       .lte("starts_at", `${queryToKey}T23:59:59.999Z`)
 
     const blockedByRink = new Map<string, { startMs: number; endMs: number }[]>()
