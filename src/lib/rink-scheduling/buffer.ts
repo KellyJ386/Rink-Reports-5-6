@@ -3,7 +3,7 @@
 // facility_rinks.buffer_minutes_override, and
 // rink_scheduling_settings.buffer_included_in_rental into the number that
 // gets snapshotted onto rink_bookings.buffer_minutes_after at booking
-// creation (migration 267) — nothing else should ever type a buffer minute
+// creation (migration 273) — nothing else should ever type a buffer minute
 // count.
 
 export type BufferSource = {

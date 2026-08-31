@@ -106,12 +106,30 @@ export function matrixFromRows(rows: UserPermissionRow[]): PermissionMatrix {
 
 export type Preset = "full_access" | "submitter_only" | "viewer_only" | "no_access"
 
+/**
+ * Elevated modules the *staff-shaped* presets must never auto-grant. `reports`
+ * is the cross-module compliance reporting layer (migration 268: "staff and
+ * driver are absent by design… a front desk employee cannot pull the facility's
+ * annual incident summary"), and `admin` is the Admin Center module. A blanket
+ * `submitter_only` / `viewer_only` preset would otherwise silently hand a
+ * front-desk account `reports/view` (which passes `has_module_access('reports')`
+ * and `currentUserCan("reports","view")`), bypassing the role-default ceiling.
+ * These modules are granted deliberately via role defaults / explicit edits, not
+ * by a staff bulk preset. `full_access` is the elevated preset and is left
+ * intact — its dangerous `admin/admin` console cell is separately gated to super
+ * admins in `applyPresetToUser` via `isAdminConsoleGrant`.
+ */
+const PRESET_ELEVATED_MODULES: readonly ModuleName[] = ["reports", "admin"]
+
 export function presetMatrix(preset: Preset): PermissionMatrix {
   const matrix = emptyMatrix()
   if (preset === "no_access") return matrix
   for (const m of MODULE_NAMES) {
     if (preset === "full_access") {
       matrix[m] = { view: true, submit: true, edit: true, admin: true }
+    } else if (PRESET_ELEVATED_MODULES.includes(m)) {
+      // Staff presets never reach the elevated modules — leave them all-false.
+      continue
     } else if (preset === "submitter_only") {
       matrix[m] = { view: true, submit: true, edit: false, admin: false }
     } else if (preset === "viewer_only") {

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000265_reports_module_registration.sql
+-- 00000000000268_reports_module_registration.sql
 -- Register module #13 "reports" in the permission + module-toggle model.
 --
 -- This lands BEFORE the reporting data layer and UI on purpose. Registering the

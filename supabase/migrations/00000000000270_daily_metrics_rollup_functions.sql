@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000267_daily_metrics_rollup_functions.sql
+-- 00000000000270_daily_metrics_rollup_functions.sql
 --
 -- One rollup function per module, an orchestrator that calls them, a
 -- yesterday-in-each-facility's-own-timezone entry point for the nightly cron,

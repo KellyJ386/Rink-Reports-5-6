@@ -5983,6 +5983,20 @@ select pg_temp.expect_error(
   $$select public.seed_default_dasher_boards_config('11111111-1111-1111-1111-111111111111')$$,
   'DB29: anon CANNOT execute seed_default_dasher_boards_config');
 
+-- Zones seed helper (migration 259) shares seed_default_dasher_boards_config's
+-- internal-only contract, but 259 shipped the public-only revoke that missed
+-- anon/authenticated -- closed in migration 274. Regression probes so it can't
+-- silently reopen (the arg is irrelevant; the call is rejected at the EXECUTE
+-- privilege check before the body runs).
+set local role authenticated;
+select pg_temp.expect_error(
+  $$select public.seed_default_dasher_boards_zones('11111111-1111-1111-1111-111111111111')$$,
+  'DB29z: authenticated CANNOT execute seed_default_dasher_boards_zones');
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.seed_default_dasher_boards_zones('11111111-1111-1111-1111-111111111111')$$,
+  'DB29z: anon CANNOT execute seed_default_dasher_boards_zones');
+
 -- ---------------------------------------------------------------------------
 -- DB30–33: edit-tier (manager) spec writes (migration 202).
 --
@@ -10996,6 +11010,31 @@ select pg_temp.expect_count(
 select pg_temp.expect_error(
   $$select public.compute_live_daily_metrics('not_a_real_module', date '2026-08-20')$$,
   'CLDM271c: an unrecognized module_key is rejected rather than silently returning null');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- CLDM270: compute_facility_daily_metrics / backfill_facility_daily_metrics
+-- (migration 270) are SECURITY DEFINER and DO take a caller-supplied
+-- p_facility_id. compute is granted to `authenticated` but its in-body guard
+-- must reject any caller that is not super_admin/service_role; backfill is
+-- service_role-only. Without these probes a `create or replace` that dropped
+-- the guard or widened the grant could let an authenticated user write ANY
+-- facility's compliance rollups, and nothing in CI would notice
+-- (production-readiness review, M-1). alice is a non-super-admin Facility A
+-- staffer.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.compute_facility_daily_metrics('22222222-2222-2222-2222-222222222222', date '2026-08-20')$$,
+  'CLDM270a: authenticated non-super-admin alice cannot compute_facility_daily_metrics for Facility B');
+select pg_temp.expect_error(
+  $$select public.compute_facility_daily_metrics('11111111-1111-1111-1111-111111111111', date '2026-08-20')$$,
+  'CLDM270b: ...nor even for her OWN facility -- the guard is super_admin/service_role only, not facility-scoped');
+select pg_temp.expect_error(
+  $$select public.backfill_facility_daily_metrics('11111111-1111-1111-1111-111111111111', date '2026-08-20', date '2026-08-20')$$,
+  'CLDM270c: authenticated alice cannot execute backfill_facility_daily_metrics (service_role-only grant)');
 reset role;
 
 set local role service_role;

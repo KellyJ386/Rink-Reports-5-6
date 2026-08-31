@@ -1,6 +1,6 @@
 // The nine modules the reporting layer covers — the exact set
-// supabase/migrations/00000000000267_daily_metrics_rollup_functions.sql and
-// 00000000000268_compute_live_daily_metrics.sql dispatch on. This is a
+// supabase/migrations/00000000000270_daily_metrics_rollup_functions.sql and
+// 00000000000271_compute_live_daily_metrics.sql dispatch on. This is a
 // narrower, SQL-defined subset of the full permission module list
 // (MODULE_NAMES in @/lib/permissions), not a competing source of truth —
 // labels are reused from @/lib/modules/module-keys rather than redeclared

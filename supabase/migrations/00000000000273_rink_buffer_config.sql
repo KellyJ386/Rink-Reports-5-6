@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000267_rink_buffer_config.sql
+-- 00000000000273_rink_buffer_config.sql
 -- Two knobs on the same "resurfacing buffer" mechanism that migration 247
 -- shipped as a single facility-wide default_buffer_minutes:
 --

@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000266_facility_daily_metrics.sql
+-- 00000000000269_facility_daily_metrics.sql
 --
 -- The reporting data layer: a daily-grain rollup table, the metric registry
 -- that says how to combine its values across a period, and the period-boundary
