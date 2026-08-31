@@ -254,6 +254,21 @@ export function BookingSheet(props: Props) {
         return
       }
       toast.success("Booking cancelled.")
+      // Freed ice that someone is already waiting for should not sit quiet.
+      if (r.waitlistMatches > 0) {
+        toast.info(
+          `${r.waitlistMatches} open waitlist ${r.waitlistMatches === 1 ? "entry matches" : "entries match"} the freed ice.`,
+          {
+            action: {
+              label: "Open requests",
+              onClick: () => {
+                window.location.href = "/reports/rink-scheduling/requests"
+              },
+            },
+            duration: 10_000,
+          },
+        )
+      }
       onClose()
     })
   }
@@ -982,6 +997,20 @@ function SeriesScopePanel({
       const parts = [`${r.cancelled} future date${r.cancelled === 1 ? "" : "s"} cancelled`]
       if (r.keptBilled > 0) parts.push(`${r.keptBilled} kept because they are invoiced`)
       toast.success(parts.join(", ") + ". Past dates were left untouched.")
+      if (r.waitlistMatches > 0) {
+        toast.info(
+          `${r.waitlistMatches} open waitlist ${r.waitlistMatches === 1 ? "entry matches" : "entries match"} the freed dates.`,
+          {
+            action: {
+              label: "Open requests",
+              onClick: () => {
+                window.location.href = "/reports/rink-scheduling/requests"
+              },
+            },
+            duration: 10_000,
+          },
+        )
+      }
       onDone()
     })
   }
