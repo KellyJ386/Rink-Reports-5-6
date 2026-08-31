@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,9 +13,11 @@ import {
   type CachedBooking,
 } from "@/lib/offline/calendar-cache"
 import { createClient } from "@/lib/supabase/client"
-import { addDaysToKey, formatInTz, weekdayOfKey } from "@/lib/timezone"
+import { addDaysToKey, formatInTz, wallTimeToUtc, weekdayOfKey } from "@/lib/timezone"
 
+import { updateBooking } from "../actions"
 import { BookingSheet } from "./booking-sheet"
+import { useGridDrag, type DragGhost } from "./use-grid-drag"
 import { FindSlotSheet } from "./find-slot-sheet"
 import { PlanCutsSheet } from "./plan-cuts-sheet"
 import { SeriesSheet } from "./series-sheet"
@@ -80,8 +83,66 @@ type Props = {
 
 type SheetState =
   | { mode: "closed" }
-  | { mode: "create"; rinkId: string; dayKey: string; startMinute: number }
+  | {
+      mode: "create"
+      rinkId: string
+      dayKey: string
+      startMinute: number
+      /** Set by drag-create; a plain slot click leaves the sheet's default. */
+      endMinute?: number
+    }
   | { mode: "edit"; booking: BookingView }
+
+/** A finished grid drag, in the grid's own facility-local coordinates. */
+type GridDragCommit = {
+  mode: "move" | "resize"
+  booking: BookingView
+  rinkId: string
+  dayKey: string
+  startMinute: number
+  endMinute: number
+}
+
+/** The optimistic position a booking holds while its drag saves. `base` is
+ *  the position it was dragged FROM: the override only applies while the
+ *  server still reports that position, so a refresh with fresh data (the
+ *  saved move, or someone else's) retires it without any bookkeeping. */
+type DragOverride = {
+  rink_id: string
+  starts_at: string
+  ends_at: string
+  base: { rink_id: string; starts_at: string; ends_at: string }
+}
+
+/** Facility-local wall minute of a day into a UTC instant; minute 1440 rolls
+ *  to the next day's midnight. The drags' single persist boundary, mirroring
+ *  the booking sheet's toIso(). */
+function dragMinuteToUtc(
+  dayKey: string,
+  minute: number,
+  timeZone: string | null,
+): Date | null {
+  const day = minute >= 1440 ? addDaysToKey(dayKey, 1) : dayKey
+  const m = minute >= 1440 ? minute - 1440 : minute
+  const hh = String(Math.floor(m / 60)).padStart(2, "0")
+  const mm = String(m % 60).padStart(2, "0")
+  return wallTimeToUtc(`${day}T${hh}:${mm}`, timeZone)
+}
+
+/** Only whole blocks drag. A block clipped by the day edge renders part of a
+ *  booking, and dragging the part would silently reshape the whole —
+ *  cross-midnight bookings reschedule through the sheet. */
+function blockIsDraggable(
+  b: BookingView,
+  startMinute: number,
+  endMinute: number,
+): boolean {
+  if (b.status === "cancelled") return false
+  const trueMinutes = Math.round(
+    (new Date(b.ends_at).getTime() - new Date(b.starts_at).getTime()) / 60_000,
+  )
+  return trueMinutes === endMinute - startMinute
+}
 
 export function CalendarClient(props: Props) {
   const {
@@ -101,18 +162,100 @@ export function CalendarClient(props: Props) {
   const [seriesOpen, setSeriesOpen] = useState(false)
   const [finderOpen, setFinderOpen] = useState(false)
   const [plannerOpen, setPlannerOpen] = useState(false)
+  const [overrides, setOverrides] = useState<ReadonlyMap<string, DragOverride>>(
+    new Map(),
+  )
+  const [, startDragTransition] = useTransition()
 
   useCalendarCacheWriter(props)
 
   const visible = useMemo(
     () =>
-      bookings.filter((b) => {
-        if (!showCancelled && b.status === "cancelled") return false
-        if (gapsOnly && b.coverage_status === "covered") return false
-        return true
-      }),
-    [bookings, showCancelled, gapsOnly],
+      bookings
+        .filter((b) => {
+          if (!showCancelled && b.status === "cancelled") return false
+          if (gapsOnly && b.coverage_status === "covered") return false
+          return true
+        })
+        .map((b) => {
+          const o = overrides.get(b.id)
+          const applies =
+            o &&
+            o.base.rink_id === b.rink_id &&
+            o.base.starts_at === b.starts_at &&
+            o.base.ends_at === b.ends_at
+          return applies
+            ? { ...b, rink_id: o.rink_id, starts_at: o.starts_at, ends_at: o.ends_at }
+            : b
+        }),
+    [bookings, showCancelled, gapsOnly, overrides],
   )
+
+  /** A drop or resize goes through the same updateBooking action the sheet
+   *  uses: the server re-resolves the ice-make buffer, re-quotes the rate,
+   *  and the DB exclusion constraint has the final word on overlaps. The
+   *  block sits at its new spot optimistically and snaps back on refusal. */
+  function commitDrag(commit: GridDragCommit) {
+    const { booking } = commit
+    if (booking.series_id) {
+      toast.info(
+        "This booking is part of a series. Open it instead — the sheet can move the whole series, split it, or detach this one occurrence.",
+      )
+      return
+    }
+    const starts = dragMinuteToUtc(commit.dayKey, commit.startMinute, props.timeZone)
+    const ends = dragMinuteToUtc(commit.dayKey, commit.endMinute, props.timeZone)
+    if (!starts || !ends || ends.getTime() <= starts.getTime()) {
+      toast.error("That drop could not be resolved to a valid time.")
+      return
+    }
+    const startsAt = starts.toISOString()
+    const endsAt = ends.toISOString()
+    // The dragged block may itself have been an optimistic override (a second
+    // drag before the refresh); anchor `base` on what the server last sent so
+    // the new override applies immediately.
+    const raw = bookings.find((b) => b.id === booking.id) ?? booking
+    setOverrides((prev) =>
+      new Map(prev).set(booking.id, {
+        rink_id: commit.rinkId,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        base: {
+          rink_id: raw.rink_id,
+          starts_at: raw.starts_at,
+          ends_at: raw.ends_at,
+        },
+      }),
+    )
+    startDragTransition(async () => {
+      const res = await updateBooking({
+        id: booking.id,
+        rinkId: commit.rinkId,
+        customerId: booking.customer_id,
+        bookingTypeId: booking.booking_type_id,
+        title: booking.title,
+        startsAt,
+        endsAt,
+        status: booking.status as "tentative" | "confirmed",
+        notes: booking.notes,
+      })
+      if (res.ok) {
+        toast.success(commit.mode === "move" ? "Booking moved." : "Booking resized.")
+      } else {
+        setOverrides((prev) => {
+          const next = new Map(prev)
+          next.delete(booking.id)
+          return next
+        })
+        const first = res.conflicts?.[0]
+        toast.error(
+          first
+            ? `${res.error} First conflict: ${first.customerName ?? first.title} on ${first.rinkName}.`
+            : res.error,
+        )
+      }
+    })
+  }
 
   const futureGapCount = useMemo(
     () =>
@@ -155,10 +298,11 @@ export function CalendarClient(props: Props) {
         <DayGrid
           {...props}
           bookings={visible}
-          onCreate={(rinkId, startMinute) =>
-            setSheet({ mode: "create", rinkId, dayKey: focusKey, startMinute })
+          onCreate={(rinkId, startMinute, endMinute) =>
+            setSheet({ mode: "create", rinkId, dayKey: focusKey, startMinute, endMinute })
           }
           onOpen={(booking) => setSheet({ mode: "edit", booking })}
+          onDragCommit={commitDrag}
         />
       )}
 
@@ -166,15 +310,17 @@ export function CalendarClient(props: Props) {
         <WeekGrid
           {...props}
           bookings={visible}
-          onCreate={(dayKey, startMinute) =>
+          onCreate={(dayKey, startMinute, endMinute) =>
             setSheet({
               mode: "create",
               rinkId: props.selectedRinkId ?? rinks[0].id,
               dayKey,
               startMinute,
+              endMinute,
             })
           }
           onOpen={(booking) => setSheet({ mode: "edit", booking })}
+          onDragCommit={commitDrag}
         />
       )}
 
@@ -437,11 +583,14 @@ function DayGrid({
   exceptions,
   slotMinutes,
   canCreate,
+  canEdit,
   onCreate,
   onOpen,
+  onDragCommit,
 }: Props & {
-  onCreate: (rinkId: string, startMinute: number) => void
+  onCreate: (rinkId: string, startMinute: number, endMinute?: number) => void
   onOpen: (b: BookingView) => void
+  onDragCommit: (c: GridDragCommit) => void
 }) {
   const window = resolveDayWindow(focusKey, hours, exceptions)
 
@@ -462,6 +611,23 @@ function DayGrid({
   )
   const ticks = hourTicks(extent.startMinute, extent.endMinute)
   const gridHeight = Math.max(560, ((extent.endMinute - extent.startMinute) / 60) * 56)
+
+  // Columns are rinks: dragging a block sideways moves it to another sheet.
+  const drag = useGridDrag({
+    extent,
+    slotMinutes,
+    enabled: canCreate || canEdit,
+    onCommit: (c) =>
+      onDragCommit({
+        mode: c.mode,
+        booking: c.booking,
+        rinkId: c.colKey,
+        dayKey: focusKey,
+        startMinute: c.startMinute,
+        endMinute: c.endMinute,
+      }),
+    onCreate: (c) => onCreate(c.colKey, c.startMinute, c.endMinute),
+  })
 
   return (
     <Card>
@@ -496,7 +662,11 @@ function DayGrid({
                     {col.rink.name}
                   </span>
                 </div>
-                <div className="relative" style={{ height: gridHeight }}>
+                <div
+                  ref={drag.registerColumn(col.rink.id)}
+                  className="relative"
+                  style={{ height: gridHeight }}
+                >
                   <HourLines ticks={ticks} extent={extent} />
                   <ClosedShading window={window} extent={extent} />
                   {canCreate && (
@@ -504,6 +674,9 @@ function DayGrid({
                       extent={extent}
                       slotMinutes={slotMinutes}
                       onPick={(minute) => onCreate(col.rink.id, minute)}
+                      onSlotPointerDown={(e, minute) =>
+                        drag.startCreateDrag(e, col.rink.id, minute)
+                      }
                       label={`Add a booking on ${col.rink.name}`}
                     />
                   )}
@@ -514,9 +687,27 @@ function DayGrid({
                       startMinute={item.startMinute}
                       endMinute={item.endMinute}
                       extent={extent}
+                      dimmed={drag.ghost?.bookingId === item.booking.id}
+                      onDragStart={
+                        canEdit &&
+                        blockIsDraggable(item.booking, item.startMinute, item.endMinute)
+                          ? (e, mode) =>
+                              drag.startBlockDrag(
+                                e,
+                                item.booking,
+                                col.rink.id,
+                                item.startMinute,
+                                item.endMinute,
+                                mode,
+                              )
+                          : undefined
+                      }
                       onOpen={onOpen}
                     />
                   ))}
+                  {drag.ghost && drag.ghost.colKey === col.rink.id && (
+                    <GhostBlock ghost={drag.ghost} extent={extent} />
+                  )}
                 </div>
               </div>
             ))}
@@ -541,12 +732,15 @@ function WeekGrid({
   slotMinutes,
   selectedRinkId,
   canCreate,
+  canEdit,
   todayKey,
   onCreate,
   onOpen,
+  onDragCommit,
 }: Props & {
-  onCreate: (dayKey: string, startMinute: number) => void
+  onCreate: (dayKey: string, startMinute: number, endMinute?: number) => void
   onOpen: (b: BookingView) => void
+  onDragCommit: (c: GridDragCommit) => void
 }) {
   const rink = rinks.find((r) => r.id === selectedRinkId) ?? rinks[0]
 
@@ -573,6 +767,24 @@ function WeekGrid({
   const ticks = hourTicks(extent.startMinute, extent.endMinute)
   const gridHeight = Math.max(560, ((extent.endMinute - extent.startMinute) / 60) * 52)
 
+  // Columns are days: dragging a block sideways moves it to another day of
+  // the week, on the same rink.
+  const drag = useGridDrag({
+    extent,
+    slotMinutes,
+    enabled: canCreate || canEdit,
+    onCommit: (c) =>
+      onDragCommit({
+        mode: c.mode,
+        booking: c.booking,
+        rinkId: rink.id,
+        dayKey: c.colKey,
+        startMinute: c.startMinute,
+        endMinute: c.endMinute,
+      }),
+    onCreate: (c) => onCreate(c.colKey, c.startMinute, c.endMinute),
+  })
+
   return (
     <Card>
       <CardContent className="p-0">
@@ -596,7 +808,11 @@ function WeekGrid({
                     {col.dayKey.slice(8)}
                   </span>
                 </div>
-                <div className="relative" style={{ height: gridHeight }}>
+                <div
+                  ref={drag.registerColumn(col.dayKey)}
+                  className="relative"
+                  style={{ height: gridHeight }}
+                >
                   <HourLines ticks={ticks} extent={extent} />
                   <ClosedShading window={col.window} extent={extent} />
                   {canCreate && (
@@ -604,6 +820,9 @@ function WeekGrid({
                       extent={extent}
                       slotMinutes={slotMinutes}
                       onPick={(minute) => onCreate(col.dayKey, minute)}
+                      onSlotPointerDown={(e, minute) =>
+                        drag.startCreateDrag(e, col.dayKey, minute)
+                      }
                       label={`Add a booking on ${col.dayKey}`}
                     />
                   )}
@@ -615,9 +834,27 @@ function WeekGrid({
                       endMinute={item.endMinute}
                       extent={extent}
                       compact
+                      dimmed={drag.ghost?.bookingId === item.booking.id}
+                      onDragStart={
+                        canEdit &&
+                        blockIsDraggable(item.booking, item.startMinute, item.endMinute)
+                          ? (e, mode) =>
+                              drag.startBlockDrag(
+                                e,
+                                item.booking,
+                                col.dayKey,
+                                item.startMinute,
+                                item.endMinute,
+                                mode,
+                              )
+                          : undefined
+                      }
                       onOpen={onOpen}
                     />
                   ))}
+                  {drag.ghost && drag.ghost.colKey === col.dayKey && (
+                    <GhostBlock ghost={drag.ghost} extent={extent} />
+                  )}
                 </div>
               </div>
             ))}
@@ -1035,11 +1272,14 @@ function CreateOverlay({
   extent,
   slotMinutes,
   onPick,
+  onSlotPointerDown,
   label,
 }: {
   extent: { startMinute: number; endMinute: number }
   slotMinutes: number
   onPick: (minute: number) => void
+  /** Arms drag-create; a plain click still lands on onPick. */
+  onSlotPointerDown?: (e: React.PointerEvent, minute: number) => void
   label: string
 }) {
   const step = slotMinutes > 0 ? slotMinutes : 30
@@ -1055,6 +1295,9 @@ function CreateOverlay({
           type="button"
           aria-label={`${label} at ${formatMinuteLabel(m)}`}
           onClick={() => onPick(m)}
+          onPointerDown={
+            onSlotPointerDown ? (e) => onSlotPointerDown(e, m) : undefined
+          }
           className="hover:bg-primary/10 focus-visible:ring-ring absolute inset-x-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none"
           style={{
             top: `${((m - extent.startMinute) / span) * 100}%`,
@@ -1066,12 +1309,39 @@ function CreateOverlay({
   )
 }
 
+/** The in-flight drag preview: where the block (or new selection) will land. */
+function GhostBlock({
+  ghost,
+  extent,
+}: {
+  ghost: DragGhost
+  extent: { startMinute: number; endMinute: number }
+}) {
+  const span = extent.endMinute - extent.startMinute
+  return (
+    <div
+      aria-hidden
+      className="border-primary bg-primary/15 pointer-events-none absolute inset-x-0.5 z-10 rounded-md border-2 border-dashed px-1.5 py-0.5"
+      style={{
+        top: `${((ghost.startMinute - extent.startMinute) / span) * 100}%`,
+        height: `${((ghost.endMinute - ghost.startMinute) / span) * 100}%`,
+      }}
+    >
+      <span className="text-primary block truncate font-mono text-[10px] font-medium tabular-nums">
+        {formatMinuteLabel(ghost.startMinute)}–{formatMinuteLabel(ghost.endMinute)}
+      </span>
+    </div>
+  )
+}
+
 function BookingBlock({
   booking,
   startMinute,
   endMinute,
   extent,
   compact = false,
+  dimmed = false,
+  onDragStart,
   onOpen,
 }: {
   booking: BookingView
@@ -1079,6 +1349,12 @@ function BookingBlock({
   endMinute: number
   extent: { startMinute: number; endMinute: number }
   compact?: boolean
+  /** True while this block's drag ghost is showing its new position. */
+  dimmed?: boolean
+  /** Present only when this block may be dragged (edit tier, not cancelled,
+   *  not clipped by the day edge). The block body starts a move; the strip
+   *  along the bottom edge starts an end-resize. */
+  onDragStart?: (e: React.PointerEvent, mode: "move" | "resize") => void
   onOpen: (b: BookingView) => void
 }) {
   const geo = blockGeometry(
@@ -1095,9 +1371,10 @@ function BookingBlock({
       <button
         type="button"
         onClick={() => onOpen(booking)}
+        onPointerDown={onDragStart ? (e) => onDragStart(e, "move") : undefined}
         className={`focus-visible:ring-ring absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-1 text-left focus-visible:ring-2 focus-visible:outline-none ${
           cancelled ? "opacity-50 line-through" : ""
-        }`}
+        } ${onDragStart ? "cursor-grab" : ""} ${dimmed ? "opacity-40" : ""}`}
         style={{
           top: `${geo.topPct}%`,
           height: `${geo.heightPct}%`,
@@ -1136,6 +1413,19 @@ function BookingBlock({
           >
             {booking.resurface_status === "completed" ? "✓" : "∅"}
           </span>
+        )}
+        {/* End-edge resize grip. stopPropagation keeps the block's own
+            move-drag from also arming; keyboard/tap users resize in the
+            sheet, so this stays a pointer-only affordance. */}
+        {onDragStart && (
+          <span
+            aria-hidden
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              onDragStart(e, "resize")
+            }}
+            className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+          />
         )}
       </button>
 
