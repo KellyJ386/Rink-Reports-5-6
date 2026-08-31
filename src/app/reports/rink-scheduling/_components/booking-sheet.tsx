@@ -40,7 +40,15 @@ import type {
 import { LockerRoomPanel } from "./locker-room-panel"
 
 type SheetState =
-  | { mode: "create"; rinkId: string; dayKey: string; startMinute: number }
+  | {
+      mode: "create"
+      rinkId: string
+      dayKey: string
+      startMinute: number
+      /** From drag-create; a plain slot click omits it and the default
+       *  duration below applies. */
+      endMinute?: number
+    }
   | { mode: "edit"; booking: BookingView }
 
 type Props = {
@@ -88,9 +96,16 @@ export function BookingSheet(props: Props) {
   const initialStart = isEdit
     ? (utcToWallTime(booking!.starts_at, timeZone)?.slice(11, 16) ?? "12:00")
     : hm(state.startMinute)
+  // The sheet's times are same-day, so a dragged end of 24:00 shows as 23:59
+  // rather than wrapping to 00:00 (which would read as before the start).
   const initialEnd = isEdit
     ? (utcToWallTime(booking!.ends_at, timeZone)?.slice(11, 16) ?? "13:00")
-    : hm(state.startMinute + Math.max(30, props.slotMinutes * 2))
+    : hm(
+        Math.min(
+          state.endMinute ?? state.startMinute + Math.max(30, props.slotMinutes * 2),
+          1439,
+        ),
+      )
 
   const [dayKey, setDayKey] = useState(initialDayKey)
   const [startTime, setStartTime] = useState(initialStart)
