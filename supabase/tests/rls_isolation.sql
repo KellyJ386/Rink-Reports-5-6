@@ -9861,7 +9861,7 @@ select pg_temp.expect_count(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
--- AF1-5: migration 268 — the actor-column composite-FK fence. As postgres:
+-- AF1-5: migration 274 — the actor-column composite-FK fence. As postgres:
 -- these exercise FK actions, not policies (an RLS-denied write would pass
 -- vacuously for the wrong reason).
 -- ---------------------------------------------------------------------------

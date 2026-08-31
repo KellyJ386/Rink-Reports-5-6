@@ -38,7 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   // Cross-module compliance reporting — a facility-wide read, not a
   // submission form, so it lives outside /reports/* (that namespace is
   // staff submission flows) and gates on its own 'reports' permission
-  // (migration 268) rather than requireAdmin, so a facility manager who
+  // (migration 269) rather than requireAdmin, so a facility manager who
   // lacks Admin Center access can still run the monthly report.
   { label: "Insights",         href: "/insights",               icon: BarChart3, moduleKey: "reports" },
   { label: "Daily Reports",    href: "/reports/daily",          icon: ClipboardList, moduleKey: "daily_reports" },

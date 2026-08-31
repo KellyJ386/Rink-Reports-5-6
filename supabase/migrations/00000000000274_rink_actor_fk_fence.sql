@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000268_rink_actor_fk_fence.sql
+-- 00000000000274_rink_actor_fk_fence.sql
 -- Fence every Module-12 actor column with a composite (actor, facility_id)
 -- foreign key to employees (id, facility_id), closing the reviewer finding
 -- tracked since PR #343: a plain single-column FK let a row record an actor
@@ -44,7 +44,7 @@ alter table public.employees
   add constraint employees_id_facility_uniq unique (id, facility_id);
 
 comment on constraint employees_id_facility_uniq on public.employees is
-  'Composite join point so actor columns elsewhere can be fenced with (actor_id, facility_id) foreign keys — an actor must belong to the same facility as the row that names them (migration 268).';
+  'Composite join point so actor columns elsewhere can be fenced with (actor_id, facility_id) foreign keys — an actor must belong to the same facility as the row that names them (migration 274).';
 
 -- ---------------------------------------------------------------------------
 -- rink_bookings: created_by, cancelled_by, resurface_resolved_by
