@@ -460,6 +460,8 @@ export function BookingSheet(props: Props) {
             <ResurfacePanel
               bookingId={booking!.id}
               status={booking!.resurface_status as ResurfaceLifecycleStatus}
+              startsAtIso={booking!.starts_at}
+              endsAtIso={booking!.ends_at}
               timeZone={timeZone}
               canEdit={canEdit}
               onDone={onClose}
@@ -565,12 +567,16 @@ const RESURFACE_STATUS_LABEL: Record<ResurfaceLifecycleStatus, string> = {
 function ResurfacePanel({
   bookingId,
   status,
+  startsAtIso,
+  endsAtIso,
   timeZone,
   canEdit,
   onDone,
 }: {
   bookingId: string
   status: ResurfaceLifecycleStatus
+  startsAtIso: string
+  endsAtIso: string
   timeZone: string | null
   canEdit: boolean
   onDone: () => void
@@ -579,6 +585,29 @@ function ResurfacePanel({
   const [completing, setCompleting] = useState(false)
   const [cuts, setCuts] = useState<RecentIceCut[] | null>(null)
   const [cutId, setCutId] = useState("")
+  const [nearbyCut, setNearbyCut] = useState<RecentIceCut | null>(null)
+
+  // The suggestion: when Ice Operations logged an ice-make near this cut's
+  // window, offer to close the loop in one tap. A read, fired once per open;
+  // any failure just means no hint.
+  useEffect(() => {
+    if (status !== "scheduled" || !canEdit) return
+    let cancelled = false
+    void (async () => {
+      const r = await listRecentIceCuts()
+      if (cancelled || !r.ok) return
+      const fromMs = new Date(startsAtIso).getTime() - 30 * 60_000
+      const untilMs = new Date(endsAtIso).getTime() + 30 * 60_000
+      const hit = r.cuts.find((c) => {
+        const t = new Date(c.occurredAt).getTime()
+        return t >= fromMs && t <= untilMs
+      })
+      if (!cancelled) setNearbyCut(hit ?? null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [status, canEdit, startsAtIso, endsAtIso])
 
   function move(to: ResurfaceLifecycleStatus, iceCutSubmissionId: string | null) {
     startTransition(async () => {
@@ -638,6 +667,29 @@ function ResurfacePanel({
           {RESURFACE_STATUS_LABEL[status]}
         </Badge>
       </div>
+
+      {status === "scheduled" && !completing && nearbyCut && (
+        <div className="bg-muted/40 flex flex-col gap-2 rounded-md border p-2.5">
+          <p className="text-sm">
+            An ice cut was logged in Ice Operations at{" "}
+            {formatInTz(nearbyCut.occurredAt, timeZone, {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            {nearbyCut.rinkLabel ? ` (${nearbyCut.rinkLabel})` : ""} — likely
+            this one.
+          </p>
+          <div>
+            <Button
+              size="sm"
+              onClick={() => move("completed", nearbyCut.id)}
+              disabled={pending}
+            >
+              Mark completed with that record
+            </Button>
+          </div>
+        </div>
+      )}
 
       {status === "scheduled" && !completing && (
         <div className="flex flex-wrap gap-2">
