@@ -1,5 +1,5 @@
 -- =============================================================================
--- 00000000000266_facility_daily_metrics.sql
+-- 00000000000270_facility_daily_metrics.sql
 --
 -- The reporting data layer: a daily-grain rollup table, the metric registry
 -- that says how to combine its values across a period, and the period-boundary
@@ -51,7 +51,7 @@ comment on column public.facilities.fiscal_year_start_month is
 
 -- Tennity's fiscal year. Matched on slug rather than id so a clean replay onto
 -- an empty database is a harmless no-op. User triggers stay ENABLED here: unlike
--- the migration 267 backfill this is a real configuration change and belongs in
+-- the migration 268 backfill this is a real configuration change and belongs in
 -- the audit trail.
 update public.facilities
    set fiscal_year_start_month = 7
@@ -73,7 +73,7 @@ create table if not exists public.facility_daily_metrics (
 comment on table public.facility_daily_metrics is
   'Nightly per-facility, per-day, per-module metric rollup. All four report periods '
   '(day/week/month/year) aggregate THIS table; only "today" reads live fact tables. '
-  'WRITE PATH: the SECURITY DEFINER rollup functions (migration 270) and the service '
+  'WRITE PATH: the SECURITY DEFINER rollup functions (migration 271) and the service '
   'role ONLY — there are deliberately no INSERT/UPDATE/DELETE policies for '
   'authenticated, and those privileges are revoked. Recomputation is idempotent via '
   'ON CONFLICT on the primary key.';
@@ -84,7 +84,7 @@ comment on column public.facility_daily_metrics.metrics is
   'aggregation mode (how daily values combine into a weekly/monthly/annual figure).';
 
 comment on column public.facility_daily_metrics.business_date is
-  'Facility-local business date (migration 267), NOT a UTC date. This is the grain.';
+  'Facility-local business date (migration 268), NOT a UTC date. This is the grain.';
 
 create index if not exists idx_facility_daily_metrics_facility_module_date
   on public.facility_daily_metrics (facility_id, module_key, business_date desc);
@@ -92,7 +92,7 @@ create index if not exists idx_facility_daily_metrics_facility_module_date
 alter table public.facility_daily_metrics enable row level security;
 
 -- Read is gated on BOTH tenancy and the 'reports' module permission from
--- migration 268. Facility scoping alone is not enough: these are facility-wide
+-- migration 269. Facility scoping alone is not enough: these are facility-wide
 -- compliance aggregates, and staff hold no grant on the reports module.
 drop policy if exists facility_daily_metrics_select on public.facility_daily_metrics;
 create policy facility_daily_metrics_select on public.facility_daily_metrics
@@ -116,7 +116,7 @@ grant  select, insert, update, delete on public.facility_daily_metrics to servic
 -- 3. report_metric_definitions — the metric registry.
 --
 --    Global, not facility-scoped: it describes what a metric MEANS, not any
---    facility's data. Seeded per module in migration 270 alongside the rollup
+--    facility's data. Seeded per module in migration 271 alongside the rollup
 --    functions that emit those keys.
 -- -----------------------------------------------------------------------------
 create table if not exists public.report_metric_definitions (
@@ -137,7 +137,7 @@ comment on table public.report_metric_definitions is
   'Registry for the keys stored in facility_daily_metrics.metrics: display label, '
   'unit, sort order, and the aggregation mode used to combine DAILY values into a '
   'weekly/monthly/annual figure. Global metadata (no facility_id) — it describes what '
-  'a metric means, not any facility''s data. Seeded per module in migration 270.';
+  'a metric means, not any facility''s data. Seeded per module in migration 271.';
 
 comment on column public.report_metric_definitions.aggregation is
   'How daily values combine over a period: sum | avg | max | min | last. '

@@ -27,6 +27,11 @@ export type BookingView = BookingRow & {
   typeName: string
   typeColor: string
   customerName: string | null
+  /** Resolved from created_by / cancelled_by for the booking sheet's audit
+   *  line. Null when the actor is unknown (system-created, or the employee
+   *  row is gone). */
+  createdByName: string | null
+  cancelledByName: string | null
 }
 
 export type CalendarView = "day" | "week" | "month" | "list"

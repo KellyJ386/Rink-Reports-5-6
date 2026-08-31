@@ -371,7 +371,7 @@ export async function updateBooking(input: {
 
     const { data: existing } = await supabase
       .from("rink_bookings")
-      .select("buffer_minutes_after, starts_at, ends_at")
+      .select("buffer_minutes_after, starts_at, ends_at, rink_id")
       .eq("id", input.id)
       .eq("facility_id", facilityId)
       .maybeSingle()
@@ -382,6 +382,7 @@ export async function updateBooking(input: {
     // that changed since it was made.
     const windowMoved =
       existing.starts_at !== input.startsAt || existing.ends_at !== input.endsAt
+    const rinkMoved = existing.rink_id !== input.rinkId
 
     const updates: TablesUpdate<"rink_bookings"> = {
       rink_id: input.rinkId,
@@ -392,6 +393,31 @@ export async function updateBooking(input: {
       ends_at: input.endsAt,
       status: input.status,
       notes: input.notes,
+    }
+
+    // Rescheduling re-resolves the ice-make buffer: the override is per
+    // sheet, so moving to another rink must pick up that rink's timing, and
+    // a time move picks up the facility's current settings. A title-only
+    // edit keeps the snapshot, mirroring the rate-snapshot rule above.
+    if (rinkMoved || windowMoved) {
+      const [{ data: settings }, { data: targetRink }] = await Promise.all([
+        supabase
+          .from("rink_scheduling_settings")
+          .select("default_buffer_minutes, buffer_included_in_rental")
+          .eq("facility_id", facilityId)
+          .maybeSingle(),
+        supabase
+          .from("facility_rinks")
+          .select("buffer_minutes_override")
+          .eq("id", input.rinkId)
+          .eq("facility_id", facilityId)
+          .maybeSingle(),
+      ])
+      updates.buffer_minutes_after = resolveBufferMinutes({
+        facilityDefaultMinutes: settings?.default_buffer_minutes,
+        rinkOverrideMinutes: targetRink?.buffer_minutes_override,
+        includedInRental: settings?.buffer_included_in_rental,
+      })
     }
 
     if (windowMoved) {
@@ -418,7 +444,9 @@ export async function updateBooking(input: {
 
     if (error) {
       if (error.code === "23P01") {
-        const buffer = existing.buffer_minutes_after ?? 0
+        // The buffer the rejected write actually carried — re-resolved when
+        // the booking moved, the stored snapshot otherwise.
+        const buffer = updates.buffer_minutes_after ?? existing.buffer_minutes_after ?? 0
         const blocksUntil = new Date(
           new Date(input.endsAt).getTime() + buffer * 60_000,
         ).toISOString()

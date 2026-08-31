@@ -277,6 +277,7 @@ export function BookingSheet(props: Props) {
           {isEdit && booking!.status === "cancelled" && (
             <p className="border-border bg-muted/40 rounded-md border p-3 text-sm">
               This booking was cancelled
+              {booking!.cancelledByName ? ` by ${booking!.cancelledByName}` : ""}
               {booking!.cancellation_reason
                 ? `: ${booking!.cancellation_reason}`
                 : "."}
@@ -518,6 +519,29 @@ export function BookingSheet(props: Props) {
                 Close
               </Button>
             </div>
+          )}
+
+          {/* Audit line — the trail exists in the database; showing it here
+              lets a "who booked this?" dispute resolve in one glance. */}
+          {isEdit && booking!.created_at && (
+            <p className="text-muted-foreground text-xs">
+              Created{" "}
+              {formatInTz(booking!.created_at, timeZone, {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+              {booking!.createdByName ? ` by ${booking!.createdByName}` : ""}
+              {booking!.updated_at && booking!.updated_at !== booking!.created_at
+                ? ` · Last changed ${formatInTz(booking!.updated_at, timeZone, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+            </p>
           )}
         </div>
       </div>

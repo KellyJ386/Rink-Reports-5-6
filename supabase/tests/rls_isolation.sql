@@ -9861,6 +9861,109 @@ select pg_temp.expect_count(
 set local role postgres;
 
 -- ---------------------------------------------------------------------------
+-- AF1-5: migration 274 — the actor-column composite-FK fence. As postgres:
+-- these exercise FK actions, not policies (an RLS-denied write would pass
+-- vacuously for the wrong reason).
+-- ---------------------------------------------------------------------------
+
+-- The whole sweep, pinned by name: every module-12 actor FK is a TWO-column
+-- constraint referencing employees. A future migration that recreates one of
+-- these as single-column silently un-fences it — this catches that.
+select pg_temp.expect_count(
+  $$select count(*) from pg_constraint c
+     where c.contype = 'f'
+       and c.confrelid = 'public.employees'::regclass
+       and cardinality(c.conkey) = 2
+       and c.conname in (
+         'rink_bookings_created_by_fkey', 'rink_bookings_cancelled_by_fkey',
+         'rink_bookings_resurface_resolved_by_fkey',
+         'rink_booking_series_created_by_fkey',
+         'rink_booking_requests_decided_by_fkey',
+         'rink_display_tokens_created_by_fkey',
+         'rink_invoices_created_by_fkey', 'rink_invoices_voided_by_fkey',
+         'rink_locker_room_assignments_created_by_fkey',
+         'rink_payments_recorded_by_fkey',
+         'rink_season_contracts_created_by_fkey',
+         'rink_waitlist_entries_created_by_fkey')$$,
+  12, 'AF1: all 12 module-12 actor FKs are composite (actor, facility_id) -> employees');
+
+select pg_temp.expect_error(
+  $$update public.rink_bookings
+       set created_by = 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+     where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
+  'AF2: a facility-A booking CANNOT name a facility-B employee as its creator');
+
+select pg_temp.expect_ok(
+  $$update public.rink_bookings
+       set created_by = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     where id = 'a5000001-0000-4000-8000-0000000000b1'$$,
+  'AF3: the same booking CAN name its own facility''s employee');
+
+-- Column-list SET NULL proof, on a throwaway employee with no other
+-- references: deleting them clears ONLY the actor column. A plain composite
+-- SET NULL would try to null facility_id too and fail its NOT NULL — the
+-- migration-190 trap, re-checked here for this new FK family.
+insert into public.employees (id, facility_id, role_id, first_name, last_name, email, is_active)
+select 'aaaa1111-af04-4000-8000-0000000000ee'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       r.id, 'Fence', 'Probe', 'fence-af@fac-a.test', true
+  from public.roles r
+ where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+ limit 1
+on conflict (id) do nothing;
+
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id, starts_at, ends_at,
+   status, created_by)
+select 'a5000001-af04-4000-8000-0000000000b9',
+       '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001',
+       'a5000001-0000-4000-8000-0000000000c1',
+       bt.id, '2029-03-01 06:00:00-05', '2029-03-01 07:00:00-05', 'confirmed',
+       'aaaa1111-af04-4000-8000-0000000000ee'
+from public.rink_booking_types bt
+where bt.facility_id = '11111111-1111-1111-1111-111111111111'
+  and bt.slug = 'ice-rental'
+on conflict (id) do nothing;
+
+select pg_temp.expect_ok(
+  $$delete from public.employees where id = 'aaaa1111-af04-4000-8000-0000000000ee'$$,
+  'AF4: deleting an employee referenced as a booking''s creator succeeds');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_bookings
+     where id = 'a5000001-af04-4000-8000-0000000000b9'
+       and created_by is null
+       and facility_id = '11111111-1111-1111-1111-111111111111'$$,
+  1, 'AF5: the column-list SET NULL cleared only created_by — facility_id survives');
+
+-- AF5 proves the SET NULL behavior for one column; this pins the DDL for all
+-- twelve: each fenced FK's confdelsetcols must be exactly one column and that
+-- column must not be facility_id. A future edit that writes
+-- `on delete set null (facility_id)` — the silent-narrowing cousin of the
+-- migration-190 trap — would still pass AF1 (still composite) but fails here.
+select pg_temp.expect_count(
+  $$select count(*) from pg_constraint c
+      join pg_attribute a
+        on a.attrelid = c.conrelid and a.attnum = any (c.confdelsetcols)
+     where c.contype = 'f'
+       and c.confrelid = 'public.employees'::regclass
+       and cardinality(c.confdelsetcols) = 1
+       and a.attname <> 'facility_id'
+       and c.conname in (
+         'rink_bookings_created_by_fkey', 'rink_bookings_cancelled_by_fkey',
+         'rink_bookings_resurface_resolved_by_fkey',
+         'rink_booking_series_created_by_fkey',
+         'rink_booking_requests_decided_by_fkey',
+         'rink_display_tokens_created_by_fkey',
+         'rink_invoices_created_by_fkey', 'rink_invoices_voided_by_fkey',
+         'rink_locker_room_assignments_created_by_fkey',
+         'rink_payments_recorded_by_fkey',
+         'rink_season_contracts_created_by_fkey',
+         'rink_waitlist_entries_created_by_fkey')$$,
+  12, 'AF6: every fenced FK''s SET NULL list targets its actor column, never facility_id');
+
+-- ---------------------------------------------------------------------------
 -- RF13-17: migration 266 — the pre-existing composite SET NULL sweep and the
 -- resurface audit stamps. All as postgres: the deletes below exercise FK
 -- actions, not policies.
