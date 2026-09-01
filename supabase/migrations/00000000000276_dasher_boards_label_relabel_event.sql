@@ -96,7 +96,7 @@ end;
 $$;
 
 comment on function public.dasher_boards_assets_log_display_events() is
-  'AFTER UPDATE trigger on dasher_boards_assets: writes the mandatory asset event for every custom_label change (relabeled, detail.label_kind=custom_label), every permanent label change that is NOT part of a type conversion (relabeled, detail.label_kind=label; migration 276), and every out_of_service flip (marked_out_of_service / returned_to_service). SECURITY DEFINER so the audit row does not depend on the caller''s asset_events INSERT grant (admin-only) — an edit-tier status change, or a direct label PATCH, must still be audited. Trigger-only; execute revoked from public.';
+  'AFTER UPDATE trigger on dasher_boards_assets: writes the mandatory asset event for every custom_label change (relabeled, detail.label_kind=custom_label), every permanent label change (relabeled, detail.label_kind=label; migration 276), and every out_of_service flip (marked_out_of_service / returned_to_service). SECURITY DEFINER so the audit row does not depend on the caller''s asset_events INSERT grant (admin-only) — an edit-tier status change, or a direct label PATCH, must still be audited. Trigger-only; execute revoked from public.';
 
 revoke execute on function public.dasher_boards_assets_log_display_events()
   from public, anon, authenticated;
