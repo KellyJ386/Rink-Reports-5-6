@@ -216,67 +216,57 @@ This is a grandfathered collision: `migration-prefix-check.yml` only fails on *n
 > [`production-reconciliation-2026-06.md`](production-reconciliation-2026-06.md).
 > Do that reconciliation before relying on `deploy-migrations.yml`.
 
-### August 2026: 208–232 are pending, and 233 was applied ahead of them
+### August 2026 backlog (208–232 below a hand-applied 233) — cleared 2026-09-01
 
-Prod's ledger currently reads `… 205, 206, 207, 233`. That gap is deliberate,
-and it changes what a `db push` does — read this before merging anything that
-touches `supabase/migrations/**`.
+Historical record; nothing here needs doing. For roughly a month prod's
+ledger read `… 205, 206, 207, 233`: `00000000000206` had been repaired as
+applied rather than run (its `ice_depth_sessions` columns are dropped again
+by 223 and nothing read them, so its net effect was nil), and
+`00000000000233` had been applied by hand, out of order, to unblock the
+admin Walks tab. Everything from 208 upward sat pending *below* that
+high-water mark, so the workflow's backlog guard (next section) failed every
+migration-touching merge by design — from PR #347 onward — while the app
+kept deploying ahead of its own schema.
 
-What was done, and why:
+The backlog (208–276 by then, including the non-reversible
+`00000000000222_audit_logs_partitioning_pilot.sql` cutover) was cleared
+deliberately on **2026-09-01** in Deploy Migrations run #97: PITR confirmed
+first, `include_all` ticked for that single run, output watched through 222,
+then verified — `select * from public.verify_all_audit_chains();` returned
+`ok: true` (3 facilities, 1,604 rows checked, 0 broken). The ledger has been
+contiguous (through `00000000000276` at the time) since, and routine merges
+deploy incrementally again.
 
-- **`00000000000206` was repaired, not run.** Prod had skipped it, leaving a
-  hole *below* the applied high-water mark at 207. Its four
-  `ice_depth_sessions` columns (`board_pass` / `glass_pass` / `*_fail_notes`)
-  are dropped again by `00000000000223` and no app code reads them, so its net
-  effect is nil. It is recorded as applied so the version stops re-appearing
-  as pending.
-- **`00000000000233` was applied by hand, out of order,** to unblock the admin
-  Walks tab and the walk PDF, which need `dasher_boards_rinks.glass_number_*`
-  and `dasher_boards_assets.display_number`. This is safe out of order:
-  everything 233 depends on (`dasher_boards_guard_exempt`,
-  `has_module_edit_access`, the migration-202 asset guard) was already on prod,
-  and nothing in 208–232 redefines `dasher_boards_assets_guard`, so the
-  backlog will not clobber 233's `display_number` freeze when it lands.
+### If the out-of-order backlog guard ever trips again
 
-**Consequence — merges that touch `supabase/migrations/**` will fail until the
-backlog clears.** With 208–232 sitting below the applied 233, a bare
-`supabase db push` refuses to insert behind the last applied version and exits
-non-zero. `deploy-migrations.yml` now detects this *before* pushing (the
-"Guard against an out-of-order backlog" step) and fails with a pointer here,
-so the condition is reported rather than discovered in a CLI error.
+`deploy-migrations.yml` refuses to push when pending migrations sit *below*
+the last version applied on the remote database (the "Guard against an
+out-of-order backlog" step), and fails with a pointer here. That state means
+someone applied a migration by hand ahead of the queue. A bare
+`supabase db push` exits non-zero on it, and the CLI's own error names
+`--include-all` as the fix — which would apply **every** pending migration
+below the high-water mark in one unattended shot. The guard exists so that
+choice is made by a person, deliberately:
 
-That guard exists because the CLI's own error names `--include-all` as the fix.
-Pasting that flag into a rerun would apply **every** pending migration below
-the high-water mark in one unattended shot — including 222. Do not do that.
-
-### Clearing the backlog (208–232) — deliberate, watched
-
-`00000000000222_audit_logs_partitioning_pilot.sql` is a non-reversible
-partitioning cutover; rollback is PITR. It also cannot be cherry-picked, since
-it renames the `seq` / `prev_hash` / `row_hash` objects that only arrive in
-`00000000000217`. So the backlog goes as one run, with someone watching:
-
-1. Confirm PITR / backup state in the Supabase dashboard. Nothing else here
+1. Read the pending list in the failed run's log and understand *why* the
+   ledger is out of order before touching anything.
+2. Confirm PITR / backup state in the Supabase dashboard. Nothing else here
    substitutes for this.
-2. Actions → **Deploy Migrations** → **Run workflow**, tick **`include_all`**.
+3. Actions → **Deploy Migrations** → **Run workflow**, tick **`include_all`**.
    That is the only supported way to push `--include-all`; it skips the guard
    for that run only and logs a warning, so the choice is visible in the run
    history.
-3. Watch the output through 222, then confirm the chain is intact:
+4. Watch the output, then run whatever post-checks fit the batch — at minimum
 
    ```sql
    select * from public.verify_all_audit_chains();
    ```
 
-Once the ledger is contiguous through 233 the guard passes on its own and
-`db push` is plain incremental again. **Leave `include_all` unticked** for
-every routine deploy — it is a per-run choice by design and must never become
-a standing flag in the workflow.
+   if anything touching `audit_logs` was in it.
 
-> Sizing note, so the window isn't over-planned: at the time of writing
-> `audit_logs` held 1,081 rows in ~800 kB of heap. The ~269 MB the table
-> reports is *index* bloat, which 222 rebuilds away. The copy-and-swap is
-> seconds at this volume; the caution is about irreversibility, not duration.
+Once the ledger is contiguous again the guard passes on its own.
+**Leave `include_all` unticked** for every routine deploy — it is a per-run
+choice by design and must never become a standing flag in the workflow.
 
 ## 9. Supabase Auth configuration (hosted project — verify before launch)
 
