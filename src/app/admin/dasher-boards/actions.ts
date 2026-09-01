@@ -1156,9 +1156,10 @@ export async function relabelAsset(
     if (error) {
       return { ok: false, error: dbError(error, "Failed to relabel.") }
     }
-    await recordAssetEvents(ctx, [
-      { assetId, eventType: "relabeled", detail: { from_label: asset.label, to_label: label } },
-    ])
+    // The 'relabeled' (label_kind=label) audit event is written by the
+    // dasher_boards_assets_log_display_events trigger (migration 276) — the DB
+    // is the single authority, so a direct label PATCH that skips this action is
+    // audited too. Do NOT also insert it here or the event double-counts.
     revalidateModule()
     return { ok: true }
   } catch (e) {

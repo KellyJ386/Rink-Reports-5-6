@@ -10324,6 +10324,24 @@ select pg_temp.expect_count(
       and detail->>'new' = 'Zam Gate Left'$$,
   1, 'DSL4b: the custom relabel auto-wrote a relabeled asset event');
 
+-- DSL4c: the PERMANENT identity label is audited by the same trigger now
+-- (migration 276), closing the gap where a direct
+-- PATCH /rest/v1/dasher_boards_assets {"label": ...} bypassed the app-only
+-- writer and left NO asset event. A label-only change (asset_type unchanged) is
+-- a genuine relabel and must auto-write one relabeled/label_kind=label event.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set label = 'ZZ90'
+     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+  'DSL4c: relabeling the permanent identity label succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-000000000001'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'label'
+      and detail->>'new' = 'ZZ90'$$,
+  1, 'DSL4c: a direct label change auto-wrote a relabeled/label_kind=label event');
+
 select pg_temp.expect_error(
   $$update public.dasher_boards_assets
        set custom_label = 'zam gate left'

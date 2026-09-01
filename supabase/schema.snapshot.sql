@@ -2562,6 +2562,24 @@ begin
     );
   end if;
 
+  -- Permanent identity label. Guarded on asset_type being UNCHANGED so a
+  -- board<->door conversion (which rewrites label AND asset_type and logs its
+  -- own converted_to_* event) is not also double-audited as a bare relabel.
+  if new.label is distinct from old.label
+     and new.asset_type is not distinct from old.asset_type then
+    insert into public.dasher_boards_asset_events
+      (facility_id, asset_id, event_type, detail, employee_id)
+    values (
+      new.facility_id, new.id, 'relabeled',
+      jsonb_build_object(
+        'label_kind', 'label',
+        'old', old.label,
+        'new', new.label
+      ),
+      public.current_employee_id()
+    );
+  end if;
+
   return new;
 end;
 $$;
@@ -2571,7 +2589,7 @@ $$;
 -- Name: FUNCTION dasher_boards_assets_log_display_events(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.dasher_boards_assets_log_display_events() IS 'AFTER UPDATE trigger on dasher_boards_assets: writes the mandatory asset event for every custom_label change (relabeled, detail.label_kind=custom_label) and every out_of_service flip (marked_out_of_service / returned_to_service). SECURITY DEFINER so the audit row does not depend on the caller''s asset_events INSERT grant (admin-only) — an edit-tier status change must still be audited. Trigger-only; execute revoked from public.';
+COMMENT ON FUNCTION public.dasher_boards_assets_log_display_events() IS 'AFTER UPDATE trigger on dasher_boards_assets: writes the mandatory asset event for every custom_label change (relabeled, detail.label_kind=custom_label), every permanent label change that is NOT part of a type conversion (relabeled, detail.label_kind=label; migration 276), and every out_of_service flip (marked_out_of_service / returned_to_service). SECURITY DEFINER so the audit row does not depend on the caller''s asset_events INSERT grant (admin-only) — an edit-tier status change, or a direct label PATCH, must still be audited. Trigger-only; execute revoked from public.';
 
 
 --
@@ -23556,7 +23574,7 @@ CREATE TRIGGER trg_dasher_boards_assets_label_check BEFORE INSERT OR UPDATE OF l
 -- Name: dasher_boards_assets trg_dasher_boards_assets_log_display_events; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_dasher_boards_assets_log_display_events AFTER UPDATE ON public.dasher_boards_assets FOR EACH ROW WHEN (((old.custom_label IS DISTINCT FROM new.custom_label) OR (old.out_of_service IS DISTINCT FROM new.out_of_service))) EXECUTE FUNCTION public.dasher_boards_assets_log_display_events();
+CREATE TRIGGER trg_dasher_boards_assets_log_display_events AFTER UPDATE ON public.dasher_boards_assets FOR EACH ROW WHEN ((((old.custom_label IS DISTINCT FROM new.custom_label) OR (old.out_of_service IS DISTINCT FROM new.out_of_service)) OR (old.label IS DISTINCT FROM new.label))) EXECUTE FUNCTION public.dasher_boards_assets_log_display_events();
 
 
 --
