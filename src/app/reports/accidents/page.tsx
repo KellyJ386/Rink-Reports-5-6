@@ -71,7 +71,13 @@ function formatTimestamp(iso: string, timezone: string | null): string {
       timeStyle: "short",
     })
   } catch {
-    return new Date(iso).toLocaleString()
+    return (
+      new Date(iso).toLocaleString("en-US", {
+        timeZone: "UTC",
+        dateStyle: "medium",
+        timeStyle: "short",
+      }) + " UTC"
+    )
   }
 }
 

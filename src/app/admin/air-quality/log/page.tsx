@@ -8,6 +8,7 @@ import type { AirQualityFormData } from "@/app/reports/air-quality/types"
 
 import { PrintButton } from "./print-button"
 import { SendLogButton } from "./send-log-button"
+import { AQ_LOG_ROW_LIMIT, resolveLogRange } from "./_lib/log-range"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Air Quality Log | MFO / Rink Reports" }
@@ -30,20 +31,6 @@ type ReadingRow = {
   label_snapshot: string
   value_numeric: number | string
   is_exceedance: boolean
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function defaultTo(): string {
-  return isoDate(new Date())
-}
-
-function defaultFrom(): string {
-  return isoDate(new Date(Date.now() - 90 * DAY_MS))
 }
 
 function isCo(key: string, label: string): boolean {
@@ -77,11 +64,9 @@ export default async function AirQualityLogPage({
   const facilityId = current.profile?.facility_id ?? null
   const params = await searchParams
 
-  const to = params.to && /^\d{4}-\d{2}-\d{2}$/.test(params.to) ? params.to : defaultTo()
-  const from =
-    params.from && /^\d{4}-\d{2}-\d{2}$/.test(params.from)
-      ? params.from
-      : defaultFrom()
+  // Span-capped so an over-broad range can't drive an unbounded query (the
+  // reports query below is also row-capped as a hard ceiling).
+  const { from, to } = resolveLogRange(params.from, params.to)
 
   if (!facilityId) {
     return (
@@ -120,7 +105,8 @@ export default async function AirQualityLogPage({
         .eq("facility_id", facilityId)
         .gte("submitted_at", `${from}T00:00:00Z`)
         .lt("submitted_at", toBound.toISOString())
-        .order("submitted_at", { ascending: true }),
+        .order("submitted_at", { ascending: true })
+        .limit(AQ_LOG_ROW_LIMIT),
     ])
 
   let jurisdiction: string | null = null

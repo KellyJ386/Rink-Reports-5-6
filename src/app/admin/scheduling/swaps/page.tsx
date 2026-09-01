@@ -133,7 +133,7 @@ export default async function SwapsPage({
     )
   )
 
-  const [shiftsRes, empsRes, facilityEmpsRes] = await Promise.all([
+  const [shiftsRes, empsRes, facilityEmpsRes, facilityRes] = await Promise.all([
     shiftIds.length > 0
       ? supabase
           .from("schedule_shifts")
@@ -153,6 +153,11 @@ export default async function SwapsPage({
       .eq("is_active", true)
       .order("last_name", { ascending: true })
       .limit(500),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
   ])
   const shiftMap = new Map(
     ((shiftsRes.data ?? []) as ShiftLite[]).map((s) => [s.id, s])
@@ -161,6 +166,7 @@ export default async function SwapsPage({
     ((empsRes.data ?? []) as EmployeeLite[]).map((e) => [e.id, e])
   )
   const facilityEmps = (facilityEmpsRes.data ?? []) as EmployeeLite[]
+  const tz = facilityRes.data?.timezone ?? null
 
   const rows: SwapRow[] = swaps.map((s) => ({
     id: s.id,
@@ -221,7 +227,7 @@ export default async function SwapsPage({
         })}
       </div>
 
-      <SwapsList rows={rows} employeeOptions={employeeOptions} />
+      <SwapsList rows={rows} employeeOptions={employeeOptions} timeZone={tz} />
     </div>
   )
 }

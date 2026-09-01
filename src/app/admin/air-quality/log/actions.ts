@@ -7,6 +7,7 @@ import { logServerError } from "@/lib/observability/log-server-error"
 import { isEmailConfigured, sendEmail } from "@/lib/notifications/transport/email"
 
 import { buildAirQualityLogPdf } from "./_lib/log-pdf"
+import { resolveLogRange } from "./_lib/log-range"
 
 export type SendLogState =
   | { ok: true; message: string }
@@ -52,6 +53,10 @@ export async function sendAirQualityLog(
     if (!DATE_RE.test(fromRaw) || !DATE_RE.test(toRaw)) {
       return { ok: false, error: "Invalid date range." }
     }
+    // Cap the span so an over-broad range can't OOM/timeout the PDF build; the
+    // email's subject/body echo the resolved (possibly clamped) range below.
+    // Named range* to avoid shadowing the `to` recipient-loop variable.
+    const { from: rangeFrom, to: rangeTo } = resolveLogRange(fromRaw, toRaw)
 
     const recipients = String(formData.get("recipients") ?? "")
       .split(/[,;]/)
@@ -77,8 +82,8 @@ export async function sendAirQualityLog(
     const rendered = await buildAirQualityLogPdf(
       supabase,
       facilityId,
-      fromRaw,
-      toRaw,
+      rangeFrom,
+      rangeTo,
     )
     if (!rendered) {
       return { ok: false, error: "Could not build the log PDF." }
@@ -93,10 +98,10 @@ export async function sendAirQualityLog(
 
     // Best-effort log so the sender is recorded even before transport returns.
     const me = await getCurrentUser()
-    const subject = `Air Quality Monitoring Log — ${facilityName} — ${fromRaw} to ${toRaw}`
+    const subject = `Air Quality Monitoring Log — ${facilityName} — ${rangeFrom} to ${rangeTo}`
     const bodyText = [
       `Air Quality monitoring log for ${facilityName}.`,
-      `Date range: ${fromRaw} to ${toRaw}.`,
+      `Date range: ${rangeFrom} to ${rangeTo}.`,
       `Sent by ${me?.authUser?.email ?? "an administrator"} via Rink Reports.`,
       "The inspector-ready log is attached as a PDF.",
     ].join("\n")

@@ -12,6 +12,7 @@ import {
 } from "@/lib/permissions"
 import { callerHierarchyFloor } from "@/lib/permissions/role-assignment"
 import { createClient } from "@/lib/supabase/server"
+import { dbError } from "@/lib/db-error"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 function isModuleName(value: string): value is ModuleName {
@@ -82,7 +83,7 @@ export async function setRoleModuleAction(
       .eq("id", roleId)
       .maybeSingle()
 
-    if (roleErr) return err(roleErr.message)
+    if (roleErr) return err(dbError(roleErr, "Could not load the role."))
     if (!role) return err("Role not found")
 
     const { error: upErr } = await supabase
@@ -98,14 +99,15 @@ export async function setRoleModuleAction(
         { onConflict: "facility_id,role_id,module_name,action" },
       )
 
-    if (upErr) return err(upErr.message)
+    if (upErr) return err(dbError(upErr, "Could not save the role permission."))
 
     // Propagate to current staff on this role (no-op if none).
     const { error: reapplyErr } = await supabase.rpc(
       "reapply_role_defaults_for_role",
       { p_facility_id: role.facility_id, p_role_id: roleId },
     )
-    if (reapplyErr) return err(reapplyErr.message)
+    if (reapplyErr)
+      return err(dbError(reapplyErr, "Could not apply the role default to staff."))
 
     revalidate()
     return { ok: true }
@@ -177,7 +179,7 @@ export async function createRole(input: {
 
     if (error) {
       if (error.code === "23505") return err("A role with that key already exists in this facility")
-      return err(error.message)
+      return err(dbError(error, "Could not create the role."))
     }
 
     revalidate()
@@ -233,7 +235,7 @@ export async function renameRole(
       .update(update)
       .eq("id", roleId)
 
-    if (error) return err(error.message)
+    if (error) return err(dbError(error, "Could not update the role."))
     revalidate()
     return { ok: true }
   } catch (e) {
@@ -287,7 +289,7 @@ export async function setRoleHierarchy(
       .update({ hierarchy_level: level })
       .eq("id", roleId)
 
-    if (error) return err(error.message)
+    if (error) return err(dbError(error, "Could not update the role."))
     revalidate()
     return { ok: true }
   } catch (e) {
@@ -311,7 +313,7 @@ export async function deactivateRole(
       p_role_id: roleId,
       p_force: force,
     })
-    if (error) return err(error.message)
+    if (error) return err(dbError(error, "Could not deactivate the role."))
 
     const row = Array.isArray(data) ? data[0] : data
     if (!row?.ok) {
@@ -338,7 +340,7 @@ export async function reactivateRole(roleId: string): Promise<ActionResult> {
     const { data, error } = await supabase.rpc("reactivate_role", {
       p_role_id: roleId,
     })
-    if (error) return err(error.message)
+    if (error) return err(dbError(error, "Could not reactivate the role."))
     if (data !== true) return err("Could not reactivate role")
     revalidate()
     return { ok: true }
@@ -367,7 +369,7 @@ export async function copyRolePermissionDefaults(
       .from("roles")
       .select("id, facility_id")
       .in("id", [sourceRoleId, targetRoleId])
-    if (roleErr) return err(roleErr.message)
+    if (roleErr) return err(dbError(roleErr, "Could not load the roles."))
     const src = rolePair?.find((r) => r.id === sourceRoleId)
     const tgt = rolePair?.find((r) => r.id === targetRoleId)
     if (!src || !tgt) return err("Source or target role not found")
@@ -380,7 +382,7 @@ export async function copyRolePermissionDefaults(
       .from("role_permission_defaults")
       .select("module_name, action, enabled")
       .eq("role_id", sourceRoleId)
-    if (srcErr) return err(srcErr.message)
+    if (srcErr) return err(dbError(srcErr, "Could not load the role's permissions."))
 
     // Escalation guard: these defaults are re-applied onto every employee
     // holding the target role, so copying an *enabled* admin/admin cell would
@@ -424,7 +426,7 @@ export async function copyRolePermissionDefaults(
       const { error: upErr } = await supabase
         .from("role_permission_defaults")
         .upsert(rows, { onConflict: "facility_id,role_id,module_name,action" })
-      if (upErr) return err(upErr.message)
+      if (upErr) return err(dbError(upErr, "Could not copy the role permissions."))
     }
 
     // Propagate the copied defaults to the target role's current staff.
@@ -432,7 +434,10 @@ export async function copyRolePermissionDefaults(
       "reapply_role_defaults_for_role",
       { p_facility_id: tgt.facility_id, p_role_id: targetRoleId },
     )
-    if (reapplyErr) return err(reapplyErr.message)
+    if (reapplyErr)
+      return err(
+        dbError(reapplyErr, "Could not apply the copied permissions to staff."),
+      )
 
     revalidate()
     return { ok: true, value: { copied: rows.length, skipped } }

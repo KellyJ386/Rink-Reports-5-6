@@ -54,14 +54,22 @@ export default async function PublishRequestsPage() {
 
   // Resolve the current admin's employee id so the client can hide the
   // approve/reject buttons on requests they themselves filed.
-  const { data: meEmp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("user_id", profile.id)
-    .eq("facility_id", facilityId)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle<{ id: string }>()
+  const [{ data: meEmp }, { data: facility }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("id")
+      .eq("user_id", profile.id)
+      .eq("facility_id", facilityId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle<{ id: string }>(),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", facilityId)
+      .maybeSingle<{ timezone: string | null }>(),
+  ])
+  const tz = facility?.timezone ?? null
 
   const { data: rowsRaw } = await supabase
     .from("schedule_publish_requests")
@@ -123,7 +131,7 @@ export default async function PublishRequestsPage() {
           </CardHeader>
         </Card>
       ) : (
-        <RequestsClient rows={rows} employees={employees} me={me} />
+        <RequestsClient rows={rows} employees={employees} me={me} timeZone={tz} />
       )}
 
       <div className="text-muted-foreground text-xs">

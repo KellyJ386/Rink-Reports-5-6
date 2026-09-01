@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { requireAdmin } from "@/lib/auth"
+import { isSafeExternalHttpUrl } from "@/lib/security/safe-external-url"
 import { createClient } from "@/lib/supabase/server"
 import { authorizeExport } from "@/lib/exports/authorize"
 import { buildExport } from "@/lib/exports/build-export"
@@ -58,11 +59,12 @@ export async function saveExportSettings(
   }
 
   const logoUrl = nonEmpty(formData.get("logo_url"))
-  if (logoUrl) {
-    try {
-      new URL(logoUrl)
-    } catch {
-      return { ok: false, error: "Logo URL must be a valid URL." }
+  if (logoUrl && !isSafeExternalHttpUrl(logoUrl)) {
+    // Must be a public http(s) URL: the server fetches this to embed it in the
+    // branded PDF, so a private/loopback/link-local host would be an SSRF probe.
+    return {
+      ok: false,
+      error: "Logo URL must be a public http(s) address (not a local or private host).",
     }
   }
 

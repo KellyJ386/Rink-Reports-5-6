@@ -4,7 +4,7 @@
 // (CLAUDE.md: "keep testable logic in a pure module").
 //
 // This file is the one place that implements the aggregation contract
-// documented in supabase/migrations/00000000000267_daily_metrics_rollup_functions.sql
+// documented in supabase/migrations/00000000000270_daily_metrics_rollup_functions.sql
 // ("JSONB-VALUED METRICS" / "ACKNOWLEDGED APPROXIMATIONS"): how a column of
 // per-day values in facility_daily_metrics.metrics combines into one
 // period-level number, keyed by report_metric_definitions.aggregation.

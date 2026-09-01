@@ -9,6 +9,8 @@ import { requireUser } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { currentUserCan } from "@/lib/permissions/check"
 
+import { dayKeyInTz } from "@/lib/timezone"
+
 import { NotAvailable } from "../_components/not-available"
 
 import {
@@ -80,21 +82,35 @@ export default async function AvailabilityPage({
     )
   }
 
-  // Facility work-week start (migration 117).
-  const { data: settingsRow } = await supabase
-    .from("schedule_settings")
-    .select("week_start_day")
-    .eq("facility_id", employeeRow.facility_id)
-    .maybeSingle()
+  // Facility work-week start (migration 117) + timezone, so "this week" and the
+  // "Today" badge anchor on the rink's calendar day, not the server's (UTC in
+  // production) — otherwise the grid can open on the wrong week and highlight
+  // the wrong day for the last few hours of every local day.
+  const [{ data: settingsRow }, { data: facility }] = await Promise.all([
+    supabase
+      .from("schedule_settings")
+      .select("week_start_day")
+      .eq("facility_id", employeeRow.facility_id)
+      .maybeSingle(),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", employeeRow.facility_id)
+      .maybeSingle(),
+  ])
   const weekStartDay: number =
     typeof settingsRow?.week_start_day === "number"
       ? settingsRow.week_start_day
       : 0
+  const tz = facility?.timezone ?? null
 
-  const anchor = (week ? parseDateParam(week) : null) ?? new Date()
+  // Facility-local today as a "YYYY-MM-DD" key, then a Date at that day for the
+  // week-grid math (the grid is day-of-week based; only the anchor day matters).
+  const todayParam = dayKeyInTz(new Date(), tz)
+  const anchor =
+    (week ? parseDateParam(week) : null) ?? parseDateParam(todayParam)!
   const weekStart = startOfWeek(anchor, weekStartDay)
   const dates = weekDates(weekStart)
-  const todayParam = toDateParam(new Date())
 
   const { data: rowsRaw } = await supabase
     .from("schedule_availability")

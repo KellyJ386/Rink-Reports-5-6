@@ -1,5 +1,7 @@
 import "server-only"
 
+import { isSafeExternalHttpUrl } from "@/lib/security/safe-external-url"
+
 const FETCH_TIMEOUT_MS = 3_000
 const MAX_LOGO_BYTES = 2 * 1024 * 1024 // 2 MB
 
@@ -13,6 +15,10 @@ const MAX_LOGO_BYTES = 2 * 1024 * 1024 // 2 MB
  */
 export async function fetchLogoDataUri(logoUrl: string | null | undefined): Promise<string | null> {
   if (!logoUrl) return null
+  // Defense in depth against SSRF: never fetch a private/loopback/link-local or
+  // non-http(s) host, even if such a value predates the save-time guard in
+  // saveExportSettings. Render the header without a logo instead.
+  if (!isSafeExternalHttpUrl(logoUrl)) return null
 
   try {
     const res = await fetch(logoUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })

@@ -74,41 +74,73 @@ export type ShiftSignals = {
  * engine's violation codes plus the per-employee hour-cap check. Callers
  * decide how to present/gate them (cert codes hard-block; the rest warn).
  */
-export async function computeShiftSignals(
+/**
+ * The facility/employee-CONSTANT lookups computeShiftSignals needs: the
+ * employee's weekly-hours cap, the facility timezone/settings, and the
+ * schedule_settings row. For a single slot computeShiftSignals loads these
+ * itself; for a recurring series (one employee, one facility, up to 62
+ * occurrences) the caller loads them ONCE via loadShiftSignalsContext and
+ * passes them in, so only the genuinely per-slot work (the violations RPC and
+ * the weekly-hours window query) repeats per occurrence.
+ */
+export type ShiftSignalsContext = {
+  employee: { max_weekly_hours: number | null } | null
+  facility: { timezone: string | null; settings: unknown } | null
+  settings: {
+    week_start_day: number | null
+    operating_hours_start_minute: number | null
+    operating_hours_end_minute: number | null
+  } | null
+}
+
+export async function loadShiftSignalsContext(
   supabase: ServerSupabase,
-  args: WarningArgs
-): Promise<ShiftSignals> {
-  if (!args.employeeId) return { codes: [], capWarning: null, boundsWarning: null }
-
-  // 1. Shared engine (overlap, time-off, overtime, cert gaps, qualification…).
-  const codes = await checkAssignmentViolations(supabase, args)
-
-  // 2. Per-employee weekly-hours cap (employees.max_weekly_hours).
-  const [{ data: emp }, { data: facility }, { data: settings }] =
+  facilityId: string,
+  employeeId: string
+): Promise<ShiftSignalsContext> {
+  const [{ data: employee }, { data: facility }, { data: settings }] =
     await Promise.all([
       supabase
         .from("employees")
         .select("max_weekly_hours")
-        .eq("id", args.employeeId)
-        .eq("facility_id", args.facilityId)
-        .maybeSingle(),
+        .eq("id", employeeId)
+        .eq("facility_id", facilityId)
+        .maybeSingle<{ max_weekly_hours: number | null }>(),
       supabase
         .from("facilities")
         .select("timezone, settings")
-        .eq("id", args.facilityId)
+        .eq("id", facilityId)
         .maybeSingle<{ timezone: string | null; settings: unknown }>(),
       supabase
         .from("schedule_settings")
         .select(
           "week_start_day, operating_hours_start_minute, operating_hours_end_minute"
         )
-        .eq("facility_id", args.facilityId)
+        .eq("facility_id", facilityId)
         .maybeSingle<{
           week_start_day: number | null
           operating_hours_start_minute: number | null
           operating_hours_end_minute: number | null
         }>(),
     ])
+  return { employee, facility, settings }
+}
+
+export async function computeShiftSignals(
+  supabase: ServerSupabase,
+  args: WarningArgs,
+  context?: ShiftSignalsContext
+): Promise<ShiftSignals> {
+  if (!args.employeeId) return { codes: [], capWarning: null, boundsWarning: null }
+
+  // 1. Shared engine (overlap, time-off, overtime, cert gaps, qualification…).
+  const codes = await checkAssignmentViolations(supabase, args)
+
+  // 2. Facility/employee-constant lookups — supplied by the caller for a
+  //    recurring series (hoisted out of the per-occurrence loop), otherwise
+  //    loaded here for a single slot.
+  const { employee: emp, facility, settings } =
+    context ?? (await loadShiftSignalsContext(supabase, args.facilityId, args.employeeId))
 
   // 3. Operating-hours bounds (facility-local). Advisory only.
   const oh = resolveOperatingHours(settings, facility?.settings)

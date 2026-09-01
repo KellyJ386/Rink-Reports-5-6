@@ -33,7 +33,7 @@ type Row = {
   } | null
 }
 
-type Props = { rows: Row[] }
+type Props = { rows: Row[]; timeZone: string | null }
 
 function statusVariant(status: string): BadgeProps["variant"] {
   if (status === "approved") return "success"
@@ -52,7 +52,7 @@ function shortReason(s: string | null): string {
   return t.length > 80 ? `${t.slice(0, 77)}…` : t
 }
 
-export function TimeOffList({ rows }: Props) {
+export function TimeOffList({ rows, timeZone }: Props) {
   if (rows.length === 0) {
     return (
       <div className="bg-card text-muted-foreground rounded-md border p-6 text-sm">
@@ -64,13 +64,13 @@ export function TimeOffList({ rows }: Props) {
   return (
     <div className="flex flex-col gap-3">
       {rows.map((row) => (
-        <TimeOffRow key={row.id} row={row} />
+        <TimeOffRow key={row.id} row={row} timeZone={timeZone} />
       ))}
     </div>
   )
 }
 
-function TimeOffRow({ row }: { row: Row }) {
+function TimeOffRow({ row, timeZone }: { row: Row; timeZone: string | null }) {
   const [openDecision, setOpenDecision] = useState<
     null | "approved" | "denied"
   >(null)
@@ -126,15 +126,16 @@ function TimeOffRow({ row }: { row: Row }) {
             {code}
           </div>
           <div className="text-muted-foreground text-xs">
-            {formatDateOnly(row.starts_at)} – {formatDateOnly(row.ends_at)}
+            {formatDateOnly(row.starts_at, timeZone)} –{" "}
+            {formatDateOnly(row.ends_at, timeZone)}
           </div>
           {row.reason ? (
             <div className="text-sm">{shortReason(row.reason)}</div>
           ) : null}
           <div className="text-muted-foreground text-xs">
-            Requested {formatDateTime(row.created_at)}
+            Requested {formatDateTime(row.created_at, timeZone)}
             {row.decided_at
-              ? ` · Decided ${formatDateTime(row.decided_at)}`
+              ? ` · Decided ${formatDateTime(row.decided_at, timeZone)}`
               : ""}
           </div>
           {row.decision_note ? (
@@ -201,9 +202,9 @@ function TimeOffRow({ row }: { row: Row }) {
               <ul className="flex flex-col gap-1 text-sm">
                 {conflicts.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-2">
-                    <span>{formatDateTime(c.starts_at)}</span>
+                    <span>{formatDateTime(c.starts_at, timeZone)}</span>
                     <span className="text-muted-foreground">
-                      – {formatDateTime(c.ends_at)}
+                      – {formatDateTime(c.ends_at, timeZone)}
                     </span>
                     {c.role_label ? (
                       <span className="text-muted-foreground">

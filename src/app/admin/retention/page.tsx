@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
+import { LocalDateTime } from "@/components/app/local-datetime"
 import { requireAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
@@ -131,9 +132,12 @@ export default async function DataRetentionPage() {
               Last purge ran
             </CardTitle>
             <div className="text-xl font-semibold">
-              {lastPurgeDate
-                ? new Date(lastPurgeDate).toLocaleDateString(undefined, { dateStyle: "medium" })
-                : "Never"}
+              <LocalDateTime
+                iso={lastPurgeDate}
+                format="date"
+                options={{ dateStyle: "medium" }}
+                placeholder="Never"
+              />
             </div>
           </CardHeader>
         </Card>

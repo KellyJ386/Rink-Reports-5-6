@@ -77,7 +77,13 @@ export type PendingDrop = {
  * shift to the open-shift pool for anyone to claim; the shift is NOT covered
  * until someone does, which is why the copy says so plainly.
  */
-export function PendingDropsPanel({ rows }: { rows: PendingDrop[] }) {
+export function PendingDropsPanel({
+  rows,
+  timeZone,
+}: {
+  rows: PendingDrop[]
+  timeZone: string | null
+}) {
   if (rows.length === 0) {
     return (
       <p className="text-muted-foreground px-4 py-6 text-sm">
@@ -89,14 +95,14 @@ export function PendingDropsPanel({ rows }: { rows: PendingDrop[] }) {
     <ul className="divide-border divide-y">
       {rows.map((r) => (
         <li key={r.id}>
-          <DropItem row={r} />
+          <DropItem row={r} timeZone={timeZone} />
         </li>
       ))}
     </ul>
   )
 }
 
-function DropItem({ row }: { row: PendingDrop }) {
+function DropItem({ row, timeZone }: { row: PendingDrop; timeZone: string | null }) {
   const [mode, setMode] = useState<null | "approve" | "deny">(null)
   const [note, setNote] = useState("")
   const [pending, startTransition] = useTransition()
@@ -120,8 +126,8 @@ function DropItem({ row }: { row: PendingDrop }) {
         <div className="flex flex-col gap-0.5">
           <div className="text-sm font-medium">{row.employeeName}</div>
           <div className="text-muted-foreground text-xs">
-            {formatDateOnly(row.starts_at)} ·{" "}
-            {formatTimeRange(row.starts_at, row.ends_at)}
+            {formatDateOnly(row.starts_at, timeZone)} ·{" "}
+            {formatTimeRange(row.starts_at, row.ends_at, timeZone)}
             {row.roleLabel ? ` · ${row.roleLabel}` : ""}
           </div>
           {row.reason ? <div className="text-sm">{row.reason}</div> : null}
@@ -182,7 +188,13 @@ function DropItem({ row }: { row: PendingDrop }) {
   )
 }
 
-export function PendingSwapsPanel({ rows }: { rows: PendingSwap[] }) {
+export function PendingSwapsPanel({
+  rows,
+  timeZone,
+}: {
+  rows: PendingSwap[]
+  timeZone: string | null
+}) {
   if (rows.length === 0) {
     return (
       <p className="text-muted-foreground px-4 py-6 text-sm">
@@ -194,14 +206,14 @@ export function PendingSwapsPanel({ rows }: { rows: PendingSwap[] }) {
     <ul className="divide-border divide-y">
       {rows.map((r) => (
         <li key={r.id}>
-          <SwapItem row={r} />
+          <SwapItem row={r} timeZone={timeZone} />
         </li>
       ))}
     </ul>
   )
 }
 
-function SwapItem({ row }: { row: PendingSwap }) {
+function SwapItem({ row, timeZone }: { row: PendingSwap; timeZone: string | null }) {
   const [mode, setMode] = useState<null | "approve" | "deny">(null)
   const [note, setNote] = useState("")
   const [pending, startTransition] = useTransition()
@@ -221,7 +233,7 @@ function SwapItem({ row }: { row: PendingSwap }) {
   }
 
   const shiftLabel = row.requesterShift
-    ? `${formatDateOnly(row.requesterShift.starts_at)} · ${formatTimeRange(row.requesterShift.starts_at, row.requesterShift.ends_at)}`
+    ? `${formatDateOnly(row.requesterShift.starts_at, timeZone)} · ${formatTimeRange(row.requesterShift.starts_at, row.requesterShift.ends_at, timeZone)}`
     : "Shift unavailable"
 
   return (
@@ -281,7 +293,13 @@ function SwapItem({ row }: { row: PendingSwap }) {
   )
 }
 
-export function PendingTimeOffPanel({ rows }: { rows: PendingTimeOff[] }) {
+export function PendingTimeOffPanel({
+  rows,
+  timeZone,
+}: {
+  rows: PendingTimeOff[]
+  timeZone: string | null
+}) {
   if (rows.length === 0) {
     return (
       <p className="text-muted-foreground px-4 py-6 text-sm">
@@ -293,14 +311,14 @@ export function PendingTimeOffPanel({ rows }: { rows: PendingTimeOff[] }) {
     <ul className="divide-border divide-y">
       {rows.map((r) => (
         <li key={r.id}>
-          <TimeOffItem row={r} />
+          <TimeOffItem row={r} timeZone={timeZone} />
         </li>
       ))}
     </ul>
   )
 }
 
-function TimeOffItem({ row }: { row: PendingTimeOff }) {
+function TimeOffItem({ row, timeZone }: { row: PendingTimeOff; timeZone: string | null }) {
   const [mode, setMode] = useState<null | "approved" | "denied">(null)
   const [note, setNote] = useState("")
   const [conflicts, setConflicts] = useState<TimeOffConflict[] | null>(null)
@@ -338,7 +356,8 @@ function TimeOffItem({ row }: { row: PendingTimeOff }) {
         <div className="flex flex-col gap-0.5">
           <div className="text-sm font-medium">{row.employeeName}</div>
           <div className="text-muted-foreground text-xs">
-            {formatDateOnly(row.starts_at)} – {formatDateOnly(row.ends_at)}
+            {formatDateOnly(row.starts_at, timeZone)} –{" "}
+            {formatDateOnly(row.ends_at, timeZone)}
           </div>
           {row.reason ? <div className="text-sm">{row.reason}</div> : null}
         </div>
@@ -377,8 +396,8 @@ function TimeOffItem({ row }: { row: PendingTimeOff }) {
                 {conflicts.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-2">
                     <span>
-                      {formatDateOnly(c.starts_at)} ·{" "}
-                      {formatTimeRange(c.starts_at, c.ends_at)}
+                      {formatDateOnly(c.starts_at, timeZone)} ·{" "}
+                      {formatTimeRange(c.starts_at, c.ends_at, timeZone)}
                     </span>
                     {c.role_label ? (
                       <span className="text-muted-foreground">
@@ -455,9 +474,11 @@ function TimeOffItem({ row }: { row: PendingTimeOff }) {
 export function OpenShiftsPanel({
   rows,
   employeeOptions,
+  timeZone,
 }: {
   rows: OpenShiftItem[]
   employeeOptions: EmployeeOption[]
+  timeZone: string | null
 }) {
   if (rows.length === 0) {
     return (
@@ -470,7 +491,7 @@ export function OpenShiftsPanel({
     <ul className="divide-border divide-y">
       {rows.map((r) => (
         <li key={r.id}>
-          <OpenShiftItemRow row={r} employeeOptions={employeeOptions} />
+          <OpenShiftItemRow row={r} employeeOptions={employeeOptions} timeZone={timeZone} />
         </li>
       ))}
     </ul>
@@ -480,9 +501,11 @@ export function OpenShiftsPanel({
 function OpenShiftItemRow({
   row,
   employeeOptions,
+  timeZone,
 }: {
   row: OpenShiftItem
   employeeOptions: EmployeeOption[]
+  timeZone: string | null
 }) {
   const [open, setOpen] = useState(false)
   const [employeeId, setEmployeeId] = useState("")
@@ -523,7 +546,8 @@ function OpenShiftItemRow({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <div className="text-sm font-medium">
-            {formatDateOnly(row.starts_at)} · {formatTimeRange(row.starts_at, row.ends_at)}
+            {formatDateOnly(row.starts_at, timeZone)} ·{" "}
+            {formatTimeRange(row.starts_at, row.ends_at, timeZone)}
           </div>
           <div className="text-muted-foreground text-xs">
             {row.departmentName}

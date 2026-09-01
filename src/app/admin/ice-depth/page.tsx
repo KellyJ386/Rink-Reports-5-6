@@ -669,13 +669,16 @@ async function AnalyticsTabLoader({
   if (selected) {
     let sq = supabase
       .from("ice_depth_sessions")
-      .select("id, submitted_at, low_count, high_count, total_measurements")
+      .select("id, submitted_at, business_date, low_count, high_count, total_measurements")
       .eq("facility_id", facilityId)
       .eq("layout_id", selected.id)
       .order("submitted_at", { ascending: false })
       .limit(2000)
-    if (from) sq = sq.gte("submitted_at", `${from}T00:00:00.000Z`)
-    if (to) sq = sq.lte("submitted_at", `${to}T23:59:59.999Z`)
+    // Range-filter on the facility-local business_date (a date column), not the
+    // UTC submitted_at instant — so the date picker's from/to bound the same
+    // local days the trend strip buckets on.
+    if (from) sq = sq.gte("business_date", from)
+    if (to) sq = sq.lte("business_date", to)
     const { data: sessRows } = await sq
     const sessions = (sessRows ?? []) as Array<
       AnalyticsSession & { id: string }

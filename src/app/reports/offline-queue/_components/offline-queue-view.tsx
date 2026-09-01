@@ -44,6 +44,8 @@ const MODULE_LABELS: Record<string, string> = {
   air_quality: "Air Quality",
   scheduling: "Scheduling",
   communications: "Communications",
+  dasher_boards: "Dasher Boards",
+  daily_report_instances: "Daily Forms",
 }
 
 export function OfflineQueueView() {

@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { LocalDateTime } from "@/components/app/local-datetime"
 
 import { approveAuditDestruction, cancelAuditDestruction } from "../actions"
 import type { ActionState } from "../types"
@@ -57,9 +58,11 @@ function BatchRow({ batch }: { batch: DestructionBatchView }) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">
             {batch.staged_count} record{batch.staged_count === 1 ? "" : "s"} staged{" "}
-            {new Date(batch.created_at).toLocaleDateString(undefined, {
-              dateStyle: "medium",
-            })}
+            <LocalDateTime
+              iso={batch.created_at}
+              format="date"
+              options={{ dateStyle: "medium" }}
+            />
           </span>
           {awaitingSecond ? (
             <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-current">

@@ -5983,6 +5983,20 @@ select pg_temp.expect_error(
   $$select public.seed_default_dasher_boards_config('11111111-1111-1111-1111-111111111111')$$,
   'DB29: anon CANNOT execute seed_default_dasher_boards_config');
 
+-- Zones seed helper (migration 259) shares seed_default_dasher_boards_config's
+-- internal-only contract, but 259 shipped the public-only revoke that missed
+-- anon/authenticated -- closed in migration 275. Regression probes so it can't
+-- silently reopen (the arg is irrelevant; the call is rejected at the EXECUTE
+-- privilege check before the body runs).
+set local role authenticated;
+select pg_temp.expect_error(
+  $$select public.seed_default_dasher_boards_zones('11111111-1111-1111-1111-111111111111')$$,
+  'DB29z: authenticated CANNOT execute seed_default_dasher_boards_zones');
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.seed_default_dasher_boards_zones('11111111-1111-1111-1111-111111111111')$$,
+  'DB29z: anon CANNOT execute seed_default_dasher_boards_zones');
+
 -- ---------------------------------------------------------------------------
 -- DB30–33: edit-tier (manager) spec writes (migration 202).
 --
@@ -10310,6 +10324,61 @@ select pg_temp.expect_count(
       and detail->>'new' = 'Zam Gate Left'$$,
   1, 'DSL4b: the custom relabel auto-wrote a relabeled asset event');
 
+-- DSL4c/d: the PERMANENT identity label is audited by the same trigger now
+-- (migration 276), closing the gap where a direct
+-- PATCH /rest/v1/dasher_boards_assets {"label": ...} bypassed the app-only
+-- writer and left NO asset event. Uses a FRESH dedicated asset (d1) so the
+-- event counts are unambiguous (no pre-seeded events like the DSL2 canary rows)
+-- and no downstream probe on the shared assets is perturbed.
+-- Seeded INACTIVE + floating (sequence_position null): the position-shape CHECK
+-- permits a retired/floating asset, and the reorder RPC only considers active
+-- positioned assets, so d1 is invisible to DSL18's segment-list match and to the
+-- per-rink count probes — its whole job is to be an isolated relabel target.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_assets
+      (id, facility_id, rink_id, asset_type, label, is_active)
+    values ('dabb000a-0000-4000-8000-0000000000d1',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'RL1', false)$$,
+  'DSL4c: seed a dedicated (inactive, floating) asset for the relabel-audit probes');
+
+-- A label-only change (asset_type unchanged) is a genuine relabel: the trigger
+-- auto-writes one relabeled/label_kind=label event. This is the direct-PATCH
+-- path that previously produced no audit row at all.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set label = 'RL2'
+     where id = 'dabb000a-0000-4000-8000-0000000000d1'$$,
+  'DSL4c: relabeling the permanent identity label succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000d1'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'label'
+      and detail->>'new' = 'RL2'$$,
+  1, 'DSL4c: a direct label change auto-wrote a relabeled/label_kind=label event');
+
+-- DSL4d: the previously-silent bypass. A module admin can PATCH label AND
+-- asset_type in one request (dasher_boards_assets_guard lets an admin write both
+-- columns); the app-level conversion event never fires on a raw REST write, so
+-- if the trigger suppressed the relabel whenever asset_type also changed, the
+-- identity label would change with ZERO audit rows. The branch therefore fires
+-- UNCONDITIONALLY on any label change: a label change bundled with an asset_type
+-- change is still audited. board_panel and corner_radius share the same
+-- position-shape CHECK (migration 259), so this combined update is schema-valid.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set label = 'RL3', asset_type = 'corner_radius'
+     where id = 'dabb000a-0000-4000-8000-0000000000d1'$$,
+  'DSL4d: a combined label + asset_type change succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000d1'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'label'
+      and detail->>'new' = 'RL3'$$,
+  1, 'DSL4d: a label change bundled with an asset_type change is still audited (not silently suppressed)');
+
 select pg_temp.expect_error(
   $$update public.dasher_boards_assets
        set custom_label = 'zam gate left'
@@ -11099,6 +11168,31 @@ select pg_temp.expect_count(
 select pg_temp.expect_error(
   $$select public.compute_live_daily_metrics('not_a_real_module', date '2026-08-20')$$,
   'CLDM271c: an unrecognized module_key is rejected rather than silently returning null');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- CLDM270: compute_facility_daily_metrics / backfill_facility_daily_metrics
+-- (migration 271) are SECURITY DEFINER and DO take a caller-supplied
+-- p_facility_id. compute is granted to `authenticated` but its in-body guard
+-- must reject any caller that is not super_admin/service_role; backfill is
+-- service_role-only. Without these probes a `create or replace` that dropped
+-- the guard or widened the grant could let an authenticated user write ANY
+-- facility's compliance rollups, and nothing in CI would notice
+-- (production-readiness review, M-1). alice is a non-super-admin Facility A
+-- staffer.
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_error(
+  $$select public.compute_facility_daily_metrics('22222222-2222-2222-2222-222222222222', date '2026-08-20')$$,
+  'CLDM270a: authenticated non-super-admin alice cannot compute_facility_daily_metrics for Facility B');
+select pg_temp.expect_error(
+  $$select public.compute_facility_daily_metrics('11111111-1111-1111-1111-111111111111', date '2026-08-20')$$,
+  'CLDM270b: ...nor even for her OWN facility -- the guard is super_admin/service_role only, not facility-scoped');
+select pg_temp.expect_error(
+  $$select public.backfill_facility_daily_metrics('11111111-1111-1111-1111-111111111111', date '2026-08-20', date '2026-08-20')$$,
+  'CLDM270c: authenticated alice cannot execute backfill_facility_daily_metrics (service_role-only grant)');
 reset role;
 
 set local role service_role;

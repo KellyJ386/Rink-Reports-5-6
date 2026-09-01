@@ -18,6 +18,13 @@ export type AnalyticsMeasurement = {
 /** Session-level row (denormalized counters) used for the daily trend. */
 export type AnalyticsSession = {
   submitted_at: string
+  /**
+   * Facility-LOCAL calendar date of the session (migration 267,
+   * `ice_depth_sessions.business_date`, NOT NULL and CHECK-stamped). The trend
+   * strip buckets on this, not on `submitted_at`, so a session submitted late
+   * in the local evening is never pushed onto the next UTC day.
+   */
+  business_date: string
   low_count: number
   high_count: number
   total_measurements: number
@@ -174,13 +181,16 @@ export function rollupByPoint(
 }
 
 /**
- * Bucket sessions into UTC days for the trend strip. Returned ascending by
- * date. Uses the session-level denormalized counters (no measurement join).
+ * Bucket sessions by facility-local business date for the trend strip. Returned
+ * ascending by date. Uses the session-level denormalized counters (no
+ * measurement join). Buckets on `business_date` (facility zone, migration 267)
+ * rather than the raw UTC `submitted_at`, so an evening session is attributed to
+ * the day it actually happened at the rink.
  */
 export function trendByDay(sessions: AnalyticsSession[]): DayBucket[] {
   const byDay = new Map<string, DayBucket>()
   for (const s of sessions) {
-    const date = s.submitted_at.slice(0, 10)
+    const date = s.business_date
     let b = byDay.get(date)
     if (!b) {
       b = { date, sessions: 0, lowCount: 0, highCount: 0, totalMeasurements: 0 }

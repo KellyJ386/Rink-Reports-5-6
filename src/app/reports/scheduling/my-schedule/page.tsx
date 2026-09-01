@@ -23,7 +23,13 @@ import {
   DropShiftButton,
 } from "../_components/drop-shift-button"
 import { shiftStatusTone } from "../_components/status-tones"
-import { startOfWeek, type ShiftStatus } from "../types"
+import { type ShiftStatus } from "../types"
+import {
+  addDaysToKey,
+  dayKeyInTz,
+  wallTimeToUtc,
+  weekWindowInTz,
+} from "@/lib/timezone"
 
 export const dynamic = "force-dynamic"
 
@@ -39,20 +45,6 @@ function statusLabel(status: string): string {
     cancelled: "Cancelled",
   }
   return map[status as ShiftStatus] ?? status
-}
-
-function parseDateInput(raw: string | undefined): Date | null {
-  if (!raw) return null
-  // Accept YYYY-MM-DD
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
-  const d = new Date(`${raw}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return null
-  return d
-}
-
-function toDateInput(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 type SearchParams = Promise<{
@@ -101,55 +93,49 @@ export default async function MySchedulePage({
     )
   }
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const defaultTo = new Date(today)
-  defaultTo.setDate(defaultTo.getDate() + 30)
-
-  const fromDate = parseDateInput(params.from) ?? today
-  const toDate = parseDateInput(params.to) ?? defaultTo
-  const statusFilter =
-    params.status === "all" ? "all" : "published"
-
+  const statusFilter = params.status === "all" ? "all" : "published"
   const currentView = params.view === "week" ? "week" : "list"
 
-  function toLocalDate(iso: string): Date {
-    const [y, m, day] = iso.split("-").map(Number)
-    return new Date(y, m - 1, day)
-  }
-
-  // Facility work-week start (migration 117) — honor it like the availability
-  // page and admin grid instead of hardcoding Sunday.
-  const { data: settingsRow } = await supabase
-    .from("schedule_settings")
-    .select(
-      "week_start_day, drop_requires_manager_approval, drop_min_notice_hours"
-    )
-    .eq("facility_id", employeeRow.facility_id)
-    .maybeSingle()
+  // Facility work-week start + drop rules (migration 117) and timezone —
+  // fetched BEFORE any day-boundary math so "today" and "this week" turn over at
+  // the rink's midnight, not the server's (UTC in production). Formerly a bare
+  // new Date() here meant a US-Eastern facility past ~7pm local computed
+  // tomorrow's window and dropped that evening's own shifts from the default
+  // list.
+  const [{ data: settingsRow }, { data: facility }] = await Promise.all([
+    supabase
+      .from("schedule_settings")
+      .select(
+        "week_start_day, drop_requires_manager_approval, drop_min_notice_hours"
+      )
+      .eq("facility_id", employeeRow.facility_id)
+      .maybeSingle(),
+    supabase
+      .from("facilities")
+      .select("timezone")
+      .eq("id", employeeRow.facility_id)
+      .maybeSingle(),
+  ])
   const weekStartDay: number =
     typeof settingsRow?.week_start_day === "number"
       ? settingsRow.week_start_day
       : 0
   const dropRequiresApproval = settingsRow?.drop_requires_manager_approval ?? true
   const dropMinNoticeHours = settingsRow?.drop_min_notice_hours ?? 0
-
-  const weekStart = startOfWeek(
-    params.weekOf ? toLocalDate(params.weekOf) : new Date(),
-    weekStartDay,
-  )
-
-  const weekStartIso = (() => {
-    const pad = (n: number) => String(n).padStart(2, "0")
-    return `${weekStart.getFullYear()}-${pad(weekStart.getMonth() + 1)}-${pad(weekStart.getDate())}`
-  })()
-
-  const { data: facility } = await supabase
-    .from("facilities")
-    .select("timezone")
-    .eq("id", employeeRow.facility_id)
-    .maybeSingle()
   const tz = facility?.timezone ?? null
+
+  const validKey = (raw: string | undefined) =>
+    raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null
+  const todayKey = dayKeyInTz(new Date(), tz)
+  const fromKey = validKey(params.from) ?? todayKey
+  const toKey = validKey(params.to) ?? addDaysToKey(todayKey, 30)
+
+  const weekWindow = weekWindowInTz(
+    validKey(params.weekOf) ?? todayKey,
+    weekStartDay,
+    tz,
+  )
+  const weekStartIso = weekWindow.startKey
 
   let query = supabase
     .from("schedule_shifts")
@@ -169,18 +155,24 @@ export default async function MySchedulePage({
     statusFilter === "all" ? ["published", "cancelled"] : ["published"]
 
   if (currentView === "week") {
-    // Week view date range
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekEnd.getDate() + 7)
     query = query
       .in("status", visibleStatuses)
-      .gte("starts_at", weekStart.toISOString())
-      .lt("starts_at", weekEnd.toISOString())
+      .gte("starts_at", weekWindow.startUtc.toISOString())
+      .lt("starts_at", weekWindow.endUtc.toISOString())
   } else {
+    // Both bounds are facility-local wall times converted to real instants;
+    // the range is inclusive of the whole `toKey` local day (bounded by the
+    // NEXT local midnight, exclusive).
+    const fromUtc =
+      wallTimeToUtc(`${fromKey}T00:00:00`, tz) ??
+      new Date(`${fromKey}T00:00:00Z`)
+    const toUtcExclusive =
+      wallTimeToUtc(`${addDaysToKey(toKey, 1)}T00:00:00`, tz) ??
+      new Date(`${addDaysToKey(toKey, 1)}T00:00:00Z`)
     query = query
       .in("status", visibleStatuses)
-      .gte("starts_at", fromDate.toISOString())
-      .lte("starts_at", toDate.toISOString())
+      .gte("starts_at", fromUtc.toISOString())
+      .lt("starts_at", toUtcExclusive.toISOString())
   }
 
   const { data: shiftsRaw } = await query
@@ -304,8 +296,8 @@ export default async function MySchedulePage({
             className="flex flex-wrap items-end gap-2.5 rounded-[14px] border border-l-4 border-border border-l-module-scheduling bg-card px-4 py-3.5"
           >
             {[
-              { id: "from", label: "From", defaultValue: toDateInput(fromDate), type: "date" },
-              { id: "to", label: "To", defaultValue: toDateInput(toDate), type: "date" },
+              { id: "from", label: "From", defaultValue: fromKey, type: "date" },
+              { id: "to", label: "To", defaultValue: toKey, type: "date" },
             ].map((f) => (
               <div key={f.id} className="flex flex-[1_1_130px] flex-col gap-1">
                 <label

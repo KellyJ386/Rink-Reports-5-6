@@ -2,10 +2,25 @@ import { NextResponse } from "next/server"
 
 import { buildIcsCalendar, type IcsEvent } from "@/lib/ics"
 import { logServerError } from "@/lib/observability/log-server-error"
+import {
+  consumeRateLimit,
+  type RateLimitStore,
+} from "@/lib/rink-scheduling/display-rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+
+// Calendar apps poll every few minutes to hours; 20/minute is far beyond any
+// conforming client while capping scraper throughput on a leaked URL. A wrong
+// token is bounded separately and more tightly so the feed can't be used as a
+// token-guessing oracle. Best-effort in-process cap (per instance), matching
+// /api/rink-ics — the security boundary remains the >=32-char token itself.
+const LIMIT_PER_MINUTE = 20
+const WINDOW_MS = 60_000
+const UNKNOWN_TOKEN_KEY = "unknown-token"
+const UNKNOWN_LIMIT_PER_MINUTE = 10
+const rateStore: RateLimitStore = new Map()
 
 /**
  * Public ICS calendar feed: Google/Apple Calendar subscribe to
@@ -34,13 +49,39 @@ export async function GET(
   }
 
   try {
+    const nowMs = Date.now()
     const { data: tokenRow } = await admin
       .from("schedule_ics_tokens")
       .select("employee_id, facility_id")
       .eq("token", token)
       .maybeSingle<{ employee_id: string; facility_id: string }>()
     if (!tokenRow) {
+      // Bound token-guessing with a tight, shared unknown-token budget before
+      // returning the same 404 a junk token gets.
+      const unknown = consumeRateLimit(rateStore, UNKNOWN_TOKEN_KEY, nowMs, {
+        limit: UNKNOWN_LIMIT_PER_MINUTE,
+        windowMs: WINDOW_MS,
+      })
+      if (!unknown.allowed) {
+        return NextResponse.json(
+          { error: "too many requests" },
+          { status: 429, headers: { "Retry-After": String(unknown.retryAfterSeconds) } }
+        )
+      }
       return NextResponse.json({ error: "not found" }, { status: 404 })
+    }
+
+    // A resolved token gets its own, more generous per-token budget: a real
+    // calendar client polls far below this; a leaked URL being scraped is not.
+    const decision = consumeRateLimit(rateStore, `sched:${token}`, nowMs, {
+      limit: LIMIT_PER_MINUTE,
+      windowMs: WINDOW_MS,
+    })
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: "too many requests" },
+        { status: 429, headers: { "Retry-After": String(decision.retryAfterSeconds) } }
+      )
     }
 
     const now = new Date()

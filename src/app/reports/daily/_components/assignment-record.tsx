@@ -17,6 +17,7 @@ function formatRecordDate(iso: string): string {
       weekday: "short",
       month: "short",
       day: "numeric",
+      timeZone: "UTC",
     }).format(new Date(`${iso}T12:00:00Z`))
   } catch {
     return iso
