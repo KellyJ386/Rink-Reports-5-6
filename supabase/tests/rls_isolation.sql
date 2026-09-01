@@ -10330,13 +10330,17 @@ select pg_temp.expect_count(
 -- writer and left NO asset event. Uses a FRESH dedicated asset (d1) so the
 -- event counts are unambiguous (no pre-seeded events like the DSL2 canary rows)
 -- and no downstream probe on the shared assets is perturbed.
+-- Seeded INACTIVE + floating (sequence_position null): the position-shape CHECK
+-- permits a retired/floating asset, and the reorder RPC only considers active
+-- positioned assets, so d1 is invisible to DSL18's segment-list match and to the
+-- per-rink count probes — its whole job is to be an isolated relabel target.
 select pg_temp.expect_ok(
   $$insert into public.dasher_boards_assets
-      (id, facility_id, rink_id, asset_type, label, sequence_position)
+      (id, facility_id, rink_id, asset_type, label, is_active)
     values ('dabb000a-0000-4000-8000-0000000000d1',
             '11111111-1111-1111-1111-111111111111',
-            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'RL1', 70)$$,
-  'DSL4c: seed a dedicated asset for the relabel-audit probes');
+            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'RL1', false)$$,
+  'DSL4c: seed a dedicated (inactive, floating) asset for the relabel-audit probes');
 
 -- A label-only change (asset_type unchanged) is a genuine relabel: the trigger
 -- auto-writes one relabeled/label_kind=label event. This is the direct-PATCH
