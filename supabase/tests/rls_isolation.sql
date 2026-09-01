@@ -10324,22 +10324,34 @@ select pg_temp.expect_count(
       and detail->>'new' = 'Zam Gate Left'$$,
   1, 'DSL4b: the custom relabel auto-wrote a relabeled asset event');
 
--- DSL4c: the PERMANENT identity label is audited by the same trigger now
+-- DSL4c/d: the PERMANENT identity label is audited by the same trigger now
 -- (migration 276), closing the gap where a direct
 -- PATCH /rest/v1/dasher_boards_assets {"label": ...} bypassed the app-only
--- writer and left NO asset event. A label-only change (asset_type unchanged) is
--- a genuine relabel and must auto-write one relabeled/label_kind=label event.
+-- writer and left NO asset event. Uses a FRESH dedicated asset (d1) so the
+-- event counts are unambiguous (no pre-seeded events like the DSL2 canary rows)
+-- and no downstream probe on the shared assets is perturbed.
+select pg_temp.expect_ok(
+  $$insert into public.dasher_boards_assets
+      (id, facility_id, rink_id, asset_type, label, sequence_position)
+    values ('dabb000a-0000-4000-8000-0000000000d1',
+            '11111111-1111-1111-1111-111111111111',
+            'dab0000a-0000-4000-8000-00000000000a', 'board_panel', 'RL1', 70)$$,
+  'DSL4c: seed a dedicated asset for the relabel-audit probes');
+
+-- A label-only change (asset_type unchanged) is a genuine relabel: the trigger
+-- auto-writes one relabeled/label_kind=label event. This is the direct-PATCH
+-- path that previously produced no audit row at all.
 select pg_temp.expect_ok(
   $$update public.dasher_boards_assets
-       set label = 'ZZ90'
-     where id = 'dabb000a-0000-4000-8000-000000000001'$$,
+       set label = 'RL2'
+     where id = 'dabb000a-0000-4000-8000-0000000000d1'$$,
   'DSL4c: relabeling the permanent identity label succeeds');
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_asset_events
-    where asset_id = 'dabb000a-0000-4000-8000-000000000001'
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000d1'
       and event_type = 'relabeled'
       and detail->>'label_kind' = 'label'
-      and detail->>'new' = 'ZZ90'$$,
+      and detail->>'new' = 'RL2'$$,
   1, 'DSL4c: a direct label change auto-wrote a relabeled/label_kind=label event');
 
 -- DSL4d: the previously-silent bypass. A module admin can PATCH label AND
@@ -10348,19 +10360,19 @@ select pg_temp.expect_count(
 -- if the trigger suppressed the relabel whenever asset_type also changed, the
 -- identity label would change with ZERO audit rows. The branch therefore fires
 -- UNCONDITIONALLY on any label change: a label change bundled with an asset_type
--- change is still audited. corner_radius and post_gap share the same
+-- change is still audited. board_panel and corner_radius share the same
 -- position-shape CHECK (migration 259), so this combined update is schema-valid.
 select pg_temp.expect_ok(
   $$update public.dasher_boards_assets
-       set label = 'PG77', asset_type = 'post_gap'
-     where id = 'dabb000a-0000-4000-8000-0000000000c1'$$,
+       set label = 'RL3', asset_type = 'corner_radius'
+     where id = 'dabb000a-0000-4000-8000-0000000000d1'$$,
   'DSL4d: a combined label + asset_type change succeeds');
 select pg_temp.expect_count(
   $$select count(*) from public.dasher_boards_asset_events
-    where asset_id = 'dabb000a-0000-4000-8000-0000000000c1'
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000d1'
       and event_type = 'relabeled'
       and detail->>'label_kind' = 'label'
-      and detail->>'new' = 'PG77'$$,
+      and detail->>'new' = 'RL3'$$,
   1, 'DSL4d: a label change bundled with an asset_type change is still audited (not silently suppressed)');
 
 select pg_temp.expect_error(
