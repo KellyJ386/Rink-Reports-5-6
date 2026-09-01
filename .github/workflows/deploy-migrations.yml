@@ -56,9 +56,10 @@ on:
         description: >-
           Apply migrations sitting BELOW the remote high-water mark
           (supabase db push --include-all). Only for a deliberate, watched
-          backlog run — see "August 2026" in docs/DEPLOY.md. The backlog
-          currently contains migration 222, a NON-REVERSIBLE audit_logs
-          partitioning cutover. Never enable this for a routine deploy.
+          backlog run — see "If the out-of-order backlog guard ever trips
+          again" in docs/DEPLOY.md, and check the pending list for
+          non-reversible migrations before running. Never enable this for a
+          routine deploy.
         type: boolean
         default: false
 
@@ -148,10 +149,10 @@ jobs:
               echo "A bare 'supabase db push' will fail on this, and rerunning it with"
               echo "--include-all would apply the whole list unattended."
               echo
-              echo "Read the 'August 2026' section of docs/DEPLOY.md first. When you are"
-              echo "ready to run the backlog deliberately — PITR confirmed, watching the"
-              echo "output — use Actions -> Deploy Migrations -> Run workflow and tick"
-              echo "'include_all'."
+              echo "Read 'If the out-of-order backlog guard ever trips again' in"
+              echo "docs/DEPLOY.md first. When you are ready to run the backlog"
+              echo "deliberately — PITR confirmed, watching the output — use"
+              echo "Actions -> Deploy Migrations -> Run workflow and tick 'include_all'."
             } >&2
             echo "::error::Out-of-order migration backlog — see docs/DEPLOY.md before rerunning."
             exit 1
