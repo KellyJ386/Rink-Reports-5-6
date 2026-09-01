@@ -10342,6 +10342,27 @@ select pg_temp.expect_count(
       and detail->>'new' = 'ZZ90'$$,
   1, 'DSL4c: a direct label change auto-wrote a relabeled/label_kind=label event');
 
+-- DSL4d: the previously-silent bypass. A module admin can PATCH label AND
+-- asset_type in one request (dasher_boards_assets_guard lets an admin write both
+-- columns); the app-level conversion event never fires on a raw REST write, so
+-- if the trigger suppressed the relabel whenever asset_type also changed, the
+-- identity label would change with ZERO audit rows. The branch therefore fires
+-- UNCONDITIONALLY on any label change: a label change bundled with an asset_type
+-- change is still audited. corner_radius and post_gap share the same
+-- position-shape CHECK (migration 259), so this combined update is schema-valid.
+select pg_temp.expect_ok(
+  $$update public.dasher_boards_assets
+       set label = 'PG77', asset_type = 'post_gap'
+     where id = 'dabb000a-0000-4000-8000-0000000000c1'$$,
+  'DSL4d: a combined label + asset_type change succeeds');
+select pg_temp.expect_count(
+  $$select count(*) from public.dasher_boards_asset_events
+    where asset_id = 'dabb000a-0000-4000-8000-0000000000c1'
+      and event_type = 'relabeled'
+      and detail->>'label_kind' = 'label'
+      and detail->>'new' = 'PG77'$$,
+  1, 'DSL4d: a label change bundled with an asset_type change is still audited (not silently suppressed)');
+
 select pg_temp.expect_error(
   $$update public.dasher_boards_assets
        set custom_label = 'zam gate left'

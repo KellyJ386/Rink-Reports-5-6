@@ -15,16 +15,23 @@
 -- label that issue history is keyed on.
 --
 -- Fix: make the trigger the SOLE authority for label relabels too, mirroring
--- custom_label. The new branch emits 'relabeled' with detail.label_kind='label'.
+-- custom_label. The new branch emits 'relabeled' with detail.label_kind='label'
+-- on ANY change to `label`, UNCONDITIONALLY.
 --
--- CONVERT SUPPRESSION. A board<->door conversion (convertAssetToDoor /
--- convertDoorToBoard) rewrites `label` AND `asset_type` in one UPDATE and writes
--- its own 'converted_to_door' / 'converted_to_board' event in app code. The new
--- branch is therefore guarded on asset_type being UNCHANGED, so a conversion is
--- not double-audited as a bare relabel. A plain relabel (relabelAsset) and a
--- direct PATCH both change only `label`, so both now produce exactly one
--- trigger-written event. The app-side relabelAsset event insert is removed in
--- the same PR to avoid a duplicate. (Bulk labels touch custom_label via
+-- WHY UNCONDITIONAL (and not "only when asset_type is unchanged"). A first cut
+-- suppressed the event when asset_type ALSO changed, to avoid double-auditing a
+-- board<->door conversion (which rewrites label + asset_type in one UPDATE and
+-- logs its own converted_to_* event in app code). But dasher_boards_assets_guard
+-- lets a MODULE ADMIN write any column directly, so an admin could PATCH
+-- {"label":"B99","asset_type":"corner_radius"} in one request: the app-level
+-- conversion event never fires on a raw REST write, and a suppressed trigger
+-- would then write nothing — silently relabeling the identity label and
+-- reopening the exact gap this migration closes. So the branch fires on any
+-- label change. The cost is that a genuine conversion now produces this relabel
+-- event IN ADDITION to its converted_to_* event; a harmless duplicate is far
+-- better than a silent relabel, and no consumer counts bare 'relabeled' events.
+-- The app-side relabelAsset event insert is removed in the same PR to avoid a
+-- duplicate on the plain-relabel path. (Bulk labels touch custom_label via
 -- dasher_boards_apply_custom_labels, not `label`, so they are unaffected.)
 --
 -- The custom_label and out_of_service branches are unchanged. `create or
@@ -65,11 +72,12 @@ begin
     );
   end if;
 
-  -- Permanent identity label. Guarded on asset_type being UNCHANGED so a
-  -- board<->door conversion (which rewrites label AND asset_type and logs its
-  -- own converted_to_* event) is not also double-audited as a bare relabel.
-  if new.label is distinct from old.label
-     and new.asset_type is not distinct from old.asset_type then
+  -- Permanent identity label. Fires on ANY label change, unconditionally: a
+  -- direct REST PATCH that piggy-backs an asset_type change must NOT be able to
+  -- suppress this audit (module admins can write both columns directly). A
+  -- board<->door conversion therefore also lands this relabel event on top of
+  -- its app-written converted_to_* event -- a harmless duplicate, never silent.
+  if new.label is distinct from old.label then
     insert into public.dasher_boards_asset_events
       (facility_id, asset_id, event_type, detail, employee_id)
     values (

@@ -2562,11 +2562,12 @@ begin
     );
   end if;
 
-  -- Permanent identity label. Guarded on asset_type being UNCHANGED so a
-  -- board<->door conversion (which rewrites label AND asset_type and logs its
-  -- own converted_to_* event) is not also double-audited as a bare relabel.
-  if new.label is distinct from old.label
-     and new.asset_type is not distinct from old.asset_type then
+  -- Permanent identity label. Fires on ANY label change, unconditionally: a
+  -- direct REST PATCH that piggy-backs an asset_type change must NOT be able to
+  -- suppress this audit (module admins can write both columns directly). A
+  -- board<->door conversion therefore also lands this relabel event on top of
+  -- its app-written converted_to_* event -- a harmless duplicate, never silent.
+  if new.label is distinct from old.label then
     insert into public.dasher_boards_asset_events
       (facility_id, asset_id, event_type, detail, employee_id)
     values (
