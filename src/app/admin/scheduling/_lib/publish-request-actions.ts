@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentUser, requireAdmin } from "@/lib/auth"
+import { dbError } from "@/lib/db-error"
 import { createClient } from "@/lib/supabase/server"
 
 import { formatDateOnly } from "./datetime"
@@ -107,7 +108,7 @@ export async function requestSchedulePublish(
   if (error) {
     return {
       ok: false,
-      error: error.message ?? "Failed to file publish request.",
+      error: dbError(error, "Could not file the publish request."),
     }
   }
 
@@ -151,7 +152,8 @@ export async function approveAndPublishRequest(
     "scheduling_approve_publish_request",
     { p_request_id: requestId },
   )
-  if (error) return { ok: false, error: error.message }
+  if (error)
+    return { ok: false, error: dbError(error, "Could not publish the schedule.") }
 
   const result = (data ?? {}) as ApprovePublishRpcResult
   if (result.ok !== true) {
@@ -267,7 +269,8 @@ export async function rejectPublishRequest(
     .eq("id", requestId)
     .maybeSingle()
 
-  if (reqErr) return { ok: false, error: reqErr.message }
+  if (reqErr)
+    return { ok: false, error: dbError(reqErr, "Could not load the publish request.") }
   const request = reqRaw as {
     id: string
     facility_id: string
@@ -297,7 +300,11 @@ export async function rejectPublishRequest(
     .eq("id", requestId)
     .eq("status", "pending")
 
-  if (error) return { ok: false, error: error.message }
+  if (error)
+    return {
+      ok: false,
+      error: dbError(error, "Could not reject the publish request."),
+    }
 
   revalidatePath("/admin/scheduling/publish")
   revalidatePath("/admin/scheduling/publish/requests")

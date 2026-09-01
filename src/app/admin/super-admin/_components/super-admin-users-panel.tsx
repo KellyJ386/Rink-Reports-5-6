@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 
 import {
   Card,
@@ -96,9 +96,14 @@ function UserRow({
           <p className="text-xs text-destructive">{resetState.error}</p>
         )}
         {resetState.ok === true && (
-          <p className="text-xs text-success-soft-foreground">
-            {resetState.message}
-          </p>
+          <div className="flex flex-col items-start gap-1">
+            <p className="text-xs text-success-soft-foreground">
+              {resetState.message}
+            </p>
+            {resetState.resetLink && (
+              <CopyLinkButton link={resetState.resetLink} />
+            )}
+          </div>
         )}
       </div>
 
@@ -135,5 +140,31 @@ function UserRow({
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Copies a one-time password-reset link to the clipboard. The link is a
+ * full-takeover recovery credential, so it is NEVER rendered as text — it lives
+ * only in the action result and the clipboard for the moment the admin pastes
+ * it to the user.
+ */
+function CopyLinkButton({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={copy}>
+      {copied ? "Copied" : "Copy link"}
+    </Button>
   )
 }

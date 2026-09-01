@@ -13,6 +13,7 @@ import {
   type UserAction,
 } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/server"
+import { dbError } from "@/lib/db-error"
 import { logServerError } from "@/lib/observability/log-server-error"
 
 export type ActionResult = { ok: true } | { ok: false; error: string }
@@ -114,7 +115,8 @@ export async function upsertUserPermission(input: {
         { onConflict: "user_id,facility_id,module_name,action" },
       )
 
-    if (error) return { ok: false, error: error.message }
+    if (error)
+      return { ok: false, error: dbError(error, "Could not save the permission.") }
 
     revalidatePath("/admin/permissions")
     revalidatePath(`/admin/permissions/${input.userId}`)
@@ -172,7 +174,8 @@ export async function applyPresetToUser(input: {
       .from("user_permissions")
       .upsert(rows, { onConflict: "user_id,facility_id,module_name,action" })
 
-    if (error) return { ok: false, error: error.message }
+    if (error)
+      return { ok: false, error: dbError(error, "Could not apply the preset.") }
 
     revalidatePath(`/admin/permissions/${input.userId}`)
     return { ok: true }
@@ -301,7 +304,11 @@ export async function bulkImportUserPermissionsCsv(
           onConflict: "user_id,facility_id,module_name,action",
           count: "exact",
         })
-      if (error) return { ok: false, error: error.message }
+      if (error)
+        return {
+          ok: false,
+          error: dbError(error, "Could not import the permissions."),
+        }
       inserted = count ?? rows.length
     }
 

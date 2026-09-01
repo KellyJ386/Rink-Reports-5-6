@@ -25,7 +25,7 @@ import {
   validateRecurrenceSpec,
 } from "../shifts/_lib/recurrence"
 import { formatDayKeyLabel } from "./datetime"
-import { computeShiftSignals } from "./grid-warnings"
+import { computeShiftSignals, loadShiftSignalsContext } from "./grid-warnings"
 import {
   describeViolation,
   formatViolations,
@@ -650,6 +650,14 @@ export async function createRecurringGridShifts(
     const policySkipped = new Set<string>()
     if (v.employee_id) {
       const employeeId = v.employee_id
+      // Employee cap + facility timezone/settings are constant across the whole
+      // series; load them ONCE instead of re-fetching all three per occurrence
+      // (previously ~3 redundant queries × up to 62 occurrences).
+      const signalsContext = await loadShiftSignalsContext(
+        supabase,
+        ctx.facilityId,
+        employeeId
+      )
       const probes: (Occurrence & { isParent: boolean })[] = [
         {
           dateKey: anchorKey,
@@ -671,15 +679,19 @@ export async function createRecurringGridShifts(
       for (let i = 0; i < probes.length; i += CHUNK) {
         const batch = await Promise.all(
           probes.slice(i, i + CHUNK).map(async (probe) => {
-            const signals = await computeShiftSignals(supabase, {
-              facilityId: ctx.facilityId,
-              employeeId,
-              startsAt: probe.startsAt,
-              endsAt: probe.endsAt,
-              breakMinutes: v.break_minutes ?? null,
-              jobAreaId: v.job_area_id ?? null,
-              excludeShiftId: null,
-            })
+            const signals = await computeShiftSignals(
+              supabase,
+              {
+                facilityId: ctx.facilityId,
+                employeeId,
+                startsAt: probe.startsAt,
+                endsAt: probe.endsAt,
+                breakMinutes: v.break_minutes ?? null,
+                jobAreaId: v.job_area_id ?? null,
+                excludeShiftId: null,
+              },
+              signalsContext
+            )
             return { probe, ...formatSignals(signals) }
           })
         )

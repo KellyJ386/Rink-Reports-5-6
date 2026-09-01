@@ -110,12 +110,16 @@ export async function sendPasswordReset(
   }
 
   const actionLink = data?.properties?.action_link ?? null
-  return {
-    ok: true,
-    message: actionLink
-      ? `Password reset link created. Share this one-time link with the user: ${actionLink}`
-      : "Password reset email sent.",
-  }
+  // Return the link in a dedicated field (copy-to-clipboard only), NOT embedded
+  // in the visible message — it is a one-time recovery credential.
+  return actionLink
+    ? {
+        ok: true,
+        message:
+          "Password reset link created. Use “Copy link” to share it — it is a one-time login link, so treat it like a password.",
+        resetLink: actionLink,
+      }
+    : { ok: true, message: "Password reset email sent." }
 }
 
 /**

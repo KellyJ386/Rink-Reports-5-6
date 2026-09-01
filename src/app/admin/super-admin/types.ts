@@ -24,7 +24,11 @@ export type SuperAdminUserRow = {
 }
 
 export type ActionState =
-  | { ok: true; message?: string }
+  // `resetLink` is a one-time recovery credential (full account takeover): it is
+  // returned here for copy-to-clipboard only and must never be rendered as
+  // visible text (shoulder-surf / screenshot / devtools). Only sendPasswordReset
+  // sets it.
+  | { ok: true; message?: string; resetLink?: string }
   | { ok: false; error: string }
   | { ok: null }
 

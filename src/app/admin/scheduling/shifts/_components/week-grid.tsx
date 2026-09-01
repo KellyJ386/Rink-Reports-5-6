@@ -655,9 +655,9 @@ export function WeekGrid(props: WeekGridProps) {
                   borderLeft: `3px solid ${col.edge}`,
                   padding: density === "compact" ? "3px 5px" : "5px 7px",
                   boxShadow: isSel
-                    ? "0 0 0 2px var(--primary), 0 6px 14px rgba(0,0,0,.14)"
+                    ? "0 0 0 2px var(--primary), var(--shadow-elev-2)"
                     : isPointerDragging
-                      ? "0 8px 18px rgba(0,0,0,.18)"
+                      ? "var(--shadow-elev-3)"
                       : undefined,
                 }}
                 onPointerDown={(ev) => onBlockPointerDown(ev, p)}
@@ -792,7 +792,7 @@ function ShiftBlock({
     ...style,
     ...(transform ? { transform: CSS.Translate.toString(transform) } : null),
     ...(isDragging
-      ? { zIndex: 7, boxShadow: "0 8px 18px rgba(0,0,0,.22)" }
+      ? { zIndex: 7, boxShadow: "var(--shadow-elev-3)" }
       : null),
   }
 

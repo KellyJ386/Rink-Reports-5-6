@@ -170,9 +170,6 @@ export default async function NotificationsPage({
         className="bg-card grid gap-3 rounded-md border p-4 shadow-sm md:grid-cols-5"
       >
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-type" className="text-xs font-medium">
-            Type
-          </label>
           <Label htmlFor="filter-type" className="text-sm">
             Type
           </Label>
@@ -190,9 +187,6 @@ export default async function NotificationsPage({
           </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-recipient" className="text-xs font-medium">
-            Recipient
-          </label>
           <Label htmlFor="filter-recipient" className="text-sm">
             Recipient
           </Label>
@@ -211,9 +205,6 @@ export default async function NotificationsPage({
           </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-unread" className="text-xs font-medium">
-            Unread
-          </label>
           <Label htmlFor="filter-unread" className="text-sm">
             Unread
           </Label>
@@ -228,9 +219,6 @@ export default async function NotificationsPage({
           </NativeSelect>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-from" className="text-xs font-medium">
-            From
-          </label>
           <Label htmlFor="filter-from" className="text-sm">
             From
           </Label>
@@ -242,9 +230,6 @@ export default async function NotificationsPage({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="filter-to" className="text-xs font-medium">
-            To
-          </label>
           <Label htmlFor="filter-to" className="text-sm">
             To
           </Label>
