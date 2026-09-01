@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { checkRateLimit } from "@/lib/rate-limit/check"
+import { checkRateLimitOutcome } from "@/lib/rate-limit/check"
 import { createClient } from "@/lib/supabase/server"
 
 type RequestBody = {
@@ -109,18 +109,30 @@ export async function POST(request: NextRequest) {
   // limiter being healthy.
   const ip = clientIp(request)
   // check_rate_limit is service-role-only (migration 216), so it runs through
-  // the service-role client. failOpen: false — a limiter outage on this public,
-  // unauthenticated write must fail CLOSED (an unbounded insert path is worse
-  // than briefly turning away retryable leads).
-  const allowed = await checkRateLimit({
+  // the service-role client. Both non-allowed outcomes fail CLOSED (an unbounded
+  // insert on this public, unauthenticated write is worse than briefly turning
+  // away retryable leads), but they get DIFFERENT responses: a real limit is a
+  // 429 the sender can retry past; a limiter OUTAGE (missing service-role env,
+  // RPC error) is a 503, so an operator sees "misconfigured/temporarily down"
+  // rather than a permanent, misleading "too many requests".
+  const outcome = await checkRateLimitOutcome({
     bucket: RATE_LIMIT_BUCKET,
     identifier: ip,
     max: RATE_LIMIT_MAX,
     windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
-    failOpen: false,
   })
 
-  if (allowed === false) {
+  if (outcome === "unavailable") {
+    return NextResponse.json(
+      { error: "This form is temporarily unavailable. Please try again shortly." },
+      {
+        status: 503,
+        headers: { "Retry-After": String(RATE_LIMIT_WINDOW_SECONDS) },
+      }
+    )
+  }
+
+  if (outcome === "limited") {
     return NextResponse.json(
       { error: "Too many requests. Please try again in a few minutes." },
       {

@@ -21,20 +21,30 @@ import { createAdminClient } from "@/lib/supabase/admin"
  *
  * Returns true when the action is allowed, false when the limit is exceeded.
  */
-export async function checkRateLimit(args: {
+/**
+ * Three-state limiter result:
+ *   - "allowed"     — under the limit, proceed.
+ *   - "limited"     — the (bucket, identifier) window is exhausted.
+ *   - "unavailable" — the limiter itself could not run (service-role client
+ *                     missing/misconfigured, or the RPC errored). Distinct from
+ *                     "limited" so a caller can report an accurate 503 instead
+ *                     of a misleading "too many requests" — the difference
+ *                     matters on a public form where an operator would otherwise
+ *                     read a config outage as a rate-limit.
+ */
+export type RateLimitOutcome = "allowed" | "limited" | "unavailable"
+
+export async function checkRateLimitOutcome(args: {
   bucket: string
   identifier: string
   max: number
   windowSeconds: number
-  failOpen: boolean
-}): Promise<boolean> {
+}): Promise<RateLimitOutcome> {
   let supabase
   try {
     supabase = createAdminClient()
   } catch {
-    // Service-role env missing/misconfigured: never let the limiter itself
-    // break the flow — honor the caller's fail direction.
-    return args.failOpen
+    return "unavailable"
   }
 
   const { data, error } = await supabase.rpc("check_rate_limit", {
@@ -43,6 +53,29 @@ export async function checkRateLimit(args: {
     p_max: args.max,
     p_window_seconds: args.windowSeconds,
   })
-  if (error) return args.failOpen
-  return data !== false
+  if (error) return "unavailable"
+  return data === false ? "limited" : "allowed"
+}
+
+/**
+ * Boolean allow/deny wrapper over {@link checkRateLimitOutcome}. `failOpen`
+ * picks the behavior when the limiter can't run: the login path fails OPEN (a
+ * limiter blip must never lock everyone out; GoTrue still applies its own
+ * caps), the public write paths fail CLOSED (an unbounded insert on a limiter
+ * outage is worse than briefly turning away retryable requests).
+ *
+ * Returns true when the action is allowed, false when the limit is exceeded.
+ * Callers that need to tell an outage apart from a real limit (to send an
+ * accurate status) should use {@link checkRateLimitOutcome} directly.
+ */
+export async function checkRateLimit(args: {
+  bucket: string
+  identifier: string
+  max: number
+  windowSeconds: number
+  failOpen: boolean
+}): Promise<boolean> {
+  const outcome = await checkRateLimitOutcome(args)
+  if (outcome === "unavailable") return args.failOpen
+  return outcome === "allowed"
 }

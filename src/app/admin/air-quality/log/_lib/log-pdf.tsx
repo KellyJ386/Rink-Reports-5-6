@@ -13,6 +13,8 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 import type { AirQualityFormData } from "@/app/reports/air-quality/types"
 
+import { AQ_LOG_ROW_LIMIT } from "./log-range"
+
 const styles = StyleSheet.create({
   page: {
     padding: 28,
@@ -158,7 +160,10 @@ export async function buildAirQualityLogPdf(
         .eq("facility_id", facilityId)
         .gte("submitted_at", `${from}T00:00:00Z`)
         .lt("submitted_at", toBound.toISOString())
-        .order("submitted_at", { ascending: true }),
+        .order("submitted_at", { ascending: true })
+        // Hard ceiling so an extreme submission density can't drive an
+        // unbounded set into the PDF renderer (callers also cap the span).
+        .limit(AQ_LOG_ROW_LIMIT),
     ])
 
   let jurisdiction: string | null = null

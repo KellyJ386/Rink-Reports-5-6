@@ -2,15 +2,12 @@ import { requireAdmin, requireModuleAdmin } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 
 import { buildAirQualityLogPdf } from "../_lib/log-pdf"
+import { resolveLogRange } from "../_lib/log-range"
 
 export const dynamic = "force-dynamic"
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-const DAY_MS = 24 * 60 * 60 * 1000
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
+// Bound PDF generation time; the span + row caps in log-range/log-pdf keep the
+// work under this even on a facility with a long history.
+export const maxDuration = 60
 
 // On-demand inspector-ready PDF of the Air Quality monitoring log for a date
 // range. Admin-gated; the RLS-scoped server client keeps facility isolation, so
@@ -27,13 +24,10 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
-  const toParam = url.searchParams.get("to")
-  const fromParam = url.searchParams.get("from")
-  const to = toParam && DATE_RE.test(toParam) ? toParam : isoDate(new Date())
-  const from =
-    fromParam && DATE_RE.test(fromParam)
-      ? fromParam
-      : isoDate(new Date(Date.now() - 90 * DAY_MS))
+  const { from, to } = resolveLogRange(
+    url.searchParams.get("from"),
+    url.searchParams.get("to"),
+  )
 
   const supabase = await createClient()
   const rendered = await buildAirQualityLogPdf(supabase, facilityId, from, to)

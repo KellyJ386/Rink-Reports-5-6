@@ -26,6 +26,11 @@ const PURGE_FUNCTIONS = [
   "purge_old_ice_operations_submissions",
   "purge_old_ice_depth_sessions",
   "purge_old_dasher_boards_inspections",
+  // Rink Scheduling & Billing (migration 251). The retention UI offers this
+  // module an Auto-purge toggle, but the nightly worker never invoked its purge
+  // function, so enabling it was a silent no-op. Financial records: the function
+  // itself clamps the cutoff to a 7-year floor regardless of configured keep_days.
+  "purge_old_rink_scheduling_records",
   "purge_old_audit_logs",
   "purge_old_notification_outbox",
   "purge_old_offline_sync_queue",
