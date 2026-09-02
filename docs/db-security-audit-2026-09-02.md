@@ -9,9 +9,18 @@ claim. It is not a source review; `docs/security-review-2026-07-28.md` is.
 
 Remediation ships as migration **277**
 (`00000000000277_close_definer_grant_and_gate_gaps.sql`) with a new
-`DGG277` block in `supabase/tests/rls_isolation.sql`. Migration 277 has
-**not** been applied to production from this audit; it deploys through the
-normal path (merge → `deploy-migrations.yml` → `supabase db push`).
+`DGG277` block in `supabase/tests/rls_isolation.sql`. **Migration 277's SQL
+was applied to production on 2026-09-02 (17:15 UTC)** in a single transaction
+via the Supabase MCP `execute_sql`, deliberately *without* recording a
+`schema_migrations` row: `apply_migration` would have stamped a timestamp
+version the repo does not have, and `deploy-migrations.yml`'s
+`supabase db push` refuses to run when the remote holds versions it cannot
+find locally. On merge, `db push` applies 277 normally (verified idempotent)
+and records it. Post-apply live checks: 0 DEFINER functions in `public`
+executable by anon/PUBLIC (was 8); the advisor's eight
+`anon_security_definer_function_executable` WARNs are gone; anon-role and
+authenticated-non-admin probes of the release helper and both seeders are
+refused with `42501`.
 
 ## Executive summary
 
@@ -252,7 +261,8 @@ changes); `supabase/schema.snapshot.sql` is regenerated in the same change.
 
 ## Follow-ups (not in this change)
 
-1. Merge and let `deploy-migrations.yml` push 277 — F1 is live until then.
+1. Merge so the repo, snapshot, harness (`DGG277f`) and production agree;
+   `db push` re-applies 277 as a no-op and records it.
 2. Enable leaked-password protection in the Auth dashboard (F8).
 3. Decide on the `authenticated` default-privilege revoke (F6) and, if taken,
    add the "explicit grant per function" convention to CLAUDE.md.
