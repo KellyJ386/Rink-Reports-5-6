@@ -96,6 +96,15 @@ begin
 end;
 $$;
 
+-- The blocks below call these helpers while impersonating anon,
+-- authenticated and service_role. Since migration 277 a function created by
+-- postgres no longer carries PUBLIC EXECUTE by default, so grant it here —
+-- the same reason _rls_failures is granted to those roles further down.
+grant execute on function pg_temp.expect_count(text, integer, text),
+                          pg_temp.expect_error(text, text),
+                          pg_temp.expect_ok(text, text)
+  to anon, authenticated, service_role;
+
 -- ---------------------------------------------------------------------------
 -- 1. Fixture: two facilities with one employee each, one routing rule each.
 -- ---------------------------------------------------------------------------
@@ -6728,12 +6737,11 @@ values
 on conflict (id) do nothing;
 reset role;
 
-set local role authenticated;
-set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
-select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
-
 -- Policy helper, toggle OFF (facility A has no schedule_settings row here;
 -- absent row = default false): advisory codes filtered out, cert codes kept.
+-- Run in owner context: since migration 277 the helper is internal to the
+-- governed RPCs (no client-role EXECUTE), which is the only place it runs.
+set local role postgres;
 select pg_temp.expect_count(
   $$select coalesce(array_length(public.scheduling_blocking_violations(
       '11111111-1111-1111-1111-111111111111',
@@ -6750,6 +6758,11 @@ select pg_temp.expect_count(
       '11111111-1111-1111-1111-111111111111',
       array['time_off','cert_missing:CPR','overtime']), 1), 0)$$,
   1, 'SCHED-214: toggle OFF — blocking set is exactly the cert codes');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
 
 -- Publish door, toggle OFF: W1 (advisory time_off) publishes, and the RPC
 -- reports the advisory codes it waved through.
@@ -6784,17 +6797,18 @@ reset role;
 set local role postgres;
 insert into public.schedule_settings (facility_id, block_on_violations)
 values ('11111111-1111-1111-1111-111111111111', true);
+-- Helper in owner context (internal-only since migration 277, see above).
+select pg_temp.expect_count(
+  $$select count(*) from unnest(public.scheduling_blocking_violations(
+      '11111111-1111-1111-1111-111111111111',
+      array['time_off','overtime'])) as c$$,
+  2, 'SCHED-214: toggle ON — advisory codes DO block');
 reset role;
 
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
 select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
 
-select pg_temp.expect_count(
-  $$select count(*) from unnest(public.scheduling_blocking_violations(
-      '11111111-1111-1111-1111-111111111111',
-      array['time_off','overtime'])) as c$$,
-  2, 'SCHED-214: toggle ON — advisory codes DO block');
 select pg_temp.expect_count(
   $$select count(*) from (
       select public.scheduling_approve_publish_request(
@@ -11199,6 +11213,270 @@ set local role service_role;
 delete from public.user_permissions
  where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' and module_name = 'reports';
 delete from public.incident_reports where description = 'facility B secret';
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- DGG277: SECURITY DEFINER grant + gate gaps closed by migration 277 (live
+-- database audit, 2026-09-02). Every negative probe below SUCCEEDED against
+-- the pre-277 schema, i.e. each was an open door:
+--   (a) scheduling_release_shift_to_pool had anon+authenticated EXECUTE and no
+--       in-body gate — anyone holding the public anon key could unassign any
+--       facility's published shift and list it as open.
+--   (b) seed_default_facility_dropdown_options' guard tested current_user,
+--       which inside a DEFINER body is the owner, so it never fired.
+--   (c) seed_default_rink_scheduling_config had no gate at all.
+--   (d) scheduling_blocking_violations exposed another facility's
+--       block_on_violations to any authenticated caller.
+--   (e) the postgres default privileges auto-granted anon EXECUTE on every
+--       new function, which is how (a) happened despite migration 234's
+--       `revoke ... from public`.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+-- A published Facility-B shift assigned to bob, untouched by the E-5 block.
+insert into public.schedule_shifts (
+  id, facility_id, department_id, employee_id, starts_at, ends_at, status
+) values (
+  'c0277000-0000-4000-8000-0000000000b1',
+  '22222222-2222-2222-2222-222222222222',
+  'bbbb2222-de71-bbbb-bbbb-bbbb22220082',
+  'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  now() + interval '9 days', now() + interval '9 days 8 hours', 'published')
+on conflict (id) do nothing;
+
+-- Dana: a Facility-A STAFF account with no user_permissions at all. By this
+-- point in the file alice has accumulated admin/admin (FDO) and
+-- rink_scheduling admin (RS41), so she can no longer stand in for "a user
+-- without the grant".
+insert into auth.users (id, email)
+values ('d277d277-d277-4277-8277-d277d277d277', 'dana@fac-a.test')
+on conflict (id) do nothing;
+insert into public.users (id, facility_id, email, is_super_admin)
+values ('d277d277-d277-4277-8277-d277d277d277',
+        '11111111-1111-1111-1111-111111111111', 'dana@fac-a.test', false)
+on conflict (id) do nothing;
+insert into public.employees (
+  id, facility_id, user_id, role_id, first_name, last_name, email, is_active
+)
+select 'd277e277-d277-4277-8277-d277d277d277'::uuid,
+       '11111111-1111-1111-1111-111111111111'::uuid,
+       'd277d277-d277-4277-8277-d277d277d277'::uuid,
+       r.id, 'Dana', 'Dorsey', 'dana@fac-a.test', true
+from public.roles r
+where r.facility_id = '11111111-1111-1111-1111-111111111111' and r.key = 'staff'
+on conflict (id) do nothing;
+reset role;
+
+-- (a) anon: the public anon key must not reach the release helper, nor the
+-- four client RPCs migration 232/234 meant for authenticated only.
+set local role anon;
+select pg_temp.expect_error(
+  $$select public.scheduling_release_shift_to_pool(
+      'c0277000-0000-4000-8000-0000000000b1',
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277a: anon CANNOT execute scheduling_release_shift_to_pool');
+select pg_temp.expect_error(
+  $$select public.scheduling_request_shift_drop(
+      'c0277000-0000-4000-8000-0000000000b1', null)$$,
+  'DGG277a: anon CANNOT execute scheduling_request_shift_drop');
+select pg_temp.expect_error(
+  $$select public.scheduling_decide_shift_drop(
+      'c0234000-0000-4000-8000-0000000000d1', true, null)$$,
+  'DGG277a: anon CANNOT execute scheduling_decide_shift_drop');
+select pg_temp.expect_error(
+  $$select public.scheduling_cancel_shift_drop(
+      'c0234000-0000-4000-8000-0000000000d1')$$,
+  'DGG277a: anon CANNOT execute scheduling_cancel_shift_drop');
+select pg_temp.expect_error(
+  $$select public.scheduling_move_compliance_rule(
+      'c0232000-0000-4000-8000-00000000000a', 1)$$,
+  'DGG277a: anon CANNOT execute scheduling_move_compliance_rule');
+reset role;
+
+-- (a)(b)(c)(d) alice — by now a Facility-A admin (admin/admin from the FDO
+-- block, rink_scheduling admin from RS41). Even an admin never reaches the
+-- internal helpers, and her admin grants stop at her own facility.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+
+select pg_temp.expect_error(
+  $$select public.scheduling_release_shift_to_pool(
+      'c0277000-0000-4000-8000-0000000000b1',
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277a: authenticated alice CANNOT execute scheduling_release_shift_to_pool on a Facility-B shift');
+select pg_temp.expect_error(
+  $$select public.scheduling_release_shift_to_pool(
+      'c0234000-0000-4000-8000-0000000000a2',
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277a: ...nor on a coworker''s shift in her OWN facility — the helper is owner-context only');
+select pg_temp.expect_error(
+  $$select public.scheduling_blocking_violations(
+      '22222222-2222-2222-2222-222222222222', array['overtime'])$$,
+  'DGG277d: authenticated alice CANNOT execute scheduling_blocking_violations');
+
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_dropdown_options(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277b: facility-A admin alice CANNOT seed dropdown options into Facility B');
+select pg_temp.expect_ok(
+  $$select public.seed_default_facility_dropdown_options(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277b: ...but CAN seed her OWN facility (admin/admin) — the console''s "seed defaults" path');
+select pg_temp.expect_error(
+  $$select public.seed_default_rink_scheduling_config(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277c: facility-A admin alice CANNOT seed rink-scheduling config into Facility B');
+select pg_temp.expect_ok(
+  $$select public.seed_default_rink_scheduling_config(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277c: ...but CAN seed her OWN facility (rink_scheduling admin)');
+reset role;
+
+-- (b)(c) dana — Facility-A staff with NO grants: neither seeder, in either
+-- facility. Then, given exactly rink_scheduling edit, the rink seeder opens
+-- for her own facility only.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d277d277-d277-4277-8277-d277d277d277","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'd277d277-d277-4277-8277-d277d277d277', true);
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_dropdown_options(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277b: grant-less staff dana CANNOT seed dropdown options into her own facility');
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_dropdown_options(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277b: ...nor into Facility B');
+select pg_temp.expect_error(
+  $$select public.seed_default_rink_scheduling_config(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277c: grant-less staff dana CANNOT seed rink-scheduling config into her own facility');
+select pg_temp.expect_error(
+  $$select public.seed_default_rink_scheduling_config(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277c: ...nor into Facility B');
+reset role;
+
+set local role postgres;
+insert into public.user_permissions (user_id, facility_id, module_name, action, enabled)
+values ('d277d277-d277-4277-8277-d277d277d277',
+        '11111111-1111-1111-1111-111111111111',
+        'rink_scheduling', 'edit'::public.user_action, true)
+on conflict (user_id, facility_id, module_name, action) do nothing;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d277d277-d277-4277-8277-d277d277d277","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'd277d277-d277-4277-8277-d277d277d277', true);
+select pg_temp.expect_ok(
+  $$select public.seed_default_rink_scheduling_config(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277c: dana with ONLY rink_scheduling edit CAN seed her own facility (the edit arm)');
+select pg_temp.expect_error(
+  $$select public.seed_default_rink_scheduling_config(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277c: ...and still CANNOT reach Facility B');
+select pg_temp.expect_error(
+  $$select public.seed_default_facility_dropdown_options(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277b: rink_scheduling edit does not open the dropdown seeder (admin/admin only)');
+reset role;
+
+-- (c) carol — Facility-A manager holding rink_scheduling edit: the console's
+-- "seed defaults" path. Own facility works; Facility B still does not.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', true);
+select pg_temp.expect_ok(
+  $$select public.seed_default_rink_scheduling_config(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277c: carol (rink_scheduling edit) CAN seed rink-scheduling defaults for her OWN facility');
+select pg_temp.expect_error(
+  $$select public.seed_default_rink_scheduling_config(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277c: carol CANNOT seed rink-scheduling config into Facility B');
+reset role;
+
+set local role postgres;
+
+-- Bob's shift is untouched by everything above: still his, never listed.
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts
+     where id = 'c0277000-0000-4000-8000-0000000000b1'
+       and employee_id = 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+       and status = 'published'$$,
+  1, 'DGG277a: bob''s published Facility-B shift is still assigned to bob');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_open_shifts
+     where shift_id = 'c0277000-0000-4000-8000-0000000000b1'$$,
+  0, 'DGG277a: ...and was never listed in the open pool');
+
+-- Direct-connection context with NO API JWT (migration replays and backfills,
+-- the dashboard) keeps working. The impersonation blocks above set the JWT
+-- settings transaction-locally and `reset role` does not clear them, so
+-- clear them here the way a fresh psql/db-push connection would look.
+select set_config('request.jwt.claims', '', true);
+select set_config('request.jwt.claim.sub', '', true);
+select pg_temp.expect_ok(
+  $$select public.seed_default_facility_dropdown_options(
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277b: owner context CAN still seed dropdown options');
+select pg_temp.expect_ok(
+  $$select public.seed_default_rink_scheduling_config(
+      '22222222-2222-2222-2222-222222222222')$$,
+  'DGG277c: owner context CAN still seed rink-scheduling defaults');
+select pg_temp.expect_error(
+  $$select public.scheduling_release_shift_to_pool(
+      'c0277000-0000-4000-8000-0000000000b1',
+      '11111111-1111-1111-1111-111111111111')$$,
+  'DGG277a: even in owner context the helper refuses a shift/facility mismatch');
+
+-- The auto-seed trigger path: a facilities INSERT (super-admin-only under
+-- RLS; here the bypass role) seeds the new facility even while a stale
+-- non-admin JWT is in the session, because pg_trigger_depth() > 0 vouches
+-- for it. This is the shape every later fixture insert in this file relies on.
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+insert into public.facilities (id, name, slug)
+values ('27727727-2772-4772-8772-277277277277', 'Facility DGG', 'fac-dgg')
+on conflict (id) do nothing;
+select pg_temp.expect_count(
+  $$select count(*) from public.rink_scheduling_settings
+     where facility_id = '27727727-2772-4772-8772-277277277277'$$,
+  1, 'DGG277c: the facilities auto-seed trigger still seeds rink-scheduling config');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_dropdown_options
+     where facility_id = '27727727-2772-4772-8772-277277277277'
+       and domain = 'facility_timezone'$$,
+  11, 'DGG277b: the facilities auto-seed trigger still seeds dropdown options');
+select set_config('request.jwt.claims', '', true);
+select set_config('request.jwt.claim.sub', '', true);
+
+-- (e) a function created from here on is NOT anon-executable unless the
+-- migration grants it; the authenticated default is deliberately unchanged.
+create function public._dgg277_probe() returns integer language sql as 'select 1';
+select pg_temp.expect_count(
+  $$select case when has_function_privilege('anon', 'public._dgg277_probe()', 'execute')
+      then 1 else 0 end$$,
+  0, 'DGG277e: a newly created function is not anon-executable by default');
+select pg_temp.expect_count(
+  $$select case when has_function_privilege('authenticated', 'public._dgg277_probe()', 'execute')
+      then 1 else 0 end$$,
+  1, 'DGG277e: ...while the authenticated default grant is unchanged');
+drop function public._dgg277_probe();
+
+-- (f) The durable gate, independent of what the defaults happen to be: no
+-- SECURITY DEFINER function in public may be executable by anon or PUBLIC.
+-- A migration that creates one and forgets the revoke fails here.
+select pg_temp.expect_count(
+  $$select count(*)
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.prosecdef
+       and (has_function_privilege('anon', p.oid, 'execute')
+            or has_function_privilege('public', p.oid, 'execute'))$$,
+  0, 'DGG277f: no SECURITY DEFINER function in public is executable by anon or PUBLIC');
 reset role;
 
 do $$

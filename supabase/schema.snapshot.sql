@@ -7851,9 +7851,18 @@ begin
     from public.schedule_settings
    where facility_id = p_facility_id;
 
+  -- Pin the shift to the facility the caller vouched for. The shift-drop RPCs
+  -- pass (v_drop.shift_id, v_drop.facility_id) from one row, so this never
+  -- fires for them; it exists so a mismatched pair can never release a shift.
   update public.schedule_shifts
      set employee_id = null
-   where id = p_shift_id;
+   where id = p_shift_id
+     and facility_id = p_facility_id;
+  if not found then
+    raise exception 'scheduling_release_shift_to_pool: shift % does not belong to facility %',
+      p_shift_id, p_facility_id
+      using errcode = '42501';
+  end if;
 
   -- approval_required snapshots (NOT open_shift_first_come) at creation time,
   -- exactly as scheduling_approve_publish_request does.
@@ -9071,19 +9080,30 @@ CREATE FUNCTION public.seed_default_facility_dropdown_options(p_facility_id uuid
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
-  -- Authorization guard (added in this migration). Reachable as an
-  -- authenticated PostgREST RPC, so it must not trust an arbitrary
-  -- p_facility_id. Allow:
-  --   * trusted backend roles / the owner — under which the AFTER INSERT
-  --     auto-seed trigger and create_facility_with_roles run in definer
-  --     context (current_user is the owner, not the end user);
+  -- Authorization guard. Reachable as an authenticated PostgREST RPC, so it
+  -- must not trust an arbitrary p_facility_id. Callers that pass:
+  --   * the facilities AFTER INSERT auto-seed trigger (pg_trigger_depth() > 0):
+  --     the INSERT it follows was already gated -- facilities_insert is
+  --     super-admin-only under RLS and the bypass roles are trusted;
+  --   * a direct-connection context carrying no API JWT at all (migration
+  --     replays and backfills, the dashboard, psql), or the service-role key
+  --     by JWT claim (cron and provisioning routes). PostgREST sets the
+  --     request.jwt.* settings on every API request, anon key included, so
+  --     an end user can never present as "no JWT";
   --   * a super admin (public.is_super_admin());
   --   * a facility admin for THIS facility (public.is_facility_admin()).
-  -- AND short-circuits, so the helpers (which read auth.uid()) are only called
-  -- for an end-user role, never during provisioning. Mirrors requireAdmin()'s
-  -- primary checks; the rare employee-role-only admin (not in user_permissions)
-  -- should re-run provisioning rather than hit this RPC directly.
-  if current_user not in ('postgres', 'supabase_admin', 'service_role')
+  -- NOT current_user: inside a SECURITY DEFINER body current_user is always
+  -- the owner, which is why the migration-163 form of this guard never fired.
+  -- NOT session_user: it is the owner under the rls_isolation harness as well
+  -- (its M5 note), so a session_user gate could never be asserted in CI.
+  -- Mirrors requireAdmin()'s primary checks; the rare employee-role-only
+  -- admin (not in user_permissions) should re-run provisioning rather than
+  -- hit this RPC directly.
+  if pg_trigger_depth() = 0
+     and (nullif(current_setting('request.jwt.claims', true), '') is not null
+          or nullif(current_setting('request.jwt.claim.sub', true), '') is not null
+          or nullif(current_setting('request.jwt.claim.role', true), '') is not null)
+     and coalesce(auth.role(), '') <> 'service_role'
      and not public.is_super_admin()
      and not public.is_facility_admin(p_facility_id) then
     raise exception 'not authorized to seed dropdown options for this facility'
@@ -9373,6 +9393,25 @@ CREATE FUNCTION public.seed_default_rink_scheduling_config(p_facility_id uuid) R
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
+  -- Authorization guard (same shape as seed_default_facility_dropdown_options
+  -- above). The console's "seed defaults" action runs as a facility manager
+  -- holding rink_scheduling edit, so that grant -- scoped to the caller's OWN
+  -- facility -- is the end-user arm.
+  if pg_trigger_depth() = 0
+     and (nullif(current_setting('request.jwt.claims', true), '') is not null
+          or nullif(current_setting('request.jwt.claim.sub', true), '') is not null
+          or nullif(current_setting('request.jwt.claim.role', true), '') is not null)
+     and coalesce(auth.role(), '') <> 'service_role'
+     and not public.is_super_admin()
+     and not coalesce(
+       p_facility_id = public.current_facility_id()
+       and (public.has_module_admin_access('rink_scheduling')
+            or public.has_module_edit_access('rink_scheduling')),
+       false) then
+    raise exception 'not authorized to seed rink scheduling defaults for this facility'
+      using errcode = '42501';
+  end if;
+
   -- Module settings (one row per facility).
   insert into public.rink_scheduling_settings (facility_id)
   values (p_facility_id)
