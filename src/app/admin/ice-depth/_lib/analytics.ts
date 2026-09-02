@@ -19,7 +19,7 @@ export type AnalyticsMeasurement = {
 export type AnalyticsSession = {
   submitted_at: string
   /**
-   * Facility-LOCAL calendar date of the session (migration 267,
+   * Facility-LOCAL calendar date of the session (migration 268,
    * `ice_depth_sessions.business_date`, NOT NULL and CHECK-stamped). The trend
    * strip buckets on this, not on `submitted_at`, so a session submitted late
    * in the local evening is never pushed onto the next UTC day.
@@ -183,7 +183,7 @@ export function rollupByPoint(
 /**
  * Bucket sessions by facility-local business date for the trend strip. Returned
  * ascending by date. Uses the session-level denormalized counters (no
- * measurement join). Buckets on `business_date` (facility zone, migration 267)
+ * measurement join). Buckets on `business_date` (facility zone, migration 268)
  * rather than the raw UTC `submitted_at`, so an evening session is attributed to
  * the day it actually happened at the rink.
  */

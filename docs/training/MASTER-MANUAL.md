@@ -32,6 +32,7 @@ RinkReports is a progressive web app (PWA) for ice-rink facility operations. It 
 6. [Air Quality](./modules/air-quality.md)
 7. [Ice Depth](./modules/ice-depth.md)
 8. [Employee Scheduling](./modules/employee-scheduling.md)
+9. [Insights (Facility Reports)](./modules/insights-reports.md)
 
 ### Reference
 
@@ -106,6 +107,8 @@ Each summary links to the full chapter. The chapters hold the screen-by-screen d
 **[Ice Depth](./modules/ice-depth.md)** — A two-phase (measure → review) flow that records ice thickness point-by-point against a tappable USA-Hockey rink diagram, tuned for Bluetooth calipers. Each point colors live by severity. Measures **depth, not temperature** (unit is inches or mm — no °F/°C toggle). Submitted sessions are immutable, with PDF / print / send options.
 
 **[Employee Scheduling](./modules/employee-scheduling.md)** — Two sides: the **admin grid** (drag-build shifts, assign people, publish via a two-person request/approve flow) and the **staff app** (my shifts, availability, time off, claim open shifts, request swaps). Runs cert/hour-cap/overtime rule checks. **No payroll, timekeeping, or clock-in/out** — it is assignment only.
+
+**[Insights (Facility Reports)](./modules/insights-reports.md)** — Where you **run reports**: facility-wide activity and compliance numbers aggregated across nine modules for any day, week, month, or fiscal year, with branded PDF export. Past days come from a nightly rollup; today is computed live and labeled as such; days without data are excluded from totals and the report says so. Gated by its own **Reports** permission (manager-and-above by default; **edit** required to export).
 
 ---
 
