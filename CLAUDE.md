@@ -116,6 +116,21 @@ Facility operating hours live on `schedule_settings.operating_hours_{start,end}_
 1. `src/types/database.ts` — `pnpm types:write` against a migrated DB (gate: `pnpm types:check` in the rls-isolation workflow). Do not bridge schema gaps with `as any`.
 2. `supabase/schema.snapshot.sql` — `./scripts/dump-schema-snapshot.sh "<url>" > supabase/schema.snapshot.sql` (gate: the `Schema Drift / snapshot` workflow, which replays every migration onto a clean `supabase/postgres:15` and diffs the dump). It exists so the schema a migration *produces* is reviewable in the diff, and so an edited historical migration can't silently change the build.
 
+**Function grants are the other sharp edge.** The stack's default privileges
+hand every new `public` function to `authenticated` and `service_role` at
+CREATE time (and, before migration 277, to `anon` and PUBLIC as well), so
+`revoke execute ... from public` alone never removed a client role's grant —
+that is how an owner-only helper ended up callable by the browser key
+(migration 277, `docs/db-security-audit-2026-09-02.md`). Rules that follow:
+an internal helper (called only from other SECURITY DEFINER functions) must
+`revoke execute ... from public, anon, authenticated` explicitly; a DEFINER
+body must never gate on `current_user` or `session_user` (both are the
+*owner* inside it, and `session_user` is also the owner under the CI
+harness) — gate on `auth.uid()`-based helpers, `auth.role()`, the presence of
+`request.jwt.*`, or `pg_trigger_depth()`, as migration 277 does; and every
+new client-callable RPC needs an assertion in `rls_isolation.sql` that a
+grant-less user and an other-facility user are refused.
+
 **Widening an enumerated CHECK is the sharp edge here.** Postgres has no "add a value", so it means DROP + ADD with the whole list restated — and missing one silently NARROWS the domain. `schedule_notifications.notification_type` has been through this twice (migrations 158 and 234); `supabase/tests/rls_isolation.sql` now inserts a row of every permitted value so a lost one fails CI instead of a cron. RLS is enforced — `00000000000004_backbone_rls.sql`, `00000000000030_submission_rls_module_permissions.sql`, and `00000000000029_module_permission_helper.sql` define the permission model that admin/staff routes rely on; check those before touching policies. The module-level RLS helpers (`has_module_access` / `has_module_admin_access` / `has_area_access`) read `user_permissions` as of `00000000000091_unify_permission_helpers.sql`; the legacy `module_permissions` table was removed in `00000000000099_drop_dead_legacy_permission_tables.sql` (`module_area_permissions` and `role_module_permission_defaults` are retained).
 
 `supabase/config.toml` defines local ports (API 54321, DB 54322, Studio 54323).
