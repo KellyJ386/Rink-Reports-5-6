@@ -38,7 +38,14 @@ function daysAgoIso(days: number): string {
  * so server-side validation errors surface inline rather than navigating to a
  * raw JSON error page.
  */
-export function RunExportPanel({ modules }: { modules: ModuleOption[] }) {
+export function RunExportPanel({
+  modules,
+  facilityId = null,
+}: {
+  modules: ModuleOption[]
+  /** Super-admin ?facility= override; null for facility-scoped admins. */
+  facilityId?: string | null
+}) {
   const [moduleKey, setModuleKey] = useState<string>(modules[0]?.key ?? "")
   const [format, setFormat] = useState<"csv" | "pdf">("csv")
   const [from, setFrom] = useState<string>(daysAgoIso(30))
@@ -55,6 +62,7 @@ export function RunExportPanel({ modules }: { modules: ModuleOption[] }) {
     setBusy(true)
     try {
       const qs = new URLSearchParams({ module: moduleKey, format, from, to })
+      if (facilityId) qs.set("facility", facilityId)
       const res = await fetch(`/api/exports?${qs.toString()}`, {
         method: "GET",
         headers: { Accept: "application/octet-stream" },
