@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { hashIcsToken } from "@/app/reports/scheduling/_lib/ics-token"
 import { buildIcsCalendar, type IcsEvent } from "@/lib/ics"
 import { logServerError } from "@/lib/observability/log-server-error"
 import {
@@ -50,10 +51,12 @@ export async function GET(
 
   try {
     const nowMs = Date.now()
+    // Only the SHA-256 of the token is stored (migration 278) — hash the URL
+    // credential and match on that, so the DB never holds a usable feed URL.
     const { data: tokenRow } = await admin
       .from("schedule_ics_tokens")
       .select("employee_id, facility_id")
-      .eq("token", token)
+      .eq("token_hash", hashIcsToken(token))
       .maybeSingle<{ employee_id: string; facility_id: string }>()
     if (!tokenRow) {
       // Bound token-guessing with a tight, shared unknown-token budget before

@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
     module: moduleName,
     facilityId: profile?.facility_id ?? null,
     isSuperAdmin: profile?.is_super_admin ?? false,
+    requestedFacilityId: params.get("facility"),
   })
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })

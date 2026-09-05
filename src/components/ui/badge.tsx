@@ -30,7 +30,7 @@ const badgeVariants = cva(
         info:
           "bg-info-soft text-info-soft-foreground",
         special:
-          "bg-[var(--violet-100)] text-[var(--violet-600)] dark:bg-[rgba(154,130,255,0.18)] dark:text-[var(--violet-200)]",
+          "bg-violet-soft text-violet-soft-foreground",
       },
     },
     defaultVariants: {

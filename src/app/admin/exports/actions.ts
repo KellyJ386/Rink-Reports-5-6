@@ -25,13 +25,35 @@ function dbError(err: SupabaseError, fallback: string): string {
   return err.message?.trim() || fallback
 }
 
-async function resolveFacility(): Promise<
-  { ok: true; facilityId: string } | { ok: false; error: string }
-> {
+/**
+ * Resolve the facility this action writes to. `requested` (the super-admin
+ * `?facility=` switcher, carried as a hidden field) is honored ONLY for super
+ * admins; anyone else is pinned to their own profile facility, and a foreign
+ * `requested` value is rejected rather than ignored so tampering is loud.
+ */
+async function resolveFacility(
+  requested: string | null = null,
+): Promise<{ ok: true; facilityId: string } | { ok: false; error: string }> {
   const current = await requireAdmin()
   const profile = current?.profile
   if (!profile) return { ok: false, error: "Not signed in." }
-  if (!profile.facility_id) return { ok: false, error: "No facility assigned." }
+  if (profile.is_super_admin && requested) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested)) {
+      return { ok: false, error: "Invalid facility id." }
+    }
+    return { ok: true, facilityId: requested }
+  }
+  if (requested && requested !== profile.facility_id) {
+    return { ok: false, error: "You can only edit your own facility's settings." }
+  }
+  if (!profile.facility_id) {
+    return {
+      ok: false,
+      error: profile.is_super_admin
+        ? "Pick a facility first (choose one on the Exports page)."
+        : "No facility assigned.",
+    }
+  }
   return { ok: true, facilityId: profile.facility_id }
 }
 
@@ -39,7 +61,7 @@ export async function saveExportSettings(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const res = await resolveFacility()
+  const res = await resolveFacility(nonEmpty(formData.get("target_facility_id")))
   if (!res.ok) return { ok: false, error: res.error }
   const { facilityId } = res
 
@@ -115,6 +137,8 @@ export type RunExportInput = {
   from: string
   /** Inclusive end date, "YYYY-MM-DD". */
   to: string
+  /** Super-admin ?facility= override; validated in authorizeExport. */
+  facility?: string | null
 }
 
 export type RunExportResult =
@@ -142,6 +166,7 @@ export async function runExport(input: RunExportInput): Promise<RunExportResult>
     module: input.module,
     facilityId: profile.facility_id ?? null,
     isSuperAdmin: profile.is_super_admin ?? false,
+    requestedFacilityId: input.facility ?? null,
   })
   if (!auth.ok) return { ok: false, error: auth.error }
 
