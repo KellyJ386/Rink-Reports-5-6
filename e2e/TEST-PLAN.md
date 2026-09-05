@@ -142,18 +142,22 @@ not do against a shared environment.
 The most money-critical module in the app; previously the only major one with
 no browser coverage.
 
+All scheduling writes live on the admin surface (`/admin/rink-scheduling/schedule`);
+the dashboard calendar (`/reports/rink-scheduling`) is read-only for every account.
+
 | Scenario | Covered by |
 | --- | --- |
 | Calendar renders; all four views reachable | `calendar renders with all four views reachable` |
+| Dashboard calendar shows no edit affordance for ANY account | `dashboard calendar is read-only for every account` |
 | Edit affordances gate as a set, seed-independently | `edit-tier affordances gate together, not piecemeal` |
 | View-tier denied every money page at the route | `money pages deny a non-edit account by rendering the gate, not data` |
 | Front Desk renders at view tier | `front desk view is view-tier and renders` |
 | Agenda offers the printed daily schedule | `agenda view offers the print button` |
 | Dashboard widget renders read-only with freshness stamp | `dashboard shows the read-only ice schedule widget` |
-| Admin sees edit surface + money links | `calendar shows the edit surface and the money links` |
-| Booking sheet opens/closes without writing | `booking sheet opens from a slot and closes without writing` |
+| Admin schedule surface: edit tools + money links | `admin schedule shows the edit surface and the money links` |
+| Booking sheet opens/closes without writing | `booking sheet opens from an admin slot and closes without writing` |
 | Invoices/Insights/Requests/Contracts render for edit tier | `money pages render for an edit-tier account` |
-| All five admin console tabs render | `admin console tabs all render` |
+| Config tabs + admin schedule route all render | `admin console tabs all render` |
 
 **Not covered, deliberately.** Creating, moving, or cancelling a booking, and
 every invoice/payment write: the overlap exclusion constraint means a test

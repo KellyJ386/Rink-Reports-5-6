@@ -41,6 +41,27 @@ export function asTab(value: string | undefined): Tab {
     : "setup"
 }
 
+// The live scheduling surface (the booking calendar and everything that
+// writes to it) is its own admin route rather than a `?tab=` — it carries its
+// own query params (view/date/rink) that must not fight the tab param. It
+// still renders in this console's tab bar, listed first: day-to-day
+// scheduling is the reason the console gets opened at all.
+
+export const SCHEDULE_HREF = "/admin/rink-scheduling/schedule"
+
+export function tabHref(tab: Tab): string {
+  const sp = new URLSearchParams()
+  sp.set("tab", tab)
+  return `/admin/rink-scheduling?${sp.toString()}`
+}
+
+export function consoleNavItems(): Array<{ label: string; href: string }> {
+  return [
+    { label: "Schedule", href: SCHEDULE_HREF },
+    ...TABS.map((t) => ({ label: t.label, href: tabHref(t.key) })),
+  ]
+}
+
 // ---- Composites ----
 
 export type FacilitySetupData = {

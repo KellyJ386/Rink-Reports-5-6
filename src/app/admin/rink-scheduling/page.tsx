@@ -32,9 +32,8 @@ import type {
   RateCardWindowRow,
   RinkRow,
   SettingsRow,
-  Tab,
 } from "./types"
-import { TABS, asTab } from "./types"
+import { asTab, consoleNavItems, tabHref } from "./types"
 import { describeLastSeen } from "./_lib/config"
 
 export const dynamic = "force-dynamic"
@@ -49,12 +48,6 @@ type SearchParams = Promise<{ tab?: string }>
  *  clock read during render. */
 function currentTimeMs(): number {
   return Date.now()
-}
-
-function tabHref(tab: Tab): string {
-  const sp = new URLSearchParams()
-  sp.set("tab", tab)
-  return `/admin/rink-scheduling?${sp.toString()}`
 }
 
 export default async function RinkSchedulingAdminPage({
@@ -101,7 +94,7 @@ export default async function RinkSchedulingAdminPage({
       <TabNav
         ariaLabel="Rink scheduling sections"
         activeHref={tabHref(tab)}
-        items={TABS.map((t) => ({ label: t.label, href: tabHref(t.key) }))}
+        items={consoleNavItems()}
       />
 
       {tab === "setup" && <FacilitySetupLoader facilityId={facilityId} />}
