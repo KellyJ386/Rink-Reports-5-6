@@ -66,6 +66,17 @@ export function passesDragThreshold(dxPx: number, dyPx: number, thresholdPx = 5)
 }
 
 /**
+ * Which axis a move-drag locks to, from the pointer's travel so far: "x"
+ * slides the block across columns at its original time, "y" slides it through
+ * the day in its original column. A diagonal gesture must pick one — a block
+ * that mirrors the finger both ways at once feels untethered, especially on
+ * touch. Ties go to "y": time is the axis people drag most.
+ */
+export function dragAxis(dxPx: number, dyPx: number): "x" | "y" {
+  return Math.abs(dxPx) > Math.abs(dyPx) ? "x" : "y"
+}
+
+/**
  * Drag-create: anchor slot + current pointer minute into a snapped range.
  * Dragging upward selects backwards from the anchor; a selection is never
  * shorter than one step.
