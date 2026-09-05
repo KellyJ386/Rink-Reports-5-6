@@ -12,17 +12,22 @@ import { hasCredentials, type RoleKey } from "../fixtures/users"
  * are append-only by design. What IS driven:
  *
  *   - every staff surface renders per role, without a crash;
- *   - the edit-tier gates hold together as a set (an account that can't see
- *     "New series" must also be denied the money pages — asserted as an
- *     INVARIANT between affordances, so the spec is seed-independent);
- *   - the booking sheet opens from a click-to-create slot and closes clean —
- *     opening the sheet writes nothing;
- *   - the admin console tabs all render for an admin.
+ *   - the dashboard calendar is READ-ONLY for every account: all scheduling
+ *     writes live on the admin surface at /admin/rink-scheduling/schedule,
+ *     so no edit affordance may ever render on /reports/rink-scheduling;
+ *   - the edit-tier gates hold together as a set (an account that isn't
+ *     offered "Manage schedule" must also be denied the money pages —
+ *     asserted as an INVARIANT between affordances, so the spec is
+ *     seed-independent);
+ *   - the booking sheet opens from a click-to-create slot on the ADMIN
+ *     schedule and closes clean — opening the sheet writes nothing;
+ *   - the admin console tabs (schedule surface included) all render.
  */
 
 const STAFF: RoleKey = "icetech"
 
 const CALENDAR = "/reports/rink-scheduling"
+const ADMIN_SCHEDULE = "/admin/rink-scheduling/schedule"
 
 /** Opens a rink-scheduling page; false when the module is gated off for the
  *  account (the NotAvailable card) or the account lacks a facility. */
@@ -61,26 +66,37 @@ test.describe("15. Rink Scheduling (staff)", () => {
     }
   })
 
+  test("dashboard calendar is read-only for every account", async ({ page }) => {
+    const opened = await openRinkScheduling(page)
+    test.skip(!opened, "TODO(seed): rink_scheduling not enabled for this account")
+
+    // Scheduling writes live in the admin console; this page pins
+    // canCreate/canEdit false server-side, so NO edit affordance may render
+    // here for ANY account — not the toolbar tools, not the click-to-create
+    // slot overlay. This is the strongest seed-independent assertion in the
+    // suite: it holds identically for a viewer and a full scheduler.
+    for (const label of [/new series/i, /plan cuts/i, /find a slot/i]) {
+      await expect(page.getByRole("button", { name: label })).toHaveCount(0)
+    }
+    await expect(
+      page.getByRole("button", { name: /add a booking on/i }),
+    ).toHaveCount(0)
+  })
+
   test("edit-tier affordances gate together, not piecemeal", async ({ page }) => {
     const opened = await openRinkScheduling(page)
     test.skip(!opened, "TODO(seed): rink_scheduling not enabled for this account")
 
-    // "New series" (edit), the Invoices link (edit) and the click-to-create
-    // slot overlay (submit-or-edit) are gated by the same permission model.
-    // Whatever this account is seeded as, they must AGREE: an account shown
-    // "New series" must be shown Invoices, and an account shown neither must
-    // also be refused the invoices page outright when it navigates directly —
-    // route placement is UX, never the authorization boundary.
+    // The "Manage schedule" link (edit) and the money pages (edit) are gated
+    // by the same permission model. Whatever this account is seeded as, they
+    // must AGREE: an account offered the manage link must be admitted to the
+    // invoices page, and an account not offered it must be refused outright
+    // when it navigates directly — route placement is UX, never the
+    // authorization boundary.
     const canEdit = await page
-      .getByRole("button", { name: /new series/i })
+      .getByRole("link", { name: /manage schedule/i })
       .isVisible()
       .catch(() => false)
-    const seesInvoicesLink = await page
-      .getByRole("link", { name: /invoices/i })
-      .first()
-      .isVisible()
-      .catch(() => false)
-    expect(seesInvoicesLink).toBe(canEdit)
 
     await page.goto(`${CALENDAR}/invoices`)
     const deniedInvoices = await page
@@ -98,7 +114,7 @@ test.describe("15. Rink Scheduling (staff)", () => {
     test.skip(!opened, "TODO(seed): rink_scheduling not enabled for this account")
 
     const canEdit = await page
-      .getByRole("button", { name: /new series/i })
+      .getByRole("link", { name: /manage schedule/i })
       .isVisible()
       .catch(() => false)
     test.skip(canEdit, "Account is edit-tier; the denial paths need a view-tier account")
@@ -143,8 +159,23 @@ test.describe("15. Rink Scheduling (admin)", () => {
     await login(page, "admin")
   })
 
-  test("calendar shows the edit surface and the money links", async ({ page }) => {
-    const opened = await openRinkScheduling(page)
+  /** Opens the admin scheduling surface; false when the console or the module
+   *  grant is missing for the account. */
+  async function openAdminSchedule(
+    page: import("@playwright/test").Page,
+  ): Promise<boolean> {
+    await page.goto(ADMIN_SCHEDULE)
+    if (/\/forbidden|\/login/.test(page.url())) return false
+    const gated = page.getByText(/rink scheduling permission needed/i)
+    if (await gated.isVisible().catch(() => false)) return false
+    return page
+      .getByRole("heading", { name: /ice schedule/i })
+      .isVisible()
+      .catch(() => false)
+  }
+
+  test("admin schedule shows the edit surface and the money links", async ({ page }) => {
+    const opened = await openAdminSchedule(page)
     test.skip(!opened, "TODO(seed): rink_scheduling not enabled for admin")
 
     await expect(page.getByRole("button", { name: /new series/i })).toBeVisible()
@@ -153,8 +184,8 @@ test.describe("15. Rink Scheduling (admin)", () => {
     }
   })
 
-  test("booking sheet opens from a slot and closes without writing", async ({ page }) => {
-    const opened = await openRinkScheduling(page)
+  test("booking sheet opens from an admin slot and closes without writing", async ({ page }) => {
+    const opened = await openAdminSchedule(page)
     test.skip(!opened, "TODO(seed): rink_scheduling not enabled for admin")
 
     // The click-to-create overlay labels every slot "Add a booking on <rink>
@@ -196,5 +227,12 @@ test.describe("15. Rink Scheduling (admin)", () => {
         /application error|something went wrong/i,
       )
     }
+    // The scheduling surface is a sibling route, not a ?tab=, but it lives in
+    // the same tab bar and must render for an admin without a crash.
+    await page.goto(ADMIN_SCHEDULE)
+    await expect(page).not.toHaveURL(/\/forbidden|\/login/)
+    await expect(page.locator("body")).not.toContainText(
+      /application error|something went wrong/i,
+    )
   })
 })

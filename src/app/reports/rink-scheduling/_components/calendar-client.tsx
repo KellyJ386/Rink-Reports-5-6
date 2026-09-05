@@ -79,7 +79,13 @@ type Props = {
   gapsOnly: boolean
   canCreate: boolean
   canEdit: boolean
+  /** Route the toolbar navigates within. The read-only dashboard calendar
+   *  and the admin scheduling surface render this same component from
+   *  different URLs, and view/date/rink links must stay on their own page. */
+  basePath?: string
 }
+
+const DEFAULT_BASE_PATH = "/reports/rink-scheduling"
 
 type SheetState =
   | { mode: "closed" }
@@ -427,6 +433,7 @@ function Toolbar({
   futureGapCount,
   canCreate,
   canEdit,
+  basePath,
   onNewSeries,
   onFindSlot,
   onPlanCuts,
@@ -451,7 +458,7 @@ function Toolbar({
       sp.set("showCancelled", "1")
     }
     if ((next.gaps ?? (gapsOnly ? "1" : "")) === "1") sp.set("gaps", "1")
-    return `/reports/rink-scheduling?${sp.toString()}`
+    return `${basePath ?? DEFAULT_BASE_PATH}?${sp.toString()}`
   }
 
   // Month pages by whole calendar months; a fixed day step would drift through
