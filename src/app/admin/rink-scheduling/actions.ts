@@ -1199,10 +1199,9 @@ export async function deleteRateCardOverride(id: string): Promise<SimpleResult> 
  * Creates a display token and returns the plaintext EXACTLY ONCE.
  *
  * Only the sha256 hash is stored, so the URL cannot be recovered later — if an
- * admin loses it, they revoke and issue a new one. That is a deliberate
- * improvement on schedule_ics_tokens (migration 168), which keeps its token in
- * the clear. Lookup stays O(1) because the public endpoint hashes the token it
- * was given and matches on the hash.
+ * admin loses it, they revoke and issue a new one. schedule_ics_tokens adopted
+ * the same at-rest hashing in migration 278. Lookup stays O(1) because the
+ * public endpoint hashes the token it was given and matches on the hash.
  *
  * 32 random bytes, base64url: ~256 bits, well past guessing, and URL-safe so
  * it can be typed into a TV browser.

@@ -9816,21 +9816,21 @@ export type Database = {
           created_at: string
           employee_id: string
           facility_id: string
-          token: string
+          token_hash: string
           updated_at: string | null
         }
         Insert: {
           created_at?: string
           employee_id: string
           facility_id: string
-          token: string
+          token_hash: string
           updated_at?: string | null
         }
         Update: {
           created_at?: string
           employee_id?: string
           facility_id?: string
-          token?: string
+          token_hash?: string
           updated_at?: string | null
         }
         Relationships: [

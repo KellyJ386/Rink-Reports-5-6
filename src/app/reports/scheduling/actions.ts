@@ -1,7 +1,5 @@
 "use server"
 
-import { randomBytes } from "node:crypto"
-
 import { revalidatePath } from "next/cache"
 
 import { requireUser } from "@/lib/auth"
@@ -14,6 +12,7 @@ import {
   type ActionState,
   type AvailabilityType,
 } from "./types"
+import { hashIcsToken, newIcsToken } from "./_lib/ics-token"
 
 type SupabaseError = { code?: string; message?: string } | null
 
@@ -807,17 +806,14 @@ export async function acknowledgeSchedule(
 }
 
 // ---------------------------------------------------------------------------
-// ICS calendar-feed token (migration 168). The token is the credential for
-// the public /api/schedule-ics/<token> route — owner-only RLS; rotating it
-// invalidates any previously shared subscription URL.
+// ICS calendar-feed token (migrations 168 + 278). The plaintext token is the
+// credential for the public /api/schedule-ics/<token> route; the DB stores
+// only its SHA-256 (`token_hash`, owner-only RLS), so the URL is shown ONCE —
+// in the action result that creates or rotates it — and can never be read
+// back. Rotating invalidates any previously shared subscription URL.
 // ---------------------------------------------------------------------------
 
-function newIcsToken(): string {
-  // 48 hex chars (24 random bytes) — comfortably over the DB's 32-char floor.
-  return randomBytes(24).toString("hex")
-}
-
-export async function getOrCreateIcsToken(): Promise<
+export async function createIcsToken(): Promise<
   { ok: true; token: string } | { ok: false; error: string }
 > {
   const auth = await getActiveEmployee()
@@ -827,18 +823,25 @@ export async function getOrCreateIcsToken(): Promise<
     return { ok: false, error: "You don't have access to scheduling." }
   }
 
+  // Only the hash is stored, so an existing row can't yield its URL again —
+  // surface that instead of silently replacing a link that may be in use.
   const { data: existing } = await supabase
     .from("schedule_ics_tokens")
-    .select("token")
+    .select("employee_id")
     .eq("employee_id", auth.employee.id)
-    .maybeSingle<{ token: string }>()
-  if (existing?.token) return { ok: true, token: existing.token }
+    .maybeSingle<{ employee_id: string }>()
+  if (existing) {
+    return {
+      ok: false,
+      error: "A calendar link already exists — use Reset link to get a new URL.",
+    }
+  }
 
   const token = newIcsToken()
   const { error } = await supabase.from("schedule_ics_tokens").insert({
     employee_id: auth.employee.id,
     facility_id: auth.employee.facility_id,
-    token,
+    token_hash: hashIcsToken(token),
   })
   if (error) {
     return {
@@ -856,7 +859,7 @@ export async function rotateIcsToken(): Promise<
   const auth = await getActiveEmployee()
   if (!auth.ok) return { ok: false, error: auth.error }
   const supabase = await createClient()
-  // Same gate as getOrCreateIcsToken: without it, an employee locked out of
+  // Same gate as createIcsToken: without it, an employee locked out of
   // scheduling could still mint/rotate a feed token for their own shifts.
   if (!(await currentUserCan(supabase, "scheduling", "view"))) {
     return { ok: false, error: "You don't have access to scheduling." }
@@ -869,7 +872,7 @@ export async function rotateIcsToken(): Promise<
       {
         employee_id: auth.employee.id,
         facility_id: auth.employee.facility_id,
-        token,
+        token_hash: hashIcsToken(token),
       },
       { onConflict: "employee_id" }
     )
