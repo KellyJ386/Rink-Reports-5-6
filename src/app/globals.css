@@ -262,6 +262,10 @@
   --info-soft:            var(--sky-50);
   --info-soft-foreground: var(--sky-700);
 
+  /* Accent pill (badge "special" variant) */
+  --violet-soft:          var(--violet-100);
+  --violet-soft-foreground: var(--violet-600);
+
   /* Charts — colorblind-safe order matching spec accent hues */
   --chart-1: var(--rr-green);
   --chart-2: var(--sky-400);
@@ -367,6 +371,9 @@
   --info-soft:            rgba(94,190,240,0.12);
   --info-soft-foreground: var(--sky-200);
 
+  --violet-soft:          rgba(154,130,255,0.18);
+  --violet-soft-foreground: var(--violet-200);
+
   --chart-1: var(--rr-green);
   --chart-2: var(--sky-300);
   --chart-3: var(--amber-300);
@@ -457,6 +464,10 @@
   --info-foreground:      #FFFFFF;
   --info-soft:            var(--sky-50);
   --info-soft-foreground: var(--sky-700);
+
+  /* Accent pill (badge "special" variant) */
+  --violet-soft:          var(--violet-100);
+  --violet-soft-foreground: var(--violet-600);
   --chart-1: var(--rr-green);
   --chart-2: var(--sky-400);
   --chart-3: var(--amber-400);
@@ -532,6 +543,8 @@
   --color-info-foreground: var(--info-foreground);
   --color-info-soft: var(--info-soft);
   --color-info-soft-foreground: var(--info-soft-foreground);
+  --color-violet-soft: var(--violet-soft);
+  --color-violet-soft-foreground: var(--violet-soft-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -618,6 +631,9 @@
     0 2px 0 0 var(--primary-shadow);
   --shadow-press-warm:
     0 2px 0 0 var(--coral-700);
+
+  /* Inset bottom lip for solid-color avatar discs */
+  --shadow-inset-bevel: inset 0 -2px 0 rgba(0,0,0,0.10);
 }
 
 .dark {
@@ -630,6 +646,7 @@
     0 2px 0 0 var(--primary-shadow);
   --shadow-press-warm:
     0 2px 0 0 var(--coral-700);
+  --shadow-inset-bevel: inset 0 -2px 0 rgba(0,0,0,0.30);
 }
 
 @layer base {
