@@ -11,6 +11,8 @@
 //     and falls through to the normal click handlers.
 //   - touch: a 350ms hold lifts the block (so the page still scrolls
 //     normally); moving before the hold completes cancels it.
+//   - a move locks to one axis per gesture — sideways changes the column,
+//     up/down the time — so the block never shadows the pointer diagonally.
 //   - all math is pure (drag-model.ts); the DB exclusion constraint stays
 //     the only overlap authority — a colliding drop is refused server-side
 //     and rolled back by the caller.
@@ -20,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   applyMove,
   applyResize,
+  dragAxis,
   dragCreateRange,
   passesDragThreshold,
   pixelsToMinutes,
@@ -29,6 +32,10 @@ import {
 import type { BookingView } from "../_lib/types"
 
 const TOUCH_HOLD_MS = 350
+
+/** Travel before a move-drag commits to one axis. Small, so the lock lands on
+ *  the gesture's opening direction rather than late drift. */
+const AXIS_LOCK_PX = 5
 
 export type DragGhost = {
   bookingId: string | null // null = drag-create selection
@@ -63,6 +70,9 @@ type Active =
       startX: number
       startY: number
       pointerId: number
+      /** Move-drags lock to one axis (columns OR time) once the pointer has
+       *  travelled AXIS_LOCK_PX; null until then. Resize is always "y". */
+      axis: "x" | "y" | null
     }
   | {
       phase: "maybe" | "dragging"
@@ -185,13 +195,27 @@ export function useGridDrag({
         extent,
       )
       if (active.mode === "move") {
-        const col = columnAt(e.clientX, active.originCol)
-        const next = clampMoveToExtent(
-          applyMove(active.originStart, active.originEnd, deltaMin, slotMinutes),
-        )
+        // One axis per gesture: sideways changes the column at the original
+        // time, up/down changes the time in the original column. A block that
+        // shadows the finger diagonally reads as untethered, and on touch it
+        // makes precise drops nearly impossible.
+        const dx = e.clientX - active.startX
+        const dy = e.clientY - active.startY
+        if (active.axis === null && Math.hypot(dx, dy) >= AXIS_LOCK_PX) {
+          active.axis = dragAxis(dx, dy)
+        }
+        const next =
+          active.axis === "y"
+            ? clampMoveToExtent(
+                applyMove(active.originStart, active.originEnd, deltaMin, slotMinutes),
+              )
+            : { startMinute: active.originStart, endMinute: active.originEnd }
         setGhostBoth({
           bookingId: active.booking.id,
-          colKey: col,
+          colKey:
+            active.axis === "x"
+              ? columnAt(e.clientX, active.originCol)
+              : active.originCol,
           ...next,
           mode: "move",
         })
@@ -293,6 +317,7 @@ export function useGridDrag({
           startX: e.clientX,
           startY: e.clientY,
           pointerId: e.pointerId,
+          axis: mode === "resize" ? "y" : null,
         }
         if (phase === "dragging") {
           document.body.style.userSelect = "none"

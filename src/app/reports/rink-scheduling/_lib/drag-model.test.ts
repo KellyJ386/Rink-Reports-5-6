@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyMove,
   applyResize,
+  dragAxis,
   dragCreateRange,
   passesDragThreshold,
   pixelsToMinutes,
@@ -57,6 +58,16 @@ describe("passesDragThreshold", () => {
   it("distinguishes a click from a drag", () => {
     expect(passesDragThreshold(2, 2)).toBe(false)
     expect(passesDragThreshold(0, 6)).toBe(true)
+  })
+})
+
+describe("dragAxis", () => {
+  it("locks to the dominant direction, ties going to time", () => {
+    expect(dragAxis(40, 10)).toBe("x")
+    expect(dragAxis(-40, 10)).toBe("x")
+    expect(dragAxis(10, 40)).toBe("y")
+    expect(dragAxis(10, -40)).toBe("y")
+    expect(dragAxis(25, 25)).toBe("y")
   })
 })
 
