@@ -658,10 +658,12 @@ values
    '22222222-2222-2222-2222-222222222222', 19.00)
 on conflict (employee_id) do nothing;
 
--- ICS calendar tokens (migration 168): owner-only credential. Seed one for
--- Carol (SAME facility as Alice) and one for Bob (facility B) — Alice must
--- read neither, but can manage her own.
-insert into public.schedule_ics_tokens (employee_id, facility_id, token)
+-- ICS calendar tokens (migrations 168 + 278): owner-only credential, stored
+-- as a sha256 digest (token_hash) since 278 — these fixture values are
+-- stand-in digests, not real hashes. Seed one for Carol (SAME facility as
+-- Alice) and one for Bob (facility B) — Alice must read neither, but can
+-- manage her own.
+insert into public.schedule_ics_tokens (employee_id, facility_id, token_hash)
 values
   ('aaaa1111-ca01-aaaa-aaaa-aaaa11110099',
    '11111111-1111-1111-1111-111111111111',
@@ -791,15 +793,15 @@ select pg_temp.expect_error(
             '11111111-1111-1111-1111-111111111111', 99)$$,
   'wages: staff alice CANNOT INSERT a wage row (admin-only)');
 
--- ICS tokens (migration 168): owner-only. Alice sees neither Carol's token
--- (SAME facility — this is the credential-leak case) nor Bob's, can create
--- her own, and cannot mint one for another employee.
+-- ICS tokens (migrations 168 + 278): owner-only. Alice sees neither Carol's
+-- token hash (SAME facility — this is the credential-leak case) nor Bob's,
+-- can create her own, and cannot mint one for another employee.
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_ics_tokens$$,
   0, 'ics: alice CANNOT SELECT any other employee''s calendar token (incl. same-facility)');
 
 select pg_temp.expect_ok(
-  $$insert into public.schedule_ics_tokens (employee_id, facility_id, token)
+  $$insert into public.schedule_ics_tokens (employee_id, facility_id, token_hash)
     values ('aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
             '11111111-1111-1111-1111-111111111111',
             'alice-token-00000000000000000000000000')$$,
@@ -815,7 +817,7 @@ select pg_temp.expect_count(
 select pg_temp.expect_count(
   $$with u as (
      update public.schedule_ics_tokens
-        set token = 'hijacked-token-00000000000000000000000'
+        set token_hash = 'hijacked-token-00000000000000000000000'
       where employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
      returning 1
    ) select count(*) from u$$,

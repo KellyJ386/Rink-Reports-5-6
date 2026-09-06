@@ -16346,10 +16346,10 @@ The UI should treat rule_type as the dispatcher. Unknown keys must be preserved 
 CREATE TABLE public.schedule_ics_tokens (
     employee_id uuid NOT NULL,
     facility_id uuid NOT NULL,
-    token text NOT NULL,
+    token_hash text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone,
-    CONSTRAINT schedule_ics_tokens_token_check CHECK ((length(token) >= 32))
+    CONSTRAINT schedule_ics_tokens_token_check CHECK ((length(token_hash) >= 32))
 );
 
 
@@ -16357,7 +16357,7 @@ CREATE TABLE public.schedule_ics_tokens (
 -- Name: TABLE schedule_ics_tokens; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.schedule_ics_tokens IS 'One secret per employee for the public ICS calendar-feed route. The unguessable token is the credential (calendar apps cannot authenticate). Owner-only RLS; the feed route reads via service role. Rotating (rotate = delete + insert or update) invalidates old subscription URLs.';
+COMMENT ON TABLE public.schedule_ics_tokens IS 'One secret per employee for the public ICS calendar-feed route. The unguessable token in the subscription URL is the credential (calendar apps cannot authenticate); since migration 278 only its sha256 hex digest is stored (token_hash), so a database read cannot reconstruct a feed URL. Owner-only RLS; the feed route hashes the presented token and reads via service role. Rotating (upsert of a new hash) invalidates old subscription URLs.';
 
 
 --
@@ -19136,7 +19136,7 @@ ALTER TABLE ONLY public.schedule_ics_tokens
 --
 
 ALTER TABLE ONLY public.schedule_ics_tokens
-    ADD CONSTRAINT schedule_ics_tokens_token_key UNIQUE (token);
+    ADD CONSTRAINT schedule_ics_tokens_token_key UNIQUE (token_hash);
 
 
 --

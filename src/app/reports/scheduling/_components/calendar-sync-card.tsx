@@ -6,32 +6,41 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 
-import { getOrCreateIcsToken, rotateIcsToken } from "../actions"
+import { createIcsToken, rotateIcsToken } from "../actions"
 
 /**
  * Staff calendar sync: surfaces the personal ICS subscription URL
- * (/api/schedule-ics/<token>). The token is owner-only; "Reset link"
- * rotates it, invalidating any previously shared URL.
+ * (/api/schedule-ics/<token>). Only the token's SHA-256 is stored (migration
+ * 278), so the URL is shown ONCE — right after "Turn on" or "Reset link" —
+ * and lives only in this component's state until the page unloads. A lost
+ * URL is recovered by resetting, which also invalidates the old link.
  */
 export function CalendarSyncCard({
-  initialToken,
+  hasToken,
   feedBase,
 }: {
-  initialToken: string | null
+  /** Whether a feed already exists for this employee (its URL is not readable). */
+  hasToken: boolean
   /** Absolute origin + path prefix, e.g. "https://app.example.com/api/schedule-ics". */
   feedBase: string
 }) {
-  const [token, setToken] = useState<string | null>(initialToken)
+  const [exists, setExists] = useState(hasToken)
+  // Plaintext token from the action that just minted it; never re-fetched.
+  const [freshToken, setFreshToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [pending, startTransition] = useTransition()
 
-  const url = token ? `${feedBase}/${token}` : null
+  const url = freshToken ? `${feedBase}/${freshToken}` : null
 
   function enable() {
     startTransition(async () => {
-      const r = await getOrCreateIcsToken()
-      if (r.ok) setToken(r.token)
-      else toast.error(r.error)
+      const r = await createIcsToken()
+      if (r.ok) {
+        setExists(true)
+        setFreshToken(r.token)
+      } else {
+        toast.error(r.error)
+      }
     })
   }
 
@@ -39,7 +48,8 @@ export function CalendarSyncCard({
     startTransition(async () => {
       const r = await rotateIcsToken()
       if (r.ok) {
-        setToken(r.token)
+        setExists(true)
+        setFreshToken(r.token)
         setCopied(false)
         toast.success("Calendar link reset — old links no longer work.")
       } else {
@@ -71,9 +81,13 @@ export function CalendarSyncCard({
       {url ? (
         <>
           <p className="text-muted-foreground text-xs">
-            Subscribe in Google or Apple Calendar and your published shifts
-            appear automatically (updates within a few hours). Anyone with
-            this link can see your shifts — reset it if shared by mistake.
+            Copy this link into Google or Apple Calendar and your published
+            shifts appear automatically (updates within a few hours).{" "}
+            <span className="font-semibold text-foreground">
+              Save it now — for your security it won&apos;t be shown again.
+            </span>{" "}
+            Anyone with the link can see your shifts; reset it if shared by
+            mistake.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-background px-2 py-1.5 text-xs">
@@ -98,6 +112,25 @@ export function CalendarSyncCard({
               Reset link
             </Button>
           </div>
+        </>
+      ) : exists ? (
+        <>
+          <p className="text-muted-foreground text-xs">
+            Calendar sync is on. Your subscription link isn&apos;t stored where
+            it can be read back — if you&apos;ve lost it, reset it to get a new
+            one (old links stop working).
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="w-fit"
+            onClick={reset}
+            disabled={pending}
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            {pending ? "Resetting…" : "Reset link"}
+          </Button>
         </>
       ) : (
         <>

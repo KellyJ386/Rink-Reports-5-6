@@ -36,9 +36,11 @@ const INITIAL: ActionState = { ok: null }
 
 interface Props {
   settings: ExportSettingsRow | null
+  /** Super-admin ?facility= override; null for facility-scoped admins. */
+  facilityId?: string | null
 }
 
-export function ExportSettingsForm({ settings }: Props) {
+export function ExportSettingsForm({ settings, facilityId = null }: Props) {
   const [state, formAction, pending] = useActionState(saveExportSettings, INITIAL)
   const [paperSize, setPaperSize] = useState<string>(settings?.paper_size ?? "letter")
   const [dateFormat, setDateFormat] = useState<string>(settings?.date_format ?? "MM/DD/YYYY")
@@ -46,6 +48,9 @@ export function ExportSettingsForm({ settings }: Props) {
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
+      {facilityId && (
+        <input type="hidden" name="target_facility_id" value={facilityId} />
+      )}
       {/* Branding */}
       <Card>
         <CardHeader>

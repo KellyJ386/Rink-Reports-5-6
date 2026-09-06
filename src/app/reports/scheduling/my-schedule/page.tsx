@@ -178,12 +178,14 @@ export default async function MySchedulePage({
   const { data: shiftsRaw } = await query
 
   // Calendar-sync state (owner-only RLS) + the absolute feed origin for the
-  // subscription URL shown to the employee.
+  // subscription URL shown to the employee. Only the token's hash is stored
+  // (migration 278), so all the page can know is whether a feed exists — the
+  // URL itself is shown once, by the create/rotate actions.
   const { data: icsRow } = await supabase
     .from("schedule_ics_tokens")
-    .select("token")
+    .select("employee_id")
     .eq("employee_id", employeeRow.id)
-    .maybeSingle<{ token: string }>()
+    .maybeSingle<{ employee_id: string }>()
 
   // Shifts going spare, surfaced right where people actually check their
   // schedule (the hub renders the same two lists from the same loader).
@@ -399,7 +401,7 @@ export default async function MySchedulePage({
         </>
       )}
 
-      <CalendarSyncCard initialToken={icsRow?.token ?? null} feedBase={feedBase} />
+      <CalendarSyncCard hasToken={icsRow != null} feedBase={feedBase} />
     </div>
   )
 }

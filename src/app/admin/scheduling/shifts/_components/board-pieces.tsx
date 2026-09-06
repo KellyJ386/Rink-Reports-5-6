@@ -355,7 +355,7 @@ function Avatar({ id, initials, size = 32 }: { id: string; initials: string; siz
         height: size,
         fontSize: size * 0.36,
         background: personColor(id),
-        boxShadow: "inset 0 -2px 0 rgba(0,0,0,.1)",
+        boxShadow: "var(--shadow-inset-bevel)",
       }}
     >
       {initials}
