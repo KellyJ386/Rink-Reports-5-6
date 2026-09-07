@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ auth: mocks })),
+  // createClient should be mocked synchronously to match runtime usage.
+  createClient: vi.fn(() => ({ auth: mocks })),
 }))
 
 import { GET } from "./route"
