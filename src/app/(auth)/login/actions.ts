@@ -6,7 +6,7 @@ import { redirect } from "next/navigation"
 import { checkRateLimit } from "@/lib/rate-limit/check"
 import { createClient } from "@/lib/supabase/server"
 
-import { isSafeRedirectPath } from "./redirect-safe"
+import { safeRedirectPath } from "@/lib/auth/safe-redirect"
 
 export type LoginState = {
   error?: string
@@ -43,7 +43,7 @@ export async function loginAction(
   const password = String(formData.get("password") ?? "")
   // Same-origin, path-only redirect target the proxy appended when it bounced
   // an unauthenticated user (validated to prevent open redirects).
-  const safeRedirect = isSafeRedirectPath(formData.get("redirectTo"))
+  const safeRedirect = safeRedirectPath(formData.get("redirectTo"))
 
   if (!email || !password) {
     return { error: "Email and password are required.", email }
