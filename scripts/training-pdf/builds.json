@@ -1,0 +1,176 @@
+{
+  "$comment": "Every training PDF and the markdown that goes into it, in print order. Consumed by build.py (renders) and src/lib/training-docs.test.ts (freshness + index coverage). Each output must also appear as a `pdf` in src/lib/training-docs.ts.",
+  "edition": "September 2026 edition",
+  "outputs": [
+    {
+      "path": "docs/training/pdf/RinkReports-Complete-Documentation.pdf",
+      "title": "Complete Documentation",
+      "subtitle": "Every onboarding guide, the operations manual, the training guide, and the setup guides in one PDF",
+      "blurb": [
+        "Everything that ships with Rink Reports, in print order:",
+        "role-based onboarding, the Operations & Training Manual with every",
+        "module chapter, the seven-chapter training guide, and the install,",
+        "first-time setup, and deployment guides."
+      ],
+      "edition": "September 2026 edition",
+      "toc_depth": 1,
+      "parts": [
+        {
+          "title": "Part 1 — Onboarding",
+          "subtitle": "First-day paths for staff, supervisors, and admins.",
+          "sources": [
+            "docs/training/ONBOARDING-STAFF.md",
+            "docs/training/ONBOARDING-SUPERVISOR.md",
+            "docs/training/ONBOARDING-ADMIN.md"
+          ]
+        },
+        {
+          "title": "Part 2 — Operations & Training Manual",
+          "subtitle": "How Rink Reports is organized, followed by one chapter per module.",
+          "sources": [
+            "docs/training/MASTER-MANUAL.md",
+            "docs/training/modules/admin-control-center.md",
+            "docs/training/modules/daily-reports.md",
+            "docs/training/modules/refrigeration-logs.md",
+            "docs/training/modules/incident-reporting.md",
+            "docs/training/modules/ice-operations.md",
+            "docs/training/modules/air-quality.md",
+            "docs/training/modules/ice-depth.md",
+            "docs/training/modules/employee-scheduling.md"
+          ]
+        },
+        {
+          "title": "Part 3 — Training Guide",
+          "subtitle": "Staff report modules, scheduling for staff and admins, and the admin console.",
+          "sources": [
+            "docs/training-guide/src/ch01-getting-started.md",
+            "docs/training-guide/src/ch02-staff-reports.md",
+            "docs/training-guide/src/ch03-scheduling-staff.md",
+            "docs/training-guide/src/ch04-scheduling-admin.md",
+            "docs/training-guide/src/ch05-admin-core.md",
+            "docs/training-guide/src/ch06-admin-modules.md",
+            "docs/training-guide/src/ch07-quickref.md"
+          ]
+        },
+        {
+          "title": "Part 4 — Install, Setup & Deployment",
+          "subtitle": "Getting the app onto a phone, standing up a facility, and running your own copy.",
+          "sources": [
+            "docs/pwa-install-guide.md",
+            "docs/admin-setup-guide.md",
+            "docs/training/DUPLICATE-SETUP.md"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Master-Manual.pdf",
+      "title": "Operations & Training Manual",
+      "subtitle": "How Rink Reports is organized, every module chapter, and a glossary",
+      "blurb": [
+        "The complete operations manual: how the app is organized, who sees",
+        "what, and one chapter per module — Admin Control Center, Daily Reports,",
+        "Refrigeration Logs, Incident Reporting, Ice Operations, Air Quality,",
+        "Ice Depth, and Employee Scheduling — plus a cross-module glossary."
+      ],
+      "edition": "September 2026 edition",
+      "parts": [
+        {
+          "sources": [
+            "docs/training/MASTER-MANUAL.md",
+            "docs/training/modules/admin-control-center.md",
+            "docs/training/modules/daily-reports.md",
+            "docs/training/modules/refrigeration-logs.md",
+            "docs/training/modules/incident-reporting.md",
+            "docs/training/modules/ice-operations.md",
+            "docs/training/modules/air-quality.md",
+            "docs/training/modules/ice-depth.md",
+            "docs/training/modules/employee-scheduling.md"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "docs/training-guide/rink-reports-training-guide.pdf",
+      "title": "Complete Training Guide",
+      "subtitle": "All modules and the admin console",
+      "blurb": [
+        "A field guide for staff and administrators covering every module:",
+        "daily reports, incidents, accidents, ice depth, ice operations,",
+        "refrigeration, air quality, dasher boards, communications, scheduling,",
+        "and the full admin console — permissions, employees, exports,",
+        "retention, audit log, and facility configuration."
+      ],
+      "edition": "September 2026 edition",
+      "parts": [
+        {
+          "sources": [
+            "docs/training-guide/src/ch01-getting-started.md",
+            "docs/training-guide/src/ch02-staff-reports.md",
+            "docs/training-guide/src/ch03-scheduling-staff.md",
+            "docs/training-guide/src/ch04-scheduling-admin.md",
+            "docs/training-guide/src/ch05-admin-core.md",
+            "docs/training-guide/src/ch06-admin-modules.md",
+            "docs/training-guide/src/ch07-quickref.md"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Onboarding-Staff.pdf",
+      "title": "Staff Onboarding",
+      "subtitle": "Here's how to do your job",
+      "edition": "September 2026 edition",
+      "cover": false,
+      "parts": [{ "sources": ["docs/training/ONBOARDING-STAFF.md"] }]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Onboarding-Supervisor.pdf",
+      "title": "Supervisor Onboarding",
+      "subtitle": "Day-to-day oversight",
+      "edition": "September 2026 edition",
+      "cover": false,
+      "parts": [{ "sources": ["docs/training/ONBOARDING-SUPERVISOR.md"] }]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Onboarding-Admin.pdf",
+      "title": "Admin Onboarding",
+      "subtitle": "Stand up a new facility",
+      "edition": "September 2026 edition",
+      "cover": false,
+      "parts": [{ "sources": ["docs/training/ONBOARDING-ADMIN.md"] }]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Install-On-Your-Phone.pdf",
+      "title": "Install Rink Reports on Your Phone",
+      "subtitle": "Add the app to your home screen",
+      "edition": "September 2026 edition",
+      "cover": false,
+      "parts": [{ "sources": ["docs/pwa-install-guide.md"] }]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Admin-Setup-Guide.pdf",
+      "title": "Admin Setup Guide",
+      "subtitle": "First-time setup for a facility manager",
+      "blurb": [
+        "A practical, step-by-step path for getting a facility operational:",
+        "facility settings, modules, roles and permissions, employees, and",
+        "the per-module setup each report flow depends on."
+      ],
+      "edition": "September 2026 edition",
+      "parts": [{ "sources": ["docs/admin-setup-guide.md"] }]
+    },
+    {
+      "path": "docs/training/pdf/RinkReports-Duplicate-Setup.pdf",
+      "title": "Duplicating Rink Reports",
+      "subtitle": "Stand up an independent copy",
+      "blurb": [
+        "How to run your own complete copy of Rink Reports: get the code,",
+        "create a fresh Supabase backend and load its schema, connect the two,",
+        "and deploy — with a local-only stopping point for evaluation."
+      ],
+      "edition": "September 2026 edition",
+      "parts": [{ "sources": ["docs/training/DUPLICATE-SETUP.md"] }]
+    }
+  ]
+}

@@ -7,10 +7,12 @@
 // filesystem access (reading the files lives in
 // src/app/admin/training/_lib/read-doc.ts).
 //
-// Adding a doc: drop the markdown (and optional PDF) under docs/, then add an
-// entry here. `training-docs.test.ts` fails if a manifest path is missing on
-// disk OR if a training file on disk is not in the manifest, so the in-app
-// index can't silently drift from the docs folder. Files served to the browser
+// Adding a doc: drop the markdown under docs/, add an entry here, and (for a
+// PDF rendition) an output in scripts/training-pdf/builds.json, then run
+// `pnpm docs:pdf`. `training-docs.test.ts` fails if a manifest path is
+// missing on disk, if a training file on disk is not in the manifest, or if
+// a PDF was built from markdown that has since changed — so neither the
+// in-app index nor the PDFs can silently drift from the docs folder. Files served to the browser
 // are looked up by slug from this list only — never from user input — which
 // is what makes the file route safe.
 
@@ -96,6 +98,15 @@ const G = "docs/training-guide"
 
 export const TRAINING_DOCS: readonly TrainingDoc[] = [
   // --- Start here -----------------------------------------------------------
+  {
+    slug: "complete-documentation",
+    title: "Complete Documentation (everything, one PDF)",
+    description:
+      "All three onboarding guides, the Operations & Training Manual with every module chapter, the training guide, and the setup guides, in one printable file.",
+    group: "onboarding",
+    audiences: ["staff", "supervisor", "admin", "super_admin"],
+    pdf: `${T}/pdf/RinkReports-Complete-Documentation.pdf`,
+  },
   {
     slug: "onboarding-staff",
     title: "Staff Onboarding — Here's How to Do Your Job",
@@ -294,6 +305,7 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     group: "setup",
     audiences: ["staff", "supervisor", "admin"],
     markdown: "docs/pwa-install-guide.md",
+    pdf: `${T}/pdf/RinkReports-Install-On-Your-Phone.pdf`,
   },
   {
     slug: "admin-setup-guide",
@@ -303,6 +315,7 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     group: "setup",
     audiences: ["admin", "super_admin"],
     markdown: "docs/admin-setup-guide.md",
+    pdf: `${T}/pdf/RinkReports-Admin-Setup-Guide.pdf`,
   },
   {
     slug: "duplicate-setup",
@@ -312,6 +325,7 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     group: "setup",
     audiences: ["super_admin"],
     markdown: `${T}/DUPLICATE-SETUP.md`,
+    pdf: `${T}/pdf/RinkReports-Duplicate-Setup.pdf`,
   },
 
   // --- For documentation authors --------------------------------------------

@@ -14,6 +14,8 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report e2e/report/html",
     "check:cron": "node scripts/check-cron-schedule.mjs",
+    "docs:pdf": "python3 scripts/training-pdf/build.py",
+    "docs:pdf:check": "python3 scripts/training-pdf/build.py --check",
     "types:write": "node scripts/generate-database-types.mjs --write",
     "types:check": "node scripts/generate-database-types.mjs --check"
   },
