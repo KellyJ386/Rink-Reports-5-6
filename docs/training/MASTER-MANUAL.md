@@ -38,7 +38,7 @@ RinkReports is a progressive web app (PWA) for ice-rink facility operations. It 
 - [How RinkReports is organized](#how-rinkreports-is-organized)
 - [Module summaries](#module-summaries)
 - [Glossary of cross-module terms](#glossary-of-cross-module-terms)
-- [Open questions / ⚠ VERIFY items](#open-questions--️-verify-items)
+- [Open questions / ⚠ VERIFY items](#open-questions---verify-items)
 
 ---
 

@@ -35,11 +35,35 @@ const securityHeaders = [
   },
 ]
 
+const TRAINING_DOC_FILES = [
+  "./docs/training/**/*",
+  "./docs/training-guide/**/*",
+  "./docs/pwa-install-guide.md",
+  "./docs/admin-setup-guide.md",
+]
+
 const nextConfig: NextConfig = {
   // Next.js <Image> optimization output. Default omits AVIF; explicitly
   // listing it first lets supporting browsers pull the lighter format.
   images: {
     formats: ["image/avif", "image/webp"],
+  },
+  // The admin Training & Documentation pages read the training manuals from
+  // `docs/` at request time (see src/lib/training-docs.ts for the manifest).
+  // Those files aren't imported by any module, so the server trace wouldn't
+  // otherwise ship them to Vercel. Keys are route globs; the list must cover
+  // every path the manifest can point at.
+  outputFileTracingIncludes: {
+    "/admin/training": TRAINING_DOC_FILES,
+    "/admin/training/**": TRAINING_DOC_FILES,
+  },
+  // The reader in read-doc.ts is statically scoped to docs/, so the tracer
+  // pulls that whole folder into the training routes. Drop the parts no
+  // training doc lives in (archived audits, design notes) to keep the
+  // function bundles small. Excludes apply AFTER includes, so never list a
+  // folder here that TRAINING_DOC_FILES needs.
+  outputFileTracingExcludes: {
+    "/admin/training/**": ["./docs/archive/**/*", "./docs/ui/**/*"],
   },
   async headers() {
     return [
