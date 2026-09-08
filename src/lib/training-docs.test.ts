@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -150,5 +151,64 @@ describe("resolveTrainingLink", () => {
     expect(resolveTrainingLink("", manual)).toBeNull()
     // A pdf-only doc has no directory to resolve against.
     expect(resolveTrainingLink("./anything.md", guidePdf)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PDF renditions. scripts/training-pdf/builds.json declares which markdown
+// files go into each PDF; build.py stamps a SHA-256 of those sources into the
+// PDF's Keywords metadata. Recompute it here so a doc edit without a rebuild
+// (`pnpm docs:pdf`) fails CI instead of shipping a stale handout.
+// ---------------------------------------------------------------------------
+type PdfBuild = { path: string; parts: { sources: string[] }[] }
+
+const BUILDS_JSON = path.join(ROOT, "scripts/training-pdf/builds.json")
+const builds = (
+  JSON.parse(readFileSync(BUILDS_JSON, "utf8")) as { outputs: PdfBuild[] }
+).outputs
+
+// Must match source_hash() in scripts/training-pdf/build.py byte for byte.
+function sourceHash(sources: string[]): string {
+  const h = createHash("sha256")
+  for (const rel of sources) {
+    const data = readFileSync(path.join(ROOT, rel))
+    const normalized = Buffer.from(
+      data.toString("latin1").replace(/\r\n/g, "\n"),
+      "latin1",
+    )
+    h.update(Buffer.from(`${rel}\n`, "utf8"))
+    h.update(normalized)
+    h.update(Buffer.from("\n"))
+  }
+  return h.digest("hex")
+}
+
+describe("pdf renditions (scripts/training-pdf/builds.json)", () => {
+  it("builds exactly the PDFs the manifest lists", () => {
+    const manifestPdfs = TRAINING_DOCS.flatMap((d) => (d.pdf ? [d.pdf] : []))
+    const built = builds.map((b) => b.path)
+    expect([...built].sort()).toEqual([...manifestPdfs].sort())
+  })
+
+  it("builds every PDF only from markdown the manifest indexes", () => {
+    const indexed = new Set(TRAINING_DOCS.map((d) => d.markdown))
+    for (const b of builds) {
+      for (const src of b.parts.flatMap((p) => p.sources)) {
+        expect(indexed.has(src), `${b.path}: ${src}`).toBe(true)
+      }
+    }
+  })
+
+  it("has every PDF built from the current markdown (run pnpm docs:pdf)", () => {
+    const stale: string[] = []
+    for (const b of builds) {
+      const pdf = readFileSync(path.join(ROOT, b.path))
+      const m = /rinkreports-source-sha256:([0-9a-f]{64})/.exec(
+        pdf.toString("latin1"),
+      )
+      const want = sourceHash(b.parts.flatMap((p) => p.sources))
+      if (m?.[1] !== want) stale.push(b.path)
+    }
+    expect(stale).toEqual([])
   })
 })

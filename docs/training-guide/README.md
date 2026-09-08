@@ -24,15 +24,17 @@ unit test `src/lib/training-docs.test.ts` fails until it is).
 
 ## Rebuilding the PDF
 
-The guide is authored as markdown chapters in `src/` and rendered with
-[reportlab](https://pypi.org/project/reportlab/):
+The guide is authored as markdown chapters in `src/` and rendered by the
+shared training-PDF builder (`scripts/training-pdf/build.py`, reportlab), which
+also produces the manuals under `docs/training/pdf/`:
 
 ```bash
-pip install reportlab
-cd docs/training-guide/src
-python3 build_pdf.py ../rink-reports-training-guide.pdf \
-  ch01-getting-started.md ch02-staff-reports.md ch03-scheduling-staff.md \
-  ch04-scheduling-admin.md ch05-admin-core.md ch06-admin-modules.md ch07-quickref.md
+pip install -r scripts/training-pdf/requirements.txt   # needs DejaVu fonts installed
+pnpm docs:pdf                                          # rebuild every training PDF
+pnpm docs:pdf:check                                    # report PDFs whose markdown changed
 ```
 
-Edit the chapter markdown, re-run the build, and commit both.
+Edit the chapter markdown, rebuild, and commit both. Each PDF embeds a hash of
+its sources, and `src/lib/training-docs.test.ts` fails when a PDF is stale, so
+a doc edit can't merge without its rebuilt PDF. Output is deterministic: an
+unchanged source rebuilds to an identical file.
