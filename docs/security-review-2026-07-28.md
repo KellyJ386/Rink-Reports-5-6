@@ -108,3 +108,31 @@ absolute URLs, and non-path values. Regression coverage includes both
 - No production credentials were used and no live tenant data was accessed.
 - The secret scan covered the current repository tree locally; CI remains
   responsible for scanning full Git history.
+
+## Addendum 2026-09-08: RR-SR-01 follow-up
+
+A second automated review pass (branch
+`codex/conduct-security-review-of-rink-reports-uppq0k`) re-ran against a tree
+that predated the fix above and re-reported RR-SR-01. Its remediation was not
+merged as-is (it was based on a stale tree and left a dead marker file), but
+two of its hardening ideas were carried over here:
+
+- The validator now lives in `src/lib/auth/safe-redirect.ts` as
+  `safeRedirectPath`, shared by password login and the email callback. On top
+  of the syntactic checks it resolves the candidate against a fixed
+  `.invalid` base and rejects anything whose parsed origin changes, and it
+  rejects a backslash anywhere in the value rather than only in the second
+  position. This is the same resolution `NextResponse.redirect(new URL(...))`
+  performs, so the check is exact rather than heuristic.
+- `src/app/(auth)/callback/route.test.ts` exercises the Route Handler itself
+  with a mocked Supabase client and asserts on the final `Location` header for
+  PKCE, OTP, failed-exchange, and missing-token requests. Against the original
+  weak validator it fails on `/\host`, `/\/host`, and `/<tab>/host`.
+
+The other controls and residual risks listed above were spot-checked against
+the current tree and still hold: cron routes use `timingSafeEqual`
+(`src/lib/cron/authorize.ts`), production CSP is nonce-based with
+`'strict-dynamic'` and no `'unsafe-inline'` for scripts, and the public
+information-request route fails closed (503) when its rate limiter is
+unavailable. Schedule ICS tokens are now hashed at rest (migration 278), which
+narrows the P2 calendar-URL risk to token transport.
