@@ -15,6 +15,13 @@ admin console.
 6. Admin Console — Module Administration — each module's admin console and the alert/routing pipeline
 7. Quick Reference — status lifecycles, approval matrix, offline matrix, training checklists
 
+## Where it appears in the app
+
+Admins can read every chapter and download this PDF from **Admin → System →
+Training & Docs** (`/admin/training`). That page is driven by the manifest in
+`src/lib/training-docs.ts`; a new chapter or PDF must be added there too (the
+unit test `src/lib/training-docs.test.ts` fails until it is).
+
 ## Rebuilding the PDF
 
 The guide is authored as markdown chapters in `src/` and rendered with

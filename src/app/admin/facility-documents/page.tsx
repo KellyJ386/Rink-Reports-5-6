@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { GraduationCap } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -150,6 +151,24 @@ export default async function FacilityDocumentsAdminPage({
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <Header />
+      <Card className="gap-2 py-4">
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <CardTitle className="flex items-center gap-2">
+              <GraduationCap className="h-4 w-4" aria-hidden />
+              Looking for the Rink Reports training manuals?
+            </CardTitle>
+            <CardDescription>
+              The onboarding guides, module chapters, and the complete training
+              guide ship with the app under Training &amp; Docs — no upload
+              needed. This page is for your facility&apos;s own paperwork.
+            </CardDescription>
+          </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/admin/training">Open Training &amp; Docs</Link>
+          </Button>
+        </CardHeader>
+      </Card>
       <FacilityDocumentsClient facilityId={facilityId} documents={documents} />
     </div>
   )

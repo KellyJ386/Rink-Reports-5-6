@@ -163,6 +163,10 @@ Report submission forms (refrigeration, daily, incidents, etc.) follow a metadat
 - **air-quality** — already **threshold-aware** with live `RangeBadgePill`s (Within range / Warn / Alert) from `warn_min/max` + `alert_min/max`. This is intentionally richer than a static range hint; don't replace it with the refrigeration hint pattern. Temperature is one of several DB-driven reading types, so there is no single global °F/°C toggle.
 - **ice-depth** — a bespoke two-phase (measure → review) interactive form around a tap-driven USA-hockey rink SVG, tuned for Bluetooth calipers. It measures **depth, not temperature** (so a °F/°C toggle is meaningless) and already has per-point severity + summary-stat feedback. Treat it as a special case; do not Card-ify or add a temp toggle.
 
+### Training documentation (in-app)
+
+`/admin/training` is a built-in **Training & Documentation** index of the manuals under `docs/training/`, `docs/training-guide/`, and the install/setup guides. It is driven by the manifest in `src/lib/training-docs.ts` — every doc's slug, title, group, audience, and repo-relative markdown/PDF path. The server reads the files from `docs/` at request time (`src/app/admin/training/_lib/read-doc.ts`), renders markdown with `react-markdown` (raw HTML disabled), rewrites cross-doc links through the manifest, and streams PDFs from the manifest-only file route `/admin/training/files/[slug]`. `next.config.ts` lists the doc globs in `outputFileTracingIncludes` so Vercel bundles them. **When you add or rename a training doc, update the manifest**: `src/lib/training-docs.test.ts` fails if a manifest path is missing on disk or a file under those folders isn't indexed. This is separate from **Facility Paperwork** (`/admin/facility-documents`), which is per-facility uploaded content stored in Supabase.
+
 ### Security headers
 
 `next.config.ts` sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a restrictive `Permissions-Policy` for every route. Preserve these when adding `headers()` entries.
