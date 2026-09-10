@@ -4,6 +4,7 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { TOGGLEABLE_MODULE_KEYS } from "./modules/module-keys"
 import {
   TRAINING_DOCS,
   TRAINING_GROUPS,
@@ -70,6 +71,71 @@ describe("manifest integrity", () => {
     for (const g of TRAINING_GROUPS) {
       expect(trainingDocsInGroup(g.key).length).toBeGreaterThan(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Every toggleable module needs a training chapter. This is the exact bug
+// class that let 5 modules (Dasher Boards, Accident Reports, Rink Scheduling,
+// Communications, Facility Paperwork) ship with no chapter for a long time:
+// nothing cross-checked TOGGLEABLE_MODULE_KEYS against the manifest. Adding a
+// module key without a chapter (or removing a chapter while its key remains)
+// now fails here instead of silently shipping a gap.
+// ---------------------------------------------------------------------------
+
+// Module keys that intentionally have no dedicated training chapter, and why.
+// Keep this list short and documented — every entry here is a module a
+// reviewer could reasonably expect a chapter for, so silence is not an option.
+const MODULE_KEYS_WITHOUT_A_CHAPTER: ReadonlySet<string> = new Set([
+  "reports", // "Insights" — cross-module analytics with no admin console of
+  // its own (not in nav-config's "Module Admin" group); not a
+  // report/submission module, so it doesn't fit the one-chapter-per-module
+  // pattern.
+])
+
+// Module keys whose doc slug isn't the mechanical
+// `module-${key.replace(/_/g, "-")}` transform, because the chapter is
+// titled differently than the module key.
+const MODULE_KEY_TO_DOC_SLUG: Readonly<Record<string, string>> = {
+  refrigeration: "module-refrigeration-logs",
+  incident_reports: "module-incident-reporting",
+  scheduling: "module-employee-scheduling",
+}
+
+function expectedDocSlug(moduleKey: string): string {
+  return (
+    MODULE_KEY_TO_DOC_SLUG[moduleKey] ??
+    `module-${moduleKey.replace(/_/g, "-")}`
+  )
+}
+
+describe("every module has a training chapter", () => {
+  it("has a modules-group manifest entry for every toggleable module key", () => {
+    const moduleSlugs = new Set(
+      trainingDocsInGroup("modules").map((d) => d.slug),
+    )
+    const missing = TOGGLEABLE_MODULE_KEYS.filter(
+      (key) =>
+        !MODULE_KEYS_WITHOUT_A_CHAPTER.has(key) &&
+        !moduleSlugs.has(expectedDocSlug(key)),
+    )
+    expect(missing).toEqual([])
+  })
+
+  it("has no modules-group entry that doesn't map back to a real module key", () => {
+    const expectedSlugs = new Set(
+      TOGGLEABLE_MODULE_KEYS.filter(
+        (k) => !MODULE_KEYS_WITHOUT_A_CHAPTER.has(k),
+      ).map(expectedDocSlug),
+    )
+    // admin-control-center is a real chapter with no toggleable module key
+    // (the Admin Center is never toggleable) — allow it explicitly.
+    const orphaned = trainingDocsInGroup("modules")
+      .map((d) => d.slug)
+      .filter(
+        (slug) => slug !== "module-admin-control-center" && !expectedSlugs.has(slug),
+      )
+    expect(orphaned).toEqual([])
   })
 })
 

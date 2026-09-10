@@ -85,7 +85,7 @@ This screen looks different depending on who you are.
 
 A single **on/off switch per module**, under a "Staff modules" card. The description spells it out: "This is a visibility switch only — it does not change per-employee permissions, and disabled modules remain protected by their own access rules." Turning a module off hides it from the staff navigation for this facility; it does not revoke anyone's underlying permissions.
 
-The ten toggles are: Daily Reports, Ice Depth, Ice Operations, Refrigeration, Air Quality, Incidents, Accidents, Scheduling, Communications, Facility Paperwork. (Dashboard and the Admin Center itself are never toggleable.) Flipping a switch is immediate — no Save button — and shows a confirmation toast such as "Daily Reports enabled for this facility." If a save fails, the switch rolls back and shows an error.
+The thirteen toggles are: Daily Reports, Ice Depth, Ice Operations, Refrigeration, Air Quality, Incidents, Accidents, Scheduling, Communications, Facility Paperwork, Dasher Boards, Rink Scheduling, and Insights. (Dashboard and the Admin Center itself are never toggleable. Insights has no dedicated admin console or training chapter of its own — it's a cross-module analytics view, not a submission module.) Flipping a switch is immediate — no Save button — and shows a confirmation toast such as "Daily Reports enabled for this facility." If a save fails, the switch rolls back and shows an error.
 
 ### People / Employees (`/admin/employees`)
 
