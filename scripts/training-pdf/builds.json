@@ -33,10 +33,15 @@
             "docs/training/modules/daily-reports.md",
             "docs/training/modules/refrigeration-logs.md",
             "docs/training/modules/incident-reporting.md",
+            "docs/training/modules/accident-reports.md",
             "docs/training/modules/ice-operations.md",
             "docs/training/modules/air-quality.md",
             "docs/training/modules/ice-depth.md",
-            "docs/training/modules/employee-scheduling.md"
+            "docs/training/modules/dasher-boards.md",
+            "docs/training/modules/facility-paperwork.md",
+            "docs/training/modules/communications.md",
+            "docs/training/modules/employee-scheduling.md",
+            "docs/training/modules/rink-scheduling.md"
           ]
         },
         {
@@ -69,9 +74,9 @@
       "subtitle": "How Rink Reports is organized, every module chapter, and a glossary",
       "blurb": [
         "The complete operations manual: how the app is organized, who sees",
-        "what, and one chapter per module — Admin Control Center, Daily Reports,",
-        "Refrigeration Logs, Incident Reporting, Ice Operations, Air Quality,",
-        "Ice Depth, and Employee Scheduling — plus a cross-module glossary."
+        "what, and one chapter per module — twelve report and scheduling",
+        "modules plus the Admin Control Center that configures them — plus",
+        "a cross-module glossary."
       ],
       "edition": "September 2026 edition",
       "parts": [
@@ -82,10 +87,15 @@
             "docs/training/modules/daily-reports.md",
             "docs/training/modules/refrigeration-logs.md",
             "docs/training/modules/incident-reporting.md",
+            "docs/training/modules/accident-reports.md",
             "docs/training/modules/ice-operations.md",
             "docs/training/modules/air-quality.md",
             "docs/training/modules/ice-depth.md",
-            "docs/training/modules/employee-scheduling.md"
+            "docs/training/modules/dasher-boards.md",
+            "docs/training/modules/facility-paperwork.md",
+            "docs/training/modules/communications.md",
+            "docs/training/modules/employee-scheduling.md",
+            "docs/training/modules/rink-scheduling.md"
           ]
         }
       ]
@@ -122,7 +132,13 @@
       "subtitle": "Here's how to do your job",
       "edition": "September 2026 edition",
       "cover": false,
-      "parts": [{ "sources": ["docs/training/ONBOARDING-STAFF.md"] }]
+      "parts": [
+        {
+          "sources": [
+            "docs/training/ONBOARDING-STAFF.md"
+          ]
+        }
+      ]
     },
     {
       "path": "docs/training/pdf/RinkReports-Onboarding-Supervisor.pdf",
@@ -130,7 +146,13 @@
       "subtitle": "Day-to-day oversight",
       "edition": "September 2026 edition",
       "cover": false,
-      "parts": [{ "sources": ["docs/training/ONBOARDING-SUPERVISOR.md"] }]
+      "parts": [
+        {
+          "sources": [
+            "docs/training/ONBOARDING-SUPERVISOR.md"
+          ]
+        }
+      ]
     },
     {
       "path": "docs/training/pdf/RinkReports-Onboarding-Admin.pdf",
@@ -138,7 +160,13 @@
       "subtitle": "Stand up a new facility",
       "edition": "September 2026 edition",
       "cover": false,
-      "parts": [{ "sources": ["docs/training/ONBOARDING-ADMIN.md"] }]
+      "parts": [
+        {
+          "sources": [
+            "docs/training/ONBOARDING-ADMIN.md"
+          ]
+        }
+      ]
     },
     {
       "path": "docs/training/pdf/RinkReports-Install-On-Your-Phone.pdf",
@@ -146,7 +174,13 @@
       "subtitle": "Add the app to your home screen",
       "edition": "September 2026 edition",
       "cover": false,
-      "parts": [{ "sources": ["docs/pwa-install-guide.md"] }]
+      "parts": [
+        {
+          "sources": [
+            "docs/pwa-install-guide.md"
+          ]
+        }
+      ]
     },
     {
       "path": "docs/training/pdf/RinkReports-Admin-Setup-Guide.pdf",
@@ -158,7 +192,13 @@
         "the per-module setup each report flow depends on."
       ],
       "edition": "September 2026 edition",
-      "parts": [{ "sources": ["docs/admin-setup-guide.md"] }]
+      "parts": [
+        {
+          "sources": [
+            "docs/admin-setup-guide.md"
+          ]
+        }
+      ]
     },
     {
       "path": "docs/training/pdf/RinkReports-Duplicate-Setup.pdf",
@@ -170,7 +210,13 @@
         "and deploy — with a local-only stopping point for evaluation."
       ],
       "edition": "September 2026 edition",
-      "parts": [{ "sources": ["docs/training/DUPLICATE-SETUP.md"] }]
+      "parts": [
+        {
+          "sources": [
+            "docs/training/DUPLICATE-SETUP.md"
+          ]
+        }
+      ]
     }
   ]
 }

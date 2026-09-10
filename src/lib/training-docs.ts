@@ -186,6 +186,15 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     markdown: `${T}/modules/incident-reporting.md`,
   },
   {
+    slug: "module-accident-reports",
+    title: "Accident Reports",
+    description:
+      "Reporting a personal injury: who was hurt, body parts and severity, workers'-comp acknowledgement, and the admin dropdowns and alert triggers.",
+    group: "modules",
+    audiences: ["staff", "supervisor", "admin"],
+    markdown: `${T}/modules/accident-reports.md`,
+  },
+  {
     slug: "module-ice-operations",
     title: "Ice Operations",
     description:
@@ -213,6 +222,33 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     markdown: `${T}/modules/ice-depth.md`,
   },
   {
+    slug: "module-dasher-boards",
+    title: "Dasher Boards",
+    description:
+      "The rink-perimeter condition map: reporting board, glass, and door issues, inspection walks, and the admin perimeter/checklist setup.",
+    group: "modules",
+    audiences: ["staff", "supervisor", "admin"],
+    markdown: `${T}/modules/dasher-boards.md`,
+  },
+  {
+    slug: "module-facility-paperwork",
+    title: "Facility Paperwork",
+    description:
+      "The read-only staff document library and the admin bulk-upload console behind it.",
+    group: "modules",
+    audiences: ["staff", "admin"],
+    markdown: `${T}/modules/facility-paperwork.md`,
+  },
+  {
+    slug: "module-communications",
+    title: "Communications",
+    description:
+      "Facility alerts and staff messaging, and the admin routing rules that fan submissions out to the right people.",
+    group: "modules",
+    audiences: ["staff", "supervisor", "admin"],
+    markdown: `${T}/modules/communications.md`,
+  },
+  {
     slug: "module-employee-scheduling",
     title: "Employee Scheduling",
     description:
@@ -220,6 +256,15 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     group: "modules",
     audiences: ["staff", "supervisor", "admin"],
     markdown: `${T}/modules/employee-scheduling.md`,
+  },
+  {
+    slug: "module-rink-scheduling",
+    title: "Rink Scheduling",
+    description:
+      "Ice-time booking and billing: the admin booking calendar, rate cards, season contracts, invoices, and the front-desk view. Not to be confused with Employee Scheduling (staff shifts).",
+    group: "modules",
+    audiences: ["staff", "supervisor", "admin"],
+    markdown: `${T}/modules/rink-scheduling.md`,
   },
 
   // --- Complete training guide ----------------------------------------------

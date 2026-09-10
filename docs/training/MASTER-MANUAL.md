@@ -28,10 +28,15 @@ RinkReports is a progressive web app (PWA) for ice-rink facility operations. It 
 2. [Daily Reports](./modules/daily-reports.md)
 3. [Refrigeration Logs](./modules/refrigeration-logs.md)
 4. [Incident Reporting](./modules/incident-reporting.md)
-5. [Ice Operations](./modules/ice-operations.md)
-6. [Air Quality](./modules/air-quality.md)
-7. [Ice Depth](./modules/ice-depth.md)
-8. [Employee Scheduling](./modules/employee-scheduling.md)
+5. [Accident Reports](./modules/accident-reports.md)
+6. [Ice Operations](./modules/ice-operations.md)
+7. [Air Quality](./modules/air-quality.md)
+8. [Ice Depth](./modules/ice-depth.md)
+9. [Dasher Boards](./modules/dasher-boards.md)
+10. [Facility Paperwork](./modules/facility-paperwork.md)
+11. [Communications](./modules/communications.md)
+12. [Employee Scheduling](./modules/employee-scheduling.md)
+13. [Rink Scheduling](./modules/rink-scheduling.md)
 
 ### Reference
 
@@ -44,18 +49,25 @@ RinkReports is a progressive web app (PWA) for ice-rink facility operations. It 
 
 ## How RinkReports is organized
 
-### The eight modules
+### The thirteen modules
 
-RinkReports is built from eight core modules. An admin turns each one on or off for the facility, and each appears in the staff menu only when enabled and the person has permission.
+RinkReports is built from twelve toggleable report and scheduling modules, plus the Admin Control Center that configures all of them (always on, never toggleable). Each toggleable module appears in the staff menu only when the facility has it enabled and the person has permission.
 
 1. **Admin Control Center** — the back office: facility settings, employees, roles, permissions, lists, exports, retention, and the audit log.
 2. **Daily Reports** — digital shift checklists, one per work area, ticked off and submitted each shift.
 3. **Refrigeration Logs** — structured readings for the refrigeration plant, checked live against normal ranges.
 4. **Incident Reporting** — records of something that went wrong (slip, collision, medical), reviewed and tracked by managers.
-5. **Ice Operations** — the maintenance logbook: ice makes, edging, blade changes, and circle-check inspections.
-6. **Air Quality** — CO / NO₂ / CO₂ readings checked live against the facility's compliance thresholds.
-7. **Ice Depth** — point-by-point ice thickness measured against a tappable rink diagram.
-8. **Employee Scheduling** — shift planning (admin grid) plus staff self-service (availability, time off, swaps, open shifts).
+5. **Accident Reports** — records of a personal injury (who was hurt, how, where, witnesses, and any workers'-comp claim), reviewed by managers with no separate status lifecycle.
+6. **Ice Operations** — the maintenance logbook: ice makes, edging, blade changes, and circle-check inspections.
+7. **Air Quality** — CO / NO₂ / CO₂ readings checked live against the facility's compliance thresholds.
+8. **Ice Depth** — point-by-point ice thickness measured against a tappable rink diagram.
+9. **Dasher Boards** — the rink-perimeter condition map: tap a board, glass panel, or door to report a problem, plus scheduled inspection walks.
+10. **Facility Paperwork** — a read-only library of admin-uploaded documents (policies, handbooks, safety manuals) staff can browse and download.
+11. **Communications** — the facility's alert and messaging hub: routing rules fan submissions out to people, plus direct staff messaging.
+12. **Employee Scheduling** — shift planning (admin grid) plus staff self-service (availability, time off, swaps, open shifts).
+13. **Rink Scheduling** — ice-time booking and billing: the admin booking calendar, rate cards, season contracts, invoices, and the front-desk/customer-facing views. Distinct from Employee Scheduling, which schedules staff shifts, not ice time.
+
+There's also a 13th toggle, **Insights**, a cross-module analytics view with no admin console or training chapter of its own — see [Admin Control Center §Modules](./modules/admin-control-center.md).
 
 ### Role tiers
 
@@ -99,13 +111,23 @@ Each summary links to the full chapter. The chapters hold the screen-by-screen d
 
 **[Incident Reporting](./modules/incident-reporting.md)** — Records of something that went wrong: when/where, what happened, severity, whether an ambulance was called, who was involved, and up to three witnesses. Uniquely, the reporter can **edit their own report for 24 hours**, after which it locks. No photo/file upload. Admins review in History, change status, and add follow-up notes.
 
+**[Accident Reports](./modules/accident-reports.md)** — Records of a personal injury: who was hurt, an interactive body diagram for where, severity, witnesses, and an optional workers'-comp acknowledgement. Shares Incident Reporting's 24-hour reporter-edit window, but — unlike Incident Reporting — has **no status lifecycle**; admins track follow-up purely through append-only notes. Certain injury-severity values can be flagged to automatically raise a Communications alert.
+
 **[Ice Operations](./modules/ice-operations.md)** — The maintenance logbook covering four built-in operation types: **Ice Make**, **Edging**, **Blade Change**, and **Circle Check** (a pass/fail inspection where failed items require a note and raise an alert). A facility chooses which types to show; equipment and circle-check items are admin-configured. Append-only.
 
 **[Air Quality](./modules/air-quality.md)** — CO / NO₂ / CO₂ (and more) readings, checked live against the facility's compliance profile with colored range badges (Within range / Corrective / Notification / Evacuation). Thresholds derive from a regulatory jurisdiction and can be **tightened but never loosened**. Over-threshold readings are exceedances and require a corrective-action note. Append-only.
 
 **[Ice Depth](./modules/ice-depth.md)** — A two-phase (measure → review) flow that records ice thickness point-by-point against a tappable USA-Hockey rink diagram, tuned for Bluetooth calipers. Each point colors live by severity. Measures **depth, not temperature** (unit is inches or mm — no °F/°C toggle). Submitted sessions are immutable, with PDF / print / send options.
 
+**[Dasher Boards](./modules/dasher-boards.md)** — The rink-perimeter condition map. Admins build the physical board/glass/door sequence around each rink and assign it permanent labels that never renumber, even as the layout changes. Staff tap any segment during a walk to report a problem or complete a scheduled checklist inspection; every walk is a permanent, append-only record with pass/fail tallies.
+
+**[Facility Paperwork](./modules/facility-paperwork.md)** — A read-only document library. Admins bulk-upload the facility's own policies, handbooks, and safety manuals into fixed categories; staff browse and download, with no submission workflow of their own. Distinct from the app's built-in Training &amp; Documentation, which is Rink Reports' own manuals, not the facility's.
+
+**[Communications](./modules/communications.md)** — The facility's alert and messaging hub. Routing rules automatically fan a submission from another module (an out-of-range reading, a flagged accident, a failed circle check) out to the right people, on the timing an admin configures; staff also compose direct messages and broadcasts. Acknowledgement is tracked per alert.
+
 **[Employee Scheduling](./modules/employee-scheduling.md)** — Two sides: the **admin grid** (drag-build shifts, assign people, publish via a two-person request/approve flow) and the **staff app** (my shifts, availability, time off, claim open shifts, request swaps). Runs cert/hour-cap/overtime rule checks. **No payroll, timekeeping, or clock-in/out** — it is assignment only.
+
+**[Rink Scheduling](./modules/rink-scheduling.md)** — Ice-time booking and billing: not to be confused with Employee Scheduling. A rate-card engine prices bookings by prime/non-prime time windows and per-type overrides; a drag-and-drop admin calendar creates and manages bookings, recurring series, and resurface plans; a front-desk view lets staff book and check in customers; and season contracts, invoices, and a public booking-request link round out the billing side. Unlike Employee Scheduling, there is **no offline write path at all** — every write re-validates live.
 
 ---
 
@@ -130,7 +152,7 @@ Each summary links to the full chapter. The chapters hold the screen-by-screen d
 
 ## Open questions / ⚠ VERIFY items
 
-This appendix collects every ⚠ VERIFY flag from the discovery manifest and all eight module chapters. Each should be validated against a real configured facility before publishing hard claims.
+This appendix collects every ⚠ VERIFY flag from the discovery manifest and all thirteen module chapters. Each should be validated against a real configured facility before publishing hard claims.
 
 ### Roles, tiers & permissions (Manifest; Admin Control Center; every module's "Who can use it")
 
@@ -177,8 +199,7 @@ This appendix collects every ⚠ VERIFY flag from the discovery manifest and all
 
 ### Other
 
-20. **Related modules not deeply mapped.** Accidents, Communications, Facility Paperwork, Departments, Spaces, Lists, Exports, and Audit Log were inventoried at a screen level only; deeper field-level detail may be needed in their own chapters. *(Manifest §Gaps 7.)*
-21. **Dashboard & Account pages** were noted as routes but their on-screen content was not fully inventoried; capture if they need training coverage. *(Manifest §Gaps 8.)*
+20. **Dashboard & Account pages** were noted as routes but their on-screen content was not fully inventoried; capture if they need training coverage. *(Manifest §Gaps 8.)*
 
 ---
 
