@@ -82,7 +82,7 @@ const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
   ice_operations:   { title: "Ice Operations",   href: "/reports/ice-operations" },
   ice_depth:        { title: "Ice Depth",        href: "/reports/ice-depth" },
   communications:   { title: "Communications",   href: "/reports/communications" },
-  scheduling:       { title: "Scheduling",       href: "/reports/scheduling" },
+  scheduling:       { title: "Employee Scheduling", href: "/reports/scheduling" },
   facility_paperwork: { title: "Facility Paperwork", href: "/reports/facility-paperwork" },
   dasher_boards:    { title: "Dasher Boards",    href: "/reports/dasher-boards" },
   rink_scheduling:  { title: "Rink Schedule",    href: "/reports/rink-scheduling" },
@@ -111,9 +111,10 @@ function ModuleTile({
   const iconPath = MODULE_ICONS[moduleKey]
   const DISPLAY_FONT =
     "var(--font-anton), Anton, Impact, 'Arial Narrow', sans-serif"
-  // Fixed rather than scaled per-title: sized to fit the longest title
-  // ("Communications") within the tightest tile width so every card reads
-  // at the same size.
+  // Fixed rather than scaled per-title: sized to fit the longest single-line
+  // title ("Communications") within the tightest tile width so every card
+  // reads at the same size. Longer titles (e.g. "Employee Scheduling") wrap
+  // onto a second line rather than shrinking.
   const TITLE_FONT_SIZE = 20
 
   const tileStyle: React.CSSProperties = {
