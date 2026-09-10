@@ -87,7 +87,20 @@ The spatial module. **Labels are permanent identity — the editor never renumbe
 
 One permission nuance: entering glass **specs** is available to the edit tier (managers), while structural perimeter changes stay admin-only.
 
-## 6.9 Communications Admin
+## 6.9 Rink Scheduling Admin
+
+The booking-and-billing module. **Not to be confused with §4's Scheduling Admin**, which schedules employee shifts — this one books ice time and bills for it. Config lives at `/admin/rink-scheduling`, tabs: **Facility Setup · Rate Cards · Lists · Displays · Settings**, but day-to-day work happens on a separate route, `/admin/rink-scheduling/schedule`, a drag-and-drop booking calendar — not one of the config tabs. Opening the config console needs the module's `admin` action on top of Admin Center access; the calendar itself only needs `view`/`submit`/`edit`, so a day-to-day scheduler doesn't need the config console at all.
+
+- **Facility Setup** — rinks (capped at 10 active, each a calendar column), locker rooms, one weekly **operating hours** grid in the facility's own local clock, and date-specific **holiday/exception** hours. A booking outside operating hours isn't blocked, just flagged as a coverage gap. A brand-new facility gets a **Seed defaults** card here.
+- **Rate Cards** — time-windowed pricing: a prime/non-prime split per weekday, a base hourly rate, and optional per-booking-type overrides. Editing a rate card never changes a booking or invoice that already exists — every booking snapshots its price at save time.
+- **Lists** — booking types, customer types, and payment methods.
+- **Displays** — generates the long random links that power the module's unauthenticated public surfaces: lobby TV boards, a subscribable ICS calendar feed, and a public ice-time request form. Nobody signs in on those — the link itself is the credential.
+- **Settings** — facility-wide defaults (resurface duration, ice-make buffer) that a rink's own Facility Setup values can override.
+- **The Ice Schedule calendar** — drag to create a booking, resize to change its length, and open one for recurring series, resurface ("cut") scheduling, and locker-room assignment. Booking requests and the waitlist, season contracts, and invoices/aging/PDF export live on the staff side (`/reports/rink-scheduling/{requests,contracts,invoices}`) rather than in this admin console.
+
+Unlike every other admin console in this chapter, Rink Scheduling has **no offline write path** — every booking, series, and invoice action re-validates live; only a read-only calendar snapshot is ever cached for offline viewing.
+
+## 6.10 Communications Admin
 
 The hub that ties every module's alerts together. Tabs: **Inbox · Broadcast · Templates · Groups · Routing · Reminders · Deliveries · Audit Log**.
 
@@ -100,7 +113,7 @@ The hub that ties every module's alerts together. Tabs: **Inbox · Broadcast · 
 - **Deliveries** — failed email and notification sends that exhausted their automatic retries, each with a **Retry** button that re-queues it.
 - **Audit Log** — the communications-scoped audit trail.
 
-## 6.10 How a submission becomes an alert (the pipeline)
+## 6.11 How a submission becomes an alert (the pipeline)
 
 Worth a whiteboard minute in any admin training:
 

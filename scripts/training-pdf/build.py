@@ -404,7 +404,14 @@ def build_all(only: list[str]) -> None:
             canv.restoreState()
 
     def assemble(spec, pages):
-        """Cover -> Contents -> parts. `pages` maps (level, text) -> page no."""
+        """Cover -> Contents -> parts. `pages` maps a heading's position in the
+        flattened `headings` list (NOT its (level, text) -- module chapters all
+        reuse the same subsection titles like "1. What this module is for", so
+        text alone collides across chapters and would print one chapter's page
+        number for every chapter's identical heading) -> page no. Stable across
+        the two build passes because both parse the same sources in the same
+        order.
+        """
         headings = []
         body = []
         cover = spec.get("cover", True)
@@ -430,10 +437,10 @@ def build_all(only: list[str]) -> None:
         if cover:
             story += [NextPageTemplate("Body"), PageBreak(),
                       Paragraph("Contents", S["h1"])]
-            for lvl, text, _ in headings:
+            for idx, (lvl, text, _) in enumerate(headings):
                 if lvl > toc_depth:
                     continue
-                pg = pages.get((lvl, text), "")
+                pg = pages.get(idx, "")
                 indent = "&nbsp;" * (4 * max(lvl - 1, 0)) if lvl >= 1 else ""
                 dots = f'&nbsp;&nbsp;<font color="#94a3b8">{pg}</font>' if pg != "" else ""
                 story.append(Paragraph(f"{indent}{inline(text)}{dots}", S[f"toc{lvl}"]))
@@ -451,13 +458,13 @@ def build_all(only: list[str]) -> None:
         doc = None
         for _ in range(2):  # pass 1 learns page numbers; pass 2 prints them
             story, headings = assemble(spec, pages)
-            lookup = {id(para): (lvl, text) for lvl, text, para in headings}
+            lookup = {id(para): idx for idx, (lvl, text, para) in enumerate(headings)}
 
             class Probe(Doc):
                 def afterFlowable(self, fl):
-                    key = lookup.get(id(fl))
-                    if key:
-                        pages[key] = self.page
+                    idx = lookup.get(id(fl))
+                    if idx is not None:
+                        pages[idx] = self.page
 
             doc = Probe(str(out_path), spec, title=spec["title"], author="Rink Reports",
                         subject=spec.get("subtitle", spec["title"]),

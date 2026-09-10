@@ -1,5 +1,7 @@
 # 4. Scheduling — For Admins
 
+> **Not to be confused with Rink Scheduling Admin** (§6.9 — ice-time bookings, rate cards, and billing). This chapter is about staff shifts.
+
 Scheduling administration requires both admin-console access *and* the scheduling module's admin grant — console access alone lands on the Forbidden page. A sticky tab bar runs across every page: **Overview · Shifts · Templates · Publish history · Publish requests · Time-Off · Availability · Swaps · Compliance · Job areas · Settings · Notifications**.
 
 ## 4.1 The rules engine (read this first)

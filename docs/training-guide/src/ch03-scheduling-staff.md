@@ -1,5 +1,7 @@
 # 3. Scheduling — For Staff
 
+> **Not to be confused with Rink Scheduling** (ice-time bookings, rate cards, and billing — a separate module covered in §2.11/§6.9). This chapter is about staff shifts.
+
 ## 3.1 The one concept to learn first: draft vs. published
 
 Every shift starts life as a **draft** while managers build the schedule. Staff never see drafts. Only when a schedule window is **published** — a two-person approval among admins — do shifts appear in your app, your calendar feed, and your notifications. A published shift is locked: managers can't quietly edit it; any change re-publishes it and notifies you, and a cancellation notifies you too.

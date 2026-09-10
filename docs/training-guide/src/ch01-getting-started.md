@@ -15,7 +15,7 @@ Everything in the app is scoped to your **facility**: you only ever see your own
 
 ## 1.3 Finding your way around
 
-**Desktop (large screens).** A left sidebar lists every module your facility has enabled, in this order: Dashboard, Daily Reports, Ice Depth, Ice Operations, Dasher Boards, Refrigeration, Air Quality, Incidents, Accidents, Scheduling, Communications, Facility Paperwork. Admins also see an **Admin Center** entry below a divider. The Communications and Scheduling items show a red badge with your unread count.
+**Desktop (large screens).** A left sidebar lists every module your facility has enabled, in this order: Dashboard, Insights, Daily Reports, Ice Depth, Ice Operations, Dasher Boards, Refrigeration, Air Quality, Incidents, Accidents, Scheduling, Rink Schedule, Communications, Facility Paperwork. Admins also see an **Admin Center** entry below a divider. The Communications and Scheduling items show a red badge with your unread count.
 
 **Mobile (phones).** A bottom tab bar gives you four tabs: **Home** (the dashboard), **Reports** (jumps to the first report module your facility has enabled), **Menu** (opens the full module list), and **Account**.
 

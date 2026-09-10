@@ -181,7 +181,29 @@ The submit button labels itself "**Submit readings for {Location}**" once you've
 
 **Composing.** Tap **New message**: optionally start from a **template** (fills subject, body, and the ack flag), write your message, pick one or more **recipient groups** (staff only see groups flagged for staff messaging), optionally toggle **Requires acknowledgement**, and **Send message**. The confirmation screen shows the recipient count and receipts list. Replies lock the recipient to the original sender and prefill "Re: …".
 
-## 2.11 Working offline
+## 2.11 Rink Scheduling
+
+> **Not to be confused with Employee Scheduling** (§3–§4). This section covers ICE-TIME booking and billing — which rink is booked when and what it costs. Employee Scheduling is about staff shifts.
+
+**What it's for.** Booking ice time and billing for it: the schedule calendar, front-desk lookups, ice-time requests and a waitlist, season contracts, and invoices.
+
+**Getting there.** The **Rink Schedule** tile or sidebar item.
+
+**Rink Schedule tab.** A read-only calendar of the facility's bookings, colored by booking type. You can view any day/rink, but you can't create, move, or cancel a booking here — that's done from the admin Ice Schedule grid or from Front Desk (if you have `edit` access).
+
+**Front Desk.** A quick-lookup agenda view — "what's on the ice right now, and what's next" — built for answering phone questions at the counter without digging through the full calendar.
+
+**Requests & Waitlist.** Customers' ice-time requests come in here for staff to review; if a requested slot is full, a request can sit on the **waitlist** until a matching slot opens.
+
+**Season Contracts.** Recurring-booking agreements with clubs and leagues — the season-long commitment that generates the calendar's recurring booking series and drives contract billing.
+
+**Invoices.** Generated invoices, an aging view (how overdue an unpaid invoice is), and per-invoice detail with a downloadable PDF.
+
+**Permission tiers:** view = read-only Rink Schedule and Front Desk; submit = also create a tentative booking on the admin grid (can't confirm, move, or touch money); edit = day-to-day booking, billing, contracts, and requests; admin = also Rate Cards and module Settings (and required just to open the admin config console). See the Rink Scheduling module chapter in the Operations & Training Manual for the full breakdown.
+
+**Offline:** unlike every other module in this chapter, **Rink Scheduling has no offline write path at all** — every booking, cancellation, and invoice action re-validates live against the database. The only offline behavior is a read-only calendar snapshot the app quietly caches while you're online, shown with a plain "can be viewed but not created or edited" banner if you lose connection.
+
+## 2.12 Working offline
 
 Rink Reports is built for rinks with dead zones. The rule of thumb: **submitting works offline; browsing needs a connection.**
 
