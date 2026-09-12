@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 
-import { resolvePublicToken, touchTokenLastSeen } from "@/lib/rink-scheduling/public-tokens"
+import { resolvePublicToken, touchTokenLastSeen } from "@/lib/facility-scheduling/public-tokens"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { dayKeyInTz } from "@/lib/timezone"
 

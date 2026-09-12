@@ -7,15 +7,15 @@ import {
   consumeRateLimit,
   displayRateLimitKey,
   type RateLimitStore,
-} from "@/lib/rink-scheduling/display-rate-limit"
-import { buildIceScheduleBoard } from "@/lib/rink-scheduling/ice-schedule-display"
+} from "@/lib/facility-scheduling/display-rate-limit"
+import { buildIceScheduleBoard } from "@/lib/facility-scheduling/ice-schedule-display"
 import {
   buildDisplayBoard,
   isPlausibleDisplayToken,
   readDisplaySettings,
   type DisplayAssignmentRow,
   type DisplayRoomRow,
-} from "@/lib/rink-scheduling/locker-display"
+} from "@/lib/facility-scheduling/locker-display"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 // ---------------------------------------------------------------------------

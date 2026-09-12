@@ -35,6 +35,6 @@ export const MODULE_LABELS: Record<ToggleableModuleKey, string> = {
   communications: "Communications",
   facility_paperwork: "Facility Paperwork",
   dasher_boards: "Dasher Boards",
-  rink_scheduling: "Rink Scheduling",
+  rink_scheduling: "Facility Scheduling",
   reports: "Insights",
 }

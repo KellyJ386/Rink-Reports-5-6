@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 /**
  * Staff who lack the 'reports' grant get a real explanation, not an empty
- * page or a login bounce — the same convention the rink-scheduling insights
+ * page or a login bounce — the same convention the facility-scheduling insights
  * page follows for its own permission gate.
  */
 export function NotAvailable({ reason }: { reason?: "no-facility" }) {

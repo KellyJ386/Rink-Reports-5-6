@@ -1,12 +1,12 @@
 import { withCronRoute } from "@/lib/cron/with-cron-auth"
-import { runOverdueReminders } from "@/lib/rink-scheduling/overdue-reminders"
+import { runOverdueReminders } from "@/lib/facility-scheduling/overdue-reminders"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
- * Daily overdue-invoice reminders for Rink Scheduling & Billing.
+ * Daily overdue-invoice reminders for Facility Scheduling & Billing.
  *
  * For every facility that has `overdue_reminders_enabled`, emails the
  * customer's billing contact about each open invoice past its due date — the

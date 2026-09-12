@@ -15,13 +15,12 @@
 //  - Supabase API calls: always network-only (no cache).
 // =============================================================================
 
-// CACHE_NAME bumped to v7 when the /offline-forms data-free shell (daily
-// report form builder) joined /offline-schedule and /offline-daily as a
-// network-first cache entry, so any client on an older SW re-evaluates and
-// cleans its caches on activate, guaranteeing a clean swap to the new
-// strategy.
-const CACHE_NAME = "rink-reports-v8"
-const STATIC_CACHE = "rink-reports-static-v8"
+// CACHE_NAME bumped to v9 when /offline-rink-schedule was renamed to
+// /offline-facility-schedule, so any client with the old shell cached under
+// its old URL re-evaluates and cleans its caches on activate rather than
+// serving a stale precache entry for a route that no longer exists.
+const CACHE_NAME = "rink-reports-v9"
+const STATIC_CACHE = "rink-reports-static-v9"
 
 // Data-free page shells that are SAFE to cache for offline navigation: they
 // render no user data server-side (per-user content comes from per-user
@@ -30,7 +29,7 @@ const OFFLINE_SHELLS = [
   "/offline-schedule",
   "/offline-daily",
   "/offline-forms",
-  "/offline-rink-schedule",
+  "/offline-facility-schedule",
 ]
 const DB_NAME = "rink-offline-queue"
 const DB_VERSION = 1

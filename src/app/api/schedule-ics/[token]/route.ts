@@ -6,7 +6,7 @@ import { logServerError } from "@/lib/observability/log-server-error"
 import {
   consumeRateLimit,
   type RateLimitStore,
-} from "@/lib/rink-scheduling/display-rate-limit"
+} from "@/lib/facility-scheduling/display-rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"

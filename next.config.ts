@@ -73,6 +73,29 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  // The Rink Scheduling module was renamed to Facility Scheduling in the UI;
+  // these routes moved with it. Keep redirecting old links/bookmarks (the
+  // module's own `module_name` / RLS grant key stays `rink_scheduling` and is
+  // untouched by this rename).
+  async redirects() {
+    return [
+      {
+        source: "/reports/rink-scheduling/:path*",
+        destination: "/reports/facility-scheduling/:path*",
+        permanent: false,
+      },
+      {
+        source: "/admin/rink-scheduling/:path*",
+        destination: "/admin/facility-scheduling/:path*",
+        permanent: false,
+      },
+      {
+        source: "/offline-rink-schedule",
+        destination: "/offline-facility-schedule",
+        permanent: false,
+      },
+    ]
+  },
 }
 
 export default nextConfig

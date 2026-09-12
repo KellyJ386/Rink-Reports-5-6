@@ -1,7 +1,7 @@
 // Server-only read for the dashboard's Ice Schedule widget.
 //
 // This module is DELIBERATELY read-only and imports nothing from
-// src/app/reports/rink-scheduling/actions.ts, series-actions.ts,
+// src/app/reports/facility-scheduling/actions.ts, series-actions.ts,
 // locker-actions.ts, or resurface-actions.ts (the module's mutation
 // surface) — only Supabase SELECTs and the pure geometry helpers those
 // action files also happen to use. facility_id is derived from the
@@ -30,9 +30,9 @@ import {
   bookingMinutesOnDay,
   resolveDayWindow,
   type DayWindow,
-} from "@/app/reports/rink-scheduling/_lib/grid-model"
+} from "@/app/reports/facility-scheduling/_lib/grid-model"
 
-import { buildRinkSchedules, type ReadOnlyBooking, type RinkTodaySchedule } from "./ice-schedule-model"
+import { buildFacilitySchedules, type ReadOnlyBooking, type RinkTodaySchedule } from "./ice-schedule-model"
 
 export type TodayIceSchedule = {
   todayKey: string
@@ -43,7 +43,7 @@ export type TodayIceSchedule = {
   window: DayWindow
   /** rink_scheduling `edit` (facility_manager and above) — gates the "Manage
    *  schedule" link. There is no separate admin route for the calendar
-   *  itself (see the module notes); edit controls on /reports/rink-scheduling
+   *  itself (see the module notes); edit controls on /reports/facility-scheduling
    *  are permission-gated there, independently of this widget or its link. */
   canManage: boolean
   rinks: RinkTodaySchedule[]
@@ -77,7 +77,7 @@ export async function getTodayIceSchedule(): Promise<
 
     // Slack of one day on each side so a booking that starts before local
     // midnight but runs into today (or starts today and runs past it) still
-    // shows — the identical convention reports/rink-scheduling/page.tsx uses
+    // shows — the identical convention reports/facility-scheduling/page.tsx uses
     // for its own window query.
     const queryFromKey = addDaysToKey(todayKey, -1)
     const queryToKey = addDaysToKey(todayKey, 1)
@@ -166,7 +166,7 @@ export async function getTodayIceSchedule(): Promise<
         asOf,
         window: resolveDayWindow(todayKey, hoursRes.data ?? [], exceptionRes.data ?? []),
         canManage,
-        rinks: buildRinkSchedules(
+        rinks: buildFacilitySchedules(
           rinks.map((r) => ({
             id: r.id,
             name: r.name,

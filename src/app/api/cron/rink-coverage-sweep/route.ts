@@ -1,12 +1,12 @@
 import { withCronRoute } from "@/lib/cron/with-cron-auth"
-import { runCoverageSweep } from "@/lib/rink-scheduling/coverage-sweep"
+import { runCoverageSweep } from "@/lib/facility-scheduling/coverage-sweep"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
- * Drains the Rink Scheduling coverage queue.
+ * Drains the Facility Scheduling coverage queue.
  *
  * Bookings are flagged when they fall outside operating hours or when no
  * published shift covers them. The queue is filled by booking writes, by

@@ -6,13 +6,13 @@ import {
   consumeRateLimit,
   displayRateLimitKey,
   type RateLimitStore,
-} from "@/lib/rink-scheduling/display-rate-limit"
-import { publicSlotLabel } from "@/lib/rink-scheduling/ice-schedule-display"
-import { resolvePublicToken, touchTokenLastSeen } from "@/lib/rink-scheduling/public-tokens"
+} from "@/lib/facility-scheduling/display-rate-limit"
+import { publicSlotLabel } from "@/lib/facility-scheduling/ice-schedule-display"
+import { resolvePublicToken, touchTokenLastSeen } from "@/lib/facility-scheduling/public-tokens"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 // ---------------------------------------------------------------------------
-// Public rink-schedule ICS feed: coaches and league schedulers subscribe
+// Public facility-schedule ICS feed: coaches and league schedulers subscribe
 // their calendar app to /api/rink-ics/<token>. Calendar apps cannot carry a
 // session, so the unguessable rink_ics token IS the credential — same model
 // as the employee schedule feed (migration 168) but with the hashed-token

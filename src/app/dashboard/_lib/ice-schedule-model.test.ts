@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildRinkSchedules, nextUpcomingResurface, type ReadOnlyBooking } from "./ice-schedule-model"
+import { buildFacilitySchedules, nextUpcomingResurface, type ReadOnlyBooking } from "./ice-schedule-model"
 
 const NOW = "2026-08-29T15:00:00.000Z"
 
@@ -54,7 +54,7 @@ describe("nextUpcomingResurface", () => {
   })
 })
 
-describe("buildRinkSchedules", () => {
+describe("buildFacilitySchedules", () => {
   const rinks = [
     { id: "rink-a", name: "Rink A", shortCode: "A", color: "#4DFF00" },
     { id: "rink-b", name: "Rink B", shortCode: "B", color: "#002244" },
@@ -66,14 +66,14 @@ describe("buildRinkSchedules", () => {
       booking({ id: "earlier", rinkId: "rink-a", startMinute: 600 }),
       booking({ id: "b-rink", rinkId: "rink-b", startMinute: 700 }),
     ]
-    const schedules = buildRinkSchedules(rinks, bookings, NOW)
+    const schedules = buildFacilitySchedules(rinks, bookings, NOW)
     expect(schedules).toHaveLength(2)
     expect(schedules[0].bookings.map((b) => b.id)).toEqual(["earlier", "later"])
     expect(schedules[1].bookings.map((b) => b.id)).toEqual(["b-rink"])
   })
 
   it("includes a rink with no bookings today", () => {
-    const schedules = buildRinkSchedules(rinks, [], NOW)
+    const schedules = buildFacilitySchedules(rinks, [], NOW)
     expect(schedules).toHaveLength(2)
     expect(schedules[0].bookings).toEqual([])
     expect(schedules[0].nextResurface).toBeNull()
@@ -96,7 +96,7 @@ describe("buildRinkSchedules", () => {
         resurfaceStatus: "scheduled",
       }),
     ]
-    const schedules = buildRinkSchedules(rinks, bookings, NOW)
+    const schedules = buildFacilitySchedules(rinks, bookings, NOW)
     expect(schedules[0].nextResurface?.id).toBe("a-cut")
     expect(schedules[1].nextResurface?.id).toBe("b-cut")
   })

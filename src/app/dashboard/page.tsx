@@ -85,7 +85,7 @@ const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
   scheduling:       { title: "Employee Scheduling", href: "/reports/scheduling" },
   facility_paperwork: { title: "Facility Paperwork", href: "/reports/facility-paperwork" },
   dasher_boards:    { title: "Dasher Boards",    href: "/reports/dasher-boards" },
-  rink_scheduling:  { title: "Rink Schedule",    href: "/reports/rink-scheduling" },
+  rink_scheduling:  { title: "Facility Schedule", href: "/reports/facility-scheduling" },
 }
 
 function isKnownModuleKey(key: string): key is ModuleKey {

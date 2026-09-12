@@ -1,12 +1,12 @@
 import { withCronRoute } from "@/lib/cron/with-cron-auth"
-import { runContractInvoices } from "@/lib/rink-scheduling/contract-invoices"
+import { runContractInvoices } from "@/lib/facility-scheduling/contract-invoices"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
- * Daily season-contract invoicing for Rink Scheduling & Billing.
+ * Daily season-contract invoicing for Facility Scheduling & Billing.
  *
  * For every active contract with auto-invoicing on, generates the invoice for
  * the previous calendar month's bound-series ice — on/after the contract's

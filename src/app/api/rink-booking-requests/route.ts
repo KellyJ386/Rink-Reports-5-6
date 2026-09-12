@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 
 import { logServerError } from "@/lib/observability/log-server-error"
-import { validateBookingRequest } from "@/lib/rink-scheduling/booking-request"
+import { validateBookingRequest } from "@/lib/facility-scheduling/booking-request"
 import {
   consumeRateLimit,
   displayRateLimitKey,
   type RateLimitStore,
-} from "@/lib/rink-scheduling/display-rate-limit"
-import { resolvePublicToken, touchTokenLastSeen } from "@/lib/rink-scheduling/public-tokens"
+} from "@/lib/facility-scheduling/display-rate-limit"
+import { resolvePublicToken, touchTokenLastSeen } from "@/lib/facility-scheduling/public-tokens"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { dayKeyInTz } from "@/lib/timezone"
 

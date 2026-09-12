@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { ScheduleBoard, ScheduleRink, ScheduleSlot } from "@/lib/rink-scheduling/ice-schedule-display"
-import type { DisplayBoard, DisplayRoom, DisplaySlot } from "@/lib/rink-scheduling/locker-display"
+import type { ScheduleBoard, ScheduleRink, ScheduleSlot } from "@/lib/facility-scheduling/ice-schedule-display"
+import type { DisplayBoard, DisplayRoom, DisplaySlot } from "@/lib/facility-scheduling/locker-display"
 
 // ---------------------------------------------------------------------------
 // The board itself. Runs unattended on a TV for weeks, which drives every
@@ -98,7 +98,7 @@ export function DisplayBoardClient({ token }: { token: string }) {
           </h1>
           <p style={{ ...monoStyle, marginTop: "1.5rem", fontSize: "clamp(1rem, 1.6vw, 1.4rem)" }}>
             This display link is no longer active. Ask a manager for a new one from
-            Admin → Rink Scheduling → Displays.
+            Admin → Facility Scheduling → Displays.
           </p>
         </div>
       </Shell>

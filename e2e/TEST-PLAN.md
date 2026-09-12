@@ -137,13 +137,13 @@ Owns the notification and email pipeline; previously uncovered.
 submitted — sending queues real email to real staff, which a test suite should
 not do against a shared environment.
 
-## 15. Rink Scheduling & Billing — `15-rink-scheduling.spec.ts`
+## 15. Facility Scheduling & Billing — `15-facility-scheduling.spec.ts`
 
 The most money-critical module in the app; previously the only major one with
 no browser coverage.
 
-All scheduling writes live on the admin surface (`/admin/rink-scheduling/schedule`);
-the dashboard calendar (`/reports/rink-scheduling`) is read-only for every account.
+All scheduling writes live on the admin surface (`/admin/facility-scheduling/schedule`);
+the dashboard calendar (`/reports/facility-scheduling`) is read-only for every account.
 
 | Scenario | Covered by |
 | --- | --- |

@@ -1,6 +1,6 @@
 // Read-only offline cache for the rink booking calendar.
 //
-// WHY READ-ONLY. Every write in the Rink Scheduling module requires a live
+// WHY READ-ONLY. Every write in the Facility Scheduling module requires a live
 // connection, deliberately. Booking conflicts are prevented by a Postgres
 // exclusion constraint that re-checks at the moment of insert; a booking
 // queued offline would be validated against a world that has since moved on,

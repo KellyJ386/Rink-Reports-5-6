@@ -1,7 +1,7 @@
 import Link from "next/link"
 
-import { RinkScheduleReadOnly } from "@/app/reports/rink-scheduling/_components/rink-schedule-readonly"
-import { formatMinuteLabel } from "@/app/reports/rink-scheduling/_lib/grid-model"
+import { FacilityScheduleReadOnly } from "@/app/reports/facility-scheduling/_components/facility-schedule-readonly"
+import { formatMinuteLabel } from "@/app/reports/facility-scheduling/_lib/grid-model"
 import { formatInTz } from "@/lib/timezone"
 
 import { getTodayIceSchedule } from "../_lib/ice-schedule"
@@ -12,9 +12,9 @@ import { getTodayIceSchedule } from "../_lib/ice-schedule"
  * caller has no rink_scheduling view grant, or the facility has no active
  * rinks configured — same degrade-to-null posture as MyAreasWidget.
  *
- * This component and everything it imports (RinkScheduleReadOnly,
- * getTodayIceSchedule) touch zero rink-scheduling server actions. Editing
- * lives entirely on /reports/rink-scheduling, reached only through the
+ * This component and everything it imports (FacilityScheduleReadOnly,
+ * getTodayIceSchedule) touch zero facility-scheduling server actions. Editing
+ * lives entirely on /reports/facility-scheduling, reached only through the
  * "Manage schedule" link below, itself shown only to an edit-tier
  * (facility_manager and above) caller — the link is a route hint, not an
  * authorization boundary: every mutation action on that page re-checks role
@@ -48,7 +48,7 @@ export async function IceScheduleWidget() {
           </span>
           {data.canManage && (
             <Link
-              href="/reports/rink-scheduling"
+              href="/reports/facility-scheduling"
               className="text-primary text-xs font-medium hover:underline"
             >
               Manage schedule →
@@ -77,7 +77,7 @@ export async function IceScheduleWidget() {
                 </span>
               )}
             </div>
-            <RinkScheduleReadOnly window={data.window} bookings={rink.bookings} />
+            <FacilityScheduleReadOnly window={data.window} bookings={rink.bookings} />
           </div>
         ))}
       </div>

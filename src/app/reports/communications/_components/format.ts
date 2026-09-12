@@ -94,7 +94,7 @@ const SOURCE_MODULE_LABEL: Record<AlertSourceModule, string> = {
   scheduling: "Scheduling",
   // Distinct from `scheduling` above, which is EMPLOYEE scheduling. A staff
   // member reading an alert needs to know which one it came from.
-  rink_scheduling: "Rink Schedule",
+  rink_scheduling: "Facility Schedule",
 }
 
 export function sourceModuleLabel(value: string): string {

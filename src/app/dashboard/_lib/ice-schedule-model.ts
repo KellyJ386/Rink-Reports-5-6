@@ -59,7 +59,7 @@ export function nextUpcomingResurface(
 /** Groups today's bookings by rink and attaches each rink's next resurface.
  *  A rink with no bookings still gets an entry, so the front desk sees every
  *  sheet is empty rather than the sheet silently vanishing. */
-export function buildRinkSchedules(
+export function buildFacilitySchedules(
   rinks: Array<{ id: string; name: string; shortCode: string; color: string }>,
   bookings: ReadOnlyBooking[],
   nowIso: string,

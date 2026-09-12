@@ -90,8 +90,8 @@ export const adminNavGroups: AdminNavGroup[] = [
       // billing). Adjacent placement with distinct labels is what keeps an
       // admin from opening the wrong console.
       {
-        label: "Rink Scheduling Admin",
-        href: "/admin/rink-scheduling",
+        label: "Facility Scheduling Admin",
+        href: "/admin/facility-scheduling",
         icon: CalendarClock,
       },
       {

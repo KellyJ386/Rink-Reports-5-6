@@ -97,7 +97,7 @@ export const MODULES: ReadonlyArray<{
   },
   {
     key: "rink_scheduling",
-    label: "Rink Scheduling & Billing",
+    label: "Facility Scheduling & Billing",
     description:
       "Bookings, invoices and payments. Financial floor: 7 years — the window can be raised, never shortened. Customers, rate cards and facility setup are configuration and are never purged by age.",
     minDays: 2555,
