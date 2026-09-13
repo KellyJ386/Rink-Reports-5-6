@@ -43,6 +43,18 @@ const TRAINING_DOC_FILES = [
 ]
 
 const nextConfig: NextConfig = {
+  // Keep the retired public-signup URL working for home-screen shortcuts
+  // installed while that URL was open. Authenticated requests continue from
+  // /login to /dashboard via the existing Supabase-aware proxy.
+  async redirects() {
+    return [
+      {
+        source: "/signup",
+        destination: "/login",
+        permanent: false,
+      },
+    ]
+  },
   // Next.js <Image> optimization output. Default omits AVIF; explicitly
   // listing it first lets supporting browsers pull the lighter format.
   images: {
