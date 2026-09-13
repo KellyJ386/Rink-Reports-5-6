@@ -93,9 +93,9 @@ const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
 // silently change the order of the visible or hidden tile lists.
 const DASHBOARD_MODULE_ORDER: readonly ModuleKey[] = [
   "ice_operations",
-  "daily_reports",
-  "rink_scheduling",
   "communications",
+  "rink_scheduling",
+  "daily_reports",
   "ice_depth",
   "refrigeration",
   "air_quality",
@@ -146,7 +146,7 @@ function ModuleTile({
         className="group block rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/55"
       >
         <div
-          className="relative flex h-full min-h-[175px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5 min-[480px]:min-h-[160px] md:min-h-[150px] min-[900px]:min-h-[145px] min-[1200px]:min-h-[175px] xl:min-h-[180px]"
+          className="relative flex h-full min-h-[175px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5 md:min-h-[150px] lg:min-h-[155px] xl:min-h-[180px]"
           style={{
             background:
               "linear-gradient(160deg, color-mix(in oklab, var(--module-accent) 100%, white 10%) 0%, var(--module-accent) 55%, color-mix(in oklab, var(--module-accent) 85%, black 15%) 100%)",
