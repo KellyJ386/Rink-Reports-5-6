@@ -7119,6 +7119,65 @@ export type Database = {
             columns: ["booking_id", "facility_id"]
             isOneToOne: true
             referencedRelation: "rink_bookings"
+          assignment_route: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          change_origin: string
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          locker_room_id: string
+          scheduled_for: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_employee_id?: string | null
+          assignment_route?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          change_origin?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          locker_room_id: string
+          scheduled_for: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_employee_id?: string | null
+          assignment_route?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          change_origin?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          locker_room_id?: string
+          scheduled_for?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_assignee_fk"
+            columns: ["assigned_employee_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_completed_by_fk"
+            columns: ["completed_by", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
             referencedColumns: ["id", "facility_id"]
           },
           {
@@ -7127,6 +7186,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "facilities"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_room_fk"
+            columns: ["locker_room_id", "facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_locker_rooms"
+            referencedColumns: ["id", "facility_id"]
           },
         ]
       }

@@ -19,6 +19,7 @@ import { createClient } from "@/lib/supabase/server"
 import { hideDashboardModule, showDashboardModule } from "./actions"
 import { IceScheduleWidget } from "./_components/ice-schedule-widget"
 import { MyAreasWidget } from "./_components/my-areas-widget"
+import { MyTasksWidget } from "./_components/my-tasks-widget"
 import { getDashboardModuleStatus, type ModuleStatus } from "./_lib/status"
 
 export const dynamic = "force-dynamic"
@@ -88,6 +89,24 @@ const KNOWN_MODULES: Record<ModuleKey, { title: string; href: string }> = {
   rink_scheduling:  { title: "Rink Schedule",    href: "/reports/rink-scheduling" },
 }
 
+// Keep the dashboard focused on the tasks staff reach for most often. This is
+// intentionally separate from KNOWN_MODULES so registry maintenance cannot
+// silently change the order of the visible or hidden tile lists.
+const DASHBOARD_MODULE_ORDER: readonly ModuleKey[] = [
+  "ice_operations",
+  "communications",
+  "rink_scheduling",
+  "daily_reports",
+  "ice_depth",
+  "refrigeration",
+  "air_quality",
+  "scheduling",
+  "facility_paperwork",
+  "dasher_boards",
+  "accident_reports",
+  "incident_reports",
+]
+
 function isKnownModuleKey(key: string): key is ModuleKey {
   return Object.prototype.hasOwnProperty.call(KNOWN_MODULES, key)
 }
@@ -128,7 +147,7 @@ function ModuleTile({
         className="group block rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-brand)]/55"
       >
         <div
-          className="relative flex h-full min-h-[200px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5"
+          className="relative flex h-full min-h-[175px] flex-col overflow-hidden rounded-2xl p-5 shadow-[var(--shadow-elev-1)] transition-all duration-200 group-hover:-translate-y-0.5 md:min-h-[150px] lg:min-h-[155px] xl:min-h-[180px]"
           style={{
             background:
               "linear-gradient(160deg, color-mix(in oklab, var(--module-accent) 100%, white 10%) 0%, var(--module-accent) 55%, color-mix(in oklab, var(--module-accent) 85%, black 15%) 100%)",
@@ -297,9 +316,7 @@ export default async function DashboardPage() {
   const isFacilityEnabled = (k: ModuleKey) =>
     enabledModules == null || enabledModules.includes(k)
 
-  const allKeys = (Object.keys(KNOWN_MODULES) as ModuleKey[]).filter(
-    isFacilityEnabled,
-  )
+  const allKeys = DASHBOARD_MODULE_ORDER.filter(isFacilityEnabled)
   const hiddenSet = new Set(
     (employeeRow.hidden_modules ?? []).filter(isKnownModuleKey),
   )
@@ -344,6 +361,10 @@ export default async function DashboardPage() {
           <MyAreasWidget />
         ) : null}
 
+        {/* Direct employee work is intentionally outside module navigation:
+            its recipient-scoped RLS does not require Scheduling access. */}
+        {!preview.active ? <MyTasksWidget /> : null}
+
         {isFacilityEnabled("rink_scheduling") ? <IceScheduleWidget /> : null}
 
         {visibleModules.length === 0 ? (
@@ -352,7 +373,7 @@ export default async function DashboardPage() {
             description="You've hidden every module tile. Restore one below to get back to work."
           />
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 min-[900px]:grid-cols-3 xl:grid-cols-4">
             {visibleModules.map((key) => (
               <ModuleTile
                 key={key}

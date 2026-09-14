@@ -11481,6 +11481,194 @@ select pg_temp.expect_count(
   0, 'DGG277f: no SECURITY DEFINER function in public is executable by anon or PUBLIC');
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- LRCT280: locker-room cleaning tasks use the standard row-change audit.
+-- Exercise creation, scheduling/location, routing/assignee, automatic
+-- reconciliation, employee completion, and cancellation.  Fixed entity IDs
+-- make every assertion independent of audit rows produced elsewhere above.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+
+insert into public.facility_locker_rooms
+  (id, facility_id, name, slug, short_code, sort_order)
+values
+  ('a2800000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'A Audit Locker', 'a-audit-locker', 'AA', 98),
+  ('a2800000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111', 'A Audit Locker 2', 'a-audit-locker-2', 'AB', 99),
+  ('a2800000-0000-4000-8000-000000000003',
+   '11111111-1111-1111-1111-111111111111', 'A Audit Locker 3', 'a-audit-locker-3', 'AC', 100),
+  ('b2800000-0000-4000-8000-000000000001',
+   '22222222-2222-2222-2222-222222222222', 'B Audit Locker', 'b-audit-locker', 'BA', 99)
+on conflict (id) do nothing;
+
+insert into public.locker_room_cleaning_tasks
+  (id, facility_id, locker_room_id, scheduled_for, change_origin)
+values
+  ('a2800000-0000-4000-8000-000000000010',
+   '11111111-1111-1111-1111-111111111111',
+   'a2800000-0000-4000-8000-000000000001', '2026-10-01 20:00:00-04', 'trigger'),
+  ('b2800000-0000-4000-8000-000000000010',
+   '22222222-2222-2222-2222-222222222222',
+   'b2800000-0000-4000-8000-000000000001', '2026-10-01 20:00:00-04', 'trigger'),
+  ('a2800000-0000-4000-8000-000000000020',
+   '11111111-1111-1111-1111-111111111111',
+   'a2800000-0000-4000-8000-000000000001', '2026-10-01 21:00:00-04', 'trigger');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_type = 'locker_room_cleaning_tasks'
+       and entity_id = 'a2800000-0000-4000-8000-000000000010'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and action = 'create' and before is null
+       and after ->> 'locker_room_id' = 'a2800000-0000-4000-8000-000000000001'$$,
+  1, 'LRCT280a: task creation writes a facility-scoped audit row');
+
+update public.locker_room_cleaning_tasks
+   set scheduled_for = '2026-10-01 20:15:00-04',
+       locker_room_id = 'a2800000-0000-4000-8000-000000000002',
+       change_origin = 'manager'
+ where id = 'a2800000-0000-4000-8000-000000000010';
+
+update public.locker_room_cleaning_tasks
+   set assigned_employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       assignment_route = 'custodial-closing',
+       change_origin = 'system'
+ where id = 'a2800000-0000-4000-8000-000000000010';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_type = 'locker_room_cleaning_tasks'
+       and entity_id = 'a2800000-0000-4000-8000-000000000010'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and action = 'update'
+       and before ->> 'locker_room_id' = 'a2800000-0000-4000-8000-000000000001'
+       and after ->> 'locker_room_id' = 'a2800000-0000-4000-8000-000000000002'
+       and before ->> 'scheduled_for' <> after ->> 'scheduled_for'$$,
+  1, 'LRCT280b: scheduled-time and room changes retain before/after values');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_type = 'locker_room_cleaning_tasks'
+       and entity_id = 'a2800000-0000-4000-8000-000000000010'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and after ->> 'assigned_employee_id' = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and after ->> 'assignment_route' = 'custodial-closing'
+       and after ->> 'change_origin' = 'system'
+       and actor_user_id is null and actor_employee_id is null$$,
+  1, 'LRCT280c: automatic assignment reconciliation has explicit system origin and no forged actor');
+
+-- A JWT-authenticated completion records both actor identities.  Keep the
+-- postgres role for this focused trigger assertion so unrelated UI RLS/RBAC
+-- does not turn the audit identity test into an authorization-policy test.
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select set_config('request.jwt.claims',
+  '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}', true);
+update public.locker_room_cleaning_tasks
+   set status = 'completed', completed_at = '2026-10-01 20:17:00-04',
+       completed_by = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       change_origin = 'employee'
+ where id = 'a2800000-0000-4000-8000-000000000010';
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claims', '', true);
+
+update public.locker_room_cleaning_tasks
+   set status = 'cancelled', cancelled_at = '2026-10-01 20:30:00-04',
+       cancellation_reason = 'booking cancelled', change_origin = 'system'
+ where id = 'a2800000-0000-4000-8000-000000000020';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_type = 'locker_room_cleaning_tasks'
+       and entity_id = 'a2800000-0000-4000-8000-000000000010'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and after ->> 'status' = 'completed'
+       and after ->> 'change_origin' = 'employee'
+       and actor_user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+       and actor_employee_id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'$$,
+  1, 'LRCT280d: employee completion records the authenticated user and employee');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_type = 'locker_room_cleaning_tasks'
+       and entity_id = 'a2800000-0000-4000-8000-000000000020'
+       and facility_id = '11111111-1111-1111-1111-111111111111'
+       and after ->> 'status' = 'cancelled'
+       and after ->> 'cancellation_reason' = 'booking cancelled'
+       and after ->> 'change_origin' = 'system'$$,
+  1, 'LRCT280e: cancellation and automatic origin are audited');
+
+-- The audit row itself is tenant-scoped.  Alice has audit visibility by this
+-- point in the harness, but must not see the Facility-B task audit.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.audit_logs
+     where entity_type = 'locker_room_cleaning_tasks'
+       and entity_id = 'b2800000-0000-4000-8000-000000000010'$$,
+  0, 'LRCT280f: Facility A actor cannot read Facility B task audit rows');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- LRCT281: a custodial assignee without scheduling:view reaches the general
+-- employee task surface, but only for their own recipient-scoped work. This
+-- must not grant access to schedules or the rink-scheduling configuration.
+-- ---------------------------------------------------------------------------
+set local role postgres;
+insert into public.locker_room_cleaning_tasks
+  (id, facility_id, locker_room_id, scheduled_for, assigned_employee_id,
+   assignment_route, change_origin)
+values
+  ('a2810000-0000-4000-8000-000000000001',
+   '11111111-1111-1111-1111-111111111111',
+   'a2800000-0000-4000-8000-000000000001', '2026-10-02 20:00:00-04',
+   'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'custodial-closing', 'system'),
+  ('a2810000-0000-4000-8000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'a2800000-0000-4000-8000-000000000003', '2026-10-02 21:00:00-04',
+   'aaaa1111-ca01-aaaa-aaaa-aaaa11110099', 'custodial-closing', 'system')
+on conflict (id) do nothing;
+
+update public.user_permissions
+   set enabled = false
+ where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+   and facility_id = '11111111-1111-1111-1111-111111111111'
+   and module_name = 'scheduling';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true);
+select pg_temp.expect_count(
+  $$select case when public.current_user_has_permission('scheduling', 'view')
+      then 1 else 0 end$$,
+  0, 'LRCT281a: assigned custodial employee does not have scheduling:view');
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where id = 'a2810000-0000-4000-8000-000000000001'$$,
+  1, 'LRCT281b: custodial employee can reach their own cleaning task');
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where id in ('a2810000-0000-4000-8000-000000000002',
+                  'b2800000-0000-4000-8000-000000000010')$$,
+  0, 'LRCT281c: custodial employee cannot read another recipient or facility task');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_locker_rooms
+     where id = 'a2800000-0000-4000-8000-000000000001'$$,
+  1, 'LRCT281d: custodial employee can resolve the room for their task');
+select pg_temp.expect_count(
+  $$select count(*) from public.facility_locker_rooms
+     where id in ('a2800000-0000-4000-8000-000000000003',
+                  'b2800000-0000-4000-8000-000000000001')$$,
+  0, 'LRCT281e: task access exposes no unrelated or cross-facility rooms');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_shifts$$,
+  0, 'LRCT281f: task access does not expose scheduling shift data');
+select pg_temp.expect_count(
+  $$select count(*) from public.schedule_open_shifts$$,
+  0, 'LRCT281g: task access does not expose scheduling open-shift data');
+reset role;
+
 do $$
 declare
   v_failed int;

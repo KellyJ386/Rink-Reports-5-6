@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   description:
     "The operations platform built for ice rinks. Daily reports, refrigeration logs, ice depth, air quality, and scheduling — offline-first, on any device.",
   manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/app-icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/app-icon/180", sizes: "180x180", type: "image/png" }],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

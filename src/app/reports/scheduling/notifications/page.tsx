@@ -200,6 +200,7 @@ export default async function NotificationsPage() {
           />
         }
         title="Notifications"
+        description="Schedule alerts and requests. Direct operational work appears under My tasks on your dashboard."
         actions={<MarkAllReadButton disabled={unread.length === 0} />}
       />
 

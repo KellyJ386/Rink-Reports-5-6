@@ -118,6 +118,18 @@ const MODULES = [
     ],
   },
   {
+    key: "rink-scheduling",
+    title: "Facility Schedule",
+    desc: "Schedule ice, manage rental customers, and track revenue across every surface.",
+    icon: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/>',
+    bullets: [
+      "Book, move, and cancel ice on a shared multi-surface calendar",
+      "Manage recurring rentals, contracts, booking requests, and waitlists",
+      "Generate invoices and track payments, receivables, and customer balances",
+      "Monitor ice utilization and revenue with built-in scheduling insights",
+    ],
+  },
+  {
     key: "accidents",
     title: "Accident Reports",
     desc: "Log staff and patron injuries with workers' comp documentation.",

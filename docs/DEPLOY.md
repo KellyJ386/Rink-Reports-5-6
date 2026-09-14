@@ -154,7 +154,7 @@ In order. Stop at the first failure.
 
 - **No client-side caching of authenticated HTML.** The service worker caches static `_next/static/*` only; navigation requests are network-only with a synthetic offline page on failure. This is intentional — shared rink-office kiosks must not serve user A's rendered admin pages to user B.
 - **No SW auto-update mid-session.** A new service worker stays in `waiting` until the user clicks "Reload" on the in-app update toast, so a deploy can't swap the IndexedDB submission queue under a staff member filling out a report.
-- **No public signup path.** New employees are invited via the admin Employees flow; the invite email lands them at `/update-password`. Self-serve `/signup` exists for super-admin bootstrap only.
+- **No public signup path.** New employees are invited via the admin Employees flow; the invite email lands them at `/update-password`. The retired `/signup` URL redirects to `/login`; bootstrap the first super-admin with the documented administrative process above.
 
 ## 8. Migration delivery (`deploy-migrations.yml`) — one-time reconciliation before enabling
 
@@ -335,4 +335,3 @@ daily logical backup is available and the recovery window is far coarser.
 
 **Communications:** for any restore that loses data, notify affected facility
 admins with the recovery window (what timeframe of submissions to re-enter).
-
