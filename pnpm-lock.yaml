@@ -672,45 +672,60 @@ packages:
   '@next/eslint-plugin-next@16.3.3': {}
 
   '@next/swc-darwin-arm64@16.3.3':
+  '@next/env@16.3.3':
+    resolution: {}
+
+  '@next/eslint-plugin-next@16.3.3':
+    resolution: {}
+
+  '@next/swc-darwin-arm64@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [darwin]
 
   '@next/swc-darwin-x64@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [darwin]
 
   '@next/swc-linux-arm64-gnu@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
   '@next/swc-linux-arm64-musl@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
   '@next/swc-linux-x64-gnu@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
   '@next/swc-linux-x64-musl@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
   '@next/swc-win32-arm64-msvc@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [win32]
 
   '@next/swc-win32-x64-msvc@16.3.3':
+    resolution: {}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
@@ -2658,6 +2673,7 @@ packages:
     engines: {node: '>=12'}
 
   eslint-config-next@16.3.3:
+    resolution: {}
     peerDependencies:
       eslint: '>=9.0.0'
       typescript: '>=3.3.1'
@@ -3681,6 +3697,7 @@ packages:
     hasBin: true
 
   next@16.3.3:
+    resolution: {}
     engines: {node: '>=20.9.0'}
     hasBin: true
     peerDependencies:

@@ -18,6 +18,10 @@ import {
  * Schedule (src/app/reports/scheduling/_lib/open-shifts.ts), so the number on
  * the tile always matches what you find when you tap it.
  *
+ * Locker-room cleaning assignments intentionally are not counted here: they
+ * live on the general My Tasks surface, whose recipient-scoped RLS does not
+ * require an unrelated Scheduling permission.
+ *
  * `facilityId` must be server-resolved. Fails to 0 — a badge is decoration,
  * never worth an error page. No explicit permission check is needed: both
  * reads are RLS-scoped and schedule_open_shifts_select already requires
