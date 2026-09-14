@@ -19,11 +19,24 @@ selection, the offline/PWA queue, and the report-form pattern).
 
 ## Getting Started
 
+Install Node.js 24 LTS. Enable Corepack so it installs the exact pnpm release
+declared by `package.json` (`pnpm@10.28.1`):
+
+```bash
+corepack enable
+corepack install
+node --version # v24.x
+pnpm --version # 10.28.1
+```
+
 ```bash
 cp .env.example .env.local   # then fill in your Supabase credentials
 pnpm install
 pnpm dev
 ```
+
+Run `pnpm maintenance:check` for a non-destructive dependency inventory,
+production security audit, and local runtime-version check.
 
 ## Production deploy
 
