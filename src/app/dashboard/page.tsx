@@ -19,6 +19,7 @@ import { createClient } from "@/lib/supabase/server"
 import { hideDashboardModule, showDashboardModule } from "./actions"
 import { IceScheduleWidget } from "./_components/ice-schedule-widget"
 import { MyAreasWidget } from "./_components/my-areas-widget"
+import { MyTasksWidget } from "./_components/my-tasks-widget"
 import { getDashboardModuleStatus, type ModuleStatus } from "./_lib/status"
 
 export const dynamic = "force-dynamic"
@@ -359,6 +360,10 @@ export default async function DashboardPage() {
         {!preview.active && isFacilityEnabled("daily_reports") ? (
           <MyAreasWidget />
         ) : null}
+
+        {/* Direct employee work is intentionally outside module navigation:
+            its recipient-scoped RLS does not require Scheduling access. */}
+        {!preview.active ? <MyTasksWidget /> : null}
 
         {isFacilityEnabled("rink_scheduling") ? <IceScheduleWidget /> : null}
 
