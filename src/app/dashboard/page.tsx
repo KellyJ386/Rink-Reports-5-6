@@ -369,6 +369,7 @@ export default async function DashboardPage() {
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 min-[540px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 min-[900px]:grid-cols-3 xl:grid-cols-4">
             {visibleModules.map((key) => (
               <ModuleTile
                 key={key}
