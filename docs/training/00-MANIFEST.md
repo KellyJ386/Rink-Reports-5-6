@@ -89,7 +89,7 @@ The **Roles** screen (`/admin/roles`) exists and is reached from the People/Perm
 
 ## 2. Role Gating (summary)
 
-**The gate at the front door.** Any unauthenticated visit to `/admin`, `/reports`, `/dashboard`, or `/account` is bounced to login; once signed in, login/signup pages redirect to the dashboard.
+**The gate at the front door.** Any unauthenticated visit to `/admin`, `/reports`, `/dashboard`, or `/account` is bounced to login; once signed in, the login page redirects to the dashboard. The retired `/signup` URL redirects to login for old home-screen shortcuts.
 
 - **Staff pages (`/reports/*`, `/dashboard`, `/account`)** require an active, signed-in employee account assigned to a facility. A deactivated account is denied. *(staff and up)*
 - **Admin Center (`/admin/*`)** requires facility_manager-level access (the `admin` permission) or super_admin. Non-admins who try are shown a "Forbidden" message, not bounced to login. *(facility_manager and up)*
