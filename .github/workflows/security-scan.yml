@@ -4,15 +4,17 @@ name: Security scan
 #   1. pnpm audit — fails on high/critical advisories in production deps.
 #   2. gitleaks — scans the tree (and PR history) for committed secrets.
 #
-# Both are BLOCKING. A small set of high advisories with no current registry
-# fix (xlsx via the npm registry, dompurify via posthog-js) is explicitly
-# accepted in package.json -> pnpm.auditConfig.ignoreGhsas and documented in
+# Both are BLOCKING. The workflow also runs daily at 07:17 UTC. A small set of
+# high advisories with no compatible fix is explicitly accepted in package.json
+# -> pnpm.auditConfig.ignoreGhsas and documented in
 # docs/security-audit-exceptions.md, so the audit still fails on any NEW high.
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 7 * * *"
 
 concurrency:
   group: security-scan-${{ github.ref }}
@@ -28,11 +30,11 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 10
+          version: 10.28.1
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
