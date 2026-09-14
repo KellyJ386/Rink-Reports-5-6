@@ -33,6 +33,7 @@ const NOTIFICATION_TYPES = [
   "time_off_decided",
   "overtime_warning",
   "shift_reminder",
+  "locker_room_cleaning",
 ] as const
 
 type SearchParams = Promise<{
@@ -71,6 +72,7 @@ const TYPE_BADGE: Record<string, BadgeProps["variant"]> = {
   swap_denied: "error",
   time_off_decided: "special",
   overtime_warning: "warning",
+  locker_room_cleaning: "info",
 }
 
 const NATIVE_SELECT_CLASS =

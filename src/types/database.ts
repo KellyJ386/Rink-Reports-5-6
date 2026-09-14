@@ -7050,6 +7050,86 @@ export type Database = {
           },
         ]
       }
+      locker_room_cleaning_tasks: {
+        Row: {
+          assigned_employee_id: string | null
+          assigned_shift_id: string | null
+          assignment_route: string
+          booking_id: string
+          cancelled_at: string | null
+          completed_at: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          locker_room_ids: string[]
+          locker_room_names: string[]
+          scheduled_for: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_employee_id?: string | null
+          assigned_shift_id?: string | null
+          assignment_route: string
+          booking_id: string
+          cancelled_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          locker_room_ids: string[]
+          locker_room_names: string[]
+          scheduled_for: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_employee_id?: string | null
+          assigned_shift_id?: string | null
+          assignment_route?: string
+          booking_id?: string
+          cancelled_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          locker_room_ids?: string[]
+          locker_room_names?: string[]
+          scheduled_for?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_assigned_employee_id_fkey"
+            columns: ["assigned_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_assigned_shift_id_fkey"
+            columns: ["assigned_shift_id"]
+            isOneToOne: false
+            referencedRelation: "schedule_shifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_booking_fk"
+            columns: ["booking_id", "facility_id"]
+            isOneToOne: true
+            referencedRelation: "rink_bookings"
+            referencedColumns: ["id", "facility_id"]
+          },
+          {
+            foreignKeyName: "locker_room_cleaning_tasks_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       module_area_permissions: {
         Row: {
           area_id: string
@@ -9853,6 +9933,7 @@ export type Database = {
       schedule_notifications: {
         Row: {
           acknowledged_at: string | null
+          cleaning_task_id: string | null
           created_at: string
           drop_id: string | null
           employee_id: string
@@ -9869,6 +9950,7 @@ export type Database = {
         }
         Insert: {
           acknowledged_at?: string | null
+          cleaning_task_id?: string | null
           created_at?: string
           drop_id?: string | null
           employee_id: string
@@ -9885,6 +9967,7 @@ export type Database = {
         }
         Update: {
           acknowledged_at?: string | null
+          cleaning_task_id?: string | null
           created_at?: string
           drop_id?: string | null
           employee_id?: string
@@ -9900,6 +9983,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "schedule_notifications_cleaning_task_id_fkey"
+            columns: ["cleaning_task_id"]
+            isOneToOne: true
+            referencedRelation: "locker_room_cleaning_tasks"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "schedule_notifications_drop_id_fkey"
             columns: ["drop_id"]
@@ -11252,6 +11342,10 @@ export type Database = {
       purge_old_rink_scheduling_records: {
         Args: Record<PropertyKey, never>
         Returns: number
+      }
+      reconcile_locker_room_cleaning_task: {
+        Args: { p_booking_id: string }
+        Returns: undefined
       }
       reactivate_role: {
         Args: { p_role_id: string }

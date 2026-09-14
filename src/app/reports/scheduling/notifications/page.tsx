@@ -36,6 +36,7 @@ const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   time_off_decided: "Time off decided",
   overtime_warning: "Overtime warning",
   shift_reminder: "Shift reminder",
+  locker_room_cleaning: "Locker room cleaning",
 }
 
 function notificationTypeLabel(row: NotifRow): string {
