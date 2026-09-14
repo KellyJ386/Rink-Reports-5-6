@@ -11489,6 +11489,74 @@ reset role;
 -- ---------------------------------------------------------------------------
 set local role postgres;
 
+-- Tentative rentals are inactive sources for cleaning work.  Confirming the
+-- same booking activates the task; returning it to tentative cancels the task
+-- and any notification that has not yet been sent.
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id,
+   starts_at, ends_at, status)
+select 'a2800000-0000-4000-8000-000000000030',
+       '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001',
+       'a5000001-0000-4000-8000-0000000000c1', bt.id,
+       '2035-10-01 18:00:00-04', '2035-10-01 19:00:00-04', 'tentative'
+  from public.rink_booking_types bt
+ where bt.facility_id = '11111111-1111-1111-1111-111111111111'
+   and bt.slug = 'ice-rental';
+
+insert into public.rink_locker_room_assignments
+  (id, facility_id, booking_id, locker_room_id, occupies_from, occupies_until)
+values
+  ('a2800000-0000-4000-8000-000000000031',
+   '11111111-1111-1111-1111-111111111111',
+   'a2800000-0000-4000-8000-000000000030',
+   'a5000001-0000-4000-8000-000000001dd1',
+   '2035-10-01 17:30:00-04', '2035-10-01 19:30:00-04');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and status = 'scheduled'$$,
+  0, 'LRCT280g: assigning a locker room to a tentative booking creates no active task');
+
+update public.rink_bookings
+   set status = 'confirmed'
+ where id = 'a2800000-0000-4000-8000-000000000030';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and status = 'scheduled'$$,
+  1, 'LRCT280h: tentative-to-confirmed activates a cleaning task');
+
+insert into public.notification_outbox
+  (facility_id, source_module, source_record_id, recipient_employee_id,
+   subject, body, status)
+select facility_id, 'locker_room_cleaning_tasks', id,
+       'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       'Locker room cleaning', 'Clean assigned locker room', 'pending'
+  from public.locker_room_cleaning_tasks
+ where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+   and status = 'scheduled';
+
+update public.rink_bookings
+   set status = 'tentative'
+ where id = 'a2800000-0000-4000-8000-000000000030';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and status = 'scheduled'$$,
+  0, 'LRCT280i: confirmed-to-tentative removes the active cleaning task');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox o
+      join public.locker_room_cleaning_tasks t on t.id = o.source_record_id
+     where t.locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and o.source_module = 'locker_room_cleaning_tasks'
+       and o.status = 'cancelled'$$,
+  1, 'LRCT280j: confirmed-to-tentative cancels the pending task notification');
+
 insert into public.facility_locker_rooms
   (id, facility_id, name, slug, short_code, sort_order)
 values
@@ -11667,6 +11735,56 @@ select pg_temp.expect_count(
 select pg_temp.expect_count(
   $$select count(*) from public.schedule_open_shifts$$,
   0, 'LRCT281g: task access does not expose scheduling open-shift data');
+
+-- The assignee can perform exactly the completion transition. RLS plus the
+-- guard trigger must reject ownership, facility, room and scheduling changes.
+select pg_temp.expect_error(
+  $$update public.locker_room_cleaning_tasks
+       set assigned_employee_id = 'aaaa1111-ca01-aaaa-aaaa-aaaa11110099'
+     where id = 'a2810000-0000-4000-8000-000000000001'$$,
+  'LRCT282a: employee cannot reassign a cleaning task');
+select pg_temp.expect_error(
+  $$update public.locker_room_cleaning_tasks
+       set facility_id = '22222222-2222-2222-2222-222222222222'
+     where id = 'a2810000-0000-4000-8000-000000000001'$$,
+  'LRCT282b: employee cannot move a cleaning task across facilities');
+select pg_temp.expect_ok(
+  $$update public.locker_room_cleaning_tasks
+       set status = 'completed', completed_at = now(),
+           completed_by = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+           change_origin = 'employee'
+     where id = 'a2810000-0000-4000-8000-000000000001'$$,
+  'LRCT282c: assigned employee can complete their own cleaning task');
+
+-- Removing active membership immediately makes current_employee_id() null;
+-- a task assignment never outlives the employee's current access.
+reset role;
+update public.employees
+   set is_active = false
+ where id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+set local role authenticated;
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where id = 'a2810000-0000-4000-8000-000000000001'$$,
+  0, 'LRCT282d: inactive employee loses assigned-task access immediately');
+reset role;
+update public.employees
+   set is_active = true
+ where id = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+-- Anon and an authenticated role without a live user claim have no task or
+-- room access (covers direct PostgREST-equivalent role/JWT evaluation).
+set local role anon;
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks$$,
+  0, 'LRCT282e: anon cannot read cleaning tasks');
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{}';
+select set_config('request.jwt.claim.sub', '', true);
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks$$,
+  0, 'LRCT282f: expired or absent authenticated identity cannot read tasks');
 reset role;
 
 do $$
