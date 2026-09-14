@@ -11489,6 +11489,74 @@ reset role;
 -- ---------------------------------------------------------------------------
 set local role postgres;
 
+-- Tentative rentals are inactive sources for cleaning work.  Confirming the
+-- same booking activates the task; returning it to tentative cancels the task
+-- and any notification that has not yet been sent.
+insert into public.rink_bookings
+  (id, facility_id, rink_id, customer_id, booking_type_id,
+   starts_at, ends_at, status)
+select 'a2800000-0000-4000-8000-000000000030',
+       '11111111-1111-1111-1111-111111111111',
+       'a5000001-0000-4000-8000-000000000001',
+       'a5000001-0000-4000-8000-0000000000c1', bt.id,
+       '2035-10-01 18:00:00-04', '2035-10-01 19:00:00-04', 'tentative'
+  from public.rink_booking_types bt
+ where bt.facility_id = '11111111-1111-1111-1111-111111111111'
+   and bt.slug = 'ice-rental';
+
+insert into public.rink_locker_room_assignments
+  (id, facility_id, booking_id, locker_room_id, occupies_from, occupies_until)
+values
+  ('a2800000-0000-4000-8000-000000000031',
+   '11111111-1111-1111-1111-111111111111',
+   'a2800000-0000-4000-8000-000000000030',
+   'a5000001-0000-4000-8000-000000001dd1',
+   '2035-10-01 17:30:00-04', '2035-10-01 19:30:00-04');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and status = 'scheduled'$$,
+  0, 'LRCT280g: assigning a locker room to a tentative booking creates no active task');
+
+update public.rink_bookings
+   set status = 'confirmed'
+ where id = 'a2800000-0000-4000-8000-000000000030';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and status = 'scheduled'$$,
+  1, 'LRCT280h: tentative-to-confirmed activates a cleaning task');
+
+insert into public.notification_outbox
+  (facility_id, source_module, source_record_id, recipient_employee_id,
+   subject, body, status)
+select facility_id, 'locker_room_cleaning_tasks', id,
+       'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       'Locker room cleaning', 'Clean assigned locker room', 'pending'
+  from public.locker_room_cleaning_tasks
+ where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+   and status = 'scheduled';
+
+update public.rink_bookings
+   set status = 'tentative'
+ where id = 'a2800000-0000-4000-8000-000000000030';
+
+select pg_temp.expect_count(
+  $$select count(*) from public.locker_room_cleaning_tasks
+     where locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and status = 'scheduled'$$,
+  0, 'LRCT280i: confirmed-to-tentative removes the active cleaning task');
+
+select pg_temp.expect_count(
+  $$select count(*) from public.notification_outbox o
+      join public.locker_room_cleaning_tasks t on t.id = o.source_record_id
+     where t.locker_room_assignment_id = 'a2800000-0000-4000-8000-000000000031'
+       and o.source_module = 'locker_room_cleaning_tasks'
+       and o.status = 'cancelled'$$,
+  1, 'LRCT280j: confirmed-to-tentative cancels the pending task notification');
+
 insert into public.facility_locker_rooms
   (id, facility_id, name, slug, short_code, sort_order)
 values
