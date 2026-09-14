@@ -12,7 +12,7 @@ export default function DashboardLoading() {
         <AdminCardsSkeleton
           count={8}
           cardClassName="h-[175px] md:h-[150px] lg:h-[155px] xl:h-[180px]"
-          gridClassName="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          gridClassName="grid grid-cols-1 gap-4 min-[540px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         />
       </div>
     </div>
