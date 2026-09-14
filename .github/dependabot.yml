@@ -1,0 +1,53 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    versioning-strategy: increase-if-necessary
+    groups:
+      routine-production-maintenance:
+        dependency-type: production
+        update-types: [patch, minor]
+        exclude-patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+          - "@supabase/*"
+      routine-development-maintenance:
+        dependency-type: development
+        update-types: [patch, minor]
+        exclude-patterns:
+          - "eslint-config-next"
+          - "typescript"
+          - "@playwright/test"
+      nextjs:
+        patterns: ["next", "eslint-config-next"]
+        update-types: [patch, minor]
+      react:
+        patterns: ["react", "react-dom"]
+        update-types: [patch, minor]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: [dependencies]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: America/New_York
+    groups:
+      github-actions-maintenance:
+        patterns: ["*"]
+        update-types: [patch, minor]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: [dependencies, github-actions]

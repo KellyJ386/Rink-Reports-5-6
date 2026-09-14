@@ -95,21 +95,34 @@ jobs:
         env:
           IS_CANONICAL: ${{ github.repository == 'KellyJ386/Rink-Reports-5-6' }}
         run: |
+          missing=()
+          for name in \
+            E2E_ADMIN_PASSWORD E2E_MANAGER_PASSWORD E2E_SUPERVISOR_PASSWORD \
+            E2E_ICETECH_PASSWORD E2E_FRONTDESK_PASSWORD \
+            E2E_CONCESSIONS_PASSWORD E2E_JANITORIAL_PASSWORD \
+            E2E_INACTIVE_PASSWORD E2E_FACILITY_B_PASSWORD; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
           fail_or_skip() {
             if [ "$IS_CANONICAL" = "true" ]; then
-              echo "::error::E2E suite cannot run — $1 This is the canonical repo, so failing instead of exiting green."
+              echo "::error::E2E tests were not executed because required test configuration is missing."
+              printf '::error::Missing: %s\n' "${missing[@]}"
+              echo "::error::$1 This is the canonical repo, so failing instead of exiting green."
               exit 1
             fi
-            echo "::notice::E2E suite skipped — $1"
+            echo "::notice::E2E tests were not executed because required test configuration is missing."
+            printf '::notice::Missing: %s\n' "${missing[@]}"
+            echo "::notice::$1"
             echo "configured=false" >> "$GITHUB_OUTPUT"
           }
           if [ -z "$E2E_BASE_URL" ]; then
+            missing+=("E2E_BASE_URL")
             fail_or_skip "no target URL resolved."
-          elif [ -n "$E2E_ADMIN_PASSWORD" ]; then
+          elif [ "${#missing[@]}" -eq 0 ]; then
             echo "Targeting $E2E_BASE_URL with E2E_* secrets"
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            fail_or_skip "E2E_ADMIN_PASSWORD is not configured. Add the E2E_<ROLE>_PASSWORD repo secrets (Settings > Secrets and variables > Actions). See e2e/README.md (CI section)."
+            fail_or_skip "Add the listed E2E_<ROLE>_PASSWORD repo secrets (Settings > Secrets and variables > Actions). See e2e/README.md (CI section)."
           fi
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -120,11 +133,15 @@ jobs:
       - name: Install pnpm
         if: steps.gate.outputs.configured == 'true'
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 10.28.1
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.gate.outputs.configured == 'true'
         with:
-          node-version: 20
+          node-version: 24
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
