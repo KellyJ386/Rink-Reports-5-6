@@ -14639,6 +14639,45 @@ COMMENT ON COLUMN public.job_area_certification_requirements.certification_type_
 
 
 --
+-- Name: locker_room_cleaning_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.locker_room_cleaning_tasks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    facility_id uuid NOT NULL,
+    locker_room_id uuid NOT NULL,
+    scheduled_for timestamp with time zone NOT NULL,
+    assigned_employee_id uuid,
+    assignment_route text,
+    status text DEFAULT 'scheduled'::text NOT NULL,
+    completed_at timestamp with time zone,
+    completed_by uuid,
+    cancelled_at timestamp with time zone,
+    cancellation_reason text,
+    change_origin text DEFAULT 'trigger'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT locker_room_cleaning_tasks_change_origin_check CHECK ((change_origin = ANY (ARRAY['employee'::text, 'manager'::text, 'system'::text, 'trigger'::text]))),
+    CONSTRAINT locker_room_cleaning_tasks_lifecycle_chk CHECK ((((status = 'completed'::text) AND (completed_at IS NOT NULL) AND (completed_by IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'cancelled'::text) AND (cancelled_at IS NOT NULL) AND (completed_at IS NULL) AND (completed_by IS NULL)) OR ((status = 'scheduled'::text) AND (completed_at IS NULL) AND (completed_by IS NULL) AND (cancelled_at IS NULL)))),
+    CONSTRAINT locker_room_cleaning_tasks_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'completed'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: TABLE locker_room_cleaning_tasks; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.locker_room_cleaning_tasks IS 'Facility-scoped locker-room cleaning work. Every lifecycle mutation is copied to audit_logs by trg_audit_locker_room_cleaning_tasks.';
+
+
+--
+-- Name: COLUMN locker_room_cleaning_tasks.change_origin; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.locker_room_cleaning_tasks.change_origin IS 'Origin copied into the audit before/after image: employee, manager, system, or trigger. Automated reconciliation must set system or trigger.';
+
+
+--
 -- Name: module_area_permissions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -18510,6 +18549,22 @@ ALTER TABLE ONLY public.job_area_certification_requirements
 
 
 --
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_id_facility_uniq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_id_facility_uniq UNIQUE (id, facility_id);
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: module_area_permissions module_area_permissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -21511,6 +21566,13 @@ CREATE INDEX idx_job_area_cert_requirements_type ON public.job_area_certificatio
 
 
 --
+-- Name: idx_locker_room_cleaning_tasks_facility_schedule; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_locker_room_cleaning_tasks_facility_schedule ON public.locker_room_cleaning_tasks USING btree (facility_id, scheduled_for);
+
+
+--
 -- Name: idx_module_area_permissions_area_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -23338,6 +23400,13 @@ CREATE TRIGGER trg_audit_incident_reports AFTER INSERT OR DELETE OR UPDATE ON pu
 
 
 --
+-- Name: locker_room_cleaning_tasks trg_audit_locker_room_cleaning_tasks; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_locker_room_cleaning_tasks AFTER INSERT OR DELETE OR UPDATE ON public.locker_room_cleaning_tasks FOR EACH ROW EXECUTE FUNCTION public.audit_row_change();
+
+
+--
 -- Name: audit_logs trg_audit_logs_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -24077,6 +24146,13 @@ CREATE TRIGGER trg_incident_witnesses_updated_at BEFORE UPDATE ON public.inciden
 --
 
 CREATE TRIGGER trg_job_area_cert_requirements_updated_at BEFORE UPDATE ON public.job_area_certification_requirements FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: locker_room_cleaning_tasks trg_locker_room_cleaning_tasks_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_locker_room_cleaning_tasks_updated_at BEFORE UPDATE ON public.locker_room_cleaning_tasks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -26620,6 +26696,38 @@ ALTER TABLE ONLY public.job_area_certification_requirements
 
 ALTER TABLE ONLY public.job_area_certification_requirements
     ADD CONSTRAINT job_area_certification_requirements_job_area_id_fkey FOREIGN KEY (job_area_id) REFERENCES public.employee_job_areas(id) ON DELETE CASCADE;
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_assignee_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_assignee_fk FOREIGN KEY (assigned_employee_id, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (assigned_employee_id);
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_completed_by_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_completed_by_fk FOREIGN KEY (completed_by, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (completed_by);
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_facility_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_room_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_room_fk FOREIGN KEY (locker_room_id, facility_id) REFERENCES public.facility_locker_rooms(id, facility_id) ON DELETE RESTRICT;
 
 
 --
@@ -30365,7 +30473,9 @@ CREATE POLICY facility_locker_rooms_insert ON public.facility_locker_rooms FOR I
 -- Name: facility_locker_rooms facility_locker_rooms_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY facility_locker_rooms_select ON public.facility_locker_rooms FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
+CREATE POLICY facility_locker_rooms_select ON public.facility_locker_rooms FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text)) OR ((facility_id = public.current_facility_id()) AND (EXISTS ( SELECT 1
+   FROM public.locker_room_cleaning_tasks task
+  WHERE ((task.facility_id = facility_locker_rooms.facility_id) AND (task.locker_room_id = facility_locker_rooms.id) AND (task.assigned_employee_id = public.current_employee_id())))))));
 
 
 --
@@ -31454,6 +31564,26 @@ CREATE POLICY job_area_cert_requirements_update ON public.job_area_certification
 --
 
 ALTER TABLE public.job_area_certification_requirements ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: locker_room_cleaning_tasks; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.locker_room_cleaning_tasks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY locker_room_cleaning_tasks_select ON public.locker_room_cleaning_tasks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text)) OR ((facility_id = public.current_facility_id()) AND (assigned_employee_id = public.current_employee_id()))));
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_write; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY locker_room_cleaning_tasks_write ON public.locker_room_cleaning_tasks TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text)))) WITH CHECK ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_edit_access('rink_scheduling'::text))));
+
 
 --
 -- Name: module_area_permissions; Type: ROW SECURITY; Schema: public; Owner: -
