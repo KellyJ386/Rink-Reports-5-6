@@ -179,10 +179,9 @@ alter table public.schedule_notifications
   ));
 
 -- Pick a published shift which covers the cleaning task's scheduled instant.
--- Custodial qualification comes from the existing active job-area catalog,
--- and the employee must also belong to the shift's department (not merely
--- share a facility). A primary Custodial assignment wins, then the result is
--- stable.
+-- Custodial qualification comes from the existing active job-area catalog.
+-- A qualifying employee must be rostered on the covering shift; a primary
+-- Custodial assignment wins, then the result is stable.
 create or replace function public.reconcile_locker_room_cleaning_task(p_booking_id uuid)
 returns void
 language plpgsql
@@ -256,9 +255,6 @@ begin
   from public.schedule_shifts s
   join public.employees e
     on e.id = s.employee_id and e.facility_id = s.facility_id and e.is_active
-  join public.employee_departments ed
-    on ed.employee_id = e.id and ed.department_id = s.department_id
-       and ed.facility_id = s.facility_id
   join public.employee_job_area_assignments ejaa
     on ejaa.employee_id = e.id and ejaa.facility_id = s.facility_id
   join public.employee_job_areas ja
@@ -280,9 +276,6 @@ begin
       on e.id = s.employee_id and e.facility_id = s.facility_id and e.is_active
     join public.roles r
       on r.id = e.role_id and r.facility_id = e.facility_id and r.key = 'manager'
-    join public.employee_departments ed
-      on ed.employee_id = e.id and ed.department_id = s.department_id
-         and ed.facility_id = s.facility_id
     where s.facility_id = v_booking.facility_id
       and s.status = 'published'
       and s.starts_at <= v_due and s.ends_at > v_due
@@ -352,7 +345,7 @@ end;
 $$;
 
 comment on function public.reconcile_locker_room_cleaning_task(uuid) is
-  'Idempotently creates, reschedules, reroutes or cancels the single cleaning task for a booking. Uses published shifts, active Custodial job-area assignments, matching departments, and the manager role fallback.';
+  'Idempotently creates, reschedules, reroutes or cancels the single cleaning task for a booking. Uses published shifts, active Custodial job-area assignments, and the manager role fallback.';
 revoke execute on function public.reconcile_locker_room_cleaning_task(uuid)
   from public, anon, authenticated;
 
@@ -452,9 +445,6 @@ revoke execute on function public.sync_locker_room_cleaning_from_workforce()
 
 create trigger trg_employee_cleaning_sync
   after update of is_active, role_id on public.employees
-  for each row execute function public.sync_locker_room_cleaning_from_workforce();
-create trigger trg_employee_department_cleaning_sync
-  after insert or update or delete on public.employee_departments
   for each row execute function public.sync_locker_room_cleaning_from_workforce();
 create trigger trg_employee_job_area_assignment_cleaning_sync
   after insert or update or delete on public.employee_job_area_assignments
