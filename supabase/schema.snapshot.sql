@@ -5142,6 +5142,101 @@ COMMENT ON FUNCTION public.reapply_role_defaults_for_role(p_facility_id uuid, p_
 
 
 --
+-- Name: reconcile_locker_room_cleaning_task(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reconcile_locker_room_cleaning_task(p_assignment_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_assignment public.rink_locker_room_assignments%rowtype;
+  v_booking public.rink_bookings%rowtype;
+  v_task_id uuid;
+begin
+  select * into v_assignment
+    from public.rink_locker_room_assignments
+   where id = p_assignment_id;
+
+  if found then
+    select * into v_booking
+      from public.rink_bookings
+     where id = v_assignment.booking_id
+       and facility_id = v_assignment.facility_id;
+  end if;
+
+  if not found or v_booking.status <> 'confirmed' then
+    update public.locker_room_cleaning_tasks
+       set status = 'cancelled',
+           cancelled_at = now(),
+           cancellation_reason = 'source booking is not confirmed',
+           change_origin = 'trigger'
+     where locker_room_assignment_id = p_assignment_id
+       and status = 'scheduled'
+    returning id into v_task_id;
+
+    if v_task_id is not null then
+      update public.notification_outbox
+         set status = 'cancelled'
+       where source_module = 'locker_room_cleaning_tasks'
+         and source_record_id = v_task_id
+         and status = 'pending';
+    end if;
+    return;
+  end if;
+
+  select id into v_task_id
+    from public.locker_room_cleaning_tasks
+   where locker_room_assignment_id = p_assignment_id
+     and status = 'scheduled';
+
+  if v_task_id is null then
+    insert into public.locker_room_cleaning_tasks
+      (facility_id, locker_room_id, booking_id, locker_room_assignment_id,
+       scheduled_for, change_origin)
+    values
+      (v_assignment.facility_id, v_assignment.locker_room_id,
+       v_assignment.booking_id, v_assignment.id,
+       v_assignment.occupies_until, 'trigger');
+  else
+    update public.locker_room_cleaning_tasks
+       set locker_room_id = v_assignment.locker_room_id,
+           booking_id = v_assignment.booking_id,
+           scheduled_for = v_assignment.occupies_until,
+           change_origin = 'trigger'
+     where id = v_task_id;
+  end if;
+end;
+$$;
+
+
+--
+-- Name: reconcile_locker_room_cleaning_task_trigger(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reconcile_locker_room_cleaning_task_trigger() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  v_assignment record;
+begin
+  if tg_table_name = 'rink_locker_room_assignments' then
+    perform public.reconcile_locker_room_cleaning_task(coalesce(new.id, old.id));
+  else
+    for v_assignment in
+      select id from public.rink_locker_room_assignments
+       where booking_id = coalesce(new.id, old.id)
+    loop
+      perform public.reconcile_locker_room_cleaning_task(v_assignment.id);
+    end loop;
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+
+
+--
 -- Name: report_area_assignments_block_past(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -14646,6 +14741,8 @@ CREATE TABLE public.locker_room_cleaning_tasks (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     facility_id uuid NOT NULL,
     locker_room_id uuid NOT NULL,
+    booking_id uuid,
+    locker_room_assignment_id uuid,
     scheduled_for timestamp with time zone NOT NULL,
     assigned_employee_id uuid,
     assignment_route text,
@@ -21566,6 +21663,13 @@ CREATE INDEX idx_job_area_cert_requirements_type ON public.job_area_certificatio
 
 
 --
+-- Name: idx_locker_room_cleaning_tasks_active_assignment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_locker_room_cleaning_tasks_active_assignment ON public.locker_room_cleaning_tasks USING btree (locker_room_assignment_id) WHERE ((locker_room_assignment_id IS NOT NULL) AND (status = 'scheduled'::text));
+
+
+--
 -- Name: idx_locker_room_cleaning_tasks_facility_schedule; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -24177,6 +24281,20 @@ CREATE TRIGGER trg_recipient_delivery_column_guard BEFORE UPDATE ON public.commu
 
 
 --
+-- Name: rink_locker_room_assignments trg_reconcile_locker_room_cleaning_assignment; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_reconcile_locker_room_cleaning_assignment AFTER INSERT OR UPDATE ON public.rink_locker_room_assignments FOR EACH ROW EXECUTE FUNCTION public.reconcile_locker_room_cleaning_task_trigger();
+
+
+--
+-- Name: rink_bookings trg_reconcile_locker_room_cleaning_booking; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_reconcile_locker_room_cleaning_booking AFTER UPDATE OF status ON public.rink_bookings FOR EACH ROW EXECUTE FUNCTION public.reconcile_locker_room_cleaning_task_trigger();
+
+
+--
 -- Name: refrigeration_equipment trg_refrigeration_equipment_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -26704,6 +26822,22 @@ ALTER TABLE ONLY public.job_area_certification_requirements
 
 ALTER TABLE ONLY public.locker_room_cleaning_tasks
     ADD CONSTRAINT locker_room_cleaning_tasks_assignee_fk FOREIGN KEY (assigned_employee_id, facility_id) REFERENCES public.employees(id, facility_id) ON DELETE SET NULL (assigned_employee_id);
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_assignment_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_assignment_fk FOREIGN KEY (locker_room_assignment_id, facility_id) REFERENCES public.rink_locker_room_assignments(id, facility_id) ON DELETE CASCADE;
+
+
+--
+-- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_booking_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.locker_room_cleaning_tasks
+    ADD CONSTRAINT locker_room_cleaning_tasks_booking_fk FOREIGN KEY (booking_id, facility_id) REFERENCES public.rink_bookings(id, facility_id) ON DELETE CASCADE;
 
 
 --
@@ -31575,7 +31709,7 @@ ALTER TABLE public.locker_room_cleaning_tasks ENABLE ROW LEVEL SECURITY;
 -- Name: locker_room_cleaning_tasks locker_room_cleaning_tasks_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY locker_room_cleaning_tasks_select ON public.locker_room_cleaning_tasks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text)) OR ((facility_id = public.current_facility_id()) AND (assigned_employee_id = public.current_employee_id()))));
+CREATE POLICY locker_room_cleaning_tasks_select ON public.locker_room_cleaning_tasks FOR SELECT TO authenticated USING ((public.is_super_admin() OR ((facility_id = public.current_facility_id()) AND public.has_module_access('rink_scheduling'::text))));
 
 
 --
