@@ -9,6 +9,53 @@
 
 begin;
 
+-- Migration 00280 already introduced a per-locker-room version of this table.
+-- Preserve its history, remove its reconciliation hooks, and replace it with
+-- the booking-scoped model.  Editing 00280 would break clean replay and would
+-- not upgrade databases where that migration has already run.
+create temporary table locker_room_cleaning_tasks_upgrade_data
+on commit drop
+as
+select
+  (array_agg(t.id order by t.created_at, t.id))[1] as id,
+  t.facility_id,
+  t.booking_id,
+  (array_agg(t.assigned_employee_id order by t.created_at, t.id)
+    filter (where t.assigned_employee_id is not null))[1] as assigned_employee_id,
+  max(t.scheduled_for) as scheduled_for,
+  array_agg(t.locker_room_id order by lr.sort_order, lr.name, t.locker_room_id) as locker_room_ids,
+  array_agg(lr.name order by lr.sort_order, lr.name, t.locker_room_id) as locker_room_names,
+  coalesce(
+    (array_agg(t.assignment_route order by t.created_at, t.id)
+      filter (where t.assignment_route in ('custodial', 'manager')))[1],
+    'unassigned'
+  ) as assignment_route,
+  case
+    when bool_or(t.status = 'completed') then 'completed'
+    when bool_and(t.status = 'cancelled') then 'cancelled'
+    else 'pending'
+  end as status,
+  case when bool_or(t.status = 'completed') then max(t.completed_at) end as completed_at,
+  case when bool_and(t.status = 'cancelled')
+       then coalesce(max(t.cancelled_at), now()) end as cancelled_at,
+  min(t.created_at) as created_at,
+  max(t.updated_at) as updated_at
+from public.locker_room_cleaning_tasks t
+join public.rink_bookings b
+  on b.id = t.booking_id and b.facility_id = t.facility_id
+join public.facility_locker_rooms lr
+  on lr.id = t.locker_room_id and lr.facility_id = t.facility_id
+where t.booking_id is not null
+group by t.facility_id, t.booking_id;
+
+drop trigger if exists trg_reconcile_locker_room_cleaning_assignment
+  on public.rink_locker_room_assignments;
+drop trigger if exists trg_reconcile_locker_room_cleaning_booking
+  on public.rink_bookings;
+drop function if exists public.reconcile_locker_room_cleaning_task_trigger();
+drop function if exists public.reconcile_locker_room_cleaning_task(uuid);
+drop table public.locker_room_cleaning_tasks;
+
 create table public.locker_room_cleaning_tasks (
   id                    uuid primary key default gen_random_uuid(),
   facility_id           uuid not null references public.facilities(id) on delete restrict,
@@ -39,6 +86,17 @@ create table public.locker_room_cleaning_tasks (
   constraint locker_room_cleaning_tasks_complete_coherent
     check ((status = 'completed') = (completed_at is not null))
 );
+
+insert into public.locker_room_cleaning_tasks (
+  id, facility_id, booking_id, assigned_employee_id, assigned_shift_id,
+  scheduled_for, locker_room_ids, locker_room_names, assignment_route, status,
+  completed_at, cancelled_at, created_at, updated_at
+)
+select
+  id, facility_id, booking_id, assigned_employee_id, null,
+  scheduled_for, locker_room_ids, locker_room_names, assignment_route, status,
+  completed_at, cancelled_at, created_at, updated_at
+from locker_room_cleaning_tasks_upgrade_data;
 
 comment on table public.locker_room_cleaning_tasks is
   'Task-system work generated from a rink rental with locker rooms. Exactly one task per booking; scheduled 30 minutes after ice ends and kept in sync by triggers.';
@@ -442,5 +500,9 @@ create policy locker_room_cleaning_tasks_update on public.locker_room_cleaning_t
 
 -- Triggers own creation/cancellation; clients cannot forge or delete generated work.
 revoke insert, delete on public.locker_room_cleaning_tasks from anon, authenticated;
+
+create trigger trg_audit_locker_room_cleaning_tasks
+  after insert or update or delete on public.locker_room_cleaning_tasks
+  for each row execute function public.audit_row_change();
 
 commit;
