@@ -18,6 +18,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report e2e/report/html",
+    "bench": "vitest bench --run",
     "check:cron": "node scripts/check-cron-schedule.mjs",
     "docs:pdf": "python3 scripts/training-pdf/build.py",
     "docs:pdf:check": "python3 scripts/training-pdf/build.py --check",
