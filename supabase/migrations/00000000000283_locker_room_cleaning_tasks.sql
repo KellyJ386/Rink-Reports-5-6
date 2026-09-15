@@ -54,6 +54,8 @@ drop trigger if exists trg_reconcile_locker_room_cleaning_booking
   on public.rink_bookings;
 drop function if exists public.reconcile_locker_room_cleaning_task_trigger();
 drop function if exists public.reconcile_locker_room_cleaning_task(uuid);
+drop policy if exists facility_locker_rooms_select
+  on public.facility_locker_rooms;
 drop table public.locker_room_cleaning_tasks;
 
 create table public.locker_room_cleaning_tasks (
@@ -504,5 +506,22 @@ revoke insert, delete on public.locker_room_cleaning_tasks from anon, authentica
 create trigger trg_audit_locker_room_cleaning_tasks
   after insert or update or delete on public.locker_room_cleaning_tasks
   for each row execute function public.audit_row_change();
+
+-- Recreate the dependent room policy against the booking-scoped room array.
+create policy facility_locker_rooms_select on public.facility_locker_rooms
+  for select to authenticated
+  using (
+    public.is_super_admin()
+    or (facility_id = public.current_facility_id()
+        and public.has_module_access('rink_scheduling'))
+    or (facility_id = public.current_facility_id()
+        and exists (
+          select 1
+          from public.locker_room_cleaning_tasks task
+          where task.facility_id = facility_locker_rooms.facility_id
+            and facility_locker_rooms.id = any(task.locker_room_ids)
+            and task.assigned_employee_id = public.current_employee_id()
+        ))
+  );
 
 commit;
