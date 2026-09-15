@@ -327,6 +327,15 @@ export const TRAINING_DOCS: readonly TrainingDoc[] = [
     markdown: `${T}/DUPLICATE-SETUP.md`,
     pdf: `${T}/pdf/RinkReports-Duplicate-Setup.pdf`,
   },
+  {
+    slug: "360-assessment-2026-09-15",
+    title: "360° Application Assessment — September 2026",
+    description:
+      "A scored product and engineering review, including how Employee Scheduling and Rink Scheduling interact, prioritized recommendations, and operating questions.",
+    group: "setup",
+    audiences: ["admin", "super_admin"],
+    markdown: "docs/360-assessment-2026-09-15.md",
+  },
 
   // --- For documentation authors --------------------------------------------
   {
