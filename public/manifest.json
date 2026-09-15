@@ -1,6 +1,8 @@
 {
   "name": "Rink Reports",
   "short_name": "RinkReports",
+  "description": "Operations console for Max Facility ice rinks.",
+  "start_url": "/login",
   "description": "Ice rink operations, reporting, and scheduling on any device.",
   "start_url": "/dashboard",
   "display": "standalone",
