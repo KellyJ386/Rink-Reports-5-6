@@ -39,8 +39,8 @@ create table if not exists public.locker_room_cleaning_tasks (
     foreign key (booking_id, facility_id)
     references public.rink_bookings (id, facility_id) on delete cascade,
   constraint locker_room_cleaning_tasks_assignment_fk
-    foreign key (locker_room_assignment_id, facility_id)
-    references public.rink_locker_room_assignments (id, facility_id) on delete cascade,
+    foreign key (locker_room_assignment_id)
+    references public.rink_locker_room_assignments (id) on delete cascade,
   constraint locker_room_cleaning_tasks_assignee_fk
     foreign key (assigned_employee_id, facility_id)
     references public.employees (id, facility_id) on delete set null (assigned_employee_id),
